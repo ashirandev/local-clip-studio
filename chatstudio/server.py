@@ -1,14 +1,20 @@
 """The web server: the page, and the small JSON API the page talks to.
 
 Standard library only. It listens on 127.0.0.1, so the recordings it opens never leave this computer.
+- GET /api/health: the two minds and whether each can answer
+- GET /api/chat: the chat the page shows, and whether Muse is working on it
+- POST /api/say {chat, message, mind}: the person's message, which starts a job
+- GET /api/events?chat=<id>: every event of the chat from the start, then each new one as it happens
+  (Server-Sent Events, so a reload redraws the whole chat and a running job carries on)
 """
 import json
 import os
 import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qsl
 
-from . import __version__, mind
+from . import __version__, agent, mind
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
@@ -18,21 +24,23 @@ PORT = int(os.environ.get("LCS_PORT", "8899"))
 TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
          ".js": "text/javascript; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml",
          ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".mp4": "video/mp4"}
-SYSTEM = ("You are the editor in Local Chat Studio. People drop in long recordings (selling lives, game streams, "
-          "travel clips) and you turn them into short vertical clips ready to post. Answer in the language the person "
-          "writes in, briefly and in plain words.")
 MAX_BODY = 1_000_000
-HISTORY = 20
+KEEP_ALIVE = 15
 
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "local-chat-studio/" + __version__
 
     def do_GET(self):
-        path = self.path.split("?", 1)[0]
+        path, _, query = self.path.partition("?")
         if path == "/api/health":
             self.send_json({"ok": True, "version": __version__, "default": mind.DEFAULT,
                             "minds": [m.status() for m in mind.MINDS.values()]})
+        elif path == "/api/chat":
+            chat = agent.current()
+            self.send_json({"ok": True, "chat": chat.id, "busy": chat.busy()})
+        elif path == "/api/events":
+            self.send_events(dict(parse_qsl(query)))
         elif path.startswith("/api/"):
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
         else:
@@ -40,27 +48,51 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
-        if path != "/api/ask":
+        if path != "/api/say":
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
             return
         body = self.read_json()
         if body is None:
             return
-        talk = [m for m in body.get("history") or [] if isinstance(m, dict) and m.get("role") in ("user", "assistant")
-                and isinstance(m.get("content"), str)][-HISTORY:]
+        chat = agent.find(str(body.get("chat") or ""))
         words = str(body.get("message") or "").strip()
-        if not words:
+        if chat is None:
+            self.send_json({"ok": False, "error": "That chat is not open any more. Reload the page."},
+                           HTTPStatus.NOT_FOUND)
+        elif not words:
             self.send_json({"ok": False, "error": "Type a message first."}, HTTPStatus.BAD_REQUEST)
+        else:
+            try:
+                job = chat.say(words, body.get("mind"))
+            except agent.Busy as e:
+                self.send_json({"ok": False, "error": str(e)}, HTTPStatus.CONFLICT)
+                return
+            self.send_json({"ok": True, "chat": chat.id, "job": job.n})
+
+    def send_events(self, query):
+        chat = agent.find(query.get("chat", ""))
+        if chat is None:
+            self.send_json({"ok": False, "error": "That chat is not open any more. Reload the page."},
+                           HTTPStatus.NOT_FOUND)
             return
-        messages = [{"role": "system", "content": SYSTEM}] + talk + [{"role": "user", "content": words}]
-        brain = mind.get(body.get("mind"))
+        last = self.headers.get("Last-Event-ID")
+        n = int(last) + 1 if last and last.isdigit() else 0
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
         try:
-            got = brain.ask(messages)
-        except mind.MindError as e:
-            self.send_json({"ok": False, "error": str(e)}, HTTPStatus.BAD_GATEWAY)
+            while True:
+                batch = chat.since(n, KEEP_ALIVE)
+                for event in batch:
+                    line = "id: %d\ndata: %s\n\n" % (event["id"], json.dumps(event, ensure_ascii=False))
+                    self.wfile.write(line.encode("utf-8"))
+                n += len(batch)
+                if not batch:
+                    self.wfile.write(b": still here\n\n")
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             return
-        self.send_json({"ok": True, "mind": brain.label, "answer": got["text"], "thinking": got["thinking"],
-                        "engine": got["engine"]})
 
     def read_json(self):
         """The request body as a dict, or None after answering with a sentence."""

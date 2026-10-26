@@ -64,7 +64,12 @@ class Mind:
                 % (self.url, _reason(e)))
 
     def ask(self, messages, tools=None, temperature=CHAT_TEMPERATURE, max_tokens=None):
-        """Asks once. Returns {text, thinking, tool_calls, engine}; raises MindError with a sentence."""
+        """Asks once. Returns {text, thinking, tool_calls, message, engine}; raises MindError with a sentence.
+
+        message is the answer as it goes back into the conversation: the words and the tool calls, without the
+        thinking. llama-server reuses everything before it; from this message on it reads again (a few hundred
+        tokens), because the thinking it wrote is not sent back.
+        """
         if self.key_env and not self.secret():
             raise MindError("Set %s to your own Meta API key to use %s." % (self.key_env, self.label))
         msgs = list(messages)
@@ -93,10 +98,16 @@ class Mind:
         msg = choice.get("message") or {}
         text, calls = (msg.get("content") or "").strip(), msg.get("tool_calls") or []
         if not text and not calls:
+            if choice.get("finish_reason") == "length":
+                raise MindError("%s thought for %s tokens without reaching an answer, so the studio cut it off. "
+                                "Ask again, or say it more simply." % (self.label, max_tokens))
             raise MindError("%s gave an empty answer (it stopped because: %s)."
                             % (self.label, choice.get("finish_reason")))
+        back = {"role": "assistant", "content": msg.get("content") or ""}
+        if calls:
+            back["tool_calls"] = calls
         return {"text": text, "thinking": (msg.get("reasoning_content") or "").strip(), "tool_calls": calls,
-                "engine": engine(got, seconds)}
+                "message": back, "engine": engine(got, seconds)}
 
 
 def engine(got, seconds):

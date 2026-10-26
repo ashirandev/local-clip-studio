@@ -47,6 +47,27 @@ an eligible Muse model.
 starting the studio. `LCS_SPARK_MODEL` picks the model (default `muse-spark-1.3`). The key is read from the
 environment and is never written anywhere.
 
+## How the agent works
+
+Each message starts a job. Muse makes a plan, then calls one tool at a time, and the page shows every step as it
+happens: its number, what it did, why (one line in your language), the input, the result, and the engine numbers.
+
+- **The loop keeps the rules, not Muse.** Wrong input is refused with a sentence that says what to send instead. A
+  call that already got the same result twice is refused until something changes, so a fixed retry always runs.
+  Plan steps left open get one reminder. A job stops after 30 steps.
+- **The conversation only grows at its end.** The system message and the tool list never change, so llama-server
+  reuses everything it has already read and reads only the newest messages.
+- **Every step is written down.** `work/chats/<chat>.events.jsonl` is the job log the page is drawn from, and
+  `<chat>.messages.jsonl` is exactly what Muse read.
+- **Recordings are only looked up, never copied.** `LCS_VIDEOS` lists the folders they are kept in (separated by `;`
+  on Windows; the default is `~/Videos`).
+
+The loop's rules are tested against a scripted mind:
+
+```
+python -m unittest discover -s tests
+```
+
 ## Built during the hackathon (Oct 26 - Nov 4, 2026)
 
 Every line in this repository was written during the Meta AI Developer Hackathon. The first commit is dated
@@ -83,6 +104,9 @@ Model weights are downloaded when they are first needed. None of them are commit
 |---|---|---|
 | 2026-10-26, before the event, private prototype | Glimmer UD-Q3_K_XL against Q4_K_M on one RTX 5070 Ti (16 GB), same settings | writing 54.5 vs 20.0 tokens/s, reading 1,677 vs 1,031 tokens/s, Thai captions no worse |
 | 2026-10-26, before the event, private prototype | Omnilingual ASR (CTC 1B) on Thai FLEURS, 60 sentences, with a fix for two lost Thai vowels | 7.9% character errors |
+
+| 2026-10-27, this build | The agent loop on Glimmer Q3: how much of each question is read again | step 2 of a job read 232 tokens new and reused 1,084; the first step of the next message read 119 new and reused 2,782 |
+| 2026-10-27, this build | A doubled Thai mark ("ค้้น") read back in the next question | it grew to 2, 3, 4, then 8 marks, then 15,000 tokens of thinking with no answer; now the program tidies it before it is read back, and each step stops at 4,096 tokens |
 
 New measurements are added here as the build is tested, each with its date.
 
