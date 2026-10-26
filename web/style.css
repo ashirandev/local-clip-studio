@@ -11,6 +11,8 @@
   --you: #E3ECFF;
   --ok: #1E7F3C;
   --warn: #8A4B00;
+  --stop: #B3261E;
+  --on-stop: #FBFBFC;
   color-scheme: light;
 }
 
@@ -28,11 +30,15 @@
     --you: #22324D;
     --ok: #4CC777;
     --warn: #F0A856;
+    --stop: #FF8A80;
+    --on-stop: #0E1420;
     color-scheme: dark;
   }
 }
 
 * { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
 
 html, body { height: 100%; margin: 0; }
 
@@ -236,9 +242,88 @@ h1 { margin: 0; font-size: 18px; line-height: 1.3; }
 
 .step .engine { margin-top: 6px; color: var(--muted); font-size: 14px; }
 
-.live, .foot { margin: 0; color: var(--muted); font-size: 14px; }
+.live { display: grid; gap: 4px; }
+
+.live-line, .foot { margin: 0; color: var(--muted); font-size: 14px; }
+
+.live-thinking {
+  margin: 0;
+  max-height: 9em;
+  overflow-y: auto;
+  padding: 8px 12px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.live-thinking:empty { display: none; }
+
+.actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+.ghost {
+  display: inline-block;
+  padding: 6px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ghost::-webkit-details-marker { display: none; }
+
+.ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.earlier { position: relative; }
+
+.earlier-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 5;
+  width: min(360px, 80vw);
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  display: grid;
+  gap: 2px;
+}
+
+.earlier-chat {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.earlier-chat:hover, .earlier-chat.here { background: var(--frame); }
+
+.earlier-chat:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.earlier-chat .first { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.earlier-chat .meta, .earlier-empty { margin: 0; color: var(--muted); font-size: 14px; }
+
+.earlier-empty { padding: 8px 10px; }
 
 .composer button:disabled { opacity: 0.6; cursor: wait; }
+
+.composer .stop { background: var(--stop); color: var(--on-stop); }
 
 .composer {
   display: flex;

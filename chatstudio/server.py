@@ -2,10 +2,13 @@
 
 Standard library only. It listens on 127.0.0.1, so the recordings it opens never leave this computer.
 - GET /api/health: the two minds and whether each can answer
-- GET /api/chat: the chat the page shows, and whether Muse is working on it
-- POST /api/say {chat, message, mind}: the person's message, which starts a job
-- GET /api/events?chat=<id>: every event of the chat from the start, then each new one as it happens
-  (Server-Sent Events, so a reload redraws the whole chat and a running job carries on)
+- GET /api/chat[?id=<chat>]: the chat the page shows (or an earlier one, opened again), and whether Muse is working
+- POST /api/chat/new: a new, empty chat
+- GET /api/chats: the earlier chats, newest first
+- POST /api/say {chat, message, mind}: the person's message. It starts a job, or cuts in on the job running now
+- POST /api/stop {chat}: stops the job running now, at once
+- GET /api/events?chat=<id>: every event of the chat from the start, then each new one as it happens, and Muse's
+  thinking while it is written (Server-Sent Events, so a reload redraws the whole chat and a running job carries on)
 """
 import json
 import os
@@ -26,6 +29,7 @@ TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
          ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".mp4": "video/mp4"}
 MAX_BODY = 1_000_000
 KEEP_ALIVE = 15
+GONE = "That chat is not open any more. Reload the page."
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -33,14 +37,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path, _, query = self.path.partition("?")
+        query = dict(parse_qsl(query))
         if path == "/api/health":
             self.send_json({"ok": True, "version": __version__, "default": mind.DEFAULT,
                             "minds": [m.status() for m in mind.MINDS.values()]})
         elif path == "/api/chat":
-            chat = agent.current()
-            self.send_json({"ok": True, "chat": chat.id, "busy": chat.busy()})
+            chat = agent.open_chat(query["id"]) if query.get("id") else agent.current()
+            if chat is None:
+                self.send_json({"ok": False, "error": "There is no chat %s." % query["id"]}, HTTPStatus.NOT_FOUND)
+            else:
+                self.send_json({"ok": True, "chat": chat.id, "busy": chat.busy()})
+        elif path == "/api/chats":
+            self.send_json({"ok": True, "chats": agent.earlier()})
         elif path == "/api/events":
-            self.send_events(dict(parse_qsl(query)))
+            self.send_events(query)
         elif path.startswith("/api/"):
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
         else:
@@ -48,47 +58,51 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
-        if path != "/api/say":
+        if path not in ("/api/say", "/api/stop", "/api/chat/new"):
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
             return
         body = self.read_json()
         if body is None:
             return
+        if path == "/api/chat/new":
+            self.send_json({"ok": True, "chat": agent.new().id})
+            return
         chat = agent.find(str(body.get("chat") or ""))
-        words = str(body.get("message") or "").strip()
         if chat is None:
-            self.send_json({"ok": False, "error": "That chat is not open any more. Reload the page."},
-                           HTTPStatus.NOT_FOUND)
-        elif not words:
-            self.send_json({"ok": False, "error": "Type a message first."}, HTTPStatus.BAD_REQUEST)
+            self.send_json({"ok": False, "error": GONE}, HTTPStatus.NOT_FOUND)
+        elif path == "/api/stop":
+            self.send_json({"ok": True, "stopped": chat.stop()})
         else:
-            try:
-                job = chat.say(words, body.get("mind"))
-            except agent.Busy as e:
-                self.send_json({"ok": False, "error": str(e)}, HTTPStatus.CONFLICT)
+            words = str(body.get("message") or "").strip()
+            if not words:
+                self.send_json({"ok": False, "error": "Type a message first."}, HTTPStatus.BAD_REQUEST)
                 return
+            job = chat.say(words, body.get("mind"))
             self.send_json({"ok": True, "chat": chat.id, "job": job.n})
 
     def send_events(self, query):
         chat = agent.find(query.get("chat", ""))
         if chat is None:
-            self.send_json({"ok": False, "error": "That chat is not open any more. Reload the page."},
-                           HTTPStatus.NOT_FOUND)
+            self.send_json({"ok": False, "error": GONE}, HTTPStatus.NOT_FOUND)
             return
         last = self.headers.get("Last-Event-ID")
-        n = int(last) + 1 if last and last.isdigit() else 0
+        n, rev = (int(last) + 1 if last and last.isdigit() else 0), -1
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         try:
             while True:
-                batch = chat.since(n, KEEP_ALIVE)
+                batch, live = chat.since(n, rev, KEEP_ALIVE)
                 for event in batch:
                     line = "id: %d\ndata: %s\n\n" % (event["id"], json.dumps(event, ensure_ascii=False))
                     self.wfile.write(line.encode("utf-8"))
                 n += len(batch)
-                if not batch:
+                if live:
+                    rev = live["rev"]
+                    self.wfile.write(("event: think\ndata: %s\n\n" % json.dumps(live, ensure_ascii=False))
+                                     .encode("utf-8"))
+                if not batch and not live:
                     self.wfile.write(b": still here\n\n")
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):

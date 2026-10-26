@@ -8,7 +8,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from chatstudio import agent, tools  # noqa: E402
+from chatstudio import agent, mind, tools  # noqa: E402
 
 
 def call(name, **args):
@@ -16,15 +16,23 @@ def call(name, **args):
 
 
 class ScriptedMind:
-    """Answers with the next item of its script and keeps a copy of every conversation it was sent."""
+    """Answers with the next item of its script and keeps a copy of every conversation it was sent.
+
+    An item is the words of an answer, a list of tool calls, or a function(asking) that acts while the question is
+    in flight (the person types, or presses Stop) and then raises or returns one of the other two.
+    """
     label = "scripted"
 
     def __init__(self, *script):
         self.script, self.sent = list(script), []
 
-    def ask(self, messages, tools=None, temperature=None, max_tokens=None):
+    def ask(self, messages, tools=None, temperature=None, max_tokens=None, on_delta=None, asking=None):
         self.sent.append(json.loads(json.dumps(messages)))
         item = self.script.pop(0)
+        if callable(item):
+            item = item(asking)
+        if on_delta:
+            on_delta("thinking", "thinking about it")
         calls = item if isinstance(item, list) else []
         text = "" if calls else item
         back = {"role": "assistant", "content": text}
@@ -52,7 +60,7 @@ class Loop(unittest.TestCase):
 
     def run_job(self, brain, words="make a clip"):
         self.chat.jobs += 1
-        job = agent.Job(self.chat, brain, words)
+        job = self.chat.job = agent.Job(self.chat, brain, words)
         job.run()
         return job, [e for e in self.chat.events if e.get("job") == job.n]
 
@@ -143,11 +151,128 @@ class Loop(unittest.TestCase):
         self.assertEqual([e["why"] for e in events if e["kind"] == "step"], ["ลองค้นหาอีกคร้ง"])
         self.assertNotIn("้้", json.dumps(brain.sent[-1], ensure_ascii=False))
 
+    def test_the_answer_itself_does_the_last_plan_step(self):
+        brain = ScriptedMind([call("set_plan", steps=["find both", "compare them"], why="plan")],
+                             [call("find_recordings", why="look", plan_step=1)], "axi has more.")
+        _, events = self.run_job(brain)
+        self.assertEqual([e["kind"] for e in events if e["kind"] in ("answer", "note")], ["answer"])
+        plan = [e for e in events if e["kind"] == "plan"][-1]
+        self.assertEqual([p["state"] for p in plan["items"]], ["done", "done"])
+
     def test_a_job_that_keeps_repeating_is_stopped(self):
         same = call("find_recordings", why="look")
         job, events = self.run_job(ScriptedMind(*[[same]] * 5))
         self.assertEqual(events[-1]["why"], "repeating")
         self.assertEqual(job.steps, 5)
+
+    def test_words_typed_while_muse_thinks_go_in_next(self):
+        def person_types(asking):
+            self.chat.say("only the review, please", None)
+            self.assertTrue(asking.cancelled)
+            raise mind.Cancelled()
+
+        brain = ScriptedMind([call("find_recordings", why="look")], person_types,
+                             [call("find_recordings", words="review", why="the person asked for the review")],
+                             "Here is the review.")
+        job, events = self.run_job(brain)
+        self.assertEqual(brain.sent[2][-1], {"role": "user", "content": "only the review, please"})
+        cut = [e for e in events if e["kind"] == "cut"]
+        self.assertEqual([(c["step"], c["by"]) for c in cut], [(2, "person")])
+        said = [e for e in events if e["kind"] == "person"]
+        self.assertEqual([(p["text"], p.get("cut_in")) for p in said], [("only the review, please", True)])
+        self.assertEqual((job.steps, events[-1]["why"]), (2, "answered"))
+
+    def test_words_typed_as_muse_answers_are_answered_too(self):
+        def person_types_late(asking):
+            self.chat.say("and the game one?", None)
+            return "Here is the review."
+
+        brain = ScriptedMind(person_types_late, "The game one is not here.")
+        job, events = self.run_job(brain)
+        answers = [e for e in events if e["kind"] == "answer"]
+        self.assertEqual([(a["text"], a["final"]) for a in answers],
+                         [("Here is the review.", False), ("The game one is not here.", True)])
+        self.assertEqual(brain.sent[1][-1], {"role": "user", "content": "and the game one?"})
+
+    def test_stop_ends_the_job_while_muse_thinks(self):
+        def person_stops(asking):
+            self.assertTrue(self.chat.stop())
+            self.assertTrue(asking.cancelled)
+            raise mind.Cancelled()
+
+        brain = ScriptedMind([call("find_recordings", why="look")], person_stops, "never asked")
+        job, events = self.run_job(brain)
+        self.assertEqual(len(brain.sent), 2)
+        self.assertEqual(events[-1]["why"], "stopped")
+        self.assertFalse(self.chat.busy())
+        self.assertFalse(self.chat.stop())
+
+    def test_a_stop_after_the_answer_came_runs_no_tool_and_keeps_the_conversation_whole(self):
+        ran = []
+        real = tools.TOOLS["find_recordings"].run
+        tools.TOOLS["find_recordings"].run = lambda job, why, **a: ran.append(1) or real(job, why, **a)
+
+        def person_stops(asking):
+            self.chat.stop()
+            return [call("find_recordings", why="look"), call("find_recordings", words="x", why="look")]
+
+        try:
+            job, events = self.run_job(ScriptedMind(person_stops))
+        finally:
+            tools.TOOLS["find_recordings"].run = real
+        self.assertEqual((ran, job.steps, events[-1]["why"]), ([], 0, "stopped"))
+        asked = [c["id"] for c in self.chat.messages[-3]["tool_calls"]]
+        answered = [m["tool_call_id"] for m in self.chat.messages if m["role"] == "tool"]
+        self.assertEqual(answered, asked)
+
+    def test_a_message_after_the_job_starts_a_new_one(self):
+        self.run_job(ScriptedMind("Hello."))
+        self.assertFalse(self.chat.busy())
+        brain, real = ScriptedMind("Hello again."), mind.get
+        mind.get = lambda key: brain
+        try:
+            job = self.chat.say("hi again", None)
+            job.thread.join(5)
+        finally:
+            mind.get = real
+        self.assertEqual((job.n, self.chat.events[-1]["why"]), (2, "answered"))
+
+    def test_an_earlier_chat_opens_again_as_it_was(self):
+        self.run_job(ScriptedMind([call("set_plan", steps=["find it"], why="plan")],
+                                  [call("find_recordings", why="look", plan_step=1)], "Found it."))
+        again = agent.Chat.load(self.chat.id)
+        self.assertEqual(again.messages, self.chat.messages)
+        self.assertEqual([e["kind"] for e in again.events], [e["kind"] for e in self.chat.events])
+        self.assertEqual((again.jobs, again.busy()), (1, False))
+
+    def test_a_chat_closed_mid_job_opens_with_that_job_ended(self):
+        self.chat.jobs = 1
+        self.chat.emit("person", job=1, text="make a clip")
+        self.chat.emit("job", job=1, mind="scripted")
+        again = agent.Chat.load(self.chat.id)
+        self.assertEqual((again.events[-1]["kind"], again.events[-1]["why"]), ("end", "closed"))
+
+    def test_only_a_real_chat_name_is_looked_up_on_disk(self):
+        for name in ("evil.messages.jsonl", "evil.events.jsonl"):
+            with open(os.path.join(agent.WORK, name), "w", encoding="utf-8") as f:
+                f.write("{}\n")
+        self.assertIsNone(agent.open_chat("../evil"))
+        self.assertIsNone(agent.open_chat("20990101-000000-abcd"))
+
+    def test_words_typed_just_before_muse_is_asked_go_into_that_question(self):
+        brain = ScriptedMind("Both done.")
+        self.chat.jobs += 1
+        job = self.chat.job = agent.Job(self.chat, brain, "find the review")
+        take, typed = job.take_inbox, []
+
+        def take_then_person_types():
+            take()
+            if not typed:
+                typed.append(self.chat.say("and the game", None))
+
+        job.take_inbox = take_then_person_types
+        job.run()
+        self.assertEqual([m["content"] for m in brain.sent[0][1:]], ["find the review", "and the game"])
 
 
 if __name__ == "__main__":

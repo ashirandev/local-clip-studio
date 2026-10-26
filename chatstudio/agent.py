@@ -11,12 +11,17 @@ What the loop keeps, whatever Muse writes:
   since. A call with fixed input, or any call after a change, runs.
 - The loop ends the job, not Muse: when Muse answers in words (after one reminder of any plan steps it left open),
   when it keeps repeating a refused call, or after MAX_STEPS steps.
+- The person can steer at any time. Words typed while Muse works cancel the question in flight and go in as the
+  newest message, so Muse answers them next; Stop cancels it and ends the job. Everything before the cut is still
+  reused by llama-server.
+- Muse's thinking is shown while it is written (Chat.live), but only the finished step goes into the job log.
 
 The chat is written to work/chats as it happens: <chat>.events.jsonl is the job log the page is drawn from, and
-<chat>.messages.jsonl is exactly what Muse read.
+<chat>.messages.jsonl is exactly what Muse read. An earlier chat opens again from these two files.
 """
 import json
 import os
+import re
 import secrets
 import threading
 import time
@@ -31,6 +36,9 @@ AGENT_TEMPERATURE = 0.5
 AGENT_MAX_TOKENS = 4096
 MAX_STEPS = 30
 GUARD_STOPS = 3
+SHOW_THINKING_EVERY = 0.4
+CHATS_LISTED = 20
+CHAT_ID = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{4}$")
 SYSTEM = """You are the editor in Local Chat Studio. People bring long recordings (selling lives, game streams, travel \
 clips) and you turn them into short vertical clips ready to post.
 
@@ -46,29 +54,39 @@ step.
 - Do not repeat a call that already gave you its answer.
 - Each tool result ends with a line that starts with "Now:". It is the current state; trust it over anything older.
 - When the work is done, or only the person can decide, answer briefly, in the language the person writes in. Say \
-only what your tools actually did, in plain words, without tool or field names.
+only what your tools actually did, in plain words, without tool or field names. Write plain text, not markdown.
 - A question that needs no tool gets a plain answer, with no plan."""
-
-
-class Busy(Exception):
-    """The chat already has a job running."""
 
 
 class Chat:
     """One conversation: the messages Muse reads, the events the page draws, and the job running now."""
 
-    def __init__(self):
-        self.id = time.strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2)
+    def __init__(self, chat_id=None):
+        self.id = chat_id or time.strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2)
         self.messages, self.events = [], []
-        self.changed = 0
-        self.jobs = 0
+        self.changed = self.jobs = 0
         self.job = None
+        self.live, self.live_rev = None, 0
         self.cond = threading.Condition()
         folder = os.path.join(WORK, "chats")
         os.makedirs(folder, exist_ok=True)
         self.log_path = os.path.join(folder, self.id + ".events.jsonl")
         self.talk_path = os.path.join(folder, self.id + ".messages.jsonl")
-        self.add({"role": "system", "content": SYSTEM})
+        if chat_id is None:
+            self.add({"role": "system", "content": SYSTEM})
+
+    @classmethod
+    def load(cls, chat_id):
+        """A chat written earlier, read back from work/chats exactly as Muse read it."""
+        chat = cls(chat_id)
+        chat.messages = _read(chat.talk_path)
+        chat.events = _read(chat.log_path)
+        chat.jobs = max([e.get("job", 0) for e in chat.events] or [0])
+        ended = {e.get("job") for e in chat.events if e["kind"] == "end"}
+        for n in sorted({e["job"] for e in chat.events if e.get("job")} - ended):
+            steps = sum(1 for e in chat.events if e.get("job") == n and e["kind"] == "step")
+            chat.emit("end", job=n, steps=steps, refused=0, fixed=0, seconds=0, why="closed")
+        return chat
 
     def add(self, message):
         """Adds a message at the end. Nothing earlier is ever changed."""
@@ -79,60 +97,121 @@ class Chat:
         with self.cond:
             event = dict(data, id=len(self.events), kind=kind, t=round(time.time(), 3))
             self.events.append(event)
+            _append(self.log_path, event)
             self.cond.notify_all()
-        _append(self.log_path, event)
         return event
 
-    def since(self, n, timeout):
-        """The events from number n on, waiting up to timeout seconds for one if there are none yet."""
+    def since(self, n, rev, timeout):
+        """(events from number n on, Muse's live thinking if it changed since rev), waiting up to timeout seconds."""
         with self.cond:
-            if len(self.events) <= n:
+            if len(self.events) <= n and self.live_rev == rev:
                 self.cond.wait(timeout)
-            return self.events[n:]
+            live = dict(self.live, rev=self.live_rev) if self.live and self.live_rev != rev else None
+            return self.events[n:], live
 
     def busy(self):
-        return bool(self.job and self.job.thread.is_alive())
+        return bool(self.job and not self.job.done)
 
     def say(self, words, mind_key):
+        """The person's message: a new job, or, while Muse works, words that cut in on the job running now."""
         with self.cond:
-            if self.busy():
-                raise Busy("Muse is still working on your last message. Wait for it to finish.")
+            job = self.job
+            if job and not job.done:
+                self.emit("person", job=job.n, text=words, cut_in=True)
+                job.cut_in(words)
+                return job
             self.jobs += 1
             self.job = Job(self, mind.get(mind_key), words)
+            self.emit("person", job=self.jobs, text=words)
             self.job.thread.start()
-        return self.job
+            return self.job
+
+    def stop(self):
+        job = self.job
+        return bool(job and job.stop())
 
 
 class Job:
-    """One message from the person and everything Muse does about it."""
+    """One message from the person and everything Muse does about it, including words typed while it works."""
 
     def __init__(self, chat, brain, words):
-        self.chat, self.brain, self.words, self.n = chat, brain, words, chat.jobs
+        self.chat, self.brain, self.n = chat, brain, chat.jobs
+        self.inbox = [words]
+        self.asking = None
+        self.stopped = self.done = False
         self.plan, self.plan_shown = [], "[]"
         self.steps = self.refused = self.fixed = self.guard_stops = 0
         self.seen = {}
         self.last_refused = {}
+        self.shown_live = 0.0
         self.thread = threading.Thread(target=self.run, name="job-%d" % self.n, daemon=True)
 
     def emit(self, kind, **data):
         return self.chat.emit(kind, job=self.n, **data)
 
+    def cut_in(self, words):
+        """Called by Chat.say with the lock held: the words go in next, and the question in flight is cancelled."""
+        self.inbox.append(words)
+        if self.asking:
+            self.asking.cancel()
+
+    def stop(self):
+        with self.chat.cond:
+            if self.done:
+                return False
+            self.stopped = True
+            asking = self.asking
+        if asking:
+            asking.cancel()
+        return True
+
+    def take_inbox(self):
+        with self.chat.cond:
+            words, self.inbox = self.inbox, []
+        for w in words:
+            self.chat.add({"role": "user", "content": w})
+            self.chat.changed += 1
+
+    def on_delta(self, kind, piece):
+        chat = self.chat
+        with chat.cond:
+            if not chat.live or chat.live["job"] != self.n:
+                return
+            chat.live[kind] += piece
+            if time.time() - self.shown_live >= SHOW_THINKING_EVERY:
+                self.shown_live = time.time()
+                chat.live_rev += 1
+                chat.cond.notify_all()
+
     def run(self):
         chat, started, end, nudged = self.chat, time.time(), "answered", False
-        chat.add({"role": "user", "content": self.words})
-        chat.changed += 1
-        self.emit("person", text=self.words)
         self.emit("job", mind=self.brain.label)
         try:
             while True:
+                self.take_inbox()
+                if self.stopped:
+                    end = "stopped"
+                    break
                 if self.steps >= MAX_STEPS:
                     end = "too many steps"
                     self.emit("note", text="Muse took %d steps on this message, the most one message may take, so the "
                                            "studio stopped it here. Say what to do next." % self.steps)
                     break
+                with chat.cond:
+                    if self.inbox or self.stopped:
+                        continue
+                    self.asking = mind.Asking()
+                    chat.live = {"job": self.n, "step": self.steps + 1, "thinking": "", "text": ""}
                 self.emit("wait", step=self.steps + 1)
-                got = self.brain.ask(chat.messages, tools=SCHEMAS, temperature=AGENT_TEMPERATURE,
-                                     max_tokens=AGENT_MAX_TOKENS)
+                try:
+                    got = self.brain.ask(chat.messages, tools=SCHEMAS, temperature=AGENT_TEMPERATURE,
+                                         max_tokens=AGENT_MAX_TOKENS, on_delta=self.on_delta, asking=self.asking)
+                except mind.Cancelled:
+                    self.emit("cut", step=self.steps + 1, by="stop" if self.stopped else "person")
+                    continue
+                finally:
+                    with chat.cond:
+                        chat.live = None
                 calls = got["tool_calls"]
                 got["text"] = words.tidy(got["text"])
                 got["message"]["content"] = words.tidy(got["message"]["content"])
@@ -153,10 +232,19 @@ class Job:
                         self.emit("note", text="Muse stopped with plan steps still open, so the studio asked it to go "
                                                "on or say why.")
                         continue
-                    self.emit("answer", final=True, text=got["text"], thinking=got["thinking"],
-                              engine=got["engine"], mind=self.brain.label)
-                    break
+                    with chat.cond:
+                        more = bool(self.inbox) and not self.stopped
+                        self.emit("answer", final=not more, text=got["text"], thinking=got["thinking"],
+                                  engine=got["engine"], mind=self.brain.label)
+                        if not more:
+                            self.close(end, started)
+                            return
+                    continue
                 for i, call in enumerate(calls):
+                    if self.stopped:
+                        chat.add({"role": "tool", "tool_call_id": call["id"],
+                                  "content": "Not run: the person pressed Stop.\n\n" + self.state()})
+                        continue
                     self.steps += 1
                     shown, text = self.call(call)
                     chat.add({"role": "tool", "tool_call_id": call["id"], "content": text + "\n\n" + self.state()})
@@ -177,6 +265,15 @@ class Job:
             end = "fault"
             self.emit("note", text="The studio broke while working (%s). The details are in the job log." % e,
                       fault=traceback.format_exc())
+        with chat.cond:
+            self.close(end, started)
+
+    def close(self, end, started):
+        """Ends the job (the caller holds the lock). Words typed too late to be answered still go into the chat."""
+        self.done = True
+        for w in self.inbox:
+            self.chat.add({"role": "user", "content": w})
+        self.inbox = []
         self.emit("end", steps=self.steps, refused=self.refused, fixed=self.fixed,
                   seconds=round(time.time() - started, 1), why=end)
 
@@ -248,10 +345,13 @@ class Job:
                 item["state"] = "todo"
 
     def finish_plan(self):
-        """Marks the step being worked on as done. Returns the steps no call has named: [(number, text)]."""
+        """Muse answered in words: the step being worked on is done, and so is a last step that only the answer
+        could do ("compare them", "tell the person"). Returns the steps no call has named: [(number, text)]."""
         for item in self.plan:
             if item["state"] == "now":
                 item["state"] = "done"
+        if self.plan and all(item["state"] == "done" for item in self.plan[:-1]):
+            self.plan[-1]["state"] = "done"
         self.show_plan()
         return [(i, item["text"]) for i, item in enumerate(self.plan, 1) if item["state"] == "todo"]
 
@@ -294,18 +394,67 @@ def _append(path, row):
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def _read(path):
+    with open(path, encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
 CHATS = {}
 _chats_lock = threading.Lock()
+_shown = []
+
+
+def _show(chat):
+    """Makes chat the one the page shows. A job still running in the chat left behind is stopped."""
+    if _shown and _shown[-1] != chat.id and _shown[-1] in CHATS:
+        CHATS[_shown[-1]].stop()
+    CHATS[chat.id] = chat
+    _shown[:] = [chat.id]
+    return chat
 
 
 def current():
-    """The chat the page shows: the newest one, made on first use."""
+    """The chat the page shows, made on first use."""
     with _chats_lock:
-        if not CHATS:
-            chat = Chat()
-            CHATS[chat.id] = chat
-        return list(CHATS.values())[-1]
+        return CHATS[_shown[-1]] if _shown else _show(Chat())
+
+
+def new():
+    with _chats_lock:
+        return _show(Chat())
+
+
+def open_chat(chat_id):
+    """An earlier chat, from memory or from work/chats; None when there is no such chat."""
+    if not CHAT_ID.match(chat_id or ""):
+        return None
+    with _chats_lock:
+        chat = CHATS.get(chat_id)
+        if chat is None:
+            if not os.path.isfile(os.path.join(WORK, "chats", chat_id + ".messages.jsonl")):
+                return None
+            chat = Chat.load(chat_id)
+        return _show(chat)
 
 
 def find(chat_id):
     return CHATS.get(chat_id)
+
+
+def earlier(limit=CHATS_LISTED):
+    """The newest chats on disk that have at least one message: [{id, when, first, messages}]."""
+    folder = os.path.join(WORK, "chats")
+    try:
+        names = [n for n in os.listdir(folder) if n.endswith(".events.jsonl") and CHAT_ID.match(n[:-13])]
+    except OSError:
+        return []
+    names.sort(key=lambda n: os.path.getmtime(os.path.join(folder, n)), reverse=True)
+    out = []
+    for name in names:
+        said = [e["text"] for e in _read(os.path.join(folder, name)) if e["kind"] == "person"]
+        if said:
+            out.append({"id": name[:-13], "when": round(os.path.getmtime(os.path.join(folder, name))),
+                        "first": said[0][:100], "messages": len(said)})
+        if len(out) >= limit:
+            break
+    return out

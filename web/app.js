@@ -5,10 +5,15 @@ const statusLine = document.getElementById("status");
 const composer = document.getElementById("composer");
 const text = document.getElementById("text");
 const send = document.getElementById("send");
+const stopButton = document.getElementById("stop");
+const newButton = document.getElementById("new");
+const earlier = document.getElementById("earlier");
+const earlierList = document.getElementById("earlierList");
 const mindsBox = document.getElementById("minds");
 const welcome = document.getElementById("welcome").cloneNode(true);
+const idle = text.placeholder;
 
-const room = { mind: localStore("mind") || "local", minds: [], chat: null, source: null, last: -1, jobs: {}, busy: false, timer: null };
+const room = { mind: localStore("mind") || "local", minds: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null };
 
 function localStore(key, value) {
   try {
@@ -71,6 +76,10 @@ function inputLine(input) {
     .join(" · ");
 }
 
+function when(seconds) {
+  return new Date(seconds * 1000).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
 function job(n) {
   if (!room.jobs[n]) {
     clearWelcome();
@@ -79,13 +88,16 @@ function job(n) {
     const plan = el("div", "plan");
     plan.hidden = true;
     const flow = el("div", "flow");
-    const live = el("p", "live");
+    const live = el("div", "live");
     live.hidden = true;
+    const liveLine = el("p", "live-line");
+    const liveThinking = el("p", "live-thinking");
+    live.append(liveLine, liveThinking);
     const foot = el("p", "foot");
     foot.hidden = true;
     box.append(plan, flow, live, foot);
     log.appendChild(box);
-    room.jobs[n] = { box, plan, flow, live, foot, mind: "" };
+    room.jobs[n] = { box, plan, flow, live, liveLine, liveThinking, foot, mind: "" };
   }
   return room.jobs[n];
 }
@@ -137,59 +149,87 @@ function plural(n, one) {
   return n + " " + one + (n === 1 ? "" : "s");
 }
 
-function setBusy(busy) {
-  room.busy = busy;
-  send.disabled = busy;
-  text.setAttribute("aria-busy", String(busy));
-  showStatus();
-}
-
 function stopTimer() {
   if (room.timer) clearInterval(room.timer);
   room.timer = null;
 }
 
+function hideLive(j) {
+  stopTimer();
+  j.live.hidden = true;
+  j.liveThinking.textContent = "";
+}
+
+function setBusy() {
+  const busy = room.open.size > 0;
+  stopButton.hidden = !busy;
+  stopButton.disabled = false;
+  text.placeholder = busy ? "Type to steer Muse while it works" : idle;
+  showStatus();
+}
+
+const ENDS = {
+  stopped: "Stopped",
+  closed: "The studio was closed during this job",
+  mind: "Ended: Muse could not answer",
+  fault: "Ended: the studio broke",
+  repeating: "Ended: Muse kept repeating itself",
+  "too many steps": "Ended: too many steps",
+};
+
 function on(e) {
   if (e.id <= room.last) return;
   room.last = e.id;
   if (e.kind === "person") {
-    bubble("you", e.text);
+    bubble("you", e.text, e.cut_in && room.jobs[e.job] ? room.jobs[e.job].flow : null);
     return;
   }
   const j = job(e.job);
   if (e.kind === "job") {
     j.mind = e.mind;
-    setBusy(true);
+    room.open.add(e.job);
+    setBusy();
   } else if (e.kind === "plan") {
     drawPlan(j, e);
   } else if (e.kind === "wait") {
     stopTimer();
     const tick = () => {
-      j.live.textContent = "Muse is thinking about step " + e.step + " · " + Math.max(0, Math.round(Date.now() / 1000 - e.t)) + " s";
+      j.liveLine.textContent = "Muse is thinking about step " + e.step + " · " + Math.max(0, Math.round(Date.now() / 1000 - e.t)) + " s";
     };
     tick();
     j.live.hidden = false;
+    j.box.appendChild(j.live);
     room.timer = setInterval(tick, 1000);
   } else if (e.kind === "step") {
-    stopTimer();
-    j.live.hidden = true;
+    hideLive(j);
     drawStep(j, e);
   } else if (e.kind === "answer") {
-    stopTimer();
-    j.live.hidden = true;
+    hideLive(j);
     drawAnswer(j, e);
+  } else if (e.kind === "cut") {
+    hideLive(j);
+    bubble("note", e.by === "stop" ? "Stopped while Muse was thinking about step " + e.step + "." : "Muse stopped thinking about step " + e.step + " to read your message.", j.flow);
   } else if (e.kind === "note") {
     bubble("note", e.text, j.flow);
   } else if (e.kind === "end") {
-    stopTimer();
-    j.live.hidden = true;
-    const parts = [plural(e.steps, "step")];
+    hideLive(j);
+    const parts = [ENDS[e.why] || null, plural(e.steps, "step")].filter(Boolean);
     if (e.refused) parts.push(e.refused + " refused" + (e.fixed ? ", " + e.fixed + " fixed by Muse" : ""));
-    parts.push(e.seconds + " s");
+    if (e.seconds) parts.push(e.seconds + " s");
     j.foot.textContent = parts.join(" · ");
     j.foot.hidden = false;
-    setBusy(false);
+    room.open.delete(e.job);
+    setBusy();
   }
+  scrollDown();
+}
+
+function onThinking(live) {
+  const j = room.jobs[live.job];
+  if (!j || j.live.hidden) return;
+  const words = (live.thinking + (live.text ? "\n" + live.text : "")).trim();
+  j.liveThinking.textContent = words.length > 1500 ? "…" + words.slice(-1500) : words;
+  j.liveThinking.scrollTop = j.liveThinking.scrollHeight;
   scrollDown();
 }
 
@@ -199,8 +239,8 @@ function current() {
 
 function showStatus() {
   const m = current();
-  if (room.busy) {
-    statusLine.textContent = "Muse is working on it" + (m ? " · " + m.label : "");
+  if (room.open.size) {
+    statusLine.textContent = "Muse is working on it" + (m ? " · " + m.label : "") + " · type to steer it, or Stop";
   } else if (m) {
     statusLine.textContent = m.ok ? "Ready · " + m.name + " " + m.where : m.why;
   }
@@ -239,55 +279,104 @@ async function health() {
   }
 }
 
-async function connect() {
+function show(chatId) {
+  if (room.source) room.source.close();
+  stopTimer();
+  room.chat = chatId;
+  room.last = -1;
+  room.jobs = {};
+  room.open = new Set();
+  log.replaceChildren(welcome.cloneNode(true));
+  setBusy();
+  const source = new EventSource("/api/events?chat=" + encodeURIComponent(chatId));
+  source.onmessage = (m) => on(JSON.parse(m.data));
+  source.addEventListener("think", (m) => onThinking(JSON.parse(m.data)));
+  source.onerror = () => {
+    if (source.readyState === EventSource.CLOSED) setTimeout(connect, 2000);
+  };
+  room.source = source;
+}
+
+async function connect(chatId) {
   try {
-    const r = await fetch("/api/chat", { cache: "no-store" });
+    const r = await fetch("/api/chat" + (chatId ? "?id=" + encodeURIComponent(chatId) : ""), { cache: "no-store" });
     const d = await r.json();
-    if (d.chat !== room.chat) {
-      if (room.source) room.source.close();
-      stopTimer();
-      room.chat = d.chat;
-      room.last = -1;
-      room.jobs = {};
-      log.replaceChildren(welcome.cloneNode(true));
-      setBusy(false);
+    if (!d.ok) {
+      bubble("note", d.error);
+      return;
     }
-    const source = new EventSource("/api/events?chat=" + encodeURIComponent(room.chat));
-    source.onmessage = (m) => on(JSON.parse(m.data));
-    source.onerror = () => {
-      if (source.readyState === EventSource.CLOSED) setTimeout(connect, 2000);
-    };
-    room.source = source;
+    if (d.chat !== room.chat || !room.source || room.source.readyState === EventSource.CLOSED) show(d.chat);
   } catch (e) {
     statusLine.textContent = "The studio is not answering. Start it again with: python app.py";
     setTimeout(connect, 3000);
   }
 }
 
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return r.json();
+}
+
 composer.addEventListener("submit", async (e) => {
   e.preventDefault();
   const words = text.value.trim();
-  if (!words || room.busy || !room.chat) return;
+  if (!words || !room.chat) return;
   text.value = "";
-  send.disabled = true;
   try {
-    const r = await fetch("/api/say", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat: room.chat, message: words, mind: room.mind }),
-    });
-    const d = await r.json();
+    const d = await post("/api/say", { chat: room.chat, message: words, mind: room.mind });
     if (!d.ok) {
       bubble("note", d.error || "Something went wrong.");
       text.value = words;
-      send.disabled = room.busy;
     }
   } catch (err) {
     bubble("note", "The studio is not answering. Start it again with: python app.py");
     text.value = words;
-    send.disabled = room.busy;
   }
   text.focus();
+});
+
+stopButton.addEventListener("click", async () => {
+  stopButton.disabled = true;
+  try {
+    await post("/api/stop", { chat: room.chat });
+  } catch (err) {
+    bubble("note", "The studio is not answering. Start it again with: python app.py");
+    stopButton.disabled = false;
+  }
+});
+
+newButton.addEventListener("click", async () => {
+  try {
+    const d = await post("/api/chat/new", {});
+    if (d.ok) show(d.chat);
+  } catch (err) {
+    bubble("note", "The studio is not answering. Start it again with: python app.py");
+  }
+  earlier.open = false;
+  text.focus();
+});
+
+earlier.addEventListener("toggle", async () => {
+  if (!earlier.open) return;
+  earlierList.replaceChildren(el("p", "earlier-empty", "Looking…"));
+  try {
+    const r = await fetch("/api/chats", { cache: "no-store" });
+    const d = await r.json();
+    earlierList.textContent = "";
+    if (!d.chats.length) earlierList.appendChild(el("p", "earlier-empty", "No earlier chats yet."));
+    d.chats.forEach((c) => {
+      const b = el("button", "earlier-chat" + (c.id === room.chat ? " here" : ""));
+      b.type = "button";
+      b.append(el("span", "first", c.first), el("span", "meta", when(c.when) + " · " + plural(c.messages, "message")));
+      b.addEventListener("click", () => {
+        earlier.open = false;
+        connect(c.id);
+      });
+      earlierList.appendChild(b);
+    });
+  } catch (err) {
+    earlierList.replaceChildren(el("p", "earlier-empty", "The studio is not answering."));
+  }
 });
 
 text.addEventListener("keydown", (e) => {

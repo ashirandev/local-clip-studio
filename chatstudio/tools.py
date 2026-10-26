@@ -139,9 +139,12 @@ def find_recordings(job, why, words="", newest=5):
     about = ' for "%s"' % words if wanted else ""
     lines = ["%d recordings%s in %s; the %d newest:" % (len(found), about, where, len(shown))]
     for i, (mtime, size, path) in enumerate(shown, 1):
-        lines.append("%d. %s · %.1f GB · recorded %s · %s" % (i, os.path.basename(path), size / 1e9, _when(mtime),
-                                                              path))
+        lines.append("%d. %s · %s · recorded %s · %s" % (i, os.path.basename(path), _size(size), _when(mtime), path))
     return "\n".join(lines)
+
+
+def _size(n):
+    return "%.1f GB" % (n / 1e9) if n >= 1e9 else "%d MB" % round(n / 1e6)
 
 
 def _names_here(folders):

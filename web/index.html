@@ -15,6 +15,13 @@
         <h1>Local Chat Studio</h1>
         <p class="sub">Turn a long recording into a clip by talking · powered by Meta's Muse models</p>
       </div>
+      <div class="actions">
+        <button type="button" class="ghost" id="new">New chat</button>
+        <details class="earlier" id="earlier">
+          <summary class="ghost">Earlier chats</summary>
+          <div class="earlier-list" id="earlierList"></div>
+        </details>
+      </div>
     </header>
     <div class="minds" id="minds" role="radiogroup" aria-label="Which Muse answers"></div>
     <div class="log" id="log" aria-live="polite">
@@ -26,6 +33,7 @@
     <form class="composer" id="composer">
       <textarea id="text" rows="2" placeholder="Say what you want, in any language" aria-label="Your message"></textarea>
       <button type="submit" id="send">Send</button>
+      <button type="button" class="stop" id="stop" hidden>Stop</button>
     </form>
     <p class="status" id="status" role="status">Connecting…</p>
   </section>
