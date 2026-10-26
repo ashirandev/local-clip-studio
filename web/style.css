@@ -9,6 +9,7 @@
   --accent: #0866FF;
   --on-accent: #FBFBFC;
   --you: #E3ECFF;
+  --ok: #1E7F3C;
   color-scheme: light;
 }
 
@@ -24,6 +25,7 @@
     --accent: #5B9BFF;
     --on-accent: #0E1420;
     --you: #22324D;
+    --ok: #4CC777;
     color-scheme: dark;
   }
 }
@@ -71,6 +73,38 @@ h1 { margin: 0; font-size: 18px; line-height: 1.3; }
 
 .sub { margin: 0; color: var(--muted); font-size: 14px; }
 
+.minds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.mind {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.mind[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+.mind:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--edge); }
+
+.dot.ok { background: var(--ok); }
+
+.mind[aria-checked="true"] .dot { outline: 2px solid var(--on-accent); }
+
 .log {
   flex: 1;
   min-height: 0;
@@ -102,6 +136,20 @@ h1 { margin: 0; font-size: 18px; line-height: 1.3; }
 .msg.you { align-self: flex-end; background: var(--you); border-color: transparent; }
 
 .msg.note { color: var(--muted); font-size: 14px; }
+
+.msg.muse { max-width: 90%; }
+
+.msg .words { margin: 0; }
+
+.msg details { margin-top: 8px; }
+
+.msg summary { color: var(--muted); font-size: 14px; cursor: pointer; }
+
+.msg .thinking { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+
+.msg .engine { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+
+.composer button:disabled { opacity: 0.6; cursor: wait; }
 
 .composer {
   display: flex;

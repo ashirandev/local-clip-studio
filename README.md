@@ -12,13 +12,40 @@ fixes what fails, and hands over a vertical clip ready to post. To change anythi
 
 ## Quick start
 
-Python 3.11 or newer. This step uses the standard library only.
+Python 3.11 or newer. The studio itself uses the standard library only.
 
 ```
 python app.py
 ```
 
 Then open http://127.0.0.1:8899/ . Set `LCS_PORT` to use another port.
+
+## The mind: two ways to run Muse
+
+The page has a switch for the two. Every answer shows which one answered, with its engine numbers: tokens read
+new, tokens reused from the question before, reading and writing speed, and seconds.
+
+**1. Muse Glimmer on your own graphics card (the default).** This is Meta's open-weight model, run by llama.cpp's
+own server. This is the exact setup the demo runs on:
+
+| | |
+|---|---|
+| Model file | `Muse-Glimmer-30B-UD-Q3_K_XL.gguf` from [unsloth/Muse-Glimmer-30B-GGUF](https://huggingface.co/unsloth/Muse-Glimmer-30B-GGUF) |
+| Size | 13,360,983,072 bytes |
+| SHA-256 | `820d18e00c59376331eba62dd716a6bcdcaa305c2316f5da3a2fab36c7c37e15` |
+| Server | llama.cpp `llama-server`, build b11716 |
+| Graphics card | NVIDIA RTX 5070 Ti, 16 GB |
+
+```
+llama-server -m Muse-Glimmer-30B-UD-Q3_K_XL.gguf -c 32768 -np 1 --jinja -fit on --host 127.0.0.1 --port 8863
+```
+
+The studio looks for it at `http://127.0.0.1:8863/v1`. Set `LCS_MIND_URL` to point it at any other server that runs
+an eligible Muse model.
+
+**2. Muse Spark on Meta's API.** This route needs no graphics card. Set `META_API_KEY` to your own key before
+starting the studio. `LCS_SPARK_MODEL` picks the model (default `muse-spark-1.3`). The key is read from the
+environment and is never written anywhere.
 
 ## Built during the hackathon (Oct 26 - Nov 4, 2026)
 
@@ -38,8 +65,9 @@ Each piece is listed with its licence. The Status column says whether this build
 
 | Piece | What it does here | Licence | Status |
 |---|---|---|---|
-| [Muse Glimmer 30B](https://huggingface.co/meta-models/Muse-Glimmer-30B) (Meta) | the agent's mind, on your own graphics card | Apache-2.0 | planned |
-| [llama.cpp](https://github.com/ggml-org/llama.cpp) (llama-server) | runs Glimmer locally | MIT | planned |
+| [Muse Glimmer 30B](https://huggingface.co/meta-models/Muse-Glimmer-30B) (Meta) | the agent's mind, on your own graphics card | Apache-2.0 | used |
+| Muse Spark (Meta API) | the same mind without a graphics card, with your own key | Meta's API terms | used |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) (llama-server) | runs Glimmer locally | MIT | used |
 | [FFmpeg](https://ffmpeg.org/) | cuts, frames and renders the clip | LGPL-2.1+ (GPL for some builds) | planned |
 | [Omnilingual ASR](https://github.com/facebookresearch/omnilingual-asr) (Meta) | writes down what is said, in many languages | Apache-2.0 | planned |
 | [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) (OpenCV Zoo) | finds faces, so text never covers one | MIT | planned |
