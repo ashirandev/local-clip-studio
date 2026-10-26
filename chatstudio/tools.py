@@ -11,6 +11,8 @@ refused with a sentence that says what to send instead, so Muse can fix it and c
 import os
 import time
 
+from .recipes import RECIPES
+
 WHY = {"type": "string",
        "description": "One short line, in the language the person writes in, telling the person why you take "
                       "this step."}
@@ -76,6 +78,8 @@ def _value(name, value, spec):
     if kind == "string":
         if not isinstance(value, str):
             raise Refused("%s must be text." % name)
+        if spec.get("enum") and value.strip() not in spec["enum"]:
+            raise Refused("%s must be one of: %s." % (name, ", ".join(spec["enum"])))
         if len(value) > spec.get("maxLength", 2000):
             raise Refused("%s is too long; keep it under %d characters." % (name, spec.get("maxLength", 2000)))
         return value.strip()
@@ -170,6 +174,51 @@ def _when(t):
     return time.strftime(fmt, time.localtime(t))
 
 
+STYLES = {"clean": "plain text, quiet and clear", "pop": "bold colours and quick hits",
+          "calm": "slow and relaxed, a few words at a time"}
+SHORTEST, LONGEST = 10, 90
+
+
+def load_recipe(job, why, type, length_s=None, style=None, language="", brief=""):
+    recipe = RECIPES.get(type.lower().strip())
+    if recipe is None:
+        raise Refused("There is no recipe for %s yet. The recipes are: %s. Do not use a recipe made for another "
+                      "kind of video: tell the person a clip of this kind is not ready yet, and what the studio can "
+                      "make now." % (type, _recipe_list()))
+    clip = {"recipe": recipe["name"], "title": recipe["title"], "length_s": length_s or recipe["length"],
+            "style": style or recipe["style"], "language": language, "brief": brief}
+    had = job.chat.clip
+    job.set_clip(clip, chips(clip))
+    lines = ["Recipe loaded: %s (%s)." % (recipe["title"], recipe["name"]),
+             "Your guesses, shown to the person with buttons to change them: about %d s, style %s%s."
+             % (clip["length_s"], clip["style"], ", language " + language if language else ""),
+             "The person's own words win over this recipe and over your guesses. Do not ask the person to confirm "
+             "them: go on with the work. The buttons let them change any guess at any time."]
+    if had and had["recipe"] != recipe["name"]:
+        lines.append("This recipe replaces the %s recipe read earlier in this chat; follow only this one." %
+                     had["recipe"])
+    return "\n".join(lines) + "\n\n" + recipe["body"]
+
+
+def chips(clip):
+    """The buttons under Muse's guesses. Each one sends a short message, as if the person had typed it."""
+    out = [{"label": r["chip"], "say": "(tapped) %s." % r["chip"]} for r in RECIPES.values()
+           if r["name"] != clip["recipe"]]
+    length = clip["length_s"]
+    if length > SHORTEST:
+        shorter = max(SHORTEST, round(length * 2 / 3))
+        out.append({"label": "Shorter", "say": "(tapped) Make it shorter, about %d s." % shorter})
+    if length < LONGEST:
+        longer = min(LONGEST, round(length * 3 / 2))
+        out.append({"label": "Longer", "say": "(tapped) Make it longer, about %d s." % longer})
+    out += [{"label": s.capitalize(), "say": "(tapped) Use the %s style." % s} for s in STYLES if s != clip["style"]]
+    return out
+
+
+def _recipe_list():
+    return ", ".join("%s (%s)" % (r["name"], r["title"]) for r in RECIPES.values())
+
+
 TOOLS = {t.name: t for t in [
     Tool("set_plan", "Made a plan",
          "Write your plan for this request as a few short steps, in the language the person writes in. The page "
@@ -188,5 +237,24 @@ TOOLS = {t.name: t for t in [
           "newest": {"type": "integer", "minimum": 1, "maximum": 20,
                      "description": "How many to list, newest first (1 to 20, default 5)."}},
          [], find_recordings),
+    Tool("load_recipe", "Picked the kind of clip",
+         "Read the recipe for this kind of video before you plan the clip, and give your guesses for it. The page "
+         "shows your guesses with buttons, so the person can change any of them with one tap. Call it again when "
+         "the person says it is another kind, then plan again. The kinds with a recipe now: " + _recipe_list() +
+         ". If the video is another kind, still name that kind.",
+         {"type": {"type": "string", "maxLength": 40,
+                   "description": "The kind of video as it really is: a recipe's name when one fits, else your own "
+                                  "word for it, such as travel. Never pick a recipe that does not fit."},
+          "length_s": {"type": "integer", "minimum": SHORTEST, "maximum": LONGEST,
+                       "description": "Your guess for the clip's length in seconds. Leave it out to use the recipe's."},
+          "style": {"type": "string", "enum": list(STYLES),
+                    "description": "Your guess for the house style: " +
+                                   "; ".join("%s (%s)" % kv for kv in STYLES.items()) + "."},
+          "language": {"type": "string", "maxLength": 40,
+                       "description": "The language spoken in the recording, as far as you can tell, such as Thai."},
+          "brief": {"type": "string", "maxLength": 300,
+                    "description": "What the person asked for about the clip itself, in their own words (its mood, "
+                                   "length or focus), if they said anything. It wins over every guess."}},
+         ["type"], load_recipe, changes=True),
 ]}
 SCHEMAS = [t.schema() for t in TOOLS.values()]

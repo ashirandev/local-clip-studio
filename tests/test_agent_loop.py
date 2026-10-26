@@ -8,7 +8,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from chatstudio import agent, mind, tools  # noqa: E402
+from chatstudio import agent, mind, recipes, tools  # noqa: E402
 
 
 def call(name, **args):
@@ -158,6 +158,49 @@ class Loop(unittest.TestCase):
         self.assertEqual([e["kind"] for e in events if e["kind"] in ("answer", "note")], ["answer"])
         plan = [e for e in events if e["kind"] == "plan"][-1]
         self.assertEqual([p["state"] for p in plan["items"]], ["done", "done"])
+
+    def test_the_recipe_reaches_muse_the_page_and_the_state(self):
+        brain = ScriptedMind([call("load_recipe", type="Seller", language="Thai", why="it is a product review")],
+                             [call("find_recordings", why="look")], "Ready.")
+        job, events = self.run_job(brain)
+        kinds = [e["kind"] for e in events]
+        self.assertEqual(kinds[kinds.index("step") + 1], "guesses")
+        step = [e for e in events if e["kind"] == "step"][0]
+        self.assertIn("Recipe loaded: Product review or selling live (seller).", step["result"])
+        self.assertIn("Every price or number on screen is one the seller said", step["result"])
+        guesses = [e for e in events if e["kind"] == "guesses"][0]
+        self.assertEqual((guesses["clip"]["recipe"], guesses["clip"]["length_s"], guesses["clip"]["style"]),
+                         ("seller", 30, "clean"))
+        self.assertIn({"label": "It's a game stream", "say": "(tapped) It's a game stream."}, guesses["chips"])
+        self.assertTrue(all(c["say"].startswith("(tapped) ") for c in guesses["chips"]))
+        last_result = [m for m in brain.sent[-1] if m["role"] == "tool"][-1]["content"]
+        self.assertIn("recipe seller: about 30 s, clean style, Thai", last_result.splitlines()[-1])
+        self.assertEqual(agent.Chat.load(self.chat.id).clip, self.chat.clip)
+
+    def test_a_kind_with_no_recipe_is_refused_with_the_kinds_there_are(self):
+        brain = ScriptedMind([call("load_recipe", type="cooking", why="it is a cooking show")],
+                             [call("load_recipe", type="seller", style="neon", why="closest")], "Not ready.")
+        _, events = self.run_job(brain)
+        results = [e["result"] for e in events if e["kind"] == "step"]
+        self.assertIn("There is no recipe for cooking yet. The recipes are: game (Game stream), seller", results[0])
+        self.assertIn("Do not use a recipe made for another kind of video", results[0])
+        self.assertIn("style must be one of: clean, pop, calm", results[1])
+        self.assertIsNone(self.chat.clip)
+
+    def test_another_recipe_replaces_the_first(self):
+        brain = ScriptedMind([call("load_recipe", type="seller", why="a review")],
+                             [call("load_recipe", type="game", length_s=20, why="the person says it is a stream")],
+                             "Switched.")
+        _, events = self.run_job(brain)
+        results = [e["result"] for e in events if e["kind"] == "step"]
+        self.assertIn("This recipe replaces the seller recipe read earlier", results[1])
+        self.assertEqual((self.chat.clip["recipe"], self.chat.clip["length_s"]), ("game", 20))
+
+    def test_recipes_say_what_to_do_in_words_not_tool_names(self):
+        for recipe in recipes.RECIPES.values():
+            self.assertTrue(all(recipe[k] for k in recipes.FIELDS), recipe["name"])
+            for name in tools.TOOLS:
+                self.assertNotIn(name, recipe["body"], recipe["name"])
 
     def test_a_job_that_keeps_repeating_is_stopped(self):
         same = call("find_recordings", why="look")

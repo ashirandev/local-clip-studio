@@ -145,6 +145,26 @@ function drawAnswer(j, e) {
   if (e.engine) div.appendChild(el("p", "engine", engineLine(e.engine, e.mind)));
 }
 
+function drawGuesses(j, e) {
+  document.querySelectorAll(".guesses .chip").forEach((b) => (b.disabled = true));
+  const c = e.clip;
+  const div = el("div", "guesses");
+  div.appendChild(el("p", "guesses-head", "Muse's guesses"));
+  const facts = [c.title, "about " + c.length_s + " s", c.style + " style"];
+  if (c.language) facts.push(c.language);
+  div.appendChild(el("p", "facts", facts.join(" · ")));
+  if (c.brief) div.appendChild(el("p", "brief", "What you asked for: " + c.brief));
+  const row = el("div", "chips");
+  e.chips.forEach((chip) => {
+    const b = el("button", "chip", chip.label);
+    b.type = "button";
+    b.addEventListener("click", () => say(chip.say));
+    row.appendChild(b);
+  });
+  div.appendChild(row);
+  j.flow.appendChild(div);
+}
+
 function plural(n, one) {
   return n + " " + one + (n === 1 ? "" : "s");
 }
@@ -168,6 +188,8 @@ function setBusy() {
   showStatus();
 }
 
+const TAPPED = "(tapped) ";
+
 const ENDS = {
   stopped: "Stopped",
   closed: "The studio was closed during this job",
@@ -181,7 +203,8 @@ function on(e) {
   if (e.id <= room.last) return;
   room.last = e.id;
   if (e.kind === "person") {
-    bubble("you", e.text, e.cut_in && room.jobs[e.job] ? room.jobs[e.job].flow : null);
+    const tapped = e.text.startsWith(TAPPED);
+    bubble(tapped ? "you tapped" : "you", tapped ? "Tapped: " + e.text.slice(TAPPED.length) : e.text, e.cut_in && room.jobs[e.job] ? room.jobs[e.job].flow : null);
     return;
   }
   const j = job(e.job);
@@ -191,6 +214,8 @@ function on(e) {
     setBusy();
   } else if (e.kind === "plan") {
     drawPlan(j, e);
+  } else if (e.kind === "guesses") {
+    drawGuesses(j, e);
   } else if (e.kind === "wait") {
     stopTimer();
     const tick = () => {
@@ -317,21 +342,23 @@ async function post(path, body) {
   return r.json();
 }
 
+async function say(words) {
+  try {
+    const d = await post("/api/say", { chat: room.chat, message: words, mind: room.mind });
+    if (d.ok) return true;
+    bubble("note", d.error || "Something went wrong.");
+  } catch (err) {
+    bubble("note", "The studio is not answering. Start it again with: python app.py");
+  }
+  return false;
+}
+
 composer.addEventListener("submit", async (e) => {
   e.preventDefault();
   const words = text.value.trim();
   if (!words || !room.chat) return;
   text.value = "";
-  try {
-    const d = await post("/api/say", { chat: room.chat, message: words, mind: room.mind });
-    if (!d.ok) {
-      bubble("note", d.error || "Something went wrong.");
-      text.value = words;
-    }
-  } catch (err) {
-    bubble("note", "The studio is not answering. Start it again with: python app.py");
-    text.value = words;
-  }
+  if (!(await say(words))) text.value = words;
   text.focus();
 });
 

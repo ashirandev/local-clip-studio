@@ -61,6 +61,12 @@ happens: its number, what it did, why (one line in your language), the input, th
   question in flight is cancelled and your words go in next, so Muse answers them before anything else. Stop ends
   the job at once. Both close the connection, and llama-server drops the work.
 - **Chats are kept.** New chat starts an empty one; Earlier chats opens an old one again, exactly as it was.
+- **One recipe per kind of video, and no questions.** Muse picks the kind (`recipes/seller.md` for a product review
+  or a selling live, `recipes/game.md` for a game stream), reads that recipe, and shows its guesses: the kind, the
+  length, the style and the language. Each guess has a button to change it with one tap, and Muse plans again.
+  What you type wins over the recipe and every guess. A kind with no recipe yet is refused, and Muse tells you so
+  instead of using a recipe made for something else. A recipe is a Markdown file with front matter, like a
+  SKILL.md file, so a new kind of video is a new file.
 - **Every step is written down.** `work/chats/<chat>.events.jsonl` is the job log the page is drawn from, and
   `<chat>.messages.jsonl` is exactly what Muse read.
 - **Recordings are only looked up, never copied.** `LCS_VIDEOS` lists the folders they are kept in (separated by `;`

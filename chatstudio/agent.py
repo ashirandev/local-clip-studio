@@ -55,7 +55,9 @@ step.
 - Each tool result ends with a line that starts with "Now:". It is the current state; trust it over anything older.
 - When the work is done, or only the person can decide, answer briefly, in the language the person writes in. Say \
 only what your tools actually did, in plain words, without tool or field names. Write plain text, not markdown.
-- A question that needs no tool gets a plain answer, with no plan."""
+- A question that needs no tool gets a plain answer, with no plan.
+- A message that starts with "(tapped)" is a choice the person made with a button under your guesses. Act on it \
+like their own words, and keep answering in the language they type in."""
 
 
 class Chat:
@@ -67,6 +69,7 @@ class Chat:
         self.changed = self.jobs = 0
         self.job = None
         self.live, self.live_rev = None, 0
+        self.clip = None
         self.cond = threading.Condition()
         folder = os.path.join(WORK, "chats")
         os.makedirs(folder, exist_ok=True)
@@ -86,6 +89,8 @@ class Chat:
         for n in sorted({e["job"] for e in chat.events if e.get("job")} - ended):
             steps = sum(1 for e in chat.events if e.get("job") == n and e["kind"] == "step")
             chat.emit("end", job=n, steps=steps, refused=0, fixed=0, seconds=0, why="closed")
+        guesses = [e for e in chat.events if e["kind"] == "guesses"]
+        chat.clip = guesses[-1]["clip"] if guesses else None
         return chat
 
     def add(self, message):
@@ -140,6 +145,7 @@ class Job:
         self.asking = None
         self.stopped = self.done = False
         self.plan, self.plan_shown = [], "[]"
+        self.guesses = None
         self.steps = self.refused = self.fixed = self.guard_stops = 0
         self.seen = {}
         self.last_refused = {}
@@ -253,6 +259,9 @@ class Job:
                               thinking=got["thinking"] if first else "", engine=got["engine"] if first else None,
                               **shown)
                     self.show_plan()
+                    if self.guesses:
+                        self.emit("guesses", **self.guesses)
+                        self.guesses = None
                 if self.guard_stops >= GUARD_STOPS:
                     end = "repeating"
                     self.emit("note", text="Muse kept repeating a call that had already given its answer, so the "
@@ -330,6 +339,11 @@ class Job:
         shown.update(result=sentence, refused=True)
         return shown, sentence
 
+    def set_clip(self, clip, chips):
+        """Muse's recipe and guesses for the clip. They belong to the chat, and the page shows them after the step."""
+        self.chat.clip = clip
+        self.guesses = {"clip": clip, "chips": chips}
+
     def set_plan(self, steps, why):
         changed = bool(self.plan)
         self.plan = [{"text": s, "state": "todo"} for s in steps]
@@ -372,6 +386,12 @@ class Job:
             parts.append(line)
         else:
             parts.append("no plan")
+        clip = self.chat.clip
+        if clip:
+            parts.append("recipe %s: about %d s, %s style%s" % (clip["recipe"], clip["length_s"], clip["style"],
+                                                              ", " + clip["language"] if clip["language"] else ""))
+        else:
+            parts.append("no recipe yet")
         return " · ".join(parts)
 
 
