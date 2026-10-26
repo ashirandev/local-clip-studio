@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+work/
+models/
+*.gguf
+*.safetensors
+*.onnx
+*.mp4
+*.mkv
+*.mov
+*.wav
+*.m4a

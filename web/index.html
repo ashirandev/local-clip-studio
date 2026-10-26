@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local Chat Studio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <section class="chat" aria-label="Chat">
+    <header class="top">
+      <div class="mark" aria-hidden="true"></div>
+      <div>
+        <h1>Local Chat Studio</h1>
+        <p class="sub">Turn a long recording into a clip by talking · powered by Meta's Muse models</p>
+      </div>
+    </header>
+    <div class="log" id="log" aria-live="polite">
+      <div class="welcome" id="welcome">
+        <p class="lead">Drop in a long recording. Get a vertical clip ready to post.</p>
+        <p>Muse watches it, picks the best moment, tells you why, and makes the clip by itself. Say what you want changed at any time, in your own words.</p>
+      </div>
+    </div>
+    <form class="composer" id="composer">
+      <textarea id="text" rows="2" placeholder="Say what you want, in any language" aria-label="Your message"></textarea>
+      <button type="submit" id="send">Send</button>
+    </form>
+    <p class="status" id="status" role="status">Connecting…</p>
+  </section>
+  <section class="clip" aria-label="Your clip">
+    <h2>Your clip</h2>
+    <div class="stage">
+      <div class="frame" id="frame">
+        <p class="hint">Your clip shows here while Muse makes it.</p>
+      </div>
+    </div>
+  </section>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
