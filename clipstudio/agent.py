@@ -373,7 +373,7 @@ class Job:
     def edit(self, entry):
         return self.chat.edit(entry, job=self.n)
 
-    def render(self, rec, state, out):
+    def render(self, rec, state, out, default):
         """Renders the clip into out for a tool: the page shows how far it has got, and Stop ends FFmpeg at once."""
         total, shown = max(0.1, state["length"]), [0.0]
 
@@ -385,7 +385,8 @@ class Job:
 
         self.working("Rendering the clip: starting")
         try:
-            return render.export(rec, state, out, on_progress=progress, on_start=self.started_work)
+            return render.export(rec, state, out, on_progress=progress, on_start=self.started_work,
+                                 default=default)
         finally:
             self.done_working()
 

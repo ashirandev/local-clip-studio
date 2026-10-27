@@ -419,11 +419,11 @@ class Tools(unittest.TestCase):
     def test_render_waits_for_the_file_and_hand_over_needs_one_made_from_the_clip_as_it_is(self):
         made = []
 
-        def export(rec, state, out, on_progress=None, on_start=None):
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
             on_start(lambda: None)
             on_progress(state["length"] / 2)
             shutil.copy(self.clip, out)
-            made.append(state["length"])
+            made.append((state["length"], default))
             return out
 
         had = getattr(render, "export", None)
@@ -447,7 +447,8 @@ class Tools(unittest.TestCase):
         self.assertIn("Render the clip first, then hand it over.", early["result"])
         self.assertRegex(first["result"], r"^Rendered the finished clip in 0:0\d: 20 s, 1080x1920, [\d.]+ MB\.")
         self.assertIn("already made from the clip as it is now", again["result"])
-        self.assertEqual(made, [20], "rendered once: the second call had nothing new to render")
+        self.assertEqual(made, [(20, "clean")],
+                         "rendered once, in the style the preview uses: the second call had nothing new to render")
         self.assertTrue(stale["refused"], "a title came after the render, so the file is not the clip any more")
         self.assertFalse(ready["refused"], ready["result"])
         shown = [e for e in self.chat.events if e["kind"] == "ready"][-1]

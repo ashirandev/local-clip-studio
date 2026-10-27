@@ -1,7 +1,9 @@
 """The clip's drawing stages, checked on raw 1080x1920 frames FFmpeg drew from the project state (no encoding, so
 unchanged means byte-equal): python -m unittest discover -s tests"""
 import importlib.util
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -96,6 +98,20 @@ class Stages(unittest.TestCase):
                         "(2 px): %s vs %s" % (changed(a, b), shown))
         for t in (0.9, 2.1):
             self.assertIsNone(changed(drawn(plain, t), drawn(blurred, t)), "no blur at %s s" % t)
+
+    def test_a_blur_along_a_track_follows_the_face(self):
+        plain = state()
+        track = [[1.0, 280, 100, 40, 40], [1.5, 300, 100, 40, 40], [2.0, 320, 100, 40, 40]]
+        moving = state(blur=[{"track": track, "start": 1.0, "end": 2.0}])
+        lay = plain["clip"]["layout"]
+        for t, x in ((1.0, 280), (1.5, 300), (1.75, 310)):
+            found = changed(drawn(plain, t), drawn(moving, t))
+            (want,) = layouts.to_frame(lay, [x, 100, 40, 40])
+            self.assertIsNotNone(found, t)
+            self.assertLess(abs((found[0] + found[2]) / 2 - (want[0] + want[2] / 2)), 12, "at %s s: %s vs %s"
+                            % (t, found, want))
+        for t in (0.9, 2.1):
+            self.assertIsNone(changed(drawn(plain, t), drawn(moving, t)), "no blur at %s s" % t)
 
     def test_a_blur_on_the_face_camera_is_blurred_in_the_circle(self):
         plain, blurred = state("card"), state("card", blur=[{"box": FACE, "start": 0.0, "end": 4.0}])
@@ -210,6 +226,127 @@ class Preview(unittest.TestCase):
         with self.assertRaises(render.NotDrawn) as e:
             render.frame(self.rec, state(captions=[{"lines": lines, "band": [1090, 10]}]), 1.5)
         self.assertIn("band [1090, 10]", str(e.exception).replace("(", "[").replace(")", "]"))
+
+
+MOVING = ("nullsrc=s=640x360:r=30:d=6,geq=lum='120+50*sin(2*PI*(X/80-T*2))+70*lt(abs(Y-20-50*T),15)':cb=128:cr=128,"
+          "format=yuv420p")
+
+
+def probe(path):
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height,"
+                          "r_frame_rate,nb_frames,duration,sample_rate", "-of", "json", path],
+                         capture_output=True, text=True, check=True).stdout
+    return {s["codec_type"]: s for s in json.loads(out)["streams"]}
+
+
+def grey_frames(path, numbers):
+    """{n: the grey 1080x1920 frame n of an mp4 as bytes}."""
+    pick = "+".join("eq(n\,%d)" % n for n in numbers)
+    raw = subprocess.run([FFMPEG, "-v", "error", "-i", path, "-vf", "select='%s'" % pick, "-fps_mode", "passthrough",
+                          "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True, check=True).stdout
+    size = 1080 * 1920
+    return {n: raw[k * size:(k + 1) * size] for k, n in enumerate(sorted(numbers))}
+
+
+def apart(a, b):
+    """The mean difference of two grey frames, sampled."""
+    picks = range(0, len(a), 997)
+    return sum(abs(a[i] - b[i]) for i in picks) / len(picks)
+
+
+@unittest.skipUnless(FFMPEG and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
+class Export(unittest.TestCase):
+    """A 3 s card clip of two pieces from a recording of moving stripes, a bar that moves down without ever coming
+    back, and a quiet tone, exported once."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.work, recording.WORK = recording.WORK, os.path.join(cls.tmp, "work")
+        cls.path = os.path.join(cls.tmp, "stream.mp4")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", MOVING, "-f", "lavfi", "-i",
+                        "sine=frequency=440:sample_rate=48000:duration=6", "-af", "volume=-20dB", "-c:v", "libx264",
+                        "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", cls.path],
+                       check=True)
+        cls.rec = recording.probe(cls.path)
+        p = project.Project([{"do": "clip", "moment": 1, "pieces": [[0.5, 2.0], [3.0, 4.5]],
+                              "layout": layouts.make("card", (640, 360), [560, 280, 60, 60])},
+                             {"do": "title", "text": "Boss down", "start": 0.5, "end": 2.5, "place": "top",
+                              "box": layouts.TOP, "key": None}])
+        cls.state = p.state()
+        cls.out = os.path.join(cls.tmp, "clip.mp4")
+        cls.progress = []
+        cls.made = render.export(cls.rec, cls.state, cls.out, on_progress=cls.progress.append)
+
+    @classmethod
+    def tearDownClass(cls):
+        recording.WORK = cls.work
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_the_file_is_the_clip_at_30_fps_1080x1920_with_its_sound_at_minus_14_lufs(self):
+        self.assertEqual(self.made, self.out)
+        self.assertFalse(os.path.exists(self.out + ".part"), "the part file is gone")
+        streams = probe(self.out)
+        video, sound = streams["video"], streams["audio"]
+        self.assertEqual((video["codec_name"], video["width"], video["height"], video["r_frame_rate"]),
+                         ("h264", 1080, 1920, "30/1"))
+        self.assertEqual(int(video["nb_frames"]), 90, "3 s at 30 fps")
+        self.assertLess(abs(float(video["duration"]) - self.state["length"]), 1 / 30)
+        self.assertEqual((sound["codec_name"], sound["sample_rate"]), ("aac", "48000"))
+        self.assertLess(abs(float(sound["duration"]) - self.state["length"]), 1 / 30)
+        meter = subprocess.run([FFMPEG, "-hide_banner", "-nostats", "-i", self.out, "-map", "0:a", "-af", "ebur128",
+                                "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8",
+                               errors="replace").stderr
+        loud = float(re.findall(r"I:\s+(-?[\d.]+) LUFS", meter)[-1])
+        self.assertLess(abs(loud - render.LUFS), 1, "the sound is at %s LUFS" % loud)
+
+    def test_the_index_is_at_the_front_so_it_plays_while_it_downloads(self):
+        with open(self.out, "rb") as f:
+            head = f.read()
+        self.assertLess(head.find(b"moov"), head.find(b"mdat"))
+
+    def test_progress_runs_up_to_the_clip_length(self):
+        self.assertGreater(len(self.progress), 1)
+        self.assertEqual(self.progress, sorted(self.progress))
+        self.assertEqual(self.progress[-1], self.state["length"])
+
+    def test_every_frame_is_the_preview_frame_at_its_time_across_the_join(self):
+        times = (0.5, 1.4, 1.6, 2.4)
+        made = grey_frames(self.out, [round(t * 30) for t in times] + [round(times[2] * 30) + 1])
+        for t in times:
+            preview = subprocess.run([FFMPEG, "-v", "error", "-i", render.frame(self.rec, self.state, t, width=1080),
+                                      "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True,
+                                     check=True).stdout
+            self.assertLess(apart(made[round(t * 30)], preview), 3, "the frame at %s s" % t)
+            if t == times[2]:
+                self.assertGreater(apart(made[round(t * 30) + 1], preview), 6,
+                                   "the next frame differs, so a frame's shift would show")
+
+    def test_stop_ends_ffmpeg_at_once_and_leaves_no_file(self):
+        out = os.path.join(self.tmp, "stopped.mp4")
+        whole = dict(self.state, clip=dict(self.state["clip"], pieces=[[0, 6]]), length=6.0)
+        stops, seen = [], []
+
+        def progress(done):
+            seen.append(done)
+            if done > 0.3 and stops:
+                stops.pop()()
+
+        with self.assertRaises(render.Stopped):
+            render.export(self.rec, whole, out, on_progress=progress, on_start=stops.append)
+        self.assertFalse(stops, "Stop was pressed part way")
+        self.assertLess(max(seen), 4, "FFmpeg ended when Stop was pressed: %s" % seen)
+        self.assertFalse(os.path.exists(out))
+        self.assertFalse(os.path.exists(out + ".part"), "the part written before Stop is gone")
+
+    def test_a_clip_that_cannot_be_made_says_why(self):
+        with self.assertRaises(render.NotDrawn) as e:
+            render.export(self.rec, dict(self.state, hits=[{"kind": "wobble", "at": 1.0, "word": None,
+                                                            "centre": [540, 960]}]), os.path.join(self.tmp, "x.mp4"))
+        self.assertIn("hit kind 'wobble' is not a hit", str(e.exception))
+        with self.assertRaises(render.NotDrawn) as e:
+            render.export(self.rec, dict(self.state, clip=None), os.path.join(self.tmp, "x.mp4"))
+        self.assertIn("no clip yet", str(e.exception))
 
 
 if __name__ == "__main__":

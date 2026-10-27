@@ -832,8 +832,8 @@ def render_clip(job, why):
     out = os.path.join(render.folder("clips"), sign + ".mp4")
     started = time.time()
     try:
-        job.render(rec, state, out)
-    except getattr(render, "Stopped", ()) or ():
+        job.render(rec, state, out, job.chat.clip["style"] if job.chat.clip else "clean")
+    except render.Stopped:
         return "Not rendered: the person pressed Stop. Nothing was kept."
     except render.NotDrawn as e:
         raise Refused("The clip could not be rendered: %s" % e)
