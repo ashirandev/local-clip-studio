@@ -157,6 +157,23 @@ class Projects(unittest.TestCase):
         self.assertEqual(tools.describe(p.entries[-1]), "the sticker at 6 s")
         self.assertEqual(project.Project().state()["stickers"], [], "no clip, nothing drawn")
 
+    def test_a_sticker_or_glass_box_on_the_same_spot_at_an_overlapping_time_replaces_the_earlier_one(self):
+        p = project.Project()
+        p.add({"do": "clip", "moment": 1, "pieces": [[30, 50]], "layout": {"kind": "card"}})
+        p.add({"do": "sticker", "png": "a.png", "at": 2, "length": 2, "box": [100, 100, 200, 200], "name": "fire"})
+        p.add({"do": "sticker", "png": "b.png", "at": 3, "length": 2, "box": [250, 250, 200, 200], "name": "star"})
+        p.add({"do": "sticker", "png": "c.png", "at": 4, "length": 2, "box": [600, 600, 100, 100], "name": "bell"})
+        p.add({"do": "sticker", "png": "d.png", "at": 5, "length": 2, "box": [100, 100, 200, 200], "name": "gem_stone"})
+        self.assertEqual([k["name"] for k in p.state()["stickers"]], ["star", "bell", "gem_stone"],
+                         "fire 2-4 s went under star 3-5 s on its spot; gem_stone at 5 s missed fire's time")
+        for start, end, x in ((1, 5, 100), (4, 8, 300), (9, 12, 300), (2, 3, 900)):
+            p.add({"do": "glass", "box": [x, 900, 400, 200], "start": start, "end": end, "tint": "light", "shine": True})
+        self.assertEqual([(g["start"], g["box"][0]) for g in p.state()["glass"]], [(2, 900), (4, 300), (9, 300)])
+        self.assertEqual(tools.describe(p.entries[-1]), "the light glass box at 2-3 s")
+        self.assertEqual(tools.describe(p.entries[4]), "the sticker gem_stone at 5 s")
+        p.add({"do": "glass", "box": [0, 0, 100, 100], "start": 25, "end": 28, "tint": "dark", "shine": False})
+        self.assertEqual(len(p.state()["glass"]), 3, "a glass box after the end of the clip is not drawn")
+
     def test_the_last_look_wins_and_a_push_over_an_earlier_one_replaces_it(self):
         p = project.Project()
         self.assertEqual((p.state()["look"], p.state()["pushes"]), (None, []))
@@ -661,6 +678,76 @@ class Tools(unittest.TestCase):
 
     def test_muse_is_offered_the_sounds_the_renderer_makes(self):
         self.assertEqual(set(tools.SOUNDS), set(effects.SOUNDS))
+
+    def test_muse_puts_the_studios_stickers_and_glass_boxes_on_the_clip_clear_of_faces(self):
+        self.chat.emit("person", job=None, text="ใส่ไฟบนหน้าผมเลย")
+        face = [430, 660, 570, 760]
+        brain, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("add_sticker", sticker="fire", at=2, place="middle", why="the peak")],
+            [call("add_sticker", sticker="star", at=2.5, place="middle", why="a better one")],
+            [call("add_sticker", sticker="fire", at=19.8, place="middle", why="at the very end")],
+            [call("add_sticker", sticker="fire", at=1, box=face, why="on the face")],
+            [call("add_sticker", sticker="fire", at=1, box=face, person_said="ใส่ไฟบนหน้าผม", why="they asked")],
+            [call("add_sticker", sticker="fire", at=1, why="nowhere")],
+            [call("add_sticker", sticker="fire", at=1, box=[100, 900, 300, 990], why="low")],
+            [call("add_glass", box=[100, 440, 800, 555], start=1, end=5, why="for the title")],
+            [call("add_glass", box=[100, 440, 800, 555], start=10, end=14, tint="light", why="light")],
+            [call("add_glass", box=[100, 440, 800, 555], start=6, end=6.2, why="too short")],
+            [call("add_glass", box=[100, 460, 130, 470], start=6, end=9, why="too small")],
+            [call("add_glass", box=face, start=1, end=4, tint="dark", why="on the face")],
+            [call("add_glass", box=[100, 940, 900, 1000], start=6, end=9, why="at the bottom")],
+            [call("set_style", style="sticker", why="labels")],
+            [call("add_glass", box=[100, 440, 800, 555], start=15, end=18, why="under a label")],
+            "Done.")
+        fire, star, late, on_face, asked, nowhere, under, glass, light, short, small, glass_face, low = steps[-15:-2]
+        self.assertIn("The sticker style draws its own box behind the words, so they read on any glass.",
+                      steps[-1]["result"])
+        self.assertFalse(fire["refused"], fire["result"])
+        self.assertIn("The sticker fire pops in at 2 s at the middle and stays 2 s: 170 x 170 px, clear of every face "
+                      "the program found.", fire["result"])
+        self.assertIn("comes next as a picture", fire["result"])
+        self.assertIn("It replaces the sticker fire at 2 s.", star["result"])
+        self.assertTrue(late["refused"])
+        self.assertIn("a sticker needs 0.4 s to pop in and fade out. Put it earlier.", late["result"])
+        self.assertTrue(on_face["refused"])
+        self.assertIn("The sticker would cover a face at", on_face["result"])
+        self.assertIn("- middle (y 905 to 1075): clear of faces for the whole clip", on_face["result"])
+        self.assertFalse(asked["refused"], asked["result"])
+        self.assertIn("It covers a face at", asked["result"])
+        self.assertIn("where the person asked for it; tell the person.", asked["result"])
+        self.assertTrue(nowhere["refused"])
+        self.assertIn("Give a box, or one of the layout's places for words: top, middle.", nowhere["result"])
+        self.assertTrue(under["refused"])
+        self.assertIn("On a phone, the name and the caption cover everything below y 1520", under["result"])
+        self.assertFalse(glass["refused"], glass["result"])
+        self.assertIn("A dark glass box at [100, 440, 800, 555] on your grid from 1 to 5 s", glass["result"])
+        self.assertIn("Dark glass, because the clean style's words are light.", glass["result"])
+        self.assertFalse(light["refused"], light["result"])
+        self.assertIn("The clean style's words are light, so they stand on their outline here; dark glass would read "
+                      "better under them.", light["result"])
+        self.assertIn("give add_title the same box", glass["result"])
+        self.assertIn("comes next as a picture", glass["result"])
+        self.assertTrue(short["refused"])
+        self.assertIn("too short for a glass box", short["result"])
+        self.assertTrue(small["refused"])
+        self.assertIn("too small for a glass box", small["result"])
+        self.assertTrue(glass_face["refused"])
+        self.assertIn("The glass box would cover a face at", glass_face["result"])
+        self.assertTrue(low["refused"])
+        self.assertIn("On a phone, the name and the caption cover everything below y 1520", low["result"])
+        state = self.chat.project.state()
+        self.assertEqual([(k["name"], k["at"]) for k in state["stickers"]], [("fire", 1), ("star", 2.5)])
+        self.assertEqual(state["stickers"][1]["png"], effects.sticker_png("star"))
+        self.assertEqual([(g["box"], g["start"], g["end"], g["tint"], g["shine"]) for g in state["glass"]],
+                         [([108, 845, 756, 221], 1, 5, "dark", True), ([108, 845, 756, 221], 10, 14, "light", True),
+                          ([108, 845, 756, 221], 15, 18, "light", True)])
+        self.assertIn("glass boxes: dark 1-5 s, light 10-14 s, light 15-18 s, stickers: fire at 1 s, star at 2.5 s", self.chat.clip_line())
+
+    def test_muse_is_offered_every_studio_sticker(self):
+        offered = tools.TOOLS["add_sticker"].params["sticker"]["enum"]
+        self.assertEqual(offered, [s["name"] for s in effects.stickers()])
+        self.assertEqual(len(offered), 60)
 
     def test_the_clip_knows_when_someone_speaks_in_clip_seconds(self):
         said = {"said": [{"from": 29, "to": 31}, {"from": 39, "to": 46}, {"from": 60, "to": 61}]}

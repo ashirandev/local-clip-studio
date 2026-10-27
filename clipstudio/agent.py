@@ -257,6 +257,12 @@ class Chat:
             extras.append("slow push " + ", ".join("%g-%g s" % (p["start"], p["end"]) for p in state["pushes"]))
         if state["hits"]:
             extras.append("hits: " + ", ".join("%s at %g s" % (h["kind"], h["at"]) for h in state["hits"]))
+        if state["glass"]:
+            extras.append("glass boxes: " + ", ".join("%s %g-%g s" % (g["tint"], g["start"], g["end"])
+                                                      for g in state["glass"]))
+        if state["stickers"]:
+            extras.append("stickers: " + ", ".join("%s at %g s" % (k.get("name") or "a picture", k["at"])
+                                                   for k in state["stickers"]))
         if state["sounds"]:
             extras.append("sounds: " + ", ".join("%s at %g s" % (s["kind"], s["at"]) for s in state["sounds"]))
         if state["music"]:

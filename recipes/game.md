@@ -31,6 +31,7 @@ After the clip, the viewer has felt the moment: what led up to it, the peak, and
 - The title says what happens, in the clip's language, without giving the ending away.
 - Look: vivid. One slow push on the build-up, ending on the peak.
 - Sounds: a thump on a punch or a shake, a whoosh on a flash. Only on the hits that matter.
+- Stickers: one on the peak, such as fire, collision or trophy, never on a face.
 
 ## Checked at the end
 

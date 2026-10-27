@@ -37,6 +37,7 @@ the seller said one.
 - A spec card may show one number the seller said.
 - Look: warm, so faces look natural and a white product stays white. One slow push while the product is shown.
 - Sounds: a ding when a price or a number title comes on, and nothing more: the voice sells.
+- A glass box under a price or a short list when the picture behind is busy, with the words on it. At most one sticker, such as money_bag on the price.
 
 ## Checked at the end
 

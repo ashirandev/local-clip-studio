@@ -774,6 +774,46 @@ def _covers(drawn, lay, state):
     return out
 
 
+def _phone(drawn, lay, state, asked):
+    """What a phone or the captions cover of drawn, as notes for the person when they asked for the spot; Refused
+    when Muse chose it."""
+    covers = _covers([round(v) for v in drawn], lay, state)
+    if covers and not asked:
+        raise Refused("On a phone, %s. Pick one of the layout's places, or a box inside x %d-%d, y %d-%d; give "
+                      "person_said only when the person asked for this spot." % (
+                          "; ".join(covers), layouts.SAFE[0], layouts.SAFE[0] + layouts.SAFE[2], layouts.SAFE[1],
+                          layouts.SAFE_BOTTOM))
+    return ["Placed where the person asked. On a phone, %s; tell the person." % "; ".join(covers)] if covers else []
+
+
+def _off_faces(state, rec, drawn, a, b, asked, what):
+    """Notes for drawn from a to b (clip seconds) when the person asked for the spot, saying the faces it covers;
+    Refused, with the places and when they are clear, when it would cover a face Muse should keep clear of."""
+    times, every = _face_times(state, rec)
+    hit = _covered(drawn, times, every, a, b)
+    face = "a face%s" % (" or the product" if state["clip"].get("product") else "")
+    if hit and not asked:
+        raise Refused("The %s would cover %s at %s. Pick another box or time; the layout's places and when they are "
+                      "clear:\n%s" % (what, face, _spans(hit), "\n".join(_place_lines(state, rec))))
+    if hit:
+        return ["It covers %s at %s, where the person asked for it; tell the person." % (face, _spans(hit))], hit
+    return [], hit
+
+
+def _on_grid(box):
+    return "[%s]" % ", ".join("%g" % v for v in box)
+
+
+def _spot(name, state, place, box):
+    """The frame box Muse gave: a box on its grid, or one of the layout's places for words."""
+    lay = state["clip"]["layout"]
+    if box is not None:
+        return _frame_box(name, box), "box at %s on your grid" % _on_grid(box)
+    if place in lay["places"]:
+        return list(lay["places"][place]), "the %s" % place
+    raise Refused("Give a box, or one of the layout's places for words: %s." % ", ".join(lay["places"]))
+
+
 def _asked(job, person_said):
     """True when person_said quotes words the person typed in this chat, False when it is empty; Refused when the
     person never said it, so Muse cannot claim a request nobody made."""
@@ -831,15 +871,7 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
         key, fixed = holding[0], 'The key "%s" is part of the word "%s", so that word is the key.' % (key, holding[0])
         text.title(words, start, end, band, st, key)
     drawn = [band[0] + (band[2] - size.w) / 2, band[1] + (band[3] - size.h) / 2, size.w, size.h]
-    notes = []
-    covers = _covers([round(v) for v in drawn], lay, state)
-    if covers and not asked:
-        raise Refused("On a phone, %s. Pick one of the layout's places, or a box inside x %d-%d, y %d-%d; give "
-                      "person_said only when the person asked for this spot." % (
-                          "; ".join(covers), layouts.SAFE[0], layouts.SAFE[0] + layouts.SAFE[2], layouts.SAFE[1],
-                          layouts.SAFE_BOTTOM))
-    if covers:
-        notes.append("Placed where the person asked. On a phone, %s; tell the person." % "; ".join(covers))
+    notes = _phone(drawn, lay, state, asked)
     times, every = _face_times(state, rec)
     hit = _covered(drawn, times, every, start, end)
     if hit and asked:
@@ -1292,6 +1324,102 @@ def add_hit(job, why, at, kind, word=None):
     return "Added %s at %g s%s." % (HITS[kind], at, ' ("%s")' % word if kind == "word" else "")
 
 
+STICKER_LENGTH = 2.0
+
+
+def add_sticker(job, why, sticker, at, length=STICKER_LENGTH, place=None, box=None, person_said=None):
+    asked = _asked(job, person_said)
+    rec = _open(job, "put a sticker on")
+    state = _clip_state(job)
+    clip_length = state["length"]
+    if not 0 <= at < clip_length:
+        raise Refused("at %g s is outside the clip, which is %g s long: use seconds of the clip." % (at, clip_length))
+    try:
+        png = effects.sticker_png(sticker)
+    except ValueError as e:
+        raise Refused(str(e))
+    shortest = effects.POP[-1][0] + effects.FADE
+    length = min(length, round(clip_length - at, 2))
+    if length < shortest:
+        raise Refused("At %g s the clip ends %g s later; a sticker needs %g s to pop in and fade out. Put it "
+                      "earlier." % (at, round(clip_length - at, 2), shortest))
+    band, where = _spot("box", state, place, box)
+    try:
+        effects.sticker(png, at, length, band)
+    except ValueError as e:
+        raise Refused(str(e))
+    w, h = effects._png_size(png)
+    fit = min(band[2] / w, band[3] / h)
+    drawn = [round(band[0] + (band[2] - w * fit) / 2), round(band[1] + (band[3] - h * fit) / 2), round(w * fit),
+             round(h * fit)]
+    notes = _phone(drawn, state["clip"]["layout"], state, asked)
+    more, hit = _off_faces(state, rec, drawn, at, at + length, asked, "sticker")
+    replaced = [k for k in state["stickers"] if project._same_box(k, {"box": band, "at": at, "length": length},
+                                                                  "at", "length")]
+    state = job.edit({"do": "sticker", "png": png, "at": round(at, 2), "length": length, "box": band,
+                      "name": sticker})
+    lines = ["The sticker %s pops in at %g s at %s and stays %g s: %d x %d px%s." % (
+        sticker, at, where, length, drawn[2], drawn[3], "" if hit else ", clear of every face the program found")]
+    lines += notes + more
+    if replaced:
+        lines.append("It replaces %s." % ", ".join("the sticker %s at %g s" % (k.get("name") or "picture", k["at"])
+                                                     for k in replaced))
+    lines.append(_show_frame(job, state, rec, min(at + 0.4, at + length - effects.FADE), "The clip with the sticker:"))
+    return "\n".join(lines)
+
+
+GLASS_TINTS = {"light": "the picture behind lightened, for dark words or busy colours",
+               "dark": "the picture behind darkened, for white words on a bright picture"}
+
+
+def _light(colour):
+    """True for a colour (#RRGGBB) a dark background reads best under."""
+    r, g, b = (int(colour[i:i + 2], 16) for i in (1, 3, 5))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b > 127.5
+
+
+def add_glass(job, why, box, start, end, tint=None, shine=True, person_said=None):
+    asked = _asked(job, person_said)
+    rec = _open(job, "put a glass box on")
+    state = _clip_state(job)
+    length = state["length"]
+    words = render.style_of(state, job.chat.clip["style"] if job.chat.clip else "clean", kind="title")
+    fits = "dark" if _light(words.colour) else "light"
+    chosen, tint = tint is None, tint or fits
+    if not 0 <= start < length:
+        raise Refused("start %g s is outside the clip, which is %g s long: use seconds of the clip." % (start, length))
+    end = min(end, length)
+    band = _frame_box("box", box)
+    try:
+        layouts.glass(band, start, end, tint, shine)
+    except ValueError as e:
+        raise Refused(str(e))
+    notes = _phone(band, state["clip"]["layout"], state, asked)
+    more, hit = _off_faces(state, rec, band, start, end, asked, "glass box")
+    replaced = [g for g in state["glass"] if project._same_box(g, {"box": band, "start": start, "end": end},
+                                                               "start", "end")]
+    state = job.edit({"do": "glass", "box": band, "start": round(start, 2), "end": round(end, 2), "tint": tint,
+                      "shine": shine})
+    lines = ["A %s glass box at %s on your grid from %g to %g s: %s%s, %d x %d px%s." % (
+        tint, _on_grid(box), start, end, GLASS_TINTS[tint], ", with a sweep of light as it appears" if shine else "", band[2],
+        band[3], "" if hit else ", clear of every face the program found"),
+        "Words and stickers stand on it: give add_title the same box to put a title on it."]
+    if words.box:
+        lines.append("The %s style draws its own box behind the words, so they read on any glass." % words.name)
+    elif chosen:
+        lines.append("%s glass, because the %s style's words are %s." % (
+            tint.capitalize(), words.name, "light" if fits == "dark" else "dark"))
+    elif tint != fits:
+        lines.append("The %s style's words are %s, so they stand on their outline here; %s glass would read better "
+                     "under them." % (words.name, "light" if fits == "dark" else "dark", fits))
+    lines += notes + more
+    if replaced:
+        lines.append("It replaces the glass box at %s." % ", ".join("%g-%g s" % (g["start"], g["end"])
+                                                                  for g in replaced))
+    lines.append(_show_frame(job, state, rec, (start + end) / 2, "The clip with the glass box:"))
+    return "\n".join(lines)
+
+
 MOST_TAGS = 8
 
 
@@ -1563,7 +1691,9 @@ def describe(entry):
     if entry["do"] == "hit":
         return "the %s at %g s" % (entry["kind"], entry["at"])
     if entry["do"] == "sticker":
-        return "the sticker at %g s" % entry["at"]
+        return "the sticker %sat %g s" % (entry["name"] + " " if entry.get("name") else "", entry["at"])
+    if entry["do"] == "glass":
+        return "the %s glass box at %g-%g s" % (entry["tint"], entry["start"], entry["end"])
     if entry["do"] == "layout":
         return "moving the %s" % entry["part"]
     if entry["do"] == "untitle":
@@ -1890,6 +2020,48 @@ TOOLS = {t.name: t for t in [
           "word": {"type": "string", "maxLength": 20,
                    "description": "For a word hit: the word, short, in the clip's language."}},
          ["at", "kind"], add_hit, changes=True),
+    Tool("add_sticker", "Put a sticker on",
+         "Put one of the studio's stickers on the clip: a 3D emoji picture that pops in, holds and fades out, such "
+         "as fire on the peak, money_bag on a price, thumbs_up on a good result. One or two in a clip, on the "
+         "moments that matter. It keeps its square shape in the middle of the box you give: a box 200 wide and 110 "
+         "tall on the grid is about 216 px square. A sticker on the same spot at an overlapping time replaces the "
+         "earlier one.",
+         {"sticker": {"type": "string", "enum": [s["name"] for s in effects.stickers()],
+                      "description": "Which sticker, by its name."},
+          "at": {"type": "number", "minimum": 0, "description": "When it pops in, in seconds of the clip."},
+          "length": {"type": "number", "minimum": 0.4, "maximum": 10,
+                     "description": "How long it stays, in seconds. Leave it out for %g." % STICKER_LENGTH},
+          "place": {"type": "string", "maxLength": 20,
+                    "description": "One of the layout's places for words, as make_clip listed them. Leave it out "
+                                   "when you give a box."},
+          "box": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0,
+                                                                              "maximum": 1000},
+                  "description": "[x1, y1, x2, y2] on a 0-1000 grid of the clip's vertical frame, where it goes."},
+          "person_said": {"type": "string", "maxLength": 200,
+                          "description": "Only when the person asked for this exact spot: their own words from the "
+                                         "chat, quoted. Then it goes there even over a face or where a phone covers "
+                                         "it, and the result says so."}},
+         ["sticker", "at"], add_sticker, changes=True),
+    Tool("add_glass", "Put a glass box on",
+         "Put a frosted glass box on the clip for a title, a price or a list to stand on, so the words read over a "
+         "busy picture: inside its rounded shape the picture is blurred and " +
+         "; or ".join("%s: %s" % kv for kv in GLASS_TINTS.items()) + ". It has a soft edge and shadow, fades in and "
+         "out, and lies under the words and stickers. Then give add_title the same box.",
+         {"box": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0,
+                                                                             "maximum": 1000},
+                  "description": "[x1, y1, x2, y2] on a 0-1000 grid of the clip's vertical frame, a little bigger "
+                                 "than the words that stand on it."},
+          "start": {"type": "number", "minimum": 0, "description": "When it fades in, in seconds of the clip."},
+          "end": {"type": "number", "minimum": 0, "description": "When it is gone, in seconds of the clip."},
+          "tint": {"type": "string", "enum": list(GLASS_TINTS),
+                   "description": "Leave it out and the program picks the one the style's words read best on."},
+          "shine": {"type": "boolean",
+                    "description": "true (the default) sweeps a band of light across it once as it appears; false "
+                                   "for a quiet box."},
+          "person_said": {"type": "string", "maxLength": 200,
+                          "description": "Only when the person asked for this exact spot: their own words from the "
+                                         "chat, quoted."}},
+         ["box", "start", "end"], add_glass, changes=True),
     Tool("render_clip", "Rendered the clip",
          "Render the finished clip from everything on it now: one call that returns when the file exists, with how "
          "long it took. Render after the last change, before you hand it over. Calling it again with no change in "

@@ -15,7 +15,10 @@ the recording, and boxes on the frame are pixels of the 1080x1920 clip.
 - blur: {"box": recording box, "start", "end"}: a fixed box, such as a stream's chat; or {"track": [[clip second, x,
   y, w, h], ...] in recording pixels, "start", "end"}: a box that moves with a face
 - hit: {"kind": flash, shake, punch or word, "at", "word", "centre": [x, y] on the frame}
-- sticker: {"png": path of a PNG, "at", "length", "box": frame box the picture is fitted in}
+- sticker: {"png": path of a PNG, "at", "length", "box": frame box the picture is fitted in, "name": the studio
+  sticker's name, when it is one}; a sticker on the same spot at an overlapping time replaces an earlier one
+- glass: {"box": frame box, "start", "end", "tint": light or dark, "shine": a sweep of light as it appears}; a glass
+  box on the same spot at an overlapping time replaces an earlier one
 - untitle: {"text"}: takes the titles with these words off
 - layout: {"part", "box": frame box, "layout": the clip's layout with that part moved where the person asked}
 - look: {"name": one of effects.LOOKS, or None for the footage as it was shot}
@@ -33,7 +36,7 @@ import hashlib
 import json
 
 DOES = ("clip", "style", "title", "captions", "blur", "hit", "sticker", "people", "look", "push", "layout", "untitle",
-        "sound", "music")
+        "sound", "music", "glass")
 
 
 class Project:
@@ -54,13 +57,13 @@ class Project:
         """What the entries add up to: {"clip": the last clip entry or None, "length": clip seconds, "style": the
         last style entry or None, "titles": [title entries inside the clip], "captions": the last captions entry or
         None, "blurs": [blur entries], "hits": [hit entries inside the clip], "stickers": [sticker entries inside the
-        clip], "look": the colour look's name or None, "pushes": [push entries inside the clip], "people": the clip's
+        clip], "glass": [glass entries inside the clip], "look": the colour look's name or None, "pushes": [push entries inside the clip], "people": the clip's
         people, each with "blur" True, False or None when not decided, "sounds": [sound entries inside the clip],
         "music": the last music entry with a path or None, "speech": the clip's speech spans or None}. A blurred
         person's track is one of the blurs. A new clip entry keeps the words and effects; what starts after its end
         is not drawn."""
         clip = style = captions = None
-        titles, blurs, hits, stickers, pushes, sounds = [], [], [], [], [], []
+        titles, blurs, hits, stickers, pushes, sounds, glass = [], [], [], [], [], [], []
         look = music = None
         decided = {}
         for e in self.entries:
@@ -78,7 +81,9 @@ class Project:
             elif e["do"] == "hit":
                 hits = [h for h in hits if not (h["kind"] == e["kind"] and abs(h["at"] - e["at"]) < 0.5)] + [e]
             elif e["do"] == "sticker":
-                stickers.append(e)
+                stickers = [k for k in stickers if not _same_box(k, e, "at", "length")] + [e]
+            elif e["do"] == "glass":
+                glass = [g for g in glass if not _same_box(g, e, "start", "end")] + [e]
             elif e["do"] == "untitle":
                 titles = [t for t in titles if t["text"] != e["text"]]
             elif e["do"] == "layout":
@@ -105,6 +110,7 @@ class Project:
                 "blurs": [b for b in blurs if inside(b["start"])],
                 "hits": sorted([h for h in hits if inside(h["at"])], key=lambda h: h["at"]),
                 "stickers": sorted([k for k in stickers if inside(k["at"])], key=lambda k: k["at"]),
+                "glass": sorted([g for g in glass if inside(g["start"])], key=lambda g: g["start"]),
                 "look": look if clip else None,
                 "pushes": sorted([p for p in pushes if inside(p["start"])], key=lambda p: p["start"]),
                 "people": people,
@@ -117,6 +123,15 @@ def signature(entries):
     """A short name for the clip as these entries make it: the same entries always give the same name, so a finished
     file can be matched to the clip it was made from."""
     return hashlib.sha1(json.dumps(entries, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+
+
+def _same_box(a, b, start, end):
+    """Two frame boxes that overlap at overlapping times; end is an end time, or the length after start."""
+    def until(e):
+        return e[start] + e[end] if end == "length" else e[end]
+    (ax, ay, aw, ah), (bx, by, bw, bh) = a["box"], b["box"]
+    return (ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
+            and a[start] < until(b) and b[start] < until(a))
 
 
 def _same_spot(a, b):
