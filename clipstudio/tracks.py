@@ -172,5 +172,11 @@ def _crop(rec, best):
         if done.returncode != 0 or not os.path.getsize(part):
             os.remove(part)
             return None
-        os.replace(part, path)
+        try:
+            os.replace(part, path)
+        except PermissionError:
+            # made by another request at the same moment and open now (Windows): the same picture, so keep it
+            os.remove(part)
+            if not os.path.isfile(path):
+                raise
     return path

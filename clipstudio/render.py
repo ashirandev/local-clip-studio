@@ -54,12 +54,21 @@ def folder(name):
     return path
 
 
-def style_of(state, default="clean"):
-    """The text style the clip uses: the last style entry, else the house style the recipe guessed."""
+def style_of(state, default="clean", kind="title"):
+    """The text style the clip draws one part of its words in (kind: title, caption or big): the last style entry,
+    with the font the person gave that part ("fonts": {part: font}) or every part ("font"), else the house style the
+    recipe guessed."""
+    if kind not in text.KINDS:
+        raise ValueError("kind %r is not a part of the words: use one of %s." % (kind, ", ".join(text.KINDS)))
     e = state["style"]
     if e:
-        return text.style(e["name"], e.get("font"), e.get("colour"))
+        return text.look(e["name"], e.get("font"), e.get("colour"), e.get("fonts"))[kind]
     return text.STYLES.get(default) or text.STYLES["clean"]
+
+
+def _styles(state, default):
+    """The clip's style for each part of its words, {kind: Style}."""
+    return {kind: style_of(state, default, kind) for kind in text.KINDS}
 
 
 def _hits(state):
@@ -77,21 +86,21 @@ def ass(state, default="clean"):
     words = [h for h in _hits(state) if h["kind"] == "word"]
     if not (state["titles"] or captions or words):
         return None
-    st = style_of(state, default)
+    st = _styles(state, default)
     events = []
     for t in state["titles"]:
-        events += text.title(t["text"], t["start"], t["end"], t["box"], st, t.get("key"))
+        events += text.title(t["text"], t["start"], t["end"], t["box"], st["title"], t.get("key"))
     if captions:
-        events += text.captions(captions["lines"], st, captions["band"], lit=captions.get("lit", False))
+        events += text.captions(captions["lines"], st["caption"], captions["band"], lit=captions.get("lit", False))
     for h in words:
-        events += text.big_word(h["word"], h["at"], WORD_SECONDS, h["centre"], st)
-    body = text.document([st], events)
+        events += text.big_word(h["word"], h["at"], WORD_SECONDS, h["centre"], st["big"])
+    body = text.document(list(st.values()), events)
     path = os.path.join(folder("ass"), hashlib.sha1(body.encode("utf-8")).hexdigest()[:16] + ".ass")
     if not os.path.isfile(path):
         part = _part(path)
         with open(part, "w", encoding="utf-8", newline="\n") as f:
             f.write(body)
-        os.replace(part, path)
+        settle(part, path)
     return path
 
 
@@ -102,6 +111,18 @@ def _part(path):
     fd, part = tempfile.mkstemp(prefix=name + ".", suffix=".part" + os.path.splitext(name)[1], dir=folder)
     os.close(fd)
     return part
+
+
+def settle(part, path):
+    """Moves the finished part to path. Two requests can make the same file at the same moment, and on Windows the
+    second move is refused while the first file is open (the page showing it): that file is the same file, so the
+    part is dropped and the file kept."""
+    try:
+        os.replace(part, path)
+    except PermissionError:
+        os.remove(part)
+        if not os.path.isfile(path):
+            raise
 
 
 def after_source(state, src, out, first_input, default="clean"):
@@ -131,7 +152,7 @@ def after_source(state, src, out, first_input, default="clean"):
     fragments += [effects.sticker(k["png"], k["at"], k["length"], k["box"]) for k in state.get("stickers") or []]
     words = ass(state, default)
     if words:
-        fragments.append(text.burn(words, text.fonts_folder(style_of(state, default))))
+        fragments.append(text.burn(words, text.fonts_folder(*_styles(state, default).values())))
     fragments += [effects.flash(h["at"]) for h in hits if h["kind"] == "flash"]
     stage, more = effects.join(fragments, "drawn", out, first_input + len(files))
     return ";".join((seen, lay, stage)), files + more
@@ -170,7 +191,7 @@ def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH):
     if done.returncode != 0 or not os.path.getsize(part):
         os.remove(part)
         raise NotDrawn("FFmpeg could not draw the frame: %s" % (done.stderr.strip().splitlines() or ["no reason"])[-1])
-    os.replace(part, target)
+    settle(part, target)
     return target
 
 

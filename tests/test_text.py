@@ -1,6 +1,7 @@
 """Words on screen, measured on frames libass really drew: python -m unittest discover -s tests"""
 import importlib.util
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -84,7 +85,7 @@ class Styles(unittest.TestCase):
             text.style("neon")
         with self.assertRaisesRegex(ValueError, "colour 'red' is not a colour: give it as #RRGGBB"):
             text.style(colour="red")
-        with self.assertRaisesRegex(ValueError, "font 'No Such Face 9' is neither in the studio's fonts \\(Kanit"):
+        with self.assertRaisesRegex(ValueError, "font 'No Such Face 9' is neither in the studio's fonts \\(Google Sans"):
             text.style(font="No Such Face 9")
 
     def test_a_font_without_thai_letters_is_refused_for_thai(self):
@@ -137,18 +138,49 @@ class Fonts(unittest.TestCase):
         return found
 
     def test_a_family_gives_its_face_nearest_the_styles_own_weight(self):
-        self.assertEqual(text.style("clean", "Kanit").fontname, "Kanit SemiBold")
-        self.assertEqual(text.style("pop", "Kanit").fontname, "Kanit Black")
-        self.assertEqual(text.style("sticker", "Kanit").fontname, "Kanit Bold")
+        self.assertEqual(text.style("clean", "Kanit").fontname, "Kanit SemiBold", "clean is Google Sans SemiBold")
+        self.assertEqual(text.style("pop", "Kanit").fontname, "Kanit Bold", "pop is Google Sans Bold")
+        self.assertEqual(text.style("clean", "Google Sans").fontname, "Google Sans SemiBold")
         self.assertEqual(text.style("pop", "Kanit Regular").fontname, "Kanit Regular", "a face's own name wins")
 
+    def test_each_part_can_have_a_font_of_its_own(self):
+        parts = text.look("pop", None, None, {"caption": "Kanit", "big": "Kanit Regular"})
+        self.assertEqual({kind: st.fontname for kind, st in parts.items()},
+                         {"title": "Google Sans Bold", "caption": "Kanit Bold", "big": "Kanit Regular"})
+        self.assertEqual(text.look("pop", "Kanit")["title"].fontname, "Kanit Bold", "font is every part's font")
+        self.assertEqual(text.look("pop", "Kanit", fonts={"title": "Google Sans"})["title"].fontname,
+                         "Google Sans Bold", "a part's own font wins")
+        with self.assertRaisesRegex(ValueError, r"fonts \{'logo': 'Kanit'\} is not a font for each part: give "
+                                                r"\{part: font\} with the parts title, caption, big"):
+            text.look(fonts={"logo": "Kanit"})
+
+    def test_a_size_means_how_tall_the_letters_stand_in_any_font(self):
+        def stands(st, kind=2):
+            path, index = st.file
+            return text._tall(path, index, st.fontname, text.TALL_THAI) * st.sizes[kind] / 200
+        for name, (face, tuned) in {"clean": ("Kanit SemiBold", 180), "pop": ("Kanit Black", 200),
+                                    "sticker": ("Kanit Bold", 170)}.items():
+            kanit = text.style(name, face)
+            was = text._tall(kanit.file[0], kanit.file[1], kanit.fontname, text.TALL_THAI) * tuned / 200
+            self.assertLess(abs(stands(text.STYLES[name]) / was - 1), 0.03,
+                            "%s in Google Sans stands as tall as the %s it was tuned in" % (name, face))
+        self.assertEqual(text.style("clean", "Kanit").sizes, (83, 63, 177),
+                         "Kanit is drawn smaller: its Thai is 1.49 times taller at the same size")
+        for name in text.HOUSE_NAMES:
+            st = text.style(name, "Kanit")
+            for kind in range(3):
+                self.assertLess(abs(stands(st, kind) / stands(text.STYLES[name], kind) - 1), 0.03, (name, kind))
+
     def test_the_studios_fonts_come_first_and_are_free_by_their_own_file(self):
-        kanit = text.fonts()[0]
-        self.assertEqual((kanit["family"], kanit["where"], kanit["free"], kanit["licence"]),
-                         ("Kanit", "studio", True, "SIL Open Font License"))
-        self.assertEqual(kanit["faces"], ["Kanit Regular", "Kanit SemiBold", "Kanit Bold", "Kanit Black"],
-                         "lightest first")
-        self.assertTrue(all(f["family"] != "Kanit" for f in text.fonts()[1:]), "listed once, as the studio's")
+        google, kanit = text.fonts()[:2]
+        for family, faces in ((google, ["Google Sans Regular", "Google Sans SemiBold", "Google Sans Bold"]),
+                              (kanit, ["Kanit Regular", "Kanit SemiBold", "Kanit Bold", "Kanit Black"])):
+            self.assertEqual((family["where"], family["free"], family["licence"]),
+                             ("studio", True, "SIL Open Font License"), family["family"])
+            self.assertEqual(family["faces"], faces, "lightest first")
+        self.assertTrue(all(f["family"] not in ("Kanit", "Google Sans") for f in text.fonts()[2:]),
+                        "listed once, as the studio's")
+        self.assertTrue(os.path.isfile(os.path.join(text.FONTS, "GoogleSans-OFL.txt")), "its licence ships with it")
 
     def test_only_the_faces_with_the_letters_are_listed(self):
         for family in text.fonts("กขค"):
@@ -409,11 +441,12 @@ class Captions(unittest.TestCase):
 
     def test_two_lines_at_most_and_pages_never_overlap(self):
         events = text.captions(text.caption_lines(SAID, most=10), text.STYLES["pop"], (1350, 400))
-        spans = []
+        pages = {}
         for e in events:
-            self.assertLessEqual(e.count("\\N"), 1, e)
-            start, end = e.split(",")[1:3]
-            spans.append((start, end))
+            self.assertNotIn("\\N", e, "each line is an event of its own")
+            pages.setdefault(tuple(e.split(",")[1:3]), []).append(e)
+        self.assertTrue(all(len(lines) <= 2 for lines in pages.values()), "two lines at most")
+        spans = sorted(pages)
         for (a, b), (c, d) in zip(spans, spans[1:]):
             self.assertLessEqual(b, c)
 
@@ -442,6 +475,32 @@ class Captions(unittest.TestCase):
             return int((np.abs(frame[y0:y1, a:b].astype(int) - want).max(axis=2) < 40).sum())
         return [(near(got[k], st.key, x0, split), near(got[k], st.key, split, x1), near(got[k], st.colour, x0, x1))
                 for k in frames]
+
+    def test_lines_and_outlines_stand_as_they_do_in_kanit_whatever_the_font(self):
+        import numpy as np
+        two = text.caption_lines([{"from": 0.5, "to": 2.0, "text": "ลดราคาเหลือ"},
+                                  {"from": 2.2, "to": 3.0, "text": "บาทนะครับ"}])
+        tops = {}
+        for font in (None, "Kanit"):
+            st = text.style("pop", font)
+            frame = draw(doc(text.captions(two, st, (1300, 400)), styles=[st]), [75], self.folder,
+                         folder_fonts=text.fonts_folder(st))[75]
+            rows = np.nonzero((np.abs(frame.astype(int) - GREY).max(axis=2) > SEEN).any(axis=1))[0]
+            breaks = [k for k in range(1, len(rows)) if rows[k] - rows[k - 1] > 1]
+            self.assertEqual(len(breaks), 1, "%s: two lines with a gap between them" % font)
+            tops[font] = rows[breaks[0]] - rows[0]
+            outline = float(text._ass_style(st, "caption").split(",")[16])
+            self.assertLess(abs(outline - 68 * 0.10), 0.3, "%s: the outline pop was tuned with in Kanit" % font)
+        self.assertLess(abs(tops[None] - tops["Kanit"]), 4, "lines stand as far apart: %s" % tops)
+
+    def test_a_lit_second_line_waits_unlit_until_its_first_word(self):
+        two = text.caption_lines([{"from": 1.0, "to": 2.0, "text": "ONE TWO"}, {"from": 2.4, "to": 3.0, "text": "THREE"}])
+        first, second = text.captions(two, text.STYLES["clean"], (1300, 400), lit=True)
+        self.assertEqual(first.split(",")[1:3], second.split(",")[1:3], "one page, one time")
+        waits = sum(int(n) for n in re.findall(r"\\kf?(\d+)", second.split("THREE")[0])[:-1])
+        h, m, sec, cs = re.search(r"Dialogue: \d+,(\d+):(\d+):(\d+)\.(\d+)", second).groups()
+        begun = ((int(h) * 60 + int(m)) * 60 + int(sec)) * 100 + int(cs)
+        self.assertEqual(begun + waits, round(two[1]["words"][0]["from"] * 100), "THREE lights when it is said")
 
     def test_with_lit_the_word_being_said_lights_up(self):
         (a, b, _), (c, d, _), (_, e, _) = self.lit_pixels(text.STYLES["clean"], True, [30, 38, 53])

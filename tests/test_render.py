@@ -96,6 +96,13 @@ class Stages(unittest.TestCase):
         folder = text.fonts_folder(render.style_of(st))
         self.assertNotEqual(folder, text.FONTS)
         self.assertIn("fontsdir=%s:" % text._filter_value(folder), graph)
+        own = dict(st, style={"do": "style", "name": "clean", "font": None, "colour": None,
+                              "fonts": {"caption": found[0]["family"]}})
+        graph, _ = render.after_source(own, "src", "whole", 1)
+        folder = graph.split("fontsdir=")[1].split(":shaping")[0].replace("\\", "")
+        given = os.listdir(folder)
+        self.assertIn(os.path.basename(render.style_of(own, kind="caption").file[0]), given, "the captions' font")
+        self.assertIn(os.path.basename(render.style_of(own, kind="title").file[0]), given, "and the title's")
 
     def test_a_blur_is_drawn_where_the_layout_shows_its_box_and_only_while_it_runs(self):
         box = [300, 100, 60, 60]
@@ -144,6 +151,20 @@ class Stages(unittest.TestCase):
         self.assertIsNotNone(found, "the captions are drawn")
         self.assertTrue(found[1] >= band[0] - 2 and found[3] <= band[0] + band[1] + 2, "inside the band: %s" % (found,))
         self.assertIsNone(changed(drawn(plain, 0.5), drawn(captioned, 0.5)), "nothing before the words are said")
+
+    def test_each_part_of_the_words_can_have_a_font_of_its_own(self):
+        lines = text.caption_lines([{"from": 1.0, "to": 2.0, "text": "ลดราคาเหลือ"}])
+        band = [layouts.CAPTIONS[1], layouts.CAPTIONS[3]]
+        base = state("card", title=[TITLE], captions=[{"lines": lines, "band": band}])
+        house = dict(base, style={"do": "style", "name": "clean", "font": None, "colour": None})
+        own = dict(house, style=dict(house["style"], fonts={"caption": "Kanit"}))
+        self.assertEqual(render.style_of(own, kind="title").fontname, "Google Sans SemiBold")
+        self.assertEqual(render.style_of(own, kind="caption").fontname, "Kanit SemiBold")
+        found = changed(drawn(house, 1.5), drawn(own, 1.5))
+        self.assertIsNotNone(found, "the captions are drawn in Kanit")
+        self.assertGreaterEqual(found[1], band[0] - 2, "and only they: the title is drawn as it was, %s" % (found,))
+        with self.assertRaisesRegex(ValueError, "kind 'logo' is not a part of the words: use one of title"):
+            render.style_of(own, kind="logo")
 
     def test_captions_light_their_words_only_when_the_entry_says_lit(self):
         lines = text.caption_lines([{"from": 1.0, "to": 2.0, "text": "watch this now"}])
@@ -297,6 +318,20 @@ class Preview(unittest.TestCase):
         for name in ("clipframes", "shapes", "ass"):
             folder = os.path.join(recording.WORK, name)
             self.assertEqual([f for f in os.listdir(folder) if ".part" in f], [], "nothing half written is left")
+
+    @unittest.skipUnless(os.name == "nt", "only Windows refuses to move a file onto one that is open")
+    def test_a_file_made_again_while_the_first_is_open_keeps_the_first(self):
+        folder = tempfile.mkdtemp(dir=self.tmp)
+        target = os.path.join(folder, "frame.jpg")
+        with open(target, "wb") as f:
+            f.write(b"the same frame")
+        part = render._part(target)
+        with open(part, "wb") as f:
+            f.write(b"the same frame")
+        with open(target, "rb") as shown:
+            render.settle(part, target)
+            self.assertEqual(shown.read(), b"the same frame", "the page still reads the frame it opened")
+        self.assertEqual(os.listdir(folder), ["frame.jpg"], "the second one is dropped")
 
     def test_a_frame_that_cannot_be_drawn_says_why(self):
         lines = text.caption_lines([{"from": 1.0, "to": 2.0, "text": "watch this now"}])

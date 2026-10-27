@@ -8,8 +8,11 @@ One FFmpeg run draws every candidate line at once, and every box is kept, so a c
 Text wraps at word breaks only: Thai through pythainlp's newmm, a number (1,990, เจ็ดสิบห้า) is never split, and a
 particle (ครับ, นะ...) stays with the word before it.
 
-The house fonts are Kanit (SIL OFL 1.1, fonts/OFL.txt) in four weights, shipped in fonts/. A person may choose any
-other font installed on the computer: fonts() lists them with the licence each font's own file names, so a free font
+The house font is Google Sans (SIL OFL 1.1, fonts/GoogleSans-OFL.txt) in three weights, shipped in fonts/ with Kanit
+(SIL OFL 1.1, fonts/OFL.txt), the font the sizes were tuned on phones with. A size means how tall the letters stand,
+whatever the font: a font is drawn at the size that makes its letters as tall as the house font's, so Kanit, which
+draws its Thai 1.49 times taller than Google Sans at the same size, is drawn smaller. A person may choose any other
+font installed on the computer: fonts() lists them with the licence each font's own file names, so a free font
 can be told from one that is not. libass is given a folder holding only the chosen fonts' files (fonts_folder()), so
 the face that was measured is the face that is drawn: found through the computer's fonts instead, Sarabun Bold was
 drawn as another font (measured 10-27).
@@ -46,10 +49,13 @@ FRAME_ROWS = 4096
 PAIR_GAP = 1.0
 OPENERS, CLOSERS = "([{\"'“‘", ")]}\"'”’,.!?%:;…"
 
-Style = collections.namedtuple("Style", "name fontname file colour key edge box edge_ratio shadow_ratio sizes note")
+Style = collections.namedtuple("Style", "name fontname file colour key edge box edge_ratio shadow_ratio sizes note "
+                                        "scale", defaults=(1.0,))
 Style.__doc__ = """A way to draw words. colour is the text, key the key word (and the lit word in captions), edge
-the outline, or the box behind the text when box is True. edge_ratio and shadow_ratio are of the font size, and
-sizes holds the title, caption and big-word sizes in pixels. note says what was changed from what was asked."""
+the outline, or the box behind the text when box is True. sizes holds the title, caption and big-word sizes in
+pixels, and scale how much bigger they are than the size Kanit draws the same letters at: lines stand size / scale
+apart and the outline and shadow are edge_ratio and shadow_ratio of size / scale, so every font keeps the spacing
+and the outline the styles were tuned with. note says what was changed from what was asked."""
 Measure = collections.namedtuple("Measure", "lines w h")
 _Layout = collections.namedtuple("_Layout", "lines w h left top")
 _Face = collections.namedtuple("_Face", "path index names full sub family weight italic licence postscript")
@@ -59,14 +65,18 @@ FREE_LICENCES = (("SIL Open Font License", ("open font licen", "scripts.sil.org/
                  ("Ubuntu Font Licence", ("ubuntu font licen",)),
                  ("GPL with the font exception", ("font exception",)))
 
+# tuned: the sizes tuned on phones in Kanit (SemiBold, Black and Bold). Google Sans draws its Thai letters 1.477
+# (SemiBold), 1.500 and 1.488 (Bold) times smaller at the same size (measured 10-27): scale, so its sizes are the
+# tuned ones times that and the words stand as tall as they did.
 _HOUSE = {
-    "clean": dict(face="Kanit SemiBold", colour="#FFFFFF", key="#FFD60A", edge="#141414", box=False,
-                  edge_ratio=0.07, shadow_ratio=0.0, sizes=(84, 64, 180)),
-    "pop": dict(face="Kanit Black", colour="#FFFFFF", key="#FFD400", edge="#101010", box=False,
-                edge_ratio=0.10, shadow_ratio=0.04, sizes=(92, 68, 200)),
-    "sticker": dict(face="Kanit Bold", colour="#16161A", key="#C8102E", edge="#FFFFFF", box=True,
-                    edge_ratio=0.20, shadow_ratio=0.0, sizes=(80, 60, 170)),
+    "clean": dict(face="Google Sans SemiBold", colour="#FFFFFF", key="#FFD60A", edge="#141414", box=False,
+                  edge_ratio=0.07, shadow_ratio=0.0, tuned=(84, 64, 180), scale=1.477),
+    "pop": dict(face="Google Sans Bold", colour="#FFFFFF", key="#FFD400", edge="#101010", box=False,
+                edge_ratio=0.10, shadow_ratio=0.04, tuned=(92, 68, 200), scale=1.500),
+    "sticker": dict(face="Google Sans Bold", colour="#16161A", key="#C8102E", edge="#FFFFFF", box=True,
+                    edge_ratio=0.20, shadow_ratio=0.0, tuned=(80, 60, 170), scale=1.488),
 }
+TALL_THAI, TALL_LATIN = "กขคบ", "xnu"
 HOUSE_NAMES = tuple(_HOUSE)
 
 
@@ -395,7 +405,8 @@ def style(name=None, font=None, colour=None):
     if name not in _HOUSE:
         raise ValueError("style %r is not a house style: use one of %s." % (name, ", ".join(HOUSE_NAMES)))
     house = _HOUSE[name]
-    face = house["face"]
+    face, scale = house["face"], house["scale"]
+    sizes = tuple(round(size * scale) for size in house["tuned"])
     notes = []
     if font is not None:
         if not isinstance(font, str) or not font.strip():
@@ -410,6 +421,10 @@ def style(name=None, font=None, colour=None):
         if not face:
             raise ValueError("font %r cannot be drawn: libass draws another font for every one of %s's names, so "
                              "choose another font." % (font, full))
+        house_path, house_index, _house = _find_font(house["face"])
+        letters = TALL_THAI if _has_thai((path, index)) else TALL_LATIN
+        taller = _tall(house_path, house_index, house["face"], letters) / _tall(path, index, face, letters)
+        sizes, scale = tuple(max(8, round(size * taller)) for size in sizes), scale * taller
         licence, free = _face_at(path, index).licence
         if not free:
             notes.append("%s is not known to be free: %s. Use it only when its licence lets you show it in a video "
@@ -417,7 +432,7 @@ def style(name=None, font=None, colour=None):
     else:
         found = _find_font(face)
         if not found:
-            raise RuntimeError("fonts/ has no %s, so the %s style cannot be drawn: put the Kanit files back in %s."
+            raise RuntimeError("fonts/ has no %s, so the %s style cannot be drawn: put the font files back in %s."
                                % (face, name, FONTS))
         path, index, _face = found
     text = house["colour"] if colour is None else _hex(colour, "colour")
@@ -436,10 +451,29 @@ def style(name=None, font=None, colour=None):
     if face != house["face"] or text != house["colour"]:
         label = "%s~%s" % (name, hashlib.sha1(("%s|%s|%s" % (face, path, text)).encode("utf-8")).hexdigest()[:6])
     return Style(label, face, (path, index), text, key, edge, house["box"], house["edge_ratio"],
-                 house["shadow_ratio"], house["sizes"], " ".join(notes))
+                 house["shadow_ratio"], sizes, " ".join(notes), scale)
+
+
+@functools.lru_cache(maxsize=None)
+def _tall(path, index, fontname, letters):
+    """How tall the letters stand in the face drawn at 200 px with no outline: what a size means in that font."""
+    flat = Style("tall~" + hashlib.sha1(("%s|%d|%s" % (path, index, fontname)).encode("utf-8")).hexdigest()[:6],
+                 fontname, (path, index), "#FFFFFF", "#FFFFFF", "#000000", False, 0.0, 0.0, (200, 200, 200), "")
+    return measure(letters, flat, "big", 4000).h
 
 
 STYLES = {n: style(n) for n in HOUSE_NAMES}
+
+
+def look(name=None, font=None, colour=None, fonts=None):
+    """The style each part of the words is drawn in, {"title": Style, "caption": Style, "big": Style}: the house
+    style name with font for every part, and fonts ({part: font}) for the parts the person gave a font of their own,
+    so the title, the captions and the big words can each be changed alone."""
+    fonts = {} if fonts is None else fonts
+    if not isinstance(fonts, dict) or set(fonts) - set(KINDS):
+        raise ValueError("fonts %r is not a font for each part: give {part: font} with the parts %s."
+                         % (fonts, ", ".join(KINDS)))
+    return {kind: style(name, fonts.get(kind) or font, colour) for kind in KINDS}
 
 
 def _size(st, kind):
@@ -478,8 +512,8 @@ def _colour(hexcolour, alpha=0):
 
 def _ass_style(st, kind, mask=False):
     size = _size(st, kind)
-    edge = round(size * st.edge_ratio, 1)
-    shadow = round(size * st.shadow_ratio, 1)
+    edge = round(size / st.scale * st.edge_ratio, 1)
+    shadow = round(size / st.scale * st.shadow_ratio, 1)
     if mask:
         first = second = outline = back = "&H00FFFFFF"
     else:
@@ -505,7 +539,6 @@ EVENTS = "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, 
 # ---- drawing and reading back ------------------------------------------------------------------------------------
 
 _boxes = {}
-_line_heights = {}
 _ON = bytes(0 if v < DRAWN else 1 for v in range(256))
 
 
@@ -656,11 +689,11 @@ def _layout_of(lines, boxes, lh):
     return _Layout(tuple(lines), right - left, bottom - top, left, top)
 
 
-def _line_height(st, kind, sample):
-    if (st, kind) not in _line_heights:
-        got = _draw_boxes(st, kind, [sample, sample + "\\N" + sample])
-        _line_heights[(st, kind)] = got[sample + "\\N" + sample][3] - got[sample][3]
-    return _line_heights[(st, kind)]
+def _line_height(st, kind):
+    """How far apart lines stand: libass puts lines one font size apart, and a font's size covers its whole line
+    box, which in Google Sans stands 1.5 times taller around its Thai letters than in Kanit; so lines are drawn as
+    events of their own, size / scale apart, as far as Kanit's are (measured: libass's spacing is the size)."""
+    return round(_size(st, kind) / st.scale)
 
 
 @functools.lru_cache(maxsize=2048)
@@ -673,7 +706,7 @@ def _wrap(text, st, kind, width):
         forced.add(len(flat))
     size = _size(st, kind)
     alone = _draw_boxes(st, kind, [a.strip() for a in flat])
-    lh = _line_height(st, kind, flat[0].strip())
+    lh = _line_height(st, kind)
     gap = size * 0.3
     est = [(alone[a.strip()][2] - alone[a.strip()][0]) if alone[a.strip()] else 0 for a in flat]
     candidates = {}
@@ -780,9 +813,15 @@ def title(text, start, end, box, style, key=None):
                          "words." % (lay.w, lay.h, tuple(box), w, h))
     ax = x + w / 2 - (lay.left + lay.w / 2)
     ay = y + h / 2 - (lay.top + lay.h / 2)
-    body = _coloured_lines(text, lay.lines, span, style)
-    return ["Dialogue: 2,%s,%s,%s_title,,0,0,0,,{\\an8\\pos(%.2f,%.2f)}%s" % (
-        _cs_clock(a), _cs_clock(b), style.name, ax, ay, body)]
+    return _dialogues(2, _cs_clock(a), _cs_clock(b), "%s_title" % style.name, ax, ay, _line_height(style, "title"),
+                      _coloured_lines(text, lay.lines, span, style))
+
+
+def _dialogues(layer, start, end, name, x, y, lh, lines):
+    """One Dialogue for each line, the first one's top centre at (x, y) and each next one lh lower (see
+    _line_height): what one Dialogue with the lines joined by \\N draws when lh is the font's size."""
+    return ["Dialogue: %d,%s,%s,%s,,0,0,0,,{\\an8\\pos(%.2f,%.2f)}%s" % (layer, start, end, name, x, y + k * lh, line)
+            for k, line in enumerate(lines)]
 
 
 def _key_span(text, key):
@@ -802,9 +841,9 @@ def _key_span(text, key):
 
 
 def _coloured_lines(text, lines, span, st):
-    """The lines joined with \\N, the key word's letters wrapped in the key colour."""
+    """The lines, the key word's letters wrapped in the key colour."""
     if span is None:
-        return "\\N".join(lines)
+        return list(lines)
     out, at = [], 0
     for line in lines:
         begin = text.find(line, at)
@@ -815,7 +854,7 @@ def _coloured_lines(text, lines, span, st):
             line = (text[begin:lo] + "{\\1c%s&}" % _colour(st.key) + text[lo:hi] + "{\\1c%s&}" % _colour(st.colour)
                     + text[hi:end])
         out.append(line)
-    return "\\N".join(out)
+    return out
 
 
 # ---- big words ---------------------------------------------------------------------------------------------------
@@ -981,7 +1020,7 @@ def captions(lines, style, band, lit=False):
         k += 2 if two else 1
     shown = [line["text"].strip() for line in lines]
     boxes = _draw_boxes(style, "caption", shown)
-    lh = _line_height(style, "caption", shown[0])
+    lh = _line_height(style, "caption")
     events = []
     for n, page in enumerate(pages):
         start, end = _edge(page[0]["from"]), _edge(page[-1]["to"])
@@ -998,17 +1037,17 @@ def captions(lines, style, band, lit=False):
         if lit:
             words = _karaoke(page, start)
         else:
-            words = "{\\1c%s&}%s" % (_colour(style.colour), "\\N".join(line["text"].strip() for line in page))
-        events.append("Dialogue: 1,%s,%s,%s_caption,,0,0,0,,{\\an8\\pos(%.2f,%.2f)}%s" % (
-            _cs_clock(start), _cs_clock(end), style.name, ax, ay, words))
+            words = ["{\\1c%s&}%s" % (_colour(style.colour), line["text"].strip()) for line in page]
+        events += _dialogues(1, _cs_clock(start), _cs_clock(end), "%s_caption" % style.name, ax, ay, lh, words)
     return events
 
 
 def _karaoke(page, start):
-    """The page's lines with a \\kf before each word, timed in centiseconds from the event's start."""
+    """The page's lines with a \\kf before each word, timed in centiseconds from the events' start: each line is an
+    event of its own from the page's start, so a line after the first waits, unlit, until its first word."""
     at, out = start, []
     for line in page:
-        parts = []
+        parts = ["{\\k%d}" % (at - start)] if at > start else []
         for k, word in enumerate(line["words"]):
             said = word["text"]
             if k == 0:
@@ -1022,7 +1061,7 @@ def _karaoke(page, start):
             parts.append("{\\kf%d}%s" % (max(0, finish - at), said))
             at = max(at, finish)
         out.append("".join(parts))
-    return "\\N".join(out)
+    return out
 
 
 # ---- the file ----------------------------------------------------------------------------------------------------

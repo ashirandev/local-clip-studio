@@ -502,7 +502,13 @@ def _shape(name, w, h, graph_text):
         except subprocess.CalledProcessError:
             os.remove(part)
             raise
-        os.replace(part, path)
+        try:
+            os.replace(part, path)
+        except PermissionError:
+            # made by another request at the same moment and open now (Windows): the same picture, so keep it
+            os.remove(part)
+            if not os.path.isfile(path):
+                raise
     return path
 
 
