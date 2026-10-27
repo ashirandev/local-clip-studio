@@ -28,6 +28,7 @@ A place is never on the face: the stack has no place at the top, because its top
 on the seam.
 """
 import copy
+import hashlib
 import math
 import os
 import shutil
@@ -78,7 +79,16 @@ LEAVE_OUT = 3.0
 SMALLEST_CARD = 0.4
 SHARPEN_FROM = 1.5
 SHARPEN = "unsharp=5:5:0.7:5:5:0"
-SHADOW = {"card": (22, 18, 0.55), "circle": (14, 10, 0.5)}
+SHADOW = {"card": (22, 18, 0.55), "circle": (14, 10, 0.5), "glass": (16, 12, 0.35)}
+# The glass box: the picture behind it blurred by GLASS_BLUR and mixed with white (light) or black (dark) by the
+# share, a light edge and a sheen at the top, fading in and out; the shine is a soft band of light that sweeps across
+# it once, from SHINE_AT after it appears, for SHINE_FOR seconds.
+GLASS = {"light": (235, 0.22), "dark": (16, 0.42)}
+GLASS_BLUR = 18
+GLASS_RADIUS = 40
+GLASS_SMALLEST = 60
+GLASS_IN, GLASS_OUT = 0.2, 0.15
+SHINE_AT, SHINE_FOR = 0.25, 0.7
 SHAPES = 2
 
 
@@ -477,6 +487,70 @@ def _scaled(part):
     return text
 
 
+# ---- the glass box -----------------------------------------------------------------------------------------------
+
+def glass(box, start, end, tint="light", shine=True):
+    """A frosted glass box at box (x, y, w, h on the 1080x1920 frame) from start to end, for anything to stand on: a
+    title, a list, stickers. Inside its rounded shape the picture behind it is blurred and mixed with white (tint
+    light) or black (dark), under a light edge and a sheen at its top, with a soft shadow below; it fades in and out,
+    and with shine a band of light sweeps across it once after it appears. Outside the box and its shadow, and
+    outside start to end, every pixel is the frame's own. The renderer draws it on the frame after the camera hits
+    and before the stickers and the words, so whatever stands on it moves with it, not with the picture."""
+    if tint not in GLASS:
+        raise ValueError("tint %r is not a glass tint: use one of %s." % (tint, ", ".join(GLASS)))
+    if not isinstance(shine, bool):
+        raise ValueError("shine %r is not True or False: use True for a sweep of light as it appears." % (shine,))
+    start, end = effects._window(start, end)
+    shortest = GLASS_IN + GLASS_OUT
+    if end - start < shortest:
+        raise ValueError("start %s to end %s is too short for a glass box: give it at least %s s, so it can fade in "
+                         "and out." % (effects._f(start), effects._f(end), effects._f(shortest)))
+    x, y, w, h = effects._frame_box(box)
+    x, y = 2 * math.floor(x / 2), 2 * math.floor(y / 2)
+    w, h = 2 * math.floor(w / 2), 2 * math.floor(h / 2)
+    if w < GLASS_SMALLEST or h < GLASS_SMALLEST:
+        raise ValueError("box %r is too small for a glass box: give it at least %d x %d px."
+                         % (tuple(box), GLASS_SMALLEST, GLASS_SMALLEST))
+    r = min(GLASS_RADIUS, min(w, h) // 4)
+    sigma, drop, _ = SHADOW["glass"]
+    pad = 3 * sigma
+    mix, share = GLASS[tint]
+    f = effects._f
+    files = [rounded(w, h, r), shadow("glass", w, h, r), glass_edge(w, h, r)]
+    blurred = ("[_b]crop=%d:%d:%d:%d,gblur=sigma=%d,lutyuv=y='val*%s+%s':u='(val-128)*%s+128':v='(val-128)*%s+128'"
+               % (w, h, x, y, GLASS_BLUR, f(1 - share), f(mix * share), f(1 - share), f(1 - share)))
+    if shine:
+        band = shine_band(w, h)
+        files.append(band)
+        bw = band_width(w, h)
+        a = start + SHINE_AT
+        u = "clip((t-%s)/%s,0,1)" % (f(a), f(SHINE_FOR))
+        blurred += ("[_c0];[f3]format=rgba[_l];[_c0][_l]overlay=x='%d+%d*%s*%s*(3-2*%s)':y=0:eval=frame:shortest=1:"
+                    "enable='between(t,%s,%s)'" % (-bw, w + bw, u, u, u, f(a), f(a + SHINE_FOR)))
+    # every overlay here is laid on what comes from the frame, never on a picture: the output takes its main input's
+    # times, and a picture's frames fall on 1/30 s steps that a preview's frame can sit between. The two laid on the
+    # frame itself say yuv420: with auto, the split shared a format with the glass and every pixel of the frame was
+    # converted and back, even while the glass was not shown
+    fades = "fade=t=in:st=%s:d=%s:alpha=1,fade=t=out:st=%s:d=%s:alpha=1" % (
+        f(start), f(GLASS_IN), f(end - GLASS_OUT), f(GLASS_OUT))
+    when = "between(t,%s,%s)" % (f(start), f(end))
+    graph = ("[in]split[_a][_b];%s[_c];[f0]format=gray[_m];[_c][_m]alphamerge[_g];"
+             "[f2]format=rgba[_e];[_g][_e]overlay=0:0:shortest=1:format=auto,%s,format=yuva420p[_k];"
+             "[f1]format=rgba,%s[_s];[_a][_s]overlay=%d:%d:shortest=1:format=yuv420:enable='%s'[_d];"
+             "[_d][_k]overlay=%d:%d:format=yuv420:enable='%s'[out]"
+             % (blurred, fades, fades, x - pad, y - pad + drop, when, x, y, when))
+    return effects.Fragment(graph, files)
+
+
+def band_width(w, h):
+    """How wide the shine's picture is for a w x h glass box: the slanted band and its soft sides."""
+    return 2 * math.ceil((h * 0.5 + 6 * _shine_soft(w)) / 2)
+
+
+def _shine_soft(w):
+    return 0.035 * w + 8
+
+
 # ---- shapes: pictures made once by FFmpeg and kept in work/shapes ----------------------------------------------
 
 def _round(r, w, h, pad=0):
@@ -487,11 +561,12 @@ def _round(r, w, h, pad=0):
 
 
 def _shape(name, w, h, graph_text):
-    """The path of a w x h PNG drawn by graph_text from a black canvas to [o], made once: the name is the cache key,
-    so a change to how a shape is drawn raises SHAPES."""
+    """The path of a w x h PNG drawn by graph_text from a black canvas to [o], made once: its name, its size and the
+    drawing itself are the cache key, so a shape drawn another way is a new picture, never a stale one."""
     folder = os.path.join(recording.WORK, "shapes")
     os.makedirs(folder, exist_ok=True)
-    path = os.path.join(folder, "v%d_%s.png" % (SHAPES, name))
+    drawing = hashlib.sha1(("%dx%d|%s" % (w, h, graph_text)).encode("utf-8")).hexdigest()[:8]
+    path = os.path.join(folder, "v%d_%s_%s.png" % (SHAPES, name, drawing))
     if not os.path.isfile(path):
         fd, part = tempfile.mkstemp(prefix=os.path.basename(path) + ".", suffix=".part.png", dir=folder)
         os.close(fd)
@@ -532,6 +607,24 @@ def shadow(kind, w, h, r):
     return _shape("shadow_%s%dx%dr%d" % (kind, w, h, r * 10), w + 2 * pad, h + 2 * pad,
                   "split[c][m];[m]format=gray,geq=lum='%d*%s',gblur=sigma=%d[a];[c]format=rgba[k];[k][a]alphamerge[o]"
                   % (round(255 * strength), _round(r, w, h, pad=pad), sigma))
+
+
+def glass_edge(w, h, r):
+    """The glass box's light: a white edge 2 px wide along its rounded shape at 30%, and a sheen from 12% at its top
+    to nothing at 45% of its height."""
+    inside, edge = _round(r, w, h), _round(r - 2, w - 4, h - 4, pad=2)
+    return _shape("glassedge%dx%dr%d" % (w, h, r * 10), w, h,
+                  "format=rgba,geq=r=255:g=255:b=255:a='min(255,255*(0.30*(%s-%s)+0.12*%s*max(0,1-Y/%s)))'[o]"
+                  % (inside, edge, inside, effects._f(0.45 * h)))
+
+
+def shine_band(w, h):
+    """The shine: a white band leaning right, soft at its sides and 42% in its middle, as tall as a w x h glass
+    box."""
+    bw, soft = band_width(w, h), _shine_soft(w)
+    return _shape("shine%dx%d" % (w, h), bw, h,
+                  "format=rgba,geq=r=255:g=255:b=255:a='255*0.42*exp(-pow((X-%s+(Y-%s)*0.5)/%s,2))'[o]"
+                  % (effects._f(bw / 2), effects._f(h / 2), effects._f(soft)))
 
 
 def shade():

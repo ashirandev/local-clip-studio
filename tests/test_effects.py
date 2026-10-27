@@ -3,6 +3,7 @@ python -m unittest discover -s tests"""
 import importlib.util
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -11,7 +12,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import effects  # noqa: E402
+from clipstudio import effects, layouts  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
 HAS_NUMPY = importlib.util.find_spec("numpy") is not None
@@ -502,6 +503,105 @@ def loudest(x):
                           "-af", "apad=pad_dur=1,ebur128", "-f", "null", "-"], input=x.astype("<f4").tobytes(),
                          capture_output=True, timeout=60)
     return max(float(m) for m in re.findall(r"M:\s*(-?[\d.]+)", run.stderr.decode("utf-8", "replace")))
+
+
+@unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")
+class Glass(unittest.TestCase):
+    """A glass box at (100, 400, 880, 600) from 0.5 to 2.5 s on the busy picture, its shine sweeping from 0.75 to
+    1.45 s; frames picked at 0.17, 0.5, 0.6, 0.7, 1.0, 1.2, 1.5, 2.0, 2.47 and 2.67 s."""
+    BOX = (100, 400, 880, 600)
+    PICKS = [5, 15, 18, 21, 30, 36, 45, 60, 74, 80]
+
+    @classmethod
+    def setUpClass(cls):
+        size = (effects.FRAME_W, effects.FRAME_H)
+        cls.got = {}
+        for name, fragments in (("plain", []), ("light", [layouts.glass(cls.BOX, 0.5, 2.5)]),
+                                ("calm", [layouts.glass(cls.BOX, 0.5, 2.5, shine=False)]),
+                                ("dark", [layouts.glass(cls.BOX, 0.5, 2.5, "dark", shine=False)])):
+            every = frames(fragments, 3, size=size)
+            cls.got[name] = {k: tuple(plane.copy() for plane in every[k]) for k in cls.PICKS}
+            del every
+
+    def mid(self):
+        x, y, w, h = self.BOX
+        return slice(y + 150, y + h - 100), slice(x + 100, x + w - 100)
+
+    def test_outside_its_box_and_its_time_every_pixel_is_the_frames_own(self):
+        x, y, w, h = self.BOX
+        sigma, drop, _ = layouts.SHADOW["glass"]
+        pad = 3 * sigma
+        around = (x - pad, y - pad + drop, w + 2 * pad, h + 2 * pad)
+        for k in self.PICKS:
+            for name in ("light", "dark"):
+                same_outside(self, self.got["plain"][k], self.got[name][k], (0, 0, 0, 0) if k in (5, 80) else around)
+        self.assertIsNotNone(changed(self.got["plain"][60], self.got["light"][60]))
+
+    def test_inside_it_the_picture_is_frosted_and_mixed_with_white_or_black(self):
+        plain = self.got["plain"][60][0][self.mid()].astype(int)
+        for name, lighter in (("calm", True), ("dark", False)):
+            got = self.got[name][60][0][self.mid()].astype(int)
+            self.assertLess(detail(got), detail(plain) * 0.02, "%s: nothing behind it can be read" % name)
+            moved = got.mean() - plain.mean()
+            self.assertGreater(moved if lighter else -moved, 15, "%s: %.1f" % (name, moved))
+
+    def test_its_corners_are_round_and_its_edge_catches_the_light(self):
+        x, y, w, h = self.BOX
+        plain, got = self.got["plain"][60][0].astype(int), self.got["calm"][60][0].astype(int)
+        corner = (slice(y, y + 6), slice(x, x + 6))
+        self.assertGreater(detail(got[corner]), detail(plain[corner]) * 0.4, "the corner is outside its round shape")
+        top = slice(x + w // 2 - 50, x + w // 2 + 50)
+        self.assertGreater(got[y:y + 2, top].mean(), got[y + 6:y + 8, top].mean() + 10, "a light edge")
+
+    def test_it_fades_in(self):
+        full = abs(self.got["calm"][60][0][self.mid()].astype(int) - self.got["plain"][60][0][self.mid()]).mean()
+        half = abs(self.got["calm"][18][0][self.mid()].astype(int) - self.got["plain"][18][0][self.mid()]).mean()
+        self.assertTrue(0.3 < half / full < 0.7, "half way into its 0.2 s fade: %.2f" % (half / full))
+
+    def test_the_shine_sweeps_across_once(self):
+        x, y, w, h = self.BOX
+        peaks = []
+        for k in (30, 36):
+            row = self.got["light"][k][0][y + h // 2, x:x + w].astype(int) - self.got["calm"][k][0][y + h // 2, x:x + w]
+            self.assertGreater(row.max(), 20, "the band of light at frame %d" % k)
+            peaks.append(int(row.argmax()))
+        self.assertGreater(peaks[1], peaks[0] + 100, "it moves right: %s" % peaks)
+        for k in (18, 45, 60):
+            self.assertTrue((self.got["light"][k][0] == self.got["calm"][k][0]).all(), "no shine at frame %d" % k)
+
+    def test_glass_refusals(self):
+        with self.assertRaisesRegex(ValueError, "tint 'blue' is not a glass tint: use one of light, dark"):
+            layouts.glass(self.BOX, 0, 1, "blue")
+        with self.assertRaisesRegex(ValueError, "shine 'yes' is not True or False"):
+            layouts.glass(self.BOX, 0, 1, shine="yes")
+        with self.assertRaisesRegex(ValueError, "start 1 to end 1.2 is too short for a glass box: give it at least "
+                                                "0.35 s"):
+            layouts.glass(self.BOX, 1.0, 1.2)
+        with self.assertRaisesRegex(ValueError, r"box \(100, 100, 40, 300\) is too small for a glass box: give it at "
+                                                r"least 60 x 60 px"):
+            layouts.glass((100, 100, 40, 300), 0, 1)
+        with self.assertRaisesRegex(ValueError, r"box \(900, 100, 400, 300\) runs off the 1080x1920 frame"):
+            layouts.glass((900, 100, 400, 300), 0, 1)
+
+
+class StudioStickers(unittest.TestCase):
+    def test_every_sticker_in_the_folder_is_listed_see_through_and_named_in_thai_and_english(self):
+        listed = effects.stickers()
+        names = sorted(f[:-4] for f in os.listdir(effects.STICKERS) if f.endswith(".png"))
+        self.assertEqual([s["name"] for s in listed], names, "every picture in stickers/ is listed, and only those")
+        self.assertGreaterEqual(len(listed), 60)
+        for s in listed:
+            with open(s["png"], "rb") as f:
+                head = f.read(26)
+            self.assertEqual(head[:8], effects.PNG_SIGNATURE, s["name"])
+            self.assertEqual(head[25], 6, "%s keeps its see-through parts (RGBA)" % s["name"])
+            self.assertTrue(re.search("[\u0e00-\u0e7f]", s["th"]) and s["en"].strip(), s["name"])
+        with open(os.path.join(effects.STICKERS, "LICENSE-Fluent-Emoji.txt"), encoding="utf-8") as f:
+            self.assertIn("MIT License", f.read())
+        self.assertEqual(effects.sticker_png("fire"), os.path.join(effects.STICKERS, "fire.png"))
+        with self.assertRaisesRegex(ValueError, r"sticker 'logo' is not one of the studio's stickers: use a name "
+                                                r"stickers\(\) lists, such as fire, money_bag, star\."):
+            effects.sticker_png("logo")
 
 
 @unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")

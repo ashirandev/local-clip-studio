@@ -11,6 +11,7 @@ random(), and never a filter that remembers earlier frames, so a frame drawn on 
 at that frame's time) is the same frame a full render draws.
 """
 import collections
+import json
 import math
 import os
 import re
@@ -26,6 +27,7 @@ POP = ((0.0, 0.6), (0.15, 1.1), (0.25, 1.0))
 FADE = 0.15
 PNG_SIGNATURE = bytes((137, 80, 78, 71, 13, 10, 26, 10))
 BLUR = "boxblur=luma_radius='max(1,min(w,h)/6)':luma_power=3:chroma_radius='max(1,min(cw,ch)/6)':chroma_power=3"
+STICKERS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "stickers")
 
 
 def join(fragments, first_label, last_label, first_input):
@@ -371,6 +373,26 @@ def sticker(png, at, length, box):
                     "[in][_s]overlay=x='%s-w/2':y='%s-h/2':eval=frame:shortest=1:format=auto:enable='%s'[out]"
                     % (_f(base_w), grow, _f(base_h), grow, _f(at + length - FADE), _f(FADE),
                        _f(x + w / 2), _f(y + h / 2), when), [png])
+
+
+def stickers():
+    """The studio's own stickers, [{"name", "png", "en", "th"}] sorted by name, from stickers/stickers.json (Fluent
+    Emoji 3D by Microsoft, MIT): what Muse and the person choose a shipped sticker from, by its name or its English
+    or Thai words. A person's own PNG is a sticker too: sticker() takes any PNG."""
+    with open(os.path.join(STICKERS, "stickers.json"), encoding="utf-8") as f:
+        listed = json.load(f)["stickers"]
+    return [{"name": name, "png": os.path.join(STICKERS, name + ".png"), "en": words["en"], "th": words["th"]}
+            for name, words in sorted(listed.items())]
+
+
+def sticker_png(name):
+    """The path of the studio's sticker called name, one of the names stickers() lists."""
+    shipped = stickers()
+    for s in shipped:
+        if s["name"] == name:
+            return s["png"]
+    raise ValueError("sticker %r is not one of the studio's stickers: use a name stickers() lists, such as %s."
+                     % (name, ", ".join(s["name"] for s in shipped if s["name"] in ("fire", "money_bag", "star"))))
 
 
 def _png_size(png):

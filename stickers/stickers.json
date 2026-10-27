@@ -1,0 +1,249 @@
+{
+ "set": "Fluent Emoji 3D",
+ "by": "Microsoft",
+ "licence": "MIT",
+ "licence_file": "LICENSE-Fluent-Emoji.txt",
+ "source": "https://github.com/microsoft/fluentui-emoji",
+ "stickers": {
+  "1st_place_medal": {
+   "en": "first place medal",
+   "th": "เหรียญทอง ที่หนึ่ง"
+  },
+  "alarm_clock": {
+   "en": "alarm clock",
+   "th": "นาฬิกาปลุก ด่วน"
+  },
+  "backhand_index_pointing_down": {
+   "en": "pointing down",
+   "th": "ชี้ลง"
+  },
+  "backhand_index_pointing_right": {
+   "en": "pointing right",
+   "th": "ชี้ขวา"
+  },
+  "bell": {
+   "en": "bell",
+   "th": "กระดิ่ง"
+  },
+  "brain": {
+   "en": "brain",
+   "th": "สมอง ฉลาด"
+  },
+  "chart_decreasing": {
+   "en": "chart going down",
+   "th": "กราฟลง"
+  },
+  "chart_increasing": {
+   "en": "chart going up",
+   "th": "กราฟขึ้น"
+  },
+  "check_mark_button": {
+   "en": "check mark",
+   "th": "ถูก ผ่าน"
+  },
+  "clapping_hands": {
+   "en": "clapping hands",
+   "th": "ปรบมือ"
+  },
+  "coin": {
+   "en": "coin",
+   "th": "เหรียญ"
+  },
+  "collision": {
+   "en": "bang",
+   "th": "ระเบิด ปัง"
+  },
+  "confetti_ball": {
+   "en": "confetti ball",
+   "th": "ลูกบอลกระดาษ ฉลอง"
+  },
+  "cross_mark": {
+   "en": "cross mark",
+   "th": "ผิด กากบาท"
+  },
+  "crossed_swords": {
+   "en": "crossed swords",
+   "th": "ดาบ ต่อสู้"
+  },
+  "crown": {
+   "en": "crown",
+   "th": "มงกุฎ"
+  },
+  "dollar_banknote": {
+   "en": "dollar banknote",
+   "th": "ธนบัตร แบงก์"
+  },
+  "exploding_head": {
+   "en": "exploding head",
+   "th": "หัวระเบิด ช็อก"
+  },
+  "eyes": {
+   "en": "eyes",
+   "th": "ตา ดูนี่"
+  },
+  "face_screaming_in_fear": {
+   "en": "screaming face",
+   "th": "กรี๊ด ตกใจ"
+  },
+  "face_with_tears_of_joy": {
+   "en": "tears of joy",
+   "th": "ขำน้ำตาไหล"
+  },
+  "fire": {
+   "en": "fire",
+   "th": "ไฟ"
+  },
+  "flexed_biceps": {
+   "en": "flexed biceps",
+   "th": "กล้าม สู้"
+  },
+  "gem_stone": {
+   "en": "gem stone",
+   "th": "เพชร"
+  },
+  "glowing_star": {
+   "en": "glowing star",
+   "th": "ดาวเรืองแสง"
+  },
+  "heart_on_fire": {
+   "en": "heart on fire",
+   "th": "หัวใจลุกเป็นไฟ"
+  },
+  "high_voltage": {
+   "en": "lightning",
+   "th": "สายฟ้า"
+  },
+  "hundred_points": {
+   "en": "hundred points",
+   "th": "ร้อยคะแนน"
+  },
+  "joystick": {
+   "en": "joystick",
+   "th": "จอยสติ๊ก"
+  },
+  "label": {
+   "en": "label",
+   "th": "ป้ายราคา"
+  },
+  "laptop": {
+   "en": "laptop",
+   "th": "โน้ตบุ๊ก"
+  },
+  "light_bulb": {
+   "en": "light bulb",
+   "th": "หลอดไฟ ไอเดีย"
+  },
+  "loudly_crying_face": {
+   "en": "crying face",
+   "th": "ร้องไห้"
+  },
+  "magnifying_glass_tilted_left": {
+   "en": "magnifying glass",
+   "th": "แว่นขยาย ค้นหา"
+  },
+  "megaphone": {
+   "en": "megaphone",
+   "th": "โทรโข่ง ประกาศ"
+  },
+  "mobile_phone": {
+   "en": "mobile phone",
+   "th": "มือถือ"
+  },
+  "money_bag": {
+   "en": "money bag",
+   "th": "ถุงเงิน"
+  },
+  "money_mouth_face": {
+   "en": "money mouth",
+   "th": "หน้าเงิน รวย"
+  },
+  "money_with_wings": {
+   "en": "money with wings",
+   "th": "เงินบิน"
+  },
+  "package": {
+   "en": "package",
+   "th": "กล่องพัสดุ"
+  },
+  "party_popper": {
+   "en": "party popper",
+   "th": "ปาร์ตี้ ฉลอง"
+  },
+  "red_exclamation_mark": {
+   "en": "exclamation mark",
+   "th": "เครื่องหมายตกใจ"
+  },
+  "red_heart": {
+   "en": "heart",
+   "th": "หัวใจ"
+  },
+  "red_question_mark": {
+   "en": "question mark",
+   "th": "เครื่องหมายคำถาม"
+  },
+  "robot": {
+   "en": "robot",
+   "th": "หุ่นยนต์ เอไอ"
+  },
+  "rocket": {
+   "en": "rocket",
+   "th": "จรวด"
+  },
+  "shopping_bags": {
+   "en": "shopping bags",
+   "th": "ถุงช้อปปิ้ง"
+  },
+  "shopping_cart": {
+   "en": "shopping cart",
+   "th": "รถเข็น ช้อปปิ้ง"
+  },
+  "skull": {
+   "en": "skull",
+   "th": "หัวกะโหลก ตายแล้ว"
+  },
+  "smiling_face_with_heart_eyes": {
+   "en": "heart eyes",
+   "th": "ตาเป็นหัวใจ หลงรัก"
+  },
+  "sparkles": {
+   "en": "sparkles",
+   "th": "ประกาย วิบวับ"
+  },
+  "star": {
+   "en": "star",
+   "th": "ดาว"
+  },
+  "star_struck": {
+   "en": "star struck",
+   "th": "ตาเป็นดาว ว้าว"
+  },
+  "thinking_face": {
+   "en": "thinking face",
+   "th": "คิด สงสัย"
+  },
+  "thumbs_down": {
+   "en": "thumbs down",
+   "th": "นิ้วลง ไม่ชอบ"
+  },
+  "thumbs_up": {
+   "en": "thumbs up",
+   "th": "ยกนิ้ว ชอบ"
+  },
+  "trophy": {
+   "en": "trophy",
+   "th": "ถ้วยรางวัล"
+  },
+  "video_game": {
+   "en": "game pad",
+   "th": "จอยเกม เล่นเกม"
+  },
+  "warning": {
+   "en": "warning",
+   "th": "ระวัง"
+  },
+  "wrapped_gift": {
+   "en": "wrapped gift",
+   "th": "ของขวัญ"
+  }
+ }
+}

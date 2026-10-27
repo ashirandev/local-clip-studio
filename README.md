@@ -186,6 +186,7 @@ Each piece is listed with its licence. The Status column says whether this build
 | [MMS-TTS Thai](https://huggingface.co/facebook/mms-tts-tha) (Meta) | an optional voice-over, off by default | [CC-BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/), **non-commercial** | planned |
 | [Google Sans](https://github.com/googlefonts/googlesans), in `fonts/` with its licence | the house font for words on the clip, Thai and Latin | SIL Open Font License 1.1 | used |
 | [Kanit](https://fonts.google.com/specimen/Kanit) (Google Fonts), in `fonts/` with its licence | Thai and Latin text on the clip, when chosen | SIL Open Font License 1.1 | used |
+| [Fluent Emoji 3D](https://github.com/microsoft/fluentui-emoji) (Microsoft), 60 of them in `stickers/` with `stickers/LICENSE-Fluent-Emoji.txt` | the studio's stickers | MIT | used |
 
 Model weights are downloaded when they are first needed. None of them are committed here.
 

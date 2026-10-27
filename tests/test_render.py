@@ -31,7 +31,7 @@ def state(kind="subject", **entries):
         for e in entries.get(do, []):
             p.add(dict(e, do=do))
     return dict(p.state(), stickers=entries.get("sticker", []), pushes=entries.get("push", []),
-                look=entries.get("look"))
+                look=entries.get("look"), glass=entries.get("glass", []))
 
 
 def drawn(st, t):
@@ -225,6 +225,26 @@ class Stages(unittest.TestCase):
             self.assertGreater(int(white_a.sum()), 2000, "the title's letters are there")
             self.assertLess(int((white_a != white_b).sum()), white_a.sum() * 0.02, "the title held still at %s s" % t)
 
+    def test_a_glass_box_frosts_the_footage_under_the_stickers_and_the_words(self):
+        png = os.path.join(self.tmp, "blue.png")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=0x2040ff:s=300x300", "-frames:v",
+                        "1", png], check=True)
+        glass = {"box": [100, 950, 880, 420], "start": 0.5, "end": 3.5, "tint": "dark", "shine": False}
+        stuck = {"png": png, "at": 0.5, "length": 3.0, "box": [700, 1100, 240, 240]}
+        words = dict(TITLE, box=[120, 960, 560, 200])
+        plain = drawn(state("card"), 1.5)
+        frosted = drawn(state("card", glass=[glass]), 1.5)
+        inner = [160, 1220, 500, 120]
+        self.assertLess(detail(frosted, inner), detail(plain, inner) * 0.1, "the card's footage is frosted")
+        found = changed(plain, frosted)
+        self.assertTrue(inside(found, [100 - 48, 950 - 36, 880 + 96, 420 + 96]), "only around the box: %s" % (found,))
+        on_top = drawn(state("card", title=[words], sticker=[stuck], glass=[glass]), 1.5)
+        alone = drawn(state("card", sticker=[stuck]), 1.5)
+        middle = (slice(1180, 1260), slice(780, 860))
+        self.assertLessEqual(int(abs(on_top[middle].astype(int) - alone[middle]).max()), 3, "the sticker is not frosted")
+        x, y, w, h = words["box"]
+        self.assertGreater(int((on_top[y:y + h, x:x + w].min(axis=2) > 240).sum()), 2000, "the title stands on it")
+
     def test_a_look_grades_the_footage_and_never_the_words_or_the_frames_design(self):
         titled = state("card", title=[TITLE])
         lay = titled["clip"]["layout"]
@@ -309,6 +329,22 @@ class Preview(unittest.TestCase):
         self.assertGreater(most(range(int(shown[1]) + 10, int(shown[1] + shown[3]) - 10, 4),
                                 range(int(shown[0]) + 10, int(shown[0] + shown[2]) - 10, 4)), 60, "the blur")
         self.assertLessEqual(most(range(1700, 1900, 4), range(100, 980, 4)), 12, "the rest is the same picture")
+
+    def test_a_preview_at_any_time_shows_the_layouts_shapes_and_the_stickers(self):
+        import numpy as np
+        box = [380, 1400, 320, 320]
+        plain = state("card")
+        st = state("card", sticker=[{"png": effects.sticker_png("fire"), "at": 0.2, "length": 3.6, "box": box}])
+        dx, dy, d, _ = next(p for p in plain["clip"]["layout"]["parts"] if p["name"] == "circle")["dst"]
+        cx = int(dx + d / 2)
+        for t in (0.7, 1.1, 1.3, 31 / 30, 1.55, 2.45, 2.6, 3.3):
+            a = np.frombuffer(self.grey(plain, t), np.uint8).reshape(1920, 1080).astype(int)
+            b = np.frombuffer(self.grey(st, t), np.uint8).reshape(1920, 1080).astype(int)
+            ring = b[int(dy) - layouts.RING + 2:int(dy) - 1, cx - 20:cx + 20]
+            self.assertGreater(ring.mean(), 200, "the face circle's white ring at %.3f s" % t)
+            x, y, w, h = box
+            self.assertGreater(np.abs(b - a)[y + 60:y + h - 60, x + 60:x + w - 60].mean(), 40,
+                               "the sticker at %.3f s" % t)
 
     def test_two_requests_for_the_same_frame_at_once_both_get_it(self):
         import threading

@@ -134,9 +134,9 @@ def after_source(state, src, out, first_input, default="clean"):
       and never the frame's design, the stickers or the words;
     - the layout, to the 1080x1920 frame, with the slow pushes inside its main part, so the frame's design holds
       still while the footage pushes in;
-    - frame stage: the camera hits (punch-in, shake), the stickers, then the words (titles, captions and big words,
-      one ASS file), so the words hold still while the picture moves and stay on top of a sticker, then the flashes
-      last, so a flash lights the words too.
+    - frame stage: the camera hits (punch-in, shake), the glass boxes, the stickers, then the words (titles, captions
+      and big words, one ASS file), so the words hold still while the picture moves and stay on top of a sticker or a
+      glass box, then the flashes last, so a flash lights the words too.
     A drawing that cannot be made raises ValueError with the sentence for Muse."""
     blurs = [effects.blur_track(b["track"]) if b.get("track") else effects.blur_box(b["box"], b["start"], b["end"])
              for b in state.get("blurs") or []]
@@ -150,6 +150,8 @@ def after_source(state, src, out, first_input, default="clean"):
     camera = {"shake": lambda h: effects.shake(h["at"]),
               "punch": lambda h: effects.punch_in(h["at"], centre=h["centre"])}
     fragments = [camera[h["kind"]](h) for h in hits if h["kind"] in camera]
+    fragments += [layouts.glass(g["box"], g["start"], g["end"], g.get("tint", "light"), g.get("shine", True))
+                  for g in state.get("glass") or []]
     fragments += [effects.sticker(k["png"], k["at"], k["length"], k["box"]) for k in state.get("stickers") or []]
     words = ass(state, default)
     if words:
@@ -161,8 +163,9 @@ def after_source(state, src, out, first_input, default="clean"):
 
 def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH):
     """The clip's frame at clip second t, width pixels wide: the jpg's path in work/clipframes, made once. The
-    extra pictures (masks, shadows, stickers) are opened from second t, so FFmpeg does not read every picture frame
-    before it: a frame late in a long clip draws as fast as the first."""
+    extra pictures (masks, shadows, stickers) are opened from the last 1/30 s step at or before t, so FFmpeg does
+    not read every picture frame before it (a frame late in a long clip draws as fast as the first), and their frames
+    fall on the steps the full render's do, so the frame shows each picture as the full render does."""
     clip = state["clip"]
     if not clip:
         raise NotDrawn("There is no clip yet, so there is no frame to draw.")
@@ -173,7 +176,12 @@ def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH):
         graph, files = after_source(state, "src", "whole", 1, default)
     except ValueError as e:
         raise NotDrawn(str(e))
-    graph =("[0:v]setpts=PTS-STARTPTS+%.3f/TB[src];%s;[whole]scale=%d:-2[fin]" % (t, graph, width))
+    # the frame's time is a whole tick worked out here: t/TB in FFmpeg can fall a hair under one (7.6 s at 1/1000 is
+    # 7599.99...), and a frame before the pictures' first frame is drawn with none of them
+    ticks = FPS * 1000
+    graph = ("[0:v]settb=1/%d,setpts=PTS-STARTPTS+%d[src];%s;[whole]scale=%d:-2[fin]"
+             % (ticks, round(t * ticks), graph, width))
+    step = math.floor(t * FPS + 1e-6) / FPS
     key = hashlib.sha1(json.dumps([rec["path"], rec["size"], rec["mtime"], round(at[1], 3), graph, files],
                                   ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
     target = os.path.join(folder("clipframes"), key + ".jpg")
@@ -181,7 +189,7 @@ def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH):
         return target
     cmd = [shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y", "-ss", "%.3f" % at[1], "-i", rec["path"]]
     for f in files:
-        cmd += ["-itsoffset", "%.3f" % t, "-loop", "1", "-framerate", "30", "-i", f]
+        cmd += ["-itsoffset", "%.6f" % step, "-loop", "1", "-framerate", str(FPS), "-i", f]
     part = _part(target)
     cmd += ["-filter_complex", graph, "-map", "[fin]", "-frames:v", "1", "-q:v", "3", "-f", "image2", part]
     try:

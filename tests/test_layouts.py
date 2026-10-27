@@ -392,5 +392,22 @@ class Moved(unittest.TestCase):
         self.assertTrue(layouts.moved(lay, "circle", (0, 1580, 340, 340)), "a corner under the caption is fine")
 
 
+
+@unittest.skipUnless(FFMPEG, "needs ffmpeg")
+class Shapes(unittest.TestCase):
+    def test_a_shape_drawn_another_way_is_a_new_picture_never_a_stale_one(self):
+        work, recording.WORK = recording.WORK, tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, recording.WORK, True)
+        self.addCleanup(setattr, recording, "WORK", work)
+        dim = layouts._shape("same name", 4, 4, "format=gray,geq=lum=10[o]")
+        bright = layouts._shape("same name", 4, 4, "format=gray,geq=lum=200[o]")
+        self.assertNotEqual(dim, bright)
+        self.assertEqual(layouts._shape("same name", 4, 4, "format=gray,geq=lum=10[o]"), dim, "made once")
+        grey = [subprocess.run([FFMPEG, "-v", "error", "-i", p, "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                               capture_output=True, check=True).stdout[0] for p in (dim, bright)]
+        self.assertLess(grey[0], 30)
+        self.assertGreater(grey[1], 180)
+
+
 if __name__ == "__main__":
     unittest.main()
