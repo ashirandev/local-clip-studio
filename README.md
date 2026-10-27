@@ -154,6 +154,11 @@ the result and the engine numbers.
 - **Words never cover a face or the product.** Every title is measured as libass will draw it, then refused at a
   time or a place where it would cover a face the program found, or the product Muse named, and the refusal lists
   the times and places that are clear. A blur over the face the clip shows is refused too: the face is the point.
+- **Nothing private shows on a tutorial's screen.** In a screen explainer the program reads the screen at full size
+  (RapidOCR, on the processor) and hides every line with an email address, a phone number, a card or ID number, a
+  key, an account number or a password, for as long as it shows. Patterns decide, not a model, and the words are
+  never passed to Muse, so they cannot reach a title or a post. The last check reads the screen again and fails
+  while a private line can be seen.
 - **Every change is one entry, and undo takes it back.** The clip is a list of entries (the moment and layout, the
   style, titles, captions, blurs, hits). The same list draws the preview and the finished file. After each change
   Muse sees the frame it made, and the page shows the clip with a slider to any second. The person can undo on the
@@ -198,6 +203,8 @@ Each piece is listed with its licence. The Status column says whether this build
 | [OpenCV](https://opencv.org/) (`opencv-python`) | runs YuNet | Apache-2.0 | used |
 | [PyThaiNLP](https://github.com/PyThaiNLP/pythainlp) | breaks Thai titles and captions at word boundaries | Apache-2.0 | used |
 | [NumPy](https://numpy.org/) | holds the pictures the face finder reads | BSD-3-Clause | used |
+| [RapidOCR](https://github.com/RapidAI/RapidOCR) (`rapidocr-onnxruntime`), with the PP-OCRv4 models it ships | reads the words on the screen at full size, so private lines can be hidden | Apache-2.0 | used |
+| [ONNX Runtime](https://onnxruntime.ai/) | runs RapidOCR's models on the processor | MIT | used |
 | [SFace](https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface) (OpenCV Zoo) | tells faces apart, so other people's faces can be blurred | Apache-2.0 | planned |
 | [MMS-TTS Thai](https://huggingface.co/facebook/mms-tts-tha) (Meta) | an optional voice-over, off by default | [CC-BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/), **non-commercial** | planned |
 | [Google Sans](https://github.com/googlefonts/googlesans), in `fonts/` with its licence | the house font for words on the clip, Thai and Latin | SIL Open Font License 1.1 | used |

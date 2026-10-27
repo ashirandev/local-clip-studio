@@ -15,7 +15,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, effects, faces, hearing, layouts, mind, project, recording, render, talk, text, tools, words  # noqa: E402,E501
+from clipstudio import agent, effects, faces, hearing, layouts, mind, project, recording, render, screen, talk, text, tools, words  # noqa: E402,E501
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_hearing import Worker  # noqa: E402
 from test_map import make_moment  # noqa: E402
@@ -144,6 +144,15 @@ class Projects(unittest.TestCase):
         self.assertEqual(p.state()["length"], 2)
         with self.assertRaises(ValueError):
             p.add({"do": "nothing"})
+
+    def test_a_private_blur_belongs_to_its_clip_and_a_plain_one_is_kept(self):
+        p = project.Project()
+        p.add({"do": "clip", "moment": 1, "pieces": [[30, 50]], "layout": {"kind": "card"}})
+        p.add({"do": "blur", "box": [0, 0, 10, 10], "start": 0, "end": 5, "private": "an email address"})
+        p.add({"do": "blur", "box": [0, 0, 10, 10], "start": 0, "end": 5})
+        self.assertEqual(len(p.state()["blurs"]), 2)
+        p.add({"do": "clip", "moment": 2, "pieces": [[60, 70]], "layout": {"kind": "card"}})
+        self.assertEqual([b.get("private") for b in p.state()["blurs"]], [None])
 
     def test_stickers_are_drawn_in_time_order_and_only_inside_the_clip(self):
         p = project.Project()
@@ -907,6 +916,69 @@ class Tools(unittest.TestCase):
         self.assertFalse(off[-1]["refused"], off[-1]["result"])
         self.assertIsNone(self.chat.project.state()["music"])
         self.assertEqual(tools.describe(self.chat.project.entries[-1]), "taking the music off")
+
+    def test_a_tutorial_hides_what_is_private_on_the_screen_and_the_check_reads_it_again(self):
+        mail = [{"text": "Account: someone@example.com", "box": [100, 60, 120, 10], "sure": 0.99}]
+        asked = []
+
+        def readings(rec, a, b, on_start=None):
+            asked.append((a, b))
+            return [{"at": a, "lines": []}, {"at": a + 2, "lines": mail}, {"at": a + 6, "lines": []}]
+
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            shutil.copy(self.clip, out)
+            return out
+
+        had = screen.readings, getattr(render, "export", None)
+        screen.readings, render.export = readings, export
+        try:
+            brain, steps = self.run_job(
+                *self.to_moment(), [call("load_recipe", type="explain", why="a tutorial")],
+                [call("make_clip", moment=1, layout="card", why="the screen")],
+                [call("decide_people", keep=[1], why="it is him")],
+                [call("render_clip", why="make the file")], [call("check_clip", why="check it")], "Done.")
+            made, hidden, checked = steps[4], self.chat.project.state()["blurs"], steps[-1]
+            self.chat.undo(), self.chat.undo()
+            _, again = self.run_job([call("decide_people", keep=[1], why="it is him")],
+                                    [call("render_clip", why="again")], [call("check_clip", why="check it")], "Done.")
+        finally:
+            screen.readings, render.export = had
+        self.assertIn("The program read the screen and hid 1 private line, each for as long as it shows: an email "
+                      "address at 0-6 s. The words themselves are not repeated here", made["result"])
+        self.assertEqual([(b["private"], b["start"], b["end"]) for b in hidden], [("an email address", 0, 6)])
+        self.assertNotIn("someone@example.com", str(brain.sent), "the private words never reach Muse")
+        self.assertIn("- passed: Nothing private can be read on the screen (1 private line, each hidden for as long "
+                      "as it shows)", checked["result"])
+        self.assertIn("- FAILED: Nothing private can be read on the screen (not hidden: an email address at 0-6 s)",
+                      again[-1]["result"])
+        self.assertEqual(asked, [(30.0, 50.0)] * 3, "read when the clip is made and at every check")
+
+    def test_the_moments_of_a_tutorial_are_read_ahead_when_they_are_proposed(self):
+        ahead = []
+        had, screen.ahead = screen.ahead, lambda rec, a, b: ahead.append((a, b))
+        try:
+            for kind in ("explain", "game"):
+                self.run_job([call("open_recording", path=self.clip, why="open it")],
+                             [call("load_recipe", type=kind, why="the kind")],
+                             [call("look_at_piece", start="0:30", end="0:50", why="the top stretch")],
+                             [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the tone"}])],
+                             "Done.")
+                ahead.append(kind)
+        finally:
+            screen.ahead = had
+        self.assertEqual(ahead, [(30.0, 50.0), "explain", "game"])
+
+    def test_a_clip_whose_recipe_does_not_read_the_screen_is_not_read(self):
+        asked = []
+        had, screen.readings = screen.readings, lambda rec, a, b, on_start=None: asked.append((a, b)) or []
+        try:
+            _, steps = self.run_job(*self.to_moment(), [call("load_recipe", type="game", why="a stream")],
+                                    [call("make_clip", moment=1, layout="card", why="the game")], "Done.")
+        finally:
+            screen.readings = had
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertNotIn("read the screen", steps[-1]["result"])
+        self.assertEqual(asked, [])
 
     def test_the_finished_file_is_checked_before_it_is_handed_over_and_a_failure_is_fixed(self):
         renders = []

@@ -12,8 +12,10 @@ the recording, and boxes on the frame are pixels of the 1080x1920 clip.
 - title: {"text", "start", "end", "place", "box": the place's frame box, "key"}
 - captions: {"lines": text.caption_lines() lines in clip seconds, "band": [y, h], "lit": each word lit as it is
   said}, or {"lines": []} for none
-- blur: {"box": recording box, "start", "end"}: a fixed box, such as a stream's chat; or {"track": [[clip second, x,
-  y, w, h], ...] in recording pixels, "start", "end"}: a box that moves with a face
+- blur: {"box": recording box, "start", "end"}: a fixed box, such as a stream's chat, with "private": which private
+  line it hides when the program found that line on the screen (such a blur belongs to its clip, and a new clip entry
+  drops it); or {"track": [[clip second, x, y, w, h], ...] in recording pixels, "start", "end"}: a box that moves with
+  a face
 - hit: {"kind": flash, shake, punch or word, "at", "word", "centre": [x, y] on the frame}
 - sticker: {"png": path of a PNG, "at", "length", "box": frame box the picture is fitted in, "name": the studio
   sticker's name, when it is one}; a sticker on the same spot at an overlapping time replaces an earlier one
@@ -70,6 +72,7 @@ class Project:
             if e["do"] == "clip":
                 clip = e
                 decided = {}
+                blurs = [b for b in blurs if not b.get("private")]
             elif e["do"] == "style":
                 style = e
             elif e["do"] == "title":

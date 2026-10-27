@@ -2,7 +2,8 @@
 
 A recipe is Markdown with front matter, like a SKILL.md file: name, title, chip (the button that switches to it),
 description (when to pick it), length (seconds), style (the house style it starts with) and map (what the map ranks
-by, such as "sound 1, screen 1"), then the body. The body
+by, such as "sound 1, screen 1"), and, when the program must read the screen for private words, read: screen. Then the
+body. The body
 says what a good clip of that kind is and which rules apply, in words, never in tool names, so it stays true as
 tools are added. Muse picks the recipe; the loop makes sure the rules that must hold are checked.
 """
@@ -12,10 +13,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FOLDER = os.path.join(ROOT, "recipes")
 FIELDS = ("name", "title", "chip", "description", "length", "style", "map")
 SIGNALS = ("sound", "screen")
+READS = ("screen",)
 
 
 def read(path):
-    """{name, title, chip, description, length, style, body} from one recipe file."""
+    """{name, title, chip, description, length, style, map, read, body} from one recipe file."""
     with open(path, encoding="utf-8") as f:
         text = f.read()
     head, sep, body = text.partition("\n---\n")
@@ -30,6 +32,9 @@ def read(path):
         raise ValueError("%s is missing %s." % (path, ", ".join(missing)))
     recipe["length"] = int(recipe["length"])
     recipe["map"] = weights(recipe["map"], path)
+    recipe["read"] = recipe.get("read") or None
+    if recipe["read"] not in (None,) + READS:
+        raise ValueError("%s: read is %s, not %s." % (path, " or ".join(READS), recipe["read"]))
     recipe["body"] = body.strip()
     return recipe
 

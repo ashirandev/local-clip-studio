@@ -6,6 +6,7 @@ description: A person explains or shows how to do something: a tutorial, a softw
 length: 45
 style: clean
 map: sound 1, screen 1
+read: screen
 ---
 
 # Tutorial or screen explainer
@@ -22,7 +23,9 @@ After the clip, the viewer has learned one thing they can use: one tip, one step
 
 ## Rules
 
-- Blur anything private on the screen: an email address, a key or a password, a customer's name, a phone number.
+- The program reads the screen and hides every line with an email address, a phone number, a card or ID number, a
+  key, an account number or a password, for as long as it shows. It cannot tell a name: look at the pictures for a
+  customer's name and blur it.
 - Captions are the person's own words.
 
 ## The clip

@@ -16,8 +16,8 @@ import shutil
 import subprocess
 import time
 
-from . import (effects, faces, hearing, layouts, maps, mind, previews, project, recording, render, spoken, talk,
-               text, thai, tracks, words)
+from . import (effects, faces, hearing, layouts, maps, mind, previews, project, recording, render, screen, spoken,
+               talk, text, thai, tracks, words)
 from .recipes import RECIPES, SIGNALS
 
 WHY = {"type": "string",
@@ -441,6 +441,9 @@ def propose_moments(job, why, moments):
                                                                   clock(other["end"]), clock(a), clock(b)))
         picked.append({"n": i, "look": look["n"], "start": round(a, 2), "end": round(b, 2), "reason": m["reason"],
                        "frame": shown["frame"], "t": shown["t"]})
+    if _reads_screen(job):
+        for p in picked:
+            screen.ahead(rec, p["start"], p["end"])
     started = time.time()
     try:
         for p in picked:
@@ -637,12 +640,19 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
         lay["notes"].append("This is a seller clip and no product box was named, so nothing keeps words off the "
                             "product. Make the clip again with product: [x1, y1, x2, y2] on your grid around the product "
                             "in the picture.")
+    private = _private_lines(job, rec, lay, [[a, b]])
+    if private is None:
+        return "Not made: the person pressed Stop."
     people = _people(rec, [[a, b]], box)
     state = job.edit({"do": "clip", "moment": moment, "pieces": [[a, b]], "layout": lay, "product": item,
                       "people": [{k: v for k, v in p.items() if k != "crop"} for p in people or []],
                       "speech": _speech(rec, job.chat.looks[m["look"] - 1], [[a, b]])})
+    for f in private["shown"]:
+        state = job.edit({"do": "blur", "box": f["box"], "start": f["start"], "end": f["end"], "private": f["kind"]})
     lines = ["Made the clip from moment %d (%s-%s, %g s) in the %s layout." % (
         moment, recording.clock(a), recording.clock(b), state["length"], lay["kind"]), face_line] + lay["notes"]
+    if private["said"]:
+        lines.append(private["said"])
     if lay.get("safe"):
         lines.append(lay["safe"]["said"])
     lines.append("Places for words on screen, kept clear of the faces the program found%s (the band from y %d to %d "
@@ -666,6 +676,63 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
                  "Then put the title on.")
     job.show(clip=job.chat.clip_view())
     return "\n".join(lines)
+
+
+def _reads_screen(job):
+    clip = job.chat.clip
+    return bool(clip) and (RECIPES.get(clip["recipe"]) or {}).get("read") == "screen"
+
+
+def _private_spans(lines):
+    return "; ".join("%s at %g-%g s" % (f["kind"], f["start"], f["end"]) for f in lines)
+
+
+NOTHING_PRIVATE = ("no line holds an email address, a phone number, a card or ID number, a key, an account number or a "
+                   "password")
+
+
+def _private_lines(job, rec, lay, pieces):
+    """{"shown": the private lines the screen shows in the clip's picture, "said": the sentence for Muse}, empty when
+    the recipe does not read the screen, or None when the person pressed Stop."""
+    if not _reads_screen(job):
+        return {"shown": [], "said": ""}
+    job.working("Reading the screen for anything private")
+    try:
+        found = screen.hidden(rec, pieces, on_start=job.started_work)
+    except screen.Stopped:
+        return None
+    except screen.ScreenError as e:
+        return {"shown": [], "said": "The screen could not be read (%s), so nothing private is hidden: look at the "
+                                     "pictures for an email address, a phone number or a key, and blur it." % e}
+    finally:
+        job.done_working()
+    shown = [f for f in found if layouts.to_frame(lay, f["box"])]
+    if not shown:
+        return {"shown": [], "said": "The program read the screen: %s." % NOTHING_PRIVATE}
+    return {"shown": shown, "said": "The program read the screen and hid %d private line%s, each for as long as it "
+                                    "shows: %s. The words themselves are not repeated here, so they cannot reach the "
+                                    "title or the post." % (len(shown), "" if len(shown) == 1 else "s",
+                                                            _private_spans(shown))}
+
+
+def _private_check(job, rec, state):
+    """(ok, found) for the check that every private line the clip shows is hidden for as long as it shows."""
+    lay = state["clip"]["layout"]
+    job.working("Reading the screen for anything private")
+    try:
+        found = screen.hidden(rec, state["clip"]["pieces"], on_start=job.started_work)
+    except screen.Stopped:
+        return False, "not read: the person pressed Stop"
+    except screen.ScreenError as e:
+        return False, "the screen could not be read (%s)" % e
+    finally:
+        job.done_working()
+    shown = [f for f in found if layouts.to_frame(lay, f["box"])]
+    bare = [f for f in shown if not screen.covered(f, state["blurs"])]
+    if bare:
+        return False, "not hidden: %s" % _private_spans(bare)
+    return True, ("%d private line%s, each hidden for as long as it shows" % (len(shown), "" if len(shown) == 1 else
+                                                                               "s") if shown else NOTHING_PRIVATE)
 
 
 def _make_talk(job, rec, moment, m):
@@ -1665,6 +1732,8 @@ def check_clip(job, why):
                                                                       "shows")
     else:
         check("No viewer's name can be read", None, "no chat box in this kind of clip")
+    if _reads_screen(job):
+        check("Nothing private can be read on the screen", *_private_check(job, rec, state))
     if kind == "seller":
         product = state["clip"].get("product")
         inside = bool(product) and bool(layouts.to_frame(state["clip"]["layout"], product))
