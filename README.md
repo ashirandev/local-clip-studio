@@ -12,13 +12,19 @@ fixes what fails, and hands over a vertical clip ready to post. To change anythi
 
 ## Quick start
 
-Python 3.11 or newer. The studio itself uses the standard library only.
+Python 3.11 or newer, and [FFmpeg](https://ffmpeg.org/) (`ffmpeg` and `ffprobe` on the PATH). The studio itself
+uses the Python standard library only.
 
 ```
 python app.py
 ```
 
-Then open http://127.0.0.1:8899/ . Set `LCS_PORT` to use another port.
+Then open http://127.0.0.1:8899/ . Set `LCS_PORT` to use another port, and `LCS_VIDEOS` to the folders your
+recordings are in (separated by `;` on Windows; the default is `~/Videos`).
+
+Drop a recording on the page, or tap one of your newest. It is opened where it is: a browser does not give the
+path of a dropped file, so the studio finds it in those folders by its name, size and time. Nothing is copied or
+uploaded, and the recording is only ever read.
 
 ## The mind: two ways to run Muse
 
@@ -69,8 +75,11 @@ happens: its number, what it did, why (one line in your language), the input, th
   SKILL.md file, so a new kind of video is a new file.
 - **Every step is written down.** `work/chats/<chat>.events.jsonl` is the job log the page is drawn from, and
   `<chat>.messages.jsonl` is exactly what Muse read.
-- **Recordings are only looked up, never copied.** `LCS_VIDEOS` lists the folders they are kept in (separated by `;`
-  on Windows; the default is `~/Videos`).
+- **Muse looks before it guesses.** When a recording opens, Muse gets its length, picture size and sound tracks
+  (from ffprobe) and one picture from it. File names mislead: the demo's product review is called `trip_...mov`,
+  and from the name alone Muse called it a travel clip; with the picture it picked the product-review recipe.
+- **Every page shows the chat the server has open.** When another chat opens, every page follows it, so neither an
+  address nor a second tab can leave a page working on another chat.
 
 The loop's rules are tested against a scripted mind, and the streamed answers against a small fake server:
 
@@ -99,7 +108,7 @@ Each piece is listed with its licence. The Status column says whether this build
 | [Muse Glimmer 30B](https://huggingface.co/meta-models/Muse-Glimmer-30B) (Meta) | the agent's mind, on your own graphics card | Apache-2.0 | used |
 | Muse Spark (Meta API) | the same mind without a graphics card, with your own key | Meta's API terms | used |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) (llama-server) | runs Glimmer locally | MIT | used |
-| [FFmpeg](https://ffmpeg.org/) | cuts, frames and renders the clip | LGPL-2.1+ (GPL for some builds) | planned |
+| [FFmpeg](https://ffmpeg.org/) | reads each recording (ffprobe) and takes pictures from it; later cuts and renders the clip | LGPL-2.1+ (GPL for some builds) | used |
 | [Omnilingual ASR](https://github.com/facebookresearch/omnilingual-asr) (Meta) | writes down what is said, in many languages | Apache-2.0 | planned |
 | [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) (OpenCV Zoo) | finds faces, so text never covers one | MIT | planned |
 | [SFace](https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface) (OpenCV Zoo) | tells faces apart, so other people's faces can be blurred | Apache-2.0 | planned |
@@ -118,6 +127,7 @@ Model weights are downloaded when they are first needed. None of them are commit
 | 2026-10-27, this build | The agent loop on Glimmer Q3: how much of each question is read again | step 2 of a job read 232 tokens new and reused 1,084; the first step of the next message read 119 new and reused 2,782 |
 | 2026-10-27, this build | A doubled Thai mark ("ค้้น") read back in the next question | it grew to 2, 3, 4, then 8 marks, then 15,000 tokens of thinking with no answer; now the program tidies it before it is read back, and each step stops at 4,096 tokens |
 | 2026-10-27, this build | Steering a running job on Glimmer Q3 | a typed message cut the question in flight 0.05 s after it was sent, and the next step used it; Stop ended the job 0.08 s after it was pressed |
+| 2026-10-27, this build | Opening the review clip by dropping it | found where it is in 0.16 s by name, size and time; the folder, size and time of the file unchanged; from the file name alone Muse called it travel, with one picture it picked the product-review recipe |
 
 New measurements are added here as the build is tested, each with its date.
 

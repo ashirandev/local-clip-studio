@@ -19,6 +19,7 @@ What the loop keeps, whatever Muse writes:
 The chat is written to work/chats as it happens: <chat>.events.jsonl is the job log the page is drawn from, and
 <chat>.messages.jsonl is exactly what Muse read. An earlier chat opens again from these two files.
 """
+import base64
 import json
 import os
 import re
@@ -27,7 +28,7 @@ import threading
 import time
 import traceback
 
-from . import mind, words
+from . import mind, recording, words
 from .tools import SCHEMAS, TOOLS, Refused
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -57,7 +58,10 @@ step.
 only what your tools actually did, in plain words, without tool or field names. Write plain text, not markdown.
 - A question that needs no tool gets a plain answer, with no plan.
 - A message that starts with "(tapped)" is a choice the person made with a button under your guesses. Act on it \
-like their own words, and keep answering in the language they type in."""
+like their own words, and keep answering in the language they type in.
+- A message that starts with "(opened)" means the person opened that recording to make a clip from it. Start at \
+once: pick its kind, then plan and work. Do not ask anything first; the person can correct any guess with a tap. \
+Judge the kind by the picture that comes with it and by the person's words, not by the file name."""
 
 
 class Chat:
@@ -69,7 +73,7 @@ class Chat:
         self.changed = self.jobs = 0
         self.job = None
         self.live, self.live_rev = None, 0
-        self.clip = None
+        self.clip = self.recording = None
         self.cond = threading.Condition()
         folder = os.path.join(WORK, "chats")
         os.makedirs(folder, exist_ok=True)
@@ -84,13 +88,15 @@ class Chat:
         chat = cls(chat_id)
         chat.messages = _read(chat.talk_path)
         chat.events = _read(chat.log_path)
-        chat.jobs = max([e.get("job", 0) for e in chat.events] or [0])
+        chat.jobs = max([e.get("job") or 0 for e in chat.events] or [0])
         ended = {e.get("job") for e in chat.events if e["kind"] == "end"}
         for n in sorted({e["job"] for e in chat.events if e.get("job")} - ended):
             steps = sum(1 for e in chat.events if e.get("job") == n and e["kind"] == "step")
             chat.emit("end", job=n, steps=steps, refused=0, fixed=0, seconds=0, why="closed")
         guesses = [e for e in chat.events if e["kind"] == "guesses"]
         chat.clip = guesses[-1]["clip"] if guesses else None
+        opened = [e for e in chat.events if e["kind"] == "opened"]
+        chat.recording = opened[-1]["recording"] if opened else None
         return chat
 
     def add(self, message):
@@ -109,7 +115,7 @@ class Chat:
     def since(self, n, rev, timeout):
         """(events from number n on, Muse's live thinking if it changed since rev), waiting up to timeout seconds."""
         with self.cond:
-            if len(self.events) <= n and self.live_rev == rev:
+            if len(self.events) <= n and (self.live is None or self.live_rev == rev):
                 self.cond.wait(timeout)
             live = dict(self.live, rev=self.live_rev) if self.live and self.live_rev != rev else None
             return self.events[n:], live
@@ -117,16 +123,18 @@ class Chat:
     def busy(self):
         return bool(self.job and not self.job.done)
 
-    def say(self, words, mind_key):
-        """The person's message: a new job, or, while Muse works, words that cut in on the job running now."""
+    def say(self, words, mind_key, pictures=()):
+        """The person's message: a new job, or, while Muse works, words that cut in on the job running now.
+        Pictures (jpg paths) go to Muse with the words, in the same message."""
+        content = _with_pictures(words, pictures)
         with self.cond:
             job = self.job
             if job and not job.done:
                 self.emit("person", job=job.n, text=words, cut_in=True)
-                job.cut_in(words)
+                job.cut_in(content)
                 return job
             self.jobs += 1
-            self.job = Job(self, mind.get(mind_key), words)
+            self.job = Job(self, mind.get(mind_key), content)
             self.emit("person", job=self.jobs, text=words)
             self.job.thread.start()
             return self.job
@@ -135,13 +143,34 @@ class Chat:
         job = self.job
         return bool(job and job.stop())
 
+    def open(self, rec, job=None):
+        """Opens rec as this chat's recording (one at a time) and shows it.
+        Returns (the recording open before, the path of a picture from rec or None)."""
+        with self.cond:
+            had, self.recording = self.recording, rec
+            self.changed += 1
+        frame = recording.frame(rec)
+        self.emit("opened", job=job, recording=rec, frame=frame, line=recording.describe(rec))
+        return had, (os.path.join(recording.WORK, "frames", frame) if frame else None)
+
+    def open_dropped(self, rec, words, mind_key, language=""):
+        """The person opened rec from the page: it opens, and Muse is told, with any words typed with it and one
+        picture from it. The file name can mislead (the review clip is called trip_...), the picture does not.
+        Until the person types, the browser's language is the only clue to the language they read."""
+        _, picture = self.open(rec)
+        message = "(opened) " + recording.describe(rec)
+        if language:
+            message += "\nThe person's browser is set to %s; answer in that language until they write." % language
+        return self.say(message + ("\n" + words if words else ""), mind_key, [picture] if picture else ())
+
 
 class Job:
     """One message from the person and everything Muse does about it, including words typed while it works."""
 
-    def __init__(self, chat, brain, words):
+    def __init__(self, chat, brain, content):
         self.chat, self.brain, self.n = chat, brain, chat.jobs
-        self.inbox = [words]
+        self.inbox = [content]
+        self.pictures = []
         self.asking = None
         self.stopped = self.done = False
         self.plan, self.plan_shown = [], "[]"
@@ -149,15 +178,16 @@ class Job:
         self.steps = self.refused = self.fixed = self.guard_stops = 0
         self.seen = {}
         self.last_refused = {}
+        self.refused_last = False
         self.shown_live = 0.0
         self.thread = threading.Thread(target=self.run, name="job-%d" % self.n, daemon=True)
 
     def emit(self, kind, **data):
         return self.chat.emit(kind, job=self.n, **data)
 
-    def cut_in(self, words):
+    def cut_in(self, content):
         """Called by Chat.say with the lock held: the words go in next, and the question in flight is cancelled."""
-        self.inbox.append(words)
+        self.inbox.append(content)
         if self.asking:
             self.asking.cancel()
 
@@ -173,10 +203,15 @@ class Job:
 
     def take_inbox(self):
         with self.chat.cond:
-            words, self.inbox = self.inbox, []
-        for w in words:
-            self.chat.add({"role": "user", "content": w})
+            said, self.inbox = self.inbox, []
+        for content in said:
+            self.chat.add({"role": "user", "content": content})
             self.chat.changed += 1
+
+    def attach(self, picture, caption):
+        """A tool's picture for Muse. Pictures never go in a tool result, so the loop sends them right after the
+        results, as one message from the studio."""
+        self.pictures.append((picture, caption))
 
     def on_delta(self, kind, piece):
         chat = self.chat
@@ -228,7 +263,7 @@ class Job:
                 chat.add(got["message"])
                 if not calls:
                     left = self.finish_plan()
-                    if left and not nudged:
+                    if left and not nudged and not self.refused_last:
                         nudged = True
                         self.emit("answer", final=False, text=got["text"], thinking=got["thinking"],
                                   engine=got["engine"], mind=self.brain.label)
@@ -262,6 +297,10 @@ class Job:
                     if self.guesses:
                         self.emit("guesses", **self.guesses)
                         self.guesses = None
+                if self.pictures:
+                    pictures, self.pictures = self.pictures, []
+                    chat.add({"role": "user", "content": _with_pictures(
+                        "[studio] " + " ".join(caption for _, caption in pictures), [p for p, _ in pictures])})
                 if self.guard_stops >= GUARD_STOPS:
                     end = "repeating"
                     self.emit("note", text="Muse kept repeating a call that had already given its answer, so the "
@@ -330,12 +369,14 @@ class Job:
         if self.last_refused.get(name):
             self.fixed += 1
         self.last_refused[name] = False
+        self.refused_last = False
         shown.update(result=text, refused=False)
         return shown, text
 
     def refuse(self, shown, name, sentence):
         self.refused += 1
         self.last_refused[name] = True
+        self.refused_last = True
         shown.update(result=sentence, refused=True)
         return shown, sentence
 
@@ -392,6 +433,9 @@ class Job:
                                                               ", " + clip["language"] if clip["language"] else ""))
         else:
             parts.append("no recipe yet")
+        rec = self.chat.recording
+        parts.append("open: %s (%s long)" % (rec["name"], recording.clock(rec["seconds"])) if rec
+                     else "no recording open")
         return " · ".join(parts)
 
 
@@ -407,6 +451,18 @@ def _arguments(raw):
     if not isinstance(args, dict):
         raise Refused("The input must be one JSON object with named fields.")
     return args
+
+
+def _with_pictures(words, pictures):
+    """A user message's content: the words alone, or the words and each picture (a jpg path) inline."""
+    if not pictures:
+        return words
+    content = [{"type": "text", "text": words}]
+    for path in pictures:
+        with open(path, "rb") as f:
+            data = base64.b64encode(f.read()).decode("ascii")
+        content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + data}})
+    return content
 
 
 def _append(path, row):
@@ -425,12 +481,21 @@ _shown = []
 
 
 def _show(chat):
-    """Makes chat the one the page shows. A job still running in the chat left behind is stopped."""
-    if _shown and _shown[-1] != chat.id and _shown[-1] in CHATS:
-        CHATS[_shown[-1]].stop()
+    """Makes chat the one every page shows. A job still running in the chat left behind is stopped, and the pages
+    still showing that chat are woken so they follow (the server says which chat is open; an address cannot)."""
+    left = CHATS.get(_shown[-1]) if _shown and _shown[-1] != chat.id else None
     CHATS[chat.id] = chat
     _shown[:] = [chat.id]
+    if left:
+        left.stop()
+        with left.cond:
+            left.cond.notify_all()
     return chat
+
+
+def shown():
+    """The id of the chat every page should show."""
+    return _shown[-1] if _shown else None
 
 
 def current():
@@ -471,10 +536,12 @@ def earlier(limit=CHATS_LISTED):
     names.sort(key=lambda n: os.path.getmtime(os.path.join(folder, n)), reverse=True)
     out = []
     for name in names:
-        said = [e["text"] for e in _read(os.path.join(folder, name)) if e["kind"] == "person"]
+        events = _read(os.path.join(folder, name))
+        said = [e["text"] for e in events if e["kind"] == "person"]
+        opened = [e["recording"]["name"] for e in events if e["kind"] == "opened"]
         if said:
             out.append({"id": name[:-13], "when": round(os.path.getmtime(os.path.join(folder, name))),
-                        "first": said[0][:100], "messages": len(said)})
+                        "first": said[0][:100], "messages": len(said), "recording": opened[-1] if opened else ""})
         if len(out) >= limit:
             break
     return out

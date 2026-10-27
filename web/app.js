@@ -11,6 +11,12 @@ const earlier = document.getElementById("earlier");
 const earlierList = document.getElementById("earlierList");
 const mindsBox = document.getElementById("minds");
 const welcome = document.getElementById("welcome").cloneNode(true);
+const frameBox = document.getElementById("frame");
+const emptyFrame = frameBox.cloneNode(true).childNodes;
+const clipLine = document.getElementById("clipLine");
+const clipTitle = document.getElementById("clipTitle");
+const fileInput = document.getElementById("file");
+const dropCover = document.getElementById("dropCover");
 const idle = text.placeholder;
 
 const room = { mind: localStore("mind") || "local", minds: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null };
@@ -76,6 +82,12 @@ function inputLine(input) {
     .join(" · ");
 }
 
+function clock(seconds) {
+  const s = Math.round(seconds);
+  const mm = String(Math.floor((s % 3600) / 60)).padStart(s >= 3600 ? 2 : 1, "0");
+  return (s >= 3600 ? Math.floor(s / 3600) + ":" : "") + mm + ":" + String(s % 60).padStart(2, "0");
+}
+
 function when(seconds) {
   return new Date(seconds * 1000).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
@@ -123,7 +135,6 @@ function drawStep(j, e) {
   const div = el("div", "step" + (e.refused ? " refused" : ""));
   const head = el("p", "step-head");
   head.append(el("span", "n", String(e.step)), el("span", "label", e.label || e.tool));
-  if (e.plan_step) head.appendChild(el("span", "ps", "plan step " + e.plan_step));
   div.appendChild(head);
   if (e.said) div.appendChild(el("p", "said", e.said));
   div.appendChild(el("p", "why", e.why || "Muse gave no reason for this call."));
@@ -189,6 +200,37 @@ function setBusy() {
 }
 
 const TAPPED = "(tapped) ";
+const OPENED = "(opened) ";
+
+function personWords(text) {
+  if (text.startsWith(TAPPED)) return ["you tapped", "Tapped: " + text.slice(TAPPED.length)];
+  if (text.startsWith(OPENED)) {
+    const lines = text.slice(OPENED.length).split("\n");
+    const parts = lines[0].split(" · ");
+    return ["you opened", ["Opened: " + parts[0] + " · " + parts[1]].concat(lines.slice(1)).join("\n")];
+  }
+  return ["you", text];
+}
+
+function clearClip() {
+  frameBox.replaceChildren(...[...emptyFrame].map((n) => n.cloneNode(true)));
+  clipLine.textContent = "";
+  clipTitle.textContent = "Your clip";
+}
+
+function showRecording(e) {
+  const r = e.recording;
+  if (e.frame) {
+    const img = el("img");
+    img.src = "/api/frame/" + e.frame;
+    img.alt = "A picture from " + r.name;
+    frameBox.replaceChildren(img);
+  } else {
+    frameBox.replaceChildren(el("p", "hint", "Opened " + r.name));
+  }
+  clipTitle.textContent = "Your recording";
+  clipLine.textContent = r.name + " · " + clock(r.seconds) + " long. This is the recording you opened; your clip will show here instead once Muse makes it.";
+}
 
 const ENDS = {
   stopped: "Stopped",
@@ -203,8 +245,12 @@ function on(e) {
   if (e.id <= room.last) return;
   room.last = e.id;
   if (e.kind === "person") {
-    const tapped = e.text.startsWith(TAPPED);
-    bubble(tapped ? "you tapped" : "you", tapped ? "Tapped: " + e.text.slice(TAPPED.length) : e.text, e.cut_in && room.jobs[e.job] ? room.jobs[e.job].flow : null);
+    const [kind, words] = personWords(e.text);
+    bubble(kind, words, e.cut_in && room.jobs[e.job] ? room.jobs[e.job].flow : null);
+    return;
+  }
+  if (e.kind === "opened") {
+    showRecording(e);
     return;
   }
   const j = job(e.job);
@@ -312,10 +358,16 @@ function show(chatId) {
   room.jobs = {};
   room.open = new Set();
   log.replaceChildren(welcome.cloneNode(true));
+  clearClip();
+  fillNewest();
   setBusy();
   const source = new EventSource("/api/events?chat=" + encodeURIComponent(chatId));
   source.onmessage = (m) => on(JSON.parse(m.data));
   source.addEventListener("think", (m) => onThinking(JSON.parse(m.data)));
+  source.addEventListener("moved", () => {
+    source.close();
+    connect();
+  });
   source.onerror = () => {
     if (source.readyState === EventSource.CLOSED) setTimeout(connect, 2000);
   };
@@ -394,7 +446,7 @@ earlier.addEventListener("toggle", async () => {
     d.chats.forEach((c) => {
       const b = el("button", "earlier-chat" + (c.id === room.chat ? " here" : ""));
       b.type = "button";
-      b.append(el("span", "first", c.first), el("span", "meta", when(c.when) + " · " + plural(c.messages, "message")));
+      b.append(el("span", "first", c.first), el("span", "meta", [c.recording, when(c.when), plural(c.messages, "message")].filter(Boolean).join(" · ")));
       b.addEventListener("click", () => {
         earlier.open = false;
         connect(c.id);
@@ -404,6 +456,74 @@ earlier.addEventListener("toggle", async () => {
   } catch (err) {
     earlierList.replaceChildren(el("p", "earlier-empty", "The studio is not answering."));
   }
+});
+
+async function fillNewest() {
+  const box = log.querySelector(".welcome .newest");
+  if (!box) return;
+  try {
+    const r = await fetch("/api/recordings", { cache: "no-store" });
+    const d = await r.json();
+    box.textContent = "";
+    if (!d.recordings.length) box.appendChild(el("p", "earlier-empty", "No recordings found in " + (d.folders.join(", ") || "any folder") + "."));
+    d.recordings.forEach((rec) => {
+      const b = el("button", "recording");
+      b.type = "button";
+      b.append(el("span", "first", rec.name), el("span", "meta", [rec.length, rec.size, rec.when].filter(Boolean).join(" · ")));
+      b.addEventListener("click", () => openRecording({ path: rec.path }));
+      box.appendChild(b);
+    });
+  } catch (err) {
+    box.replaceChildren(el("p", "earlier-empty", "The studio is not answering."));
+  }
+}
+
+async function openRecording(body) {
+  const words = text.value.trim();
+  try {
+    const d = await post("/api/open", Object.assign({ chat: room.chat, words: words, mind: room.mind, language: navigator.language || "" }, body));
+    if (d.ok) {
+      text.value = "";
+      return;
+    }
+    bubble("note", d.error || "Something went wrong.");
+  } catch (err) {
+    bubble("note", "The studio is not answering. Start it again with: python app.py");
+  }
+}
+
+function openFile(file) {
+  if (file) openRecording({ name: file.name, size: file.size, mtime: file.lastModified / 1000 });
+}
+
+log.addEventListener("click", (e) => {
+  if (e.target.closest(".pick")) fileInput.click();
+});
+
+fileInput.addEventListener("change", () => {
+  openFile(fileInput.files[0]);
+  fileInput.value = "";
+});
+
+function carriesFiles(e) {
+  return e.dataTransfer && [...e.dataTransfer.types].includes("Files");
+}
+
+window.addEventListener("dragover", (e) => {
+  if (!carriesFiles(e)) return;
+  e.preventDefault();
+  dropCover.hidden = false;
+});
+
+window.addEventListener("dragleave", (e) => {
+  if (!e.relatedTarget) dropCover.hidden = true;
+});
+
+window.addEventListener("drop", (e) => {
+  if (!carriesFiles(e)) return;
+  e.preventDefault();
+  dropCover.hidden = true;
+  openFile(e.dataTransfer.files[0]);
 });
 
 text.addEventListener("keydown", (e) => {

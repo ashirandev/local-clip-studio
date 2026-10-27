@@ -151,6 +151,13 @@ class Loop(unittest.TestCase):
         self.assertEqual([e["why"] for e in events if e["kind"] == "step"], ["ลองค้นหาอีกคร้ง"])
         self.assertNotIn("้้", json.dumps(brain.sent[-1], ensure_ascii=False))
 
+    def test_no_reminder_when_muse_stops_to_explain_a_refusal(self):
+        brain = ScriptedMind([call("set_plan", steps=["pick the kind", "plan the clip", "make it"], why="plan")],
+                             [call("load_recipe", type="travel", why="horses on a trail", plan_step=1)],
+                             "There is no travel recipe yet.")
+        _, events = self.run_job(brain)
+        self.assertEqual([e["kind"] for e in events if e["kind"] in ("answer", "note")], ["answer"])
+
     def test_the_answer_itself_does_the_last_plan_step(self):
         brain = ScriptedMind([call("set_plan", steps=["find both", "compare them"], why="plan")],
                              [call("find_recordings", why="look", plan_step=1)], "axi has more.")

@@ -9,8 +9,8 @@ Input is checked here, not trusted: the hosted API does not promise that argumen
 refused with a sentence that says what to send instead, so Muse can fix it and call again.
 """
 import os
-import time
 
+from . import recording
 from .recipes import RECIPES
 
 WHY = {"type": "string",
@@ -19,9 +19,6 @@ WHY = {"type": "string",
 PLAN_STEP = {"type": "integer", "minimum": 1,
              "description": "Which step of your plan this call works on (1 is the first). Leave it out if there is "
                             "no plan."}
-VIDEO_TYPES = (".mp4", ".mkv", ".mov", ".m4v", ".webm", ".ts", ".flv", ".avi")
-SMALLEST_RECORDING = 1_000_000
-MOST_FILES_LOOKED_AT = 50_000
 
 
 class Refused(Exception):
@@ -102,53 +99,43 @@ def set_plan(job, why, steps):
     return "%s\n%s\nWork through it now; give each call the plan_step it belongs to." % (head, lines)
 
 
-def video_folders():
-    """The folders recordings are kept in: LCS_VIDEOS (separated by ; on Windows, : elsewhere), else ~/Videos."""
-    named = os.environ.get("LCS_VIDEOS", "")
-    folders = [f.strip() for f in named.split(os.pathsep) if f.strip()] or [os.path.expanduser("~/Videos")]
-    return [f for f in folders if os.path.isdir(f)]
-
-
 def find_recordings(job, why, words="", newest=5):
-    folders = video_folders()
+    folders = recording.folders()
     if not folders:
         raise Refused("No folder of recordings was found. Ask the person to set LCS_VIDEOS to the folders their "
                       "recordings are in, then start the studio again.")
-    wanted = words.lower().split()
-    found, looked = [], 0
-    for top in folders:
-        for here, dirs, files in os.walk(top):
-            dirs[:] = [d for d in dirs if not d.startswith(("_", "."))]
-            for name in files:
-                looked += 1
-                if not name.lower().endswith(VIDEO_TYPES):
-                    continue
-                path = os.path.join(here, name)
-                if wanted and not all(w in os.path.relpath(path, top).lower() for w in wanted):
-                    continue
-                try:
-                    st = os.stat(path)
-                except OSError:
-                    continue
-                if st.st_size >= SMALLEST_RECORDING:
-                    found.append((st.st_mtime, st.st_size, path))
-            if looked > MOST_FILES_LOOKED_AT:
-                break
+    found = recording.walk(words)
     where = ", ".join(folders)
     if not found:
-        about = 'has "%s" in its name or folders' % words if wanted else "is there"
+        about = 'has "%s" in its name or folders' % words if words.split() else "is there"
         return "No recording %s in %s.%s" % (about, where, _names_here(folders))
-    found.sort(reverse=True)
     shown = found[:newest]
-    about = ' for "%s"' % words if wanted else ""
+    about = ' for "%s"' % words if words.split() else ""
     lines = ["%d recordings%s in %s; the %d newest:" % (len(found), about, where, len(shown))]
     for i, (mtime, size, path) in enumerate(shown, 1):
-        lines.append("%d. %s · %s · recorded %s · %s" % (i, os.path.basename(path), _size(size), _when(mtime), path))
+        lines.append("%d. %s · %s · recorded %s · %s" % (i, os.path.basename(path), recording.size_text(size),
+                                                       recording.when(mtime), path))
     return "\n".join(lines)
 
 
-def _size(n):
-    return "%.1f GB" % (n / 1e9) if n >= 1e9 else "%d MB" % round(n / 1e6)
+def open_recording(job, why, path):
+    try:
+        real = recording.check_path(path)
+        open_now = job.chat.recording
+        if open_now and os.path.normcase(open_now["path"]) == os.path.normcase(real):
+            return "It is already open: %s\nIts picture is already in this conversation. Go on with the work." % (
+                recording.describe(open_now))
+        rec = recording.probe(real)
+    except recording.NotOpened as e:
+        raise Refused(str(e))
+    had, picture = job.chat.open(rec, job=job.n)
+    head = "Opened: " + recording.describe(rec)
+    if had and had["path"] != rec["path"]:
+        head += "\nIt replaces %s, which was open before." % had["name"]
+    if picture:
+        job.attach(picture, "A picture from %s, a tenth of the way in." % rec["name"])
+        head += "\nA picture from it comes next, so you can see what it is."
+    return head + "\nThe recording is only read, never changed."
 
 
 def _names_here(folders):
@@ -159,7 +146,7 @@ def _names_here(folders):
             entries = sorted(os.scandir(top), key=lambda e: e.stat().st_mtime, reverse=True)
         except OSError:
             continue
-        names += [e.name for e in entries if e.is_file() and e.name.lower().endswith(VIDEO_TYPES)][:3]
+        names += [e.name for e in entries if e.is_file() and e.name.lower().endswith(recording.VIDEO_TYPES)][:3]
         subfolders += [e.name for e in entries if e.is_dir() and not e.name.startswith(("_", "."))][:6]
     out = ""
     if names:
@@ -167,11 +154,6 @@ def _names_here(folders):
     if subfolders:
         out += " Folders: %s." % ", ".join(subfolders[:8])
     return out
-
-
-def _when(t):
-    fmt = "%a %d %b %H:%M" if time.localtime(t).tm_year == time.localtime().tm_year else "%d %b %Y %H:%M"
-    return time.strftime(fmt, time.localtime(t))
 
 
 STYLES = {"clean": "plain text, quiet and clear", "pop": "bold colours and quick hits",
@@ -237,6 +219,12 @@ TOOLS = {t.name: t for t in [
           "newest": {"type": "integer", "minimum": 1, "maximum": 20,
                      "description": "How many to list, newest first (1 to 20, default 5)."}},
          [], find_recordings),
+    Tool("open_recording", "Opened the recording",
+         "Open one recording to make the clip from: its full path, as the list of recordings gives it. It reads "
+         "the length, picture size and sound tracks, and the page shows the recording. One recording is open at a "
+         "time; opening another replaces it.",
+         {"path": {"type": "string", "maxLength": 1000, "description": "The recording's full path."}},
+         ["path"], open_recording, changes=True),
     Tool("load_recipe", "Picked the kind of clip",
          "Read the recipe for this kind of video before you plan the clip, and give your guesses for it. The page "
          "shows your guesses with buttons, so the person can change any of them with one tap. Call it again when "

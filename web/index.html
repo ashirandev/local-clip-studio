@@ -28,6 +28,9 @@
       <div class="welcome" id="welcome">
         <p class="lead">Drop in a long recording. Get a vertical clip ready to post.</p>
         <p>Muse watches it, picks the best moment, tells you why, and makes the clip by itself. Say what you want changed at any time, in your own words.</p>
+        <p class="pick-row"><button type="button" class="ghost pick">Choose a file…</button> Anything you type in the box below goes with it.</p>
+        <p class="newest-head">Or open one of your newest recordings:</p>
+        <div class="newest"></div>
       </div>
     </div>
     <form class="composer" id="composer">
@@ -38,14 +41,17 @@
     <p class="status" id="status" role="status">Connecting…</p>
   </section>
   <section class="clip" aria-label="Your clip">
-    <h2>Your clip</h2>
+    <h2 id="clipTitle">Your clip</h2>
     <div class="stage">
       <div class="frame" id="frame">
         <p class="hint">Your clip shows here while Muse makes it.</p>
       </div>
     </div>
+    <p class="clip-line" id="clipLine"></p>
   </section>
 </div>
+<input type="file" id="file" accept="video/*,.mkv,.mov,.ts,.flv" hidden>
+<div class="drop-cover" id="dropCover" hidden><p>Drop the recording to open it where it is. Nothing is copied.</p></div>
 <script src="app.js"></script>
 </body>
 </html>

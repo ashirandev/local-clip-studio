@@ -7,17 +7,24 @@ Standard library only. It listens on 127.0.0.1, so the recordings it opens never
 - GET /api/chats: the earlier chats, newest first
 - POST /api/say {chat, message, mind}: the person's message. It starts a job, or cuts in on the job running now
 - POST /api/stop {chat}: stops the job running now, at once
+- GET /api/recordings: the newest recordings, to open with one tap
+- POST /api/open {chat, path} or {chat, name, size, mtime}: opens a recording where it is (a dropped file is found
+  by its name, size and time) and tells Muse, with any words typed with it
+- GET /api/frame/<name>.jpg: a picture from an open recording
 - GET /api/events?chat=<id>: every event of the chat from the start, then each new one as it happens, and Muse's
-  thinking while it is written (Server-Sent Events, so a reload redraws the whole chat and a running job carries on)
+  thinking while it is written (Server-Sent Events, so a reload redraws the whole chat and a running job carries on).
+  Every page shows the chat the server has open: when another chat opens, the stream says "moved" and the page
+  follows, so neither an address nor a second tab can leave a page working on another chat.
 """
 import json
 import os
+import re
 import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl
 
-from . import __version__, agent, mind
+from . import __version__, agent, mind, recording
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
@@ -30,6 +37,8 @@ TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
 MAX_BODY = 1_000_000
 KEEP_ALIVE = 15
 GONE = "That chat is not open any more. Reload the page."
+NEWEST = 5
+FRAME = re.compile(r"^/api/frame/([0-9a-f]{16}\.jpg)$")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -51,6 +60,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "chats": agent.earlier()})
         elif path == "/api/events":
             self.send_events(query)
+        elif path == "/api/recordings":
+            self.send_json({"ok": True, "folders": recording.folders(), "recordings": newest()})
+        elif FRAME.match(path):
+            self.send_frame(FRAME.match(path).group(1))
         elif path.startswith("/api/"):
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
         else:
@@ -58,7 +71,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
-        if path not in ("/api/say", "/api/stop", "/api/chat/new"):
+        if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/open"):
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
             return
         body = self.read_json()
@@ -72,6 +85,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": GONE}, HTTPStatus.NOT_FOUND)
         elif path == "/api/stop":
             self.send_json({"ok": True, "stopped": chat.stop()})
+        elif path == "/api/open":
+            self.open_recording(chat, body)
         else:
             words = str(body.get("message") or "").strip()
             if not words:
@@ -79,6 +94,37 @@ class Handler(BaseHTTPRequestHandler):
                 return
             job = chat.say(words, body.get("mind"))
             self.send_json({"ok": True, "chat": chat.id, "job": job.n})
+
+    def open_recording(self, chat, body):
+        try:
+            if body.get("path"):
+                where = recording.check_path(str(body["path"]))
+            else:
+                size, mtime = body.get("size"), body.get("mtime")
+                if not body.get("name") or not isinstance(size, int):
+                    raise recording.NotOpened("Send the dropped file's name and size, or a path.")
+                where = recording.locate(str(body["name"]), size, mtime if isinstance(mtime, (int, float)) else None)
+            rec = recording.probe(where)
+        except recording.NotOpened as e:
+            self.send_json({"ok": False, "error": str(e)}, HTTPStatus.NOT_FOUND)
+            return
+        job = chat.open_dropped(rec, str(body.get("words") or "").strip(), body.get("mind"),
+                                str(body.get("language") or "")[:20])
+        self.send_json({"ok": True, "chat": chat.id, "job": job.n, "path": rec["path"]})
+
+    def send_frame(self, name):
+        full = os.path.join(recording.WORK, "frames", name)
+        if not os.path.isfile(full):
+            self.send_json({"ok": False, "error": "There is no picture %s." % name}, HTTPStatus.NOT_FOUND)
+            return
+        with open(full, "rb") as f:
+            body = f.read()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "max-age=3600")
+        self.end_headers()
+        self.wfile.write(body)
 
     def send_events(self, query):
         chat = agent.find(query.get("chat", ""))
@@ -93,6 +139,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         try:
             while True:
+                if agent.shown() not in (None, chat.id):
+                    self.wfile.write(("event: moved\ndata: %s\n\n" % json.dumps({"chat": agent.shown()}))
+                                     .encode("utf-8"))
+                    self.wfile.flush()
+                    return
                 batch, live = chat.since(n, rev, KEEP_ALIVE)
                 for event in batch:
                     line = "id: %d\ndata: %s\n\n" % (event["id"], json.dumps(event, ensure_ascii=False))
@@ -156,6 +207,20 @@ class Handler(BaseHTTPRequestHandler):
     def log_request(self, code="-", size="-"):
         if str(int(code) if isinstance(code, HTTPStatus) else code)[:1] in ("4", "5"):
             super().log_request(code, size)
+
+
+def newest():
+    """The newest recordings, with their length when ffprobe can read it."""
+    out = []
+    for mtime, size, path in recording.walk()[:NEWEST]:
+        item = {"path": path, "name": os.path.basename(path), "size": recording.size_text(size),
+                "when": recording.when(mtime), "length": ""}
+        try:
+            item["length"] = recording.clock(recording.probe(path)["seconds"])
+        except recording.NotOpened:
+            pass
+        out.append(item)
+    return out
 
 
 def main():
