@@ -87,6 +87,13 @@ class Thai(unittest.TestCase):
             self.assertEqual(thai.repair(kept), kept)
         self.assertEqual(thai.lock("มันเต็มหนึ่งจุดห้าลิตร")[0], "มันเต็ม<N1>ลิตร")
 
+    def test_number_words_are_read_as_numbers(self):
+        for said, number in (("สามสิบห้า", 35), ("เจ็ดสิบห้า", 75), ("ยี่สิบเอ็ด", 21), ("หนึ่งจุดห้า", 1.5),
+                             ("สองครึ่ง", 2.5), ("หนึ่งพันเก้าร้อยเก้าสิบ", 1990), ("สองล้านห้าแสน", 2500000),
+                             ("ร้อย", 100), ("1,990", 1990), ("4.5", 4.5)):
+            self.assertEqual(thai.value(said), number, said)
+        self.assertEqual(thai.values("อายุเพิ่มจาก 32 เป็นสามสิบห้า"), {32, 35})
+
     def test_numbers_are_locked_and_only_come_back_exactly(self):
         locked, numbers = thai.lock("ราคาเจ็ดสิบห้าบาท ลด 20% เหลือ 1,990")
         self.assertEqual(locked, "ราคา<N1>บาท ลด <N2>% เหลือ <N3>")
@@ -146,10 +153,11 @@ class Ears(unittest.TestCase):
         self.assertEqual([round(p / rate, 2) for p in points], [0, 26.05, 48.6, 75])
 
     def test_a_phrase_is_timed_by_its_letters_and_ends_at_a_space(self):
-        letters = [(10, "ร"), (11, ""), (12, "า"), (15, "ค"), (16, "า"), (18, ""), (20, " "), (40, "บ"), (41, ""),
-                   (42, " ⁇ "), (45, "ท")]
+        letters = [(10, "ร", 0.9), (11, "", 0.99), (12, "า", 0.8), (15, "ค", 0.7), (16, "า", 0.6), (18, "", 0.99),
+                   (20, " ", 0.99), (40, "บ", 0.5), (41, "", 0.99), (42, " ⁇ ", 0.2), (45, "ท", 0.9)]
         self.assertEqual(self.ears.phrases(letters, 30.0, 0.02),
-                         [{"from": 30.2, "to": 30.34, "text": "ราคา"}, {"from": 30.8, "to": 30.92, "text": "บ⁇ท"}])
+                         [{"from": 30.2, "to": 30.34, "text": "ราคา", "sure": 0.75},
+                          {"from": 30.8, "to": 30.92, "text": "บ⁇ท", "sure": 0.533}])
 
 
 @unittest.skipUnless(FFMPEG and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")

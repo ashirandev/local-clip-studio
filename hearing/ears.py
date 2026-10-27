@@ -2,7 +2,7 @@
 Linux only). It runs on the processor, so the graphics card stays with Muse. The studio starts it and talks to it.
 
     POST /hear    body: 16 kHz mono 16-bit little-endian PCM, at most 15 minutes
-                  -> {"phrases": [{"from": s, "to": s, "text": "..."}], "seconds": time taken}
+                  -> {"phrases": [{"from": s, "to": s, "text": "...", "sure": 0-1}], "seconds": time taken}
     GET  /health  -> {"ok": true, "model": ..., "dtype": ..., "threads": n} once the model is loaded,
                      else {"ok": false, "loading": true} or {"ok": false, "error": "..."}
 
@@ -13,6 +13,10 @@ Times come from the model itself. The CTC model decides one token for every 20 m
 Omnilingual's own greedy decoding, keeping the frame where each letter starts. The model writes a space where the
 speaker pauses (Thai has no spaces between words), so a phrase is what lies between two spaces. It starts where its
 first letter starts and ends one frame after its last.
+
+How sure the model is of a letter is the mean, over the frames it holds, of the probability the model gave its
+choice in each frame. A phrase's sure is the mean over its letters (measured 10-27 on Thai FLEURS, clean and mixed
+with game sound: it tells a garbled phrase from a good one with AUC 0.91-0.94; the least sure letter did not).
 
 It stops by itself after LCS_HEARING_IDLE seconds with no request. The studio asks /health every minute while it
 runs, so it lives as long as the studio and its memory is given back when the studio is gone.
@@ -54,10 +58,10 @@ def cut_points(audio):
 
 
 def phrases(letters, offset, frame_seconds):
-    """[(frame, letter)] of one piece -> [{from, to, text}] in seconds of the whole audio. A space ends a phrase; the
-    CTC blank between letters decodes to nothing and ends nothing."""
-    out, now = [], None
-    for frame, letter in letters:
+    """[(frame, letter, sure)] of one piece -> [{from, to, text, sure}] in seconds of the whole audio. A space
+    ends a phrase; the CTC blank between letters decodes to nothing and ends nothing."""
+    out, now, sure = [], None, []
+    for frame, letter, p in letters:
         if not letter:
             continue
         if not letter.strip():
@@ -65,10 +69,12 @@ def phrases(letters, offset, frame_seconds):
             continue
         t = offset + frame * frame_seconds
         if now is None:
-            now = {"from": round(t, 2), "to": 0, "text": ""}
+            now, sure = {"from": round(t, 2), "to": 0, "text": ""}, []
             out.append(now)
         now["text"] += letter.strip()
         now["to"] = round(t + frame_seconds, 2)
+        sure.append(p)
+        now["sure"] = round(sum(sure) / len(sure), 3)
     return out
 
 
@@ -104,6 +110,7 @@ class Ears:
                                          device=batch.source_seqs.device)
                     logits, out = self.model(batch.source_seqs, layout)
                     ids = torch.argmax(logits, dim=-1)
+                    top = torch.softmax(logits.float(), dim=-1).max(dim=-1).values
                     texts, self.timed = [], []
                     for i in range(ids.shape[0]):
                         n = int(out.seq_lens[i])
@@ -112,7 +119,9 @@ class Ears:
                         new[1:] = seq[1:] != seq[:-1]
                         texts.append(self.token_decoder(seq[new]))
                         frames = torch.nonzero(new).flatten().tolist()
-                        self.timed.append((n, [(f, self.token_decoder(seq[f:f + 1])) for f in frames]))
+                        ends = frames[1:] + [n]
+                        self.timed.append((n, [(f, self.token_decoder(seq[f:f + 1]),
+                                                float(top[i][f:e].mean())) for f, e in zip(frames, ends)]))
                     return texts
 
             self.torch = torch

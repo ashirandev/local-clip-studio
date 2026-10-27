@@ -52,8 +52,8 @@ which plan step it works on (plan_step).
 - Every call has a why: one short line, in the language the person writes in, telling the person why you take this \
 step.
 - When a tool refuses, its answer says what to fix. Fix the input and call again.
-- A clip is done only when the person has it: after the last change, render it, then hand it over with a title, \
-the post text and hashtags. Plan those two steps too.
+- A clip is done only when the person has it: after the last change, render it, check it, then hand it over with \
+a title, the post text and hashtags. Plan those three steps too.
 - Do not repeat a call that already gave you its answer.
 - Each tool result ends with a line that starts with "Now:". It is the current state; trust it over anything older.
 - When the work is done, or only the person can decide, answer briefly, in the language the person writes in. Say \
@@ -79,6 +79,7 @@ class Chat:
         self.looks, self.moments = [], None
         self.project = project.Project()
         self.rendered = []
+        self.checks = {}
         self.told = []
         self.cond = threading.Condition()
         folder = os.path.join(WORK, "chats")
@@ -108,6 +109,7 @@ class Chat:
             if e["kind"] == "opened":
                 if e["recording"]["path"] != path:
                     chat.looks, chat.moments, chat.project, chat.rendered = [], None, project.Project(), []
+                    chat.checks = {}
                 path = e["recording"]["path"]
             elif e["kind"] == "edit":
                 chat.project.add(e["entry"])
@@ -115,6 +117,8 @@ class Chat:
                 chat.project.undo()
             elif e["kind"] == "rendered":
                 chat.rendered.append(e["file"])
+            elif e["kind"] == "checked":
+                chat.checks[e["file"]] = e["checks"]
             elif e["kind"] == "step" and e.get("look"):
                 chat.looks.append(e["look"])
             elif e["kind"] == "step" and e.get("moments"):
@@ -269,6 +273,7 @@ class Chat:
             had, self.recording = self.recording, rec
             if not had or had["path"] != rec["path"]:
                 self.looks, self.moments, self.project, self.rendered = [], None, project.Project(), []
+                self.checks = {}
             self.changed += 1
         frame = recording.frame(rec)
         self.emit("opened", job=job, recording=rec, frame=frame, line=recording.describe(rec))

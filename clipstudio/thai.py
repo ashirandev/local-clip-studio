@@ -32,6 +32,10 @@ NUMBER_WORDS = ("ศูนย์", "หนึ่ง", "สอง", "สาม", 
 _WORDS = "|".join(w for w in NUMBER_WORDS if w != "จุด")
 NUMBER = re.compile(r"[0-9]+(?:[.,][0-9]+)*|(?:%s)+(?:จุด(?:%s)+)?" % (_WORDS, _WORDS))
 LOCK = re.compile(r"<N(\d+)>")
+DIGITS = {"ศูนย์": 0, "หนึ่ง": 1, "เอ็ด": 1, "สอง": 2, "ยี่": 2, "สาม": 3, "สี่": 4, "ห้า": 5, "หก": 6, "เจ็ด": 7,
+          "แปด": 8, "เก้า": 9}
+PLACES = {"สิบ": 10, "ร้อย": 100, "พัน": 1000, "หมื่น": 10000, "แสน": 100000}
+WORD = re.compile("|".join(sorted(NUMBER_WORDS, key=len, reverse=True)))
 SAID = dict(zip("0123456789.", ("ศูนย์", "หนึ่ง", "สอง", "สาม", "สี่", "ห้า", "หก", "เจ็ด", "แปด", "เก้า", "จุด")))
 THAI_MARK = re.compile("[ัิ-ฺ็-๎]")
 HALF_WORD = re.compile("[0-9.](?=[ัิ-ฺ็-๎])")
@@ -94,6 +98,34 @@ def _counts():
         with open(TABLE, encoding="utf-8") as f:
             _table.append(json.load(f))
     return _table[0]
+
+
+def value(said):
+    """The number one NUMBER match says: digits (1,990 -> 1990, 1.5) or Thai number words (สามสิบห้า -> 35,
+    หนึ่งจุดห้า -> 1.5, สองครึ่ง -> 2.5, สองล้านห้าแสน -> 2500000)."""
+    if said[:1].isdigit():
+        return float(said.replace(",", ""))
+    whole, _, decimals = said.partition("จุด")
+    total, millions, digit, half = 0, 0, None, 0.0
+    for w in WORD.findall(whole):
+        if w in DIGITS:
+            digit = DIGITS[w]
+        elif w in PLACES:
+            total += (1 if digit is None else digit) * PLACES[w]
+            digit = None
+        elif w == "ล้าน":
+            millions = (millions + total + (digit or 0)) * 1000000
+            total, digit = 0, None
+        elif w == "ครึ่ง":
+            half = 0.5
+    number = millions + total + (digit or 0) + half
+    places = [DIGITS[w] for w in WORD.findall(decimals) if w in DIGITS]
+    return float(number + sum(d / 10 ** (k + 1) for k, d in enumerate(places)))
+
+
+def values(text):
+    """Every number in text, as numbers."""
+    return {value(m.group(0)) for m in NUMBER.finditer(text)}
 
 
 def lock(text, first=1):

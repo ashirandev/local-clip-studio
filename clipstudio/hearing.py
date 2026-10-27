@@ -32,7 +32,7 @@ import urllib.parse
 
 from . import recording, thai
 
-VERSION = 1
+VERSION = 2
 IMAGE = NAME = "local-clip-studio-hearing"
 OWN_URL = os.environ.get("LCS_HEARING_URL", "")
 URL = OWN_URL or "http://127.0.0.1:8802"
@@ -194,8 +194,8 @@ def hear(rec, start, end, on_start=None):
         raise Stopped()
     if answer.status != 200:
         raise HearingError("The hearing worker could not hear it (%s)." % got.get("error"))
-    return [{"from": round(start + p["from"], 2), "to": round(start + p["to"], 2), "text": thai.repair(p["text"])}
-            for p in got["phrases"] if p["text"].strip()]
+    return [{"from": round(start + p["from"], 2), "to": round(start + p["to"], 2), "text": thai.repair(p["text"]),
+             "sure": p.get("sure", 1.0)} for p in got["phrases"] if p["text"].strip()]
 
 
 def fix(ask, lines, kind, before=()):

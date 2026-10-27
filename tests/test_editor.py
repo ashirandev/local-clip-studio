@@ -468,7 +468,7 @@ class Tools(unittest.TestCase):
         def export(rec, state, out, on_progress=None, on_start=None, *, default):
             on_start(lambda: None)
             on_progress(state["length"] / 2)
-            shutil.copy(self.clip, out)
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
             made.append((state["length"], default))
             return out
 
@@ -485,12 +485,14 @@ class Tools(unittest.TestCase):
                 [call("add_title", words="Boss down", start=0, end=4, place="top", why="the hook")],
                 [call("hand_over", title="t", caption="c", hashtags=["a"], why="stale")],
                 [call("undo", why="back to what was rendered")],
+                [call("check_clip", why="before it goes out")],
                 [call("hand_over", title="Boss down", caption="He falls.\nTwice.\n#gaming #boss", why="post",
                       hashtags=["gaming", "#gaming", "sifu clip", "#"])],
                 "Done.")
         finally:
             render.export = had
-        early, undecided, kept, first, again, titled, stale, undone, ready = steps[-9:]
+        early, undecided, kept, first, again, titled, stale, undone, checked, ready = steps[-10:]
+        self.assertFalse(checked["refused"], checked["result"])
         self.assertTrue(early["refused"])
         self.assertIn("Render the clip first, then hand it over.", early["result"])
         self.assertTrue(undecided["refused"])
@@ -578,6 +580,84 @@ class Tools(unittest.TestCase):
 
     def test_muse_is_offered_the_looks_the_renderer_draws(self):
         self.assertEqual(set(tools.LOOKS) - {"none"}, set(effects.LOOKS))
+
+    def test_the_finished_file_is_checked_before_it_is_handed_over_and_a_failure_is_fixed(self):
+        renders = []
+
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            if renders:
+                make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            else:
+                shutil.copy(self.clip, out)
+            renders.append(out)
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            brain, steps = self.run_job(
+                *self.to_moment(), [call("load_recipe", type="game", why="a stream")],
+                [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("decide_people", keep=[1], why="it is him")],
+                [call("render_clip", why="make the file")],
+                [call("hand_over", title="t", caption="c", hashtags=["#a"], why="unchecked")],
+                [call("check_clip", why="check it")],
+                [call("hand_over", title="t", caption="c", hashtags=["#a"], why="failed")],
+                [call("blur_box", box=[400, 0, 600, 300], why="the chat")],
+                [call("render_clip", why="again")],
+                [call("check_clip", why="again")],
+                [call("hand_over", title="t", caption="c", hashtags=["#a"], why="post")],
+                "Done.")
+        finally:
+            render.export = had
+        unchecked, first, failed, _, _, second, ready = steps[-7:]
+        self.assertTrue(unchecked["refused"])
+        self.assertIn("Check the finished file first, with check_clip", unchecked["result"])
+        self.assertFalse(first["refused"], first["result"])
+        self.assertTrue(first["result"].startswith("Checked 1 of 3 on the finished file "), first["result"])
+        self.assertIn("- FAILED: No viewer's name can be read (no blur covers the whole clip", first["result"])
+        self.assertIn("- FAILED: It does not start black or silent (black and silent for the first 0.5 s)",
+                      first["result"])
+        self.assertIn("- passed: The length fits a Reel (60.0 s; a Reel is at most 90 s)", first["result"])
+        self.assertIn("- not needed: Captions are words that were said (no captions)", first["result"])
+        self.assertIn("Fix what failed, render again and check again", first["result"])
+        self.assertIn("The finished clip, picture 1 of 3:", str(brain.sent[len(steps) - 4]))
+        self.assertTrue(failed["refused"])
+        self.assertIn("These checks failed on the finished file: No viewer's name can be read; It does not start black "
+                      "or silent.", failed["result"])
+        self.assertTrue(second["result"].startswith("Checked 3 of 3 on the finished file "), second["result"])
+        self.assertFalse(ready["refused"], ready["result"])
+        shown = [e for e in self.chat.events if e["kind"] == "ready"][-1]
+        self.assertEqual([c["ok"] for c in shown["checks"]], [None, None, True, None, True, True])
+        self.assertEqual(agent.Chat.load(self.chat.id).checks, self.chat.checks)
+
+    def test_a_line_the_hearing_was_not_sure_of_is_marked_for_muse_and_left_out_of_the_captions(self):
+        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "this is the moment", "sure": 0.95},
+                               {"from": 5.0, "to": 8.0, "text": "bxo noqa mumble", "sure": 0.61},
+                               {"from": 9.0, "to": 11.0, "text": "watch him fall", "sure": 0.9}]
+        fixed = '{"lines": ["this is the moment", "bxo noqa mumble", "watch him fall"]}'
+        script = self.to_moment()
+        brain, steps = self.run_job(
+            *script[:2], [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "he falls"}])],
+            fixed, [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("add_captions", why="say what he says")],
+            "Done.")
+        looked = [s for s in steps if s.get("look")][-1]
+        self.assertIn("0:35 bxo noqa mumble (not sure)", looked["result"])
+        self.assertIn("0:32 this is the moment\n", looked["result"])
+        caps = steps[-1]
+        self.assertFalse(caps["refused"], caps["result"])
+        self.assertIn('Left out 1 line the hearing was not sure of, because a wrong caption is worse than none: 0:05 '
+                      '"bxo noqa mumble".', caps["result"])
+        shown = " ".join(line["text"] for line in self.chat.project.state()["captions"]["lines"])
+        self.assertNotIn("mumble", shown)
+        self.assertIn("fall", shown)
+
+    def test_a_number_on_screen_must_be_one_that_was_said(self):
+        said = ["สินค้าราคา เจ็ดสิบห้า บาท", "ใช้ได้ 50 ตารางเมตร"]
+        self.assertEqual(tools._not_said("ลด 75 บาท ห้อง 50-75 m²", said), [])
+        self.assertEqual(tools._not_said("ราคา 1,990 บาท ลด 75", said), ["1,990"])
+        self.assertEqual(tools._not_said("ลด 20%", []), ["20"])
 
     def test_a_thai_key_word_is_one_word_of_the_title_not_the_whole_title(self):
         brain, steps = self.run_job(

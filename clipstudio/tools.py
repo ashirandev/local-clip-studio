@@ -11,9 +11,12 @@ refused with a sentence that says what to send instead, so Muse can fix it and c
 import json
 import math
 import os
+import re
+import shutil
+import subprocess
 import time
 
-from . import effects, faces, hearing, layouts, maps, mind, previews, project, recording, render, text, tracks
+from . import effects, faces, hearing, layouts, maps, mind, previews, project, recording, render, text, thai, tracks
 from .recipes import RECIPES, SIGNALS
 
 WHY = {"type": "string",
@@ -378,8 +381,9 @@ def _what_is_said(job, rec, look):
     look["said"] = said
     if not said:
         return ["No words were heard here."]
-    return (["What is said here, by time, as heard (some words may be misheard; the numbers are as heard):"] +
-            ["%s %s" % (clock(p["from"]), p["text"]) for p in said])
+    return (["What is said here, by time, as heard (some words may be misheard; the numbers are as heard; a line "
+             "marked (not sure) is one the hearing was not sure of, so do not build on it):"] +
+            ["%s %s%s" % (clock(p["from"]), p["text"], " (not sure)" if _unsure(p) else "") for p in said])
 
 
 def _fixed_said(job, look, a, b):
@@ -624,6 +628,8 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
                       "people": [{k: v for k, v in p.items() if k != "crop"} for p in people or []]})
     lines = ["Made the clip from moment %d (%s-%s, %g s) in the %s layout." % (
         moment, recording.clock(a), recording.clock(b), state["length"], lay["kind"]), face_line] + lay["notes"]
+    if lay.get("safe"):
+        lines.append(lay["safe"]["said"])
     lines.append("Places for words on screen, kept clear of the faces the program found%s (the band from y %d to %d "
                  "is kept for the captions):" % (" and the product you named" if item else "", lay["captions"][1],
                                                  lay["captions"][1] + lay["captions"][3]))
@@ -772,6 +778,15 @@ def slow_push(job, why, start, end, zoom=PUSH_ZOOM):
     return "\n".join(lines)
 
 
+UNSURE = 0.88
+
+
+def _unsure(phrase):
+    """True for a phrase the hearing was not sure of. Measured 10-27 on Thai FLEURS, clean and mixed with game
+    sound (141 garbled phrases, 399 good): below 0.88 are 73% of the garbled ones and 4% of the good ones."""
+    return phrase.get("sure", 1.0) < UNSURE
+
+
 def add_captions(job, why, on=True, lit=False):
     rec = _open(job, "caption")
     state = _clip_state(job)
@@ -783,8 +798,11 @@ def add_captions(job, why, on=True, lit=False):
         return "Captions are off."
     moments = job.chat.moments or []
     said = moments[clip["moment"] - 1].get("said") or [] if clip["moment"] <= len(moments) else []
-    phrases = []
+    phrases, unsure = [], []
     for p in said:
+        if _unsure(p):
+            unsure.append(p)
+            continue
         a = project.from_recording(clip["pieces"], p["from"])
         if a is None:
             continue
@@ -792,14 +810,19 @@ def add_captions(job, why, on=True, lit=False):
         phrases.append({"from": round(a, 2), "to": round(min(length, b if b is not None else length), 2),
                         "text": p["text"]})
     if not phrases:
-        raise Refused("Nothing was heard in this moment, so there are no words to caption. Leave the captions off, and "
-                      "say so in your answer.")
+        raise Refused("Nothing was heard clearly in this moment, so there are no words to caption. Leave the captions "
+                      "off, and say so in your answer.")
     lines = text.caption_lines(phrases, CAPTION_LETTERS)
     band = clip["layout"]["captions"]
     state = job.edit({"do": "captions", "lines": lines, "band": [band[1], band[3]], "lit": bool(lit)})
     out = ["Captions on: %d lines of what was said, numbers exactly as heard, in the band from y %d to %d; %s."
            % (len(lines), band[1], band[1] + band[3],
               "each word lights up as it is said" if lit else "plain words, none lit, so the eye stays on the picture")]
+    if unsure:
+        out.append("Left out %d line%s the hearing was not sure of, because a wrong caption is worse than none: %s."
+                   % (len(unsure), "" if len(unsure) == 1 else "s",
+                      "; ".join("%s \"%s\"" % (recording.clock(project.from_recording(clip["pieces"], p["from"]) or 0),
+                                                p["text"]) for p in unsure[:4])))
     on_camera = _on_camera(rec, clip) if lit else None
     if on_camera:
         out.append("A person is on camera (%s). Lit words pull the eye away from a person who is talking, so the house "
@@ -1038,6 +1061,136 @@ def render_clip(job, why):
             "it over next." % (recording.clock(made["seconds"]), made["length"], made["size"] / 1e6))
 
 
+REEL_LONGEST = 90
+FIRST = 0.5
+CHECK_ROUNDS = 2
+DIGITS = re.compile(r"[0-9]+(?:[.,][0-9]+)*")
+
+
+def _said(job, state):
+    """The lines said in the clip's moment, as fixed from the context."""
+    moments, n = job.chat.moments or [], state["clip"]["moment"]
+    return [p["text"] for p in (moments[n - 1].get("said") or [] if n <= len(moments) else [])]
+
+
+def _not_said(words, said):
+    """The numbers in words that are not among the numbers in said."""
+    heard = set().union(*[thai.values(s) for s in said]) if said else set()
+    return [m for m in DIGITS.findall(words) if thai.value(m) not in heard]
+
+
+def _start_of(path, sound):
+    """(black picture at the start, silent sound at the start), each True when it lasts FIRST s from 0."""
+    cmd = [shutil.which("ffmpeg") or "ffmpeg", "-hide_banner", "-nostats", "-t", "1.5", "-i", path, "-vf",
+           "blackdetect=d=%g:pix_th=0.10" % FIRST]
+    if sound:
+        cmd += ["-af", "silencedetect=noise=-50dB:d=%g" % FIRST]
+    log = subprocess.run(cmd + ["-f", "null", "-"], capture_output=True, text=True, encoding="utf-8",
+                         errors="replace").stderr
+    black = re.search(r"black_start:0(?:\.0+)?\b", log) is not None
+    silent = re.search(r"silence_start: -?0(?:\.0+)?\b", log) is not None
+    return black, silent
+
+
+def _still_seen(state, clip_file):
+    """[(person, clip second)] where a blurred person's face can still be found in the finished file."""
+    out, lay = [], state["clip"]["layout"]
+    for p in state["people"]:
+        if not p["blur"]:
+            continue
+        points = p["points"]
+        for point in (points[len(points) // 4], points[len(points) // 2], points[3 * len(points) // 4]):
+            t, box = point[0], point[1:]
+            shown = layouts.to_frame(lay, box)
+            try:
+                found = faces.sample(clip_file, t, t + 0.1)
+            except (faces.NoFaces, faces.Stopped):
+                continue
+            for f in (f for s in found["samples"] for f in s["faces"]):
+                x, y = f[0] + f[2] / 2, f[1] + f[3] / 2
+                if any(b[0] <= x <= b[0] + b[2] and b[1] <= y <= b[1] + b[3] for b in shown):
+                    out.append((p["n"], t))
+                    break
+    return out
+
+
+def check_clip(job, why):
+    rec = _open(job, "check")
+    state = _clip_state(job)
+    done = job.chat.finished()
+    if not done:
+        raise Refused("There is no finished file made from the clip as it is now. Render it first: the checks run on "
+                      "the file the person will post.")
+    path = os.path.join(render.folder("clips"), done["name"])
+    try:
+        made = recording.probe(path)
+    except recording.NotOpened as e:
+        raise Refused("The finished file could not be read: %s" % e)
+    kind = (job.chat.clip or {}).get("recipe")
+    said, checks = _said(job, state), []
+
+    def check(name, ok, found, who="program"):
+        checks.append({"name": name, "ok": ok, "found": found, "who": who})
+
+    lines = (state["captions"] or {}).get("lines") or []
+    joined = "".join(said).replace(" ", "")
+    unsaid = [line["text"] for line in lines if line["text"].replace(" ", "") not in joined]
+    check("Captions are words that were said", not unsaid if lines else None,
+          ("%d of %d lines are in what was said" % (len(lines) - len(unsaid), len(lines)) +
+           ("; not said: %s" % "; ".join(unsaid[:3]) if unsaid else "")) if lines else "no captions")
+    if kind == "seller":
+        wrong = [n for t in state["titles"] for n in _not_said(t["text"], said)]
+        check("Numbers on screen were said", not wrong,
+              "not said: %s" % ", ".join(wrong) if wrong else "every number on screen was said")
+    else:
+        check("Numbers on screen were said", None, "numbers can come from what the screen shows")
+    if kind == "game":
+        whole = [b for b in state["blurs"] if b.get("box") and b["start"] <= 0.1 and b["end"] >= state["length"] - 0.1]
+        check("No viewer's name can be read", bool(whole),
+              "%d blur over the whole clip" % len(whole) if whole else "no blur covers the whole clip, so the chat box "
+                                                                      "shows")
+    else:
+        check("No viewer's name can be read", None, "no chat box in this kind of clip")
+    if kind == "seller":
+        product = state["clip"].get("product")
+        inside = bool(product) and bool(layouts.to_frame(state["clip"]["layout"], product))
+        check("The product is in the frame", inside,
+              "the product box is inside the clip's picture" if inside else
+              "no product named for the clip" if not product else "the product box is outside the clip's picture")
+    else:
+        check("The product is in the frame", None, "not a seller's clip")
+    check("The length fits a Reel", made["seconds"] <= REEL_LONGEST,
+          "%.1f s; a Reel is at most %d s" % (made["seconds"], REEL_LONGEST))
+    black, silent = _start_of(path, made["sound_tracks"])
+    check("It does not start black or silent", not (black or silent),
+          "picture and sound from the first %g s" % FIRST if not (black or silent) else
+          " and ".join(w for w, bad in (("black", black), ("silent", silent)) if bad) + " for the first %g s" % FIRST)
+    if any(p["blur"] for p in state["people"]):
+        seen = _still_seen(state, made)
+        check("No blurred face can be found", not seen,
+              "; ".join("person %d at %s" % (n, recording.clock(t)) for n, t in seen) if seen else
+              "the face finder found no face under any blur")
+    job.chat.checks[done["name"]] = checks
+    job.emit("checked", file=done["name"], checks=checks)
+    due = [c for c in checks if c["ok"] is not None]
+    failed = [c for c in due if not c["ok"]]
+    out = ["Checked %d of %d on the finished file %s:" % (len(due) - len(failed), len(due), done["name"])]
+    out += ["- %s: %s (%s)" % ("passed" if c["ok"] else "not needed" if c["ok"] is None else "FAILED", c["name"],
+                               c["found"]) for c in checks]
+    if kind == "game":
+        for k, at in enumerate((0.25, 0.5, 0.75), 1):
+            name = recording.frame(made, made["seconds"] * at)
+            if name:
+                job.attach(os.path.join(recording.WORK, "frames", name), "The finished clip, picture %d of 3:" % k)
+        out.append("Three pictures of the finished clip come next. Look for any name, phone number or face that can "
+                   "be read and should not be: if you find one, blur it, render again and check again.")
+    if failed:
+        out.append("Fix what failed, render again and check again, then hand it over.")
+    else:
+        out.append("Hand it over next.")
+    return "\n".join(out)
+
+
 def _tag(word):
     word = "".join(word.split()).lstrip("#")
     return "#" + word if word else ""
@@ -1049,13 +1202,26 @@ def hand_over(job, why, title, caption, hashtags, english=""):
     if not done:
         raise Refused("There is no finished file made from the clip as it is now, so there is nothing to hand over. "
                       "Render the clip first, then hand it over.")
+    checks = job.chat.checks.get(done["name"])
+    if checks is None:
+        raise Refused("Check the finished file first, with check_clip: the person gets a clip that was checked.")
+    failed = [c["name"] for c in checks if c["ok"] is False]
+    rounds = sum(1 for e in job.chat.events if e["kind"] == "checked" and e.get("job") == job.n)
+    if failed and rounds < CHECK_ROUNDS:
+        raise Refused("These checks failed on the finished file: %s. Fix them, render again and check again; after "
+                      "%d rounds you may hand it over and say what still fails." % ("; ".join(failed), CHECK_ROUNDS))
+    if (job.chat.clip or {}).get("recipe") == "seller":
+        wrong = _not_said(" ".join([title, caption, english or ""]), _said(job, _clip_state(job)))
+        if wrong:
+            raise Refused("The post text has numbers that were not said: %s. Use only numbers the seller said."
+                          % ", ".join(wrong))
     caption, more = _without_tags(caption)
     english, also = _without_tags(english)
     tags = list(dict.fromkeys(t for t in (_tag(w) for w in list(hashtags) + more + also) if t))
     if not tags:
         raise Refused("Give at least one hashtag, such as #gaming.")
     ready = {"file": done["name"], "length": done["length"], "title": title, "caption": caption, "hashtags": tags,
-             "english": english}
+             "english": english, "checks": checks}
     job.emit("ready", **ready)
     job.show(ready=ready)
     return ("Handed over: the person sees the finished clip with its title, the post text and %d hashtags, a Copy all "
@@ -1352,6 +1518,12 @@ TOOLS = {t.name: t for t in [
          "long it took. Render after the last change, before you hand it over. Calling it again with no change in "
          "between does nothing.",
          {}, [], render_clip, changes=True),
+    Tool("check_clip", "Checked the clip",
+         "Check the finished file the person will post, all checks in one call: the captions are words that were "
+         "said, numbers on screen were said (seller), no viewer's name can be read (game), the product is in the "
+         "frame (seller), the length fits a Reel, it does not start black or silent, and no blurred face can be "
+         "found. Each line says what it found. Run it after the render, before you hand the clip over.",
+         {}, [], check_clip),
     Tool("hand_over", "Handed over the clip",
          "Give the person the finished clip, ready to post: the page shows the file with your title, the post text "
          "and the hashtags, a Copy all button and a download. It needs a finished file made from the clip as it is "
