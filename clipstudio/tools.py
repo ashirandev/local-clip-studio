@@ -9,10 +9,11 @@ Input is checked here, not trusted: the hosted API does not promise that argumen
 refused with a sentence that says what to send instead, so Muse can fix it and call again.
 """
 import json
+import math
 import os
 import time
 
-from . import hearing, maps, mind, previews, recording
+from . import faces, hearing, layouts, maps, mind, previews, project, recording, render, text
 from .recipes import RECIPES, SIGNALS
 
 WHY = {"type": "string",
@@ -75,6 +76,35 @@ def _value(name, value, spec):
         if (low is not None and value < low) or (high is not None and value > high):
             raise Refused("%s must be from %s to %s; %d is outside that." % (name, low, high if high else "up", value))
         return value
+    if kind == "boolean":
+        if isinstance(value, str) and value.strip().lower() in ("true", "false"):
+            value = value.strip().lower() == "true"
+        if not isinstance(value, bool):
+            raise Refused("%s must be true or false." % name)
+        return value
+    if kind == "number":
+        if isinstance(value, str):
+            try:
+                value = float(value.strip().rstrip("s").strip())
+            except ValueError:
+                raise Refused("%s must be a number." % name)
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise Refused("%s must be a number." % name)
+        low, high = spec.get("minimum"), spec.get("maximum")
+        if (low is not None and value < low) or (high is not None and value > high):
+            raise Refused("%s must be from %g to %s; %g is outside that." % (name, low, "%g" % high if high is not None
+                                                                              else "up", value))
+        return float(value)
+    if kind == "array" and (spec.get("items") or {}).get("type") == "number":
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except ValueError:
+                pass
+        n = spec.get("minItems")
+        if not isinstance(value, list) or len(value) != n:
+            raise Refused("%s must be a list of %d numbers: %s" % (name, n, spec.get("description", "")))
+        return [_value("%s's number %d" % (name, i), v, spec["items"]) for i, v in enumerate(value, 1)]
     if kind == "string":
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             value = str(value)
@@ -411,14 +441,462 @@ def propose_moments(job, why, moments):
         lines.append("%d. %s-%s (%d s, from look %d): %s" % (p["n"], clock(p["start"]), clock(p["end"]),
                                                            round(p["end"] - p["start"]), p["look"], p["reason"]))
         lines += ["   %s %s%s" % (clock(s["from"]), s["text"], " (as heard)" if s["kept"] else "") for s in p["said"]]
-    lines.append("Go on with moment 1 by yourself: do not ask the person to choose, and do not list the moments again "
-                 "in words. They can tap another card to switch. Nothing is cut, laid out, captioned or blurred until a "
+    lines.append("Go on with moment 1 by yourself and make the clip from it: do not ask the person to choose, and do not "
+                 "list the moments again in words. They can tap another card to switch. Nothing is cut, laid out, captioned or blurred until a "
                  "tool's result says it is: never tell the person a clip is ready when no tool made it.")
     return "\n".join(lines)
 
 
-STYLES = {"clean": "plain text, quiet and clear", "pop": "bold colours and quick hits",
-          "calm": "slow and relaxed, a few words at a time"}
+FACE_MARGIN = 20
+SHORTEST_WORDS = 1.0
+LISTED = 2.0
+MOVING_FACE = 0.25
+
+
+def _pixels(name, box, rec):
+    """A box on Muse's 0-1000 grid of the picture ([x1, y1, x2, y2]) in pixels of the recording ([x, y, w, h])."""
+    x1, x2 = sorted(box[0::2])
+    y1, y2 = sorted(box[1::2])
+    if x2 - x1 < 5 or y2 - y1 < 5:
+        raise Refused("%s %s has no size: give [x1, y1, x2, y2] on your 0-1000 grid of the picture, the top-left "
+                      "corner first." % (name, box))
+    w, h = rec["width"], rec["height"]
+    return [x1 * w / 1000.0, y1 * h / 1000.0, (x2 - x1) * w / 1000.0, (y2 - y1) * h / 1000.0]
+
+
+def _grid(box, rec):
+    w, h = rec["width"], rec["height"]
+    return "[%d, %d, %d, %d]" % (round(box[0] * 1000 / w), round(box[1] * 1000 / h),
+                                 round((box[0] + box[2]) * 1000 / w), round((box[1] + box[3]) * 1000 / h))
+
+
+def _the_face(job, rec, a, b, face):
+    """(the face's box in the recording or None, a sentence for Muse): found by the program, and snapped to what
+    is really there when Muse gave a rough box. faces.Stopped when the person pressed Stop."""
+    try:
+        found = job.find_faces(rec, a, b)
+    except faces.NoFaces as e:
+        if face:
+            return _pixels("face", face, rec), "Faces could not be looked for (%s), so your face box is used as given." % e
+        return None, "Faces could not be looked for: %s" % e
+    n = len(found["samples"])
+    if face:
+        rough = _pixels("face", face, rec)
+        g = faces.snap(rough, found)
+        if g:
+            return g["box"], ("The face inside your face box was found in %d of %d pictures, at %s on your grid; the "
+                              "layout uses it." % (g["seen"], n, _grid(g["box"], rec)))
+        return rough, "No face was found inside your face box in %d pictures, so the box is used as you gave it." % n
+    g = faces.steady(found)
+    if g:
+        return g["box"], ("A face sits at the same place in %d of %d pictures, at %s on your grid; the layout uses it."
+                          % (g["seen"], n, _grid(g["box"], rec)))
+    best = next(iter(faces.places(found)), None)
+    if best and best["seen"] >= MOVING_FACE * n:
+        return best["box"], ("The face moves; it is most often at %s on your grid (%d of %d pictures), and the layout "
+                             "uses that place." % (_grid(best["box"], rec), best["seen"], n))
+    return None, "No face was found in the moment's %d pictures." % n
+
+
+def _face_times(state, rec):
+    """[(clip second, [boxes in the frame to keep words off])] for every picture the face finder took of the clip,
+    and the seconds between two pictures. The product Muse named is in every picture."""
+    clip, out, every = state["clip"], [], faces.EVERY
+    product = layouts.to_frame(clip["layout"], clip["product"]) if clip.get("product") else []
+    if product:
+        out = [(round(k * every, 2), list(product)) for k in range(int(state["length"] / every) + 1)]
+    for a, b in clip["pieces"]:
+        found = faces.kept(rec, a, b)
+        if not found:
+            continue
+        every = found["every"]
+        for t, boxes in faces.between(found, a, b):
+            at = project.from_recording(clip["pieces"], t)
+            out.append((at, [f for box in boxes for f in layouts.to_frame(clip["layout"], box)] + product))
+    return sorted(out, key=lambda x: x[0]), every
+
+
+def _covered(box, times, every, a, b):
+    """The stretches of a-b (clip seconds) where box comes within FACE_MARGIN pixels of a face: [(from, to)]."""
+    x, y, w, h = box[0] - FACE_MARGIN, box[1] - FACE_MARGIN, box[2] + 2 * FACE_MARGIN, box[3] + 2 * FACE_MARGIN
+    hit = []
+    for t, boxes in times:
+        if t + every / 2 <= a or t - every / 2 >= b:
+            continue
+        if any(f[0] < x + w and x < f[0] + f[2] and f[1] < y + h and y < f[1] + f[3] for f in boxes):
+            lo, hi = max(a, t - every / 2), min(b, t + every / 2)
+            if hit and lo <= hit[-1][1] + 1e-6:
+                hit[-1] = (hit[-1][0], hi)
+            else:
+                hit.append((lo, hi))
+    return hit
+
+
+def _clear(hit, a, b, least=LISTED):
+    """The stretches of a-b that hit leaves free, each at least `least` seconds, so a title fits in it."""
+    out, at = [], a
+    for lo, hi in hit:
+        if lo - at >= least:
+            out.append((at, lo))
+        at = max(at, hi)
+    if b - at >= least:
+        out.append((at, b))
+    return out
+
+
+def _spans(spans, inward=False):
+    """Stretches in tenths of a second. inward rounds each one inside itself, so a free stretch read back and sent
+    again is still free."""
+    if inward:
+        spans = [(math.ceil(lo * 10 - 1e-6) / 10, math.floor(hi * 10 + 1e-6) / 10) for lo, hi in spans]
+    return ", ".join("%g-%g s" % (round(lo, 1), round(hi, 1)) for lo, hi in spans)
+
+
+def _place_lines(state, rec):
+    times, every = _face_times(state, rec)
+    length, lay = state["length"], state["clip"]["layout"]
+    lines = []
+    for name, box in lay["places"].items():
+        clear = _clear(_covered(box, times, every, 0, length), 0, length)
+        where = "%s (y %d to %d)" % (name, box[1], box[1] + box[3])
+        if clear == [(0, length)]:
+            lines.append("- %s: clear of faces for the whole clip" % where)
+        elif clear:
+            lines.append("- %s: clear of faces at %s" % (where, _spans(clear, inward=True)))
+        else:
+            lines.append("- %s: never clear for %g s or more; do not use it" % (where, LISTED))
+    return lines
+
+
+def _clip_state(job):
+    state = job.chat.project.state()
+    if not state["clip"]:
+        raise Refused("There is no clip yet. Make it from one of your moments first.")
+    return state
+
+
+def _show_frame(job, state, rec, t, caption):
+    """Sends Muse the clip's frame at t, right after the results. Returns the sentence that says so."""
+    try:
+        path = render.frame(rec, state, t, job.chat.clip["style"] if job.chat.clip else "clean")
+    except render.NotDrawn as e:
+        return "The frame could not be drawn: %s" % e
+    job.attach(path, caption)
+    return "Its frame at %g s comes next as a picture." % round(t, 2)
+
+
+def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
+    rec = _open(job, "make a clip from")
+    moments = job.chat.moments
+    if not moments:
+        raise Refused("No moments are proposed yet. Look at the recording and propose moments first: the clip is made "
+                      "from one of them.")
+    if not 1 <= moment <= len(moments):
+        raise Refused("There are %d moments, so moment %d is not one of them: %s." % (
+            len(moments), moment, "; ".join("%d. %s-%s" % (m["n"], recording.clock(m["start"]),
+                                                          recording.clock(m["end"])) for m in moments)))
+    m = moments[moment - 1]
+    a, b = m["start"], m["end"]
+    try:
+        box, face_line = _the_face(job, rec, a, b, face)
+    except faces.Stopped:
+        return "Not made: the person pressed Stop."
+    try:
+        lay = layouts.make(layout, (rec["width"], rec["height"]), box, _pixels("crop", crop, rec) if crop else None)
+    except ValueError as e:
+        raise Refused(str(e))
+    item = [round(v) for v in _pixels("product", product, rec)] if product else None
+    if item and not layouts.to_frame(lay, item):
+        lay["notes"].append("The product you named is not in the clip's picture: choose a crop that holds it.")
+    state = job.edit({"do": "clip", "moment": moment, "pieces": [[a, b]], "layout": lay, "product": item})
+    lines = ["Made the clip from moment %d (%s-%s, %g s) in the %s layout." % (
+        moment, recording.clock(a), recording.clock(b), state["length"], lay["kind"]), face_line] + lay["notes"]
+    lines.append("Places for words on screen, kept clear of the faces the program found%s (the band from y %d to %d "
+                 "is kept for the captions):" % (" and the product you named" if item else "", lay["captions"][1],
+                                                 lay["captions"][1] + lay["captions"][3]))
+    lines += _place_lines(state, rec)
+    peak = m.get("t") if m.get("t") is not None else (a + b) / 2
+    at = min(max(0.0, peak - a), state["length"] - 0.1)
+    lines.append(_show_frame(job, state, rec, at, "The clip at %g s (moment %d, %s layout):" % (
+        round(at, 2), moment, lay["kind"])))
+    lines.append("Look at it: if a face or the action is cut badly, make the clip again with another layout or crop. "
+                 "Then put the title on.")
+    job.show(clip=job.chat.clip_view())
+    return "\n".join(lines)
+
+
+def set_style(job, why, style, font=None, colour=None):
+    state = _clip_state(job)
+    try:
+        st = text.style(style, font, colour)
+    except ValueError as e:
+        raise Refused(str(e))
+    state = job.edit({"do": "style", "name": style, "font": font, "colour": colour})
+    lines = ["The words on screen now use the %s style%s." % (style, " with the font %s" % st.fontname if font else "")]
+    if st.note:
+        lines.append(st.note)
+    if state["titles"]:
+        t = state["titles"][0]
+        rec = _open(job, "show")
+        lines.append(_show_frame(job, state, rec, (t["start"] + t["end"]) / 2, "The clip with the %s style:" % style))
+    return "\n".join(lines)
+
+
+def add_title(job, why, words, start, end, place, key=None):
+    rec = _open(job, "put words on")
+    state = _clip_state(job)
+    length, lay = state["length"], state["clip"]["layout"]
+    if not 0 <= start < length:
+        raise Refused("start %g s is outside the clip, which is %g s long: use a start from 0 to %g, in seconds of "
+                      "the clip." % (start, length, round(length - SHORTEST_WORDS, 1)))
+    end = min(end, length)
+    if end - start < SHORTEST_WORDS:
+        raise Refused("The title must stay on screen at least %g s; %g-%g s is shorter." % (SHORTEST_WORDS, start, end))
+    if place not in lay["places"]:
+        raise Refused("The %s layout has no place called %s; its places are: %s." % (
+            lay["kind"], place, ", ".join(lay["places"])))
+    st = render.style_of(state, job.chat.clip["style"] if job.chat.clip else "clean")
+    band = lay["places"][place]
+    try:
+        size = text.measure(words, st, "title", band[2])
+    except ValueError as e:
+        raise Refused(str(e))
+    if size.w > band[2] or size.h > band[3]:
+        raise Refused("These words take %d lines at the title size (%d px tall), and the %s place holds %d px: use "
+                      "fewer words." % (len(size.lines), size.h, place, band[3]))
+    fixed = ""
+    try:
+        text.title(words, start, end, band, st, key)
+    except ValueError as e:
+        whole = [words[a:b].strip() for a, b in text._atoms(words)]
+        holding = [w for w in whole if key and key in w]
+        if len(holding) != 1:
+            raise Refused(str(e))
+        key, fixed = holding[0], 'The key "%s" is part of the word "%s", so that word is the key.' % (key, holding[0])
+        text.title(words, start, end, band, st, key)
+    drawn = [band[0] + (band[2] - size.w) / 2, band[1] + (band[3] - size.h) / 2, size.w, size.h]
+    times, every = _face_times(state, rec)
+    hit = _covered(drawn, times, every, start, end)
+    if hit:
+        others = []
+        for name, box in lay["places"].items():
+            clear = _clear(_covered(box, times, every, 0, length), 0, length)
+            others.append("%s: %s" % (name, _spans(clear, inward=True) if clear else "never clear"))
+        raise Refused("At the %s, the title would cover a face%s at %s. Clear: %s. Pick a time or a place from these."
+                      % (place, " or the product" if state["clip"].get("product") else "", _spans(hit),
+                         "; ".join(others)))
+    state = job.edit({"do": "title", "text": words, "start": round(start, 2), "end": round(end, 2), "place": place,
+                      "box": band, "key": key})
+    lines = ['The title "%s" is on screen at the %s from %g to %g s: %d line%s, %d x %d px, clear of every face the '
+             "program found%s." % (words, place, start, end, len(size.lines), "" if len(size.lines) == 1 else "s",
+                                   size.w, size.h, " and the product" if state["clip"].get("product") else "")]
+    if fixed:
+        lines.append(fixed)
+    lines.append(_show_frame(job, state, rec, (start + end) / 2, 'The clip with the title "%s":' % words))
+    job.show(clip=job.chat.clip_view())
+    return "\n".join(lines)
+
+
+CAPTION_LETTERS = 16
+HITS = {"flash": "a short white flash", "shake": "the picture shakes and settles", "punch": "a quick zoom in and back",
+        "word": "a big word that pops in, such as POW"}
+
+
+def _main_part(layout):
+    """The middle of the part that shows the action: the card, the picture below the face, or the whole frame."""
+    parts = {p["name"]: p["dst"] for p in layout["parts"]}
+    x, y, w, h = parts.get("card") or parts.get("bottom") or parts.get("whole")
+    return [round(x + w / 2), round(y + h / 2)]
+
+
+def add_captions(job, why, on=True):
+    rec = _open(job, "caption")
+    state = _clip_state(job)
+    clip, length = state["clip"], state["length"]
+    if not on:
+        if not state["captions"]:
+            raise Refused("The clip has no captions to take off.")
+        job.edit({"do": "captions", "lines": [], "band": None})
+        return "Captions are off."
+    moments = job.chat.moments or []
+    said = moments[clip["moment"] - 1].get("said") or [] if clip["moment"] <= len(moments) else []
+    phrases = []
+    for p in said:
+        a = project.from_recording(clip["pieces"], p["from"])
+        if a is None:
+            continue
+        b = project.from_recording(clip["pieces"], p["to"])
+        phrases.append({"from": round(a, 2), "to": round(min(length, b if b is not None else length), 2),
+                        "text": p["text"]})
+    if not phrases:
+        raise Refused("Nothing was heard in this moment, so there are no words to caption. Leave the captions off, and "
+                      "say so in your answer.")
+    lines = text.caption_lines(phrases, CAPTION_LETTERS)
+    band = clip["layout"]["captions"]
+    state = job.edit({"do": "captions", "lines": lines, "band": [band[1], band[3]]})
+    out = ["Captions on: %d lines of what was said, numbers exactly as heard, in the band from y %d to %d; each word "
+           "lights up as it is said." % (len(lines), band[1], band[1] + band[3])]
+    times, every = _face_times(state, rec)
+    hit = _covered(band, times, every, 0, length)
+    if hit:
+        out.append("The captions cover a face at %s. If that matters, make the clip again with a layout that keeps the "
+                   "face higher." % _spans(hit))
+    out += ["%s %s" % (recording.clock(line["from"]), line["text"].strip()) for line in lines[:8]]
+    if len(lines) > 8:
+        out.append("... and %d more lines." % (len(lines) - 8))
+    first = lines[0]
+    out.append(_show_frame(job, state, rec, (first["from"] + first["to"]) / 2, "The clip with captions:"))
+    return "\n".join(out)
+
+
+BLUR_FACE_SHARE = 0.3
+PART_NAMES = {"card": "the card", "circle": "the circle with the face", "top": "the top panel",
+              "bottom": "the panel below", "whole": "the frame"}
+
+
+def _share(box, other):
+    """How much of box (0 to 1) other covers."""
+    w = min(box[0] + box[2], other[0] + other[2]) - max(box[0], other[0])
+    h = min(box[1] + box[3], other[1] + other[3]) - max(box[1], other[1])
+    return max(0.0, w) * max(0.0, h) / max(1e-6, box[2] * box[3])
+
+
+def _where(lay, box):
+    """Where a box of the recording shows in the clip, part by part, in frame pixels."""
+    out = []
+    for part in lay["parts"]:
+        f = layouts.to_frame({"parts": [part]}, box)
+        if f:
+            x, y, w, h = f[0]
+            out.append("in %s at x %d-%d, y %d-%d" % (PART_NAMES.get(part["name"], part["name"]), x, x + w, y, y + h))
+    return out
+
+
+def blur_box(job, why, box, start=None, end=None):
+    rec = _open(job, "blur")
+    state = _clip_state(job)
+    length, lay = state["length"], state["clip"]["layout"]
+    px = _pixels("box", box, rec)
+    face = lay.get("face")
+    if face and _share(face, px) > BLUR_FACE_SHARE:
+        raise Refused("That box covers the face at %s on your grid, the face the clip shows, and the face is the point "
+                      "of the clip. Give a box around the chat or the names only, leaving the face out." %
+                      _grid(face, rec))
+    shown = layouts.to_frame(lay, px)
+    if not shown:
+        raise Refused("The box %s is not in the clip's picture (the %s layout leaves that part out), so nothing in it "
+                      "can be seen and it needs no blur." % (box, lay["kind"]))
+    a = 0.0 if start is None else start
+    b = length if end is None else min(end, length)
+    if not 0 <= a < length or b - a < SHORTEST_WORDS:
+        raise Refused("A blur runs from a start inside the clip (0 to %g s) to a later end; %g-%g s is not that. Leave "
+                      "both out to blur the whole clip." % (round(length - SHORTEST_WORDS, 1), a, b))
+    state = job.edit({"do": "blur", "box": [round(v) for v in px], "start": round(a, 2), "end": round(b, 2)})
+    where = "; ".join(_where(lay, px))
+    lines = ["Blurred %s on your grid from %g to %g s, so nothing in it can be read. In the clip it shows %s."
+             % (_grid(px, rec), a, b, where)]
+    lines.append(_show_frame(job, state, rec, (a + b) / 2, "The clip with the blur:"))
+    return "\n".join(lines)
+
+
+def add_hit(job, why, at, kind, word=None):
+    state = _clip_state(job)
+    length = state["length"]
+    if not 0 <= at < length:
+        raise Refused("at %g s is outside the clip, which is %g s long: use the second of the hit, from 0 to %g, in "
+                      "seconds of the clip." % (at, length, round(length - 0.1, 1)))
+    if kind == "word":
+        if not word:
+            raise Refused("A word hit needs its word, such as POW, in the clip's language.")
+        try:
+            text.big_word(word, at, 0.8, _main_part(state["clip"]["layout"]),
+                          render.style_of(state, job.chat.clip["style"] if job.chat.clip else "clean"))
+        except ValueError as e:
+            raise Refused(str(e))
+    job.edit({"do": "hit", "kind": kind, "at": round(at, 2), "word": word if kind == "word" else None,
+              "centre": _main_part(state["clip"]["layout"])})
+    return "Added %s at %g s%s." % (HITS[kind], at, ' ("%s")' % word if kind == "word" else "")
+
+
+MOST_TAGS = 8
+
+
+def render_clip(job, why):
+    rec = _open(job, "render")
+    state = _clip_state(job)
+    done = job.chat.finished()
+    if done:
+        return ("The finished file is already made from the clip as it is now (%s, %g s), so nothing was rendered "
+                "again. Hand it over." % (done["name"], done["length"]))
+    sign = project.signature(job.chat.project.entries)
+    out = os.path.join(render.folder("clips"), sign + ".mp4")
+    started = time.time()
+    try:
+        job.render(rec, state, out)
+    except getattr(render, "Stopped", ()) or ():
+        return "Not rendered: the person pressed Stop. Nothing was kept."
+    except render.NotDrawn as e:
+        raise Refused("The clip could not be rendered: %s" % e)
+    if not os.path.isfile(out):
+        raise Refused("The renderer said it was done, but there is no file at %s. This is a fault in the studio; tell "
+                      "the person." % out)
+    made = {"name": sign + ".mp4", "signature": sign, "seconds": round(time.time() - started, 1),
+            "size": os.path.getsize(out), "length": state["length"]}
+    job.chat.rendered.append(made)
+    job.emit("rendered", file=made)
+    job.show(rendered=made)
+    return ("Rendered the finished clip in %s: %g s, 1080x1920, %.1f MB. The person can play it on the page now. Hand "
+            "it over next." % (recording.clock(made["seconds"]), made["length"], made["size"] / 1e6))
+
+
+def _tag(word):
+    word = "".join(word.split()).lstrip("#")
+    return "#" + word if word else ""
+
+
+def hand_over(job, why, title, caption, hashtags, english=""):
+    _clip_state(job)
+    done = job.chat.finished()
+    if not done:
+        raise Refused("There is no finished file made from the clip as it is now, so there is nothing to hand over. "
+                      "Render the clip first, then hand it over.")
+    tags = list(dict.fromkeys(t for t in (_tag(w) for w in hashtags) if t))
+    if not tags:
+        raise Refused("Give at least one hashtag, such as #gaming.")
+    ready = {"file": done["name"], "length": done["length"], "title": title, "caption": caption, "hashtags": tags,
+             "english": english}
+    job.emit("ready", **ready)
+    job.show(ready=ready)
+    return ("Handed over: the person sees the finished clip with its title, the post text and %d hashtags, a Copy all "
+            "button and a download. Tell them in one or two short lines; do not repeat the text, it is on the page."
+            % len(tags))
+
+
+def undo(job, why):
+    entry = job.chat.undo(job=job.n)
+    if entry is None:
+        raise Refused("There is nothing to take back: the clip has no changes yet.")
+    job.show(clip=job.chat.clip_view())
+    return "Took back %s." % describe(entry)
+
+
+def describe(entry):
+    if entry["do"] == "clip":
+        return "the clip from moment %d in the %s layout" % (entry["moment"], entry["layout"]["kind"])
+    if entry["do"] == "style":
+        return "the %s style" % entry["name"] + (" with the font %s" % entry["font"] if entry.get("font") else "")
+    if entry["do"] == "captions":
+        return "the captions" if entry["lines"] else "turning the captions off"
+    if entry["do"] == "blur":
+        return "the blur at %g-%g s" % (entry["start"], entry["end"])
+    if entry["do"] == "hit":
+        return "the %s at %g s" % (entry["kind"], entry["at"])
+    return 'the title "%s" at %g-%g s' % (entry["text"], entry["start"], entry["end"])
+
+
+STYLES = {"clean": "white words with a dark outline, quiet and clear",
+          "pop": "heavy words, the key word in yellow, for quick hits",
+          "sticker": "dark words on a light box, like a label"}
 SHORTEST, LONGEST = 10, 90
 
 
@@ -549,5 +1027,106 @@ TOOLS = {t.name: t for t in [
                                                      "for the one nearest the loudest second."}},
                                 "required": ["look", "reason"]}}},
          ["moments"], propose_moments, changes=True),
+    Tool("make_clip", "Made the clip",
+         "Make the vertical clip from one of the moments you proposed, in one of four layouts that the program "
+         "draws: " + "; ".join("%s: %s" % kv for kv in layouts.SAID.items()) + ". The program finds the face itself "
+         "in the moment's pictures and fixes what it safely can, and says what it did. The clip's frame comes back "
+         "to you as a picture. Call it again to remake the clip from another moment, layout or crop; the words on "
+         "screen stay.",
+         {"moment": {"type": "integer", "minimum": 1, "maximum": MOST_MOMENTS,
+                     "description": "The number of the moment you proposed."},
+          "layout": {"type": "string", "enum": list(layouts.KINDS), "description": "Which layout."},
+          "crop": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0,
+                                                                              "maximum": 1000},
+                   "description": "[x1, y1, x2, y2] on your 0-1000 grid of the recording's picture: the part to show "
+                                  "(the game for card and stack, the product or the action for subject). Leave it out "
+                                  "for the whole picture."},
+          "face": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0,
+                                                                              "maximum": 1000},
+                   "description": "[x1, y1, x2, y2] on your 0-1000 grid, roughly around the face to use. Leave it out: "
+                                  "the program finds the face. Give it only when the program found none, or the wrong "
+                                  "one."},
+          "product": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0,
+                                                                                 "maximum": 1000},
+                      "description": "[x1, y1, x2, y2] on your 0-1000 grid around the product being sold, when there "
+                                     "is one, so no words cover it. Leave it out otherwise."}},
+         ["moment", "layout"], make_clip, changes=True),
+    Tool("set_style", "Chose the look of the words",
+         "Choose how the words on screen look: one of the house styles (" +
+         "; ".join("%s: %s" % kv for kv in STYLES.items()) + "), or the font and colour the person asked for. "
+         "A colour that would be hard to read gets an outline that makes it readable, and the result says so.",
+         {"style": {"type": "string", "enum": list(STYLES), "description": "The house style."},
+          "font": {"type": "string", "maxLength": 80,
+                   "description": "A font the person named, installed on this computer. Leave it out for the "
+                                  "style's own font."},
+          "colour": {"type": "string", "maxLength": 9,
+                     "description": "The colour of the words the person asked for, like #FFD400. Leave it out for "
+                                    "the style's own."}},
+         ["style"], set_style, changes=True),
+    Tool("add_title", "Put a title on",
+         "Put words on screen from start to end, in one of the layout's places for words. The program measures the "
+         "words as they will be drawn and refuses any time or place where they would cover a face, with the times "
+         "and places that are clear. A title in the same place at the same time replaces the earlier one.",
+         {"words": {"type": "string", "maxLength": 80,
+                    "description": "The words, in the clip's language. Say what happens without giving the ending away. "
+                                   "A number or a claim must be one that was said."},
+          "start": {"type": "number", "minimum": 0, "description": "When they appear, in seconds of the clip (0 is "
+                                                                   "its first frame)."},
+          "end": {"type": "number", "minimum": 0, "description": "When they go, in seconds of the clip."},
+          "place": {"type": "string", "maxLength": 20,
+                    "description": "One of the layout's places for words, as make_clip listed them, such as top."},
+          "key": {"type": "string", "maxLength": 40,
+                  "description": "One word of the title to draw in the style's key colour. Leave it out for none."}},
+         ["words", "start", "end", "place"], add_title, changes=True),
+    Tool("add_captions", "Put the captions on",
+         "Put captions of what was said in the moment on the clip: the words as heard and fixed from the context, "
+         "numbers exactly as said, a few words a line, the word being said lit up. The program places them in the "
+         "layout's caption band. Set on to false to take them off.",
+         {"on": {"type": "boolean", "description": "true to put captions on (the default), false to take them off."}},
+         [], add_captions, changes=True),
+    Tool("blur_box", "Blurred a box",
+         "Blur one box of the recording's picture so nothing in it can be read, such as a stream's chat with "
+         "viewers' names, or a phone number. The box is fixed on the picture for the whole clip unless you give a "
+         "start and an end.",
+         {"box": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0,
+                                                                             "maximum": 1000},
+                  "description": "[x1, y1, x2, y2] on your 0-1000 grid of the recording's picture, around everything "
+                                 "to hide, with a little room."},
+          "start": {"type": "number", "minimum": 0, "description": "From when, in seconds of the clip. Leave it out "
+                                                                   "for the start."},
+          "end": {"type": "number", "minimum": 0, "description": "Until when, in seconds of the clip. Leave it out for "
+                                                                 "the end."}},
+         ["box"], blur_box, changes=True),
+    Tool("add_hit", "Added a hit",
+         "Put one effect on the second something lands, never before it: " +
+         "; ".join("%s: %s" % kv for kv in HITS.items()) + ". Use it on the peak, at most a few in a clip.",
+         {"at": {"type": "number", "minimum": 0, "description": "The second of the hit, in seconds of the clip."},
+          "kind": {"type": "string", "enum": list(HITS), "description": "Which effect."},
+          "word": {"type": "string", "maxLength": 20,
+                   "description": "For a word hit: the word, short, in the clip's language."}},
+         ["at", "kind"], add_hit, changes=True),
+    Tool("render_clip", "Rendered the clip",
+         "Render the finished clip from everything on it now: one call that returns when the file exists, with how "
+         "long it took. Render after the last change, before you hand it over. Calling it again with no change in "
+         "between does nothing.",
+         {}, [], render_clip, changes=True),
+    Tool("hand_over", "Handed over the clip",
+         "Give the person the finished clip, ready to post: the page shows the file with your title, the post text "
+         "and the hashtags, a Copy all button and a download. It needs a finished file made from the clip as it is "
+         "now.",
+         {"title": {"type": "string", "maxLength": 100,
+                    "description": "The post's title, in the clip's language."},
+          "caption": {"type": "string", "maxLength": 600,
+                      "description": "The post text, a few short lines in the clip's language. Any number or claim in "
+                                     "it must be one that was said."},
+          "hashtags": {"type": "array", "minItems": 1, "maxItems": MOST_TAGS,
+                       "items": {"type": "string"}, "description": "1 to %d hashtags, such as #gaming." % MOST_TAGS},
+          "english": {"type": "string", "maxLength": 600,
+                      "description": "The post text in English, when the clip's language is not English."}},
+         ["title", "caption", "hashtags"], hand_over, changes=True),
+    Tool("undo", "Took back the last change",
+         "Take back the last change to the clip: a layout, a style, a title, the captions, a blur or a hit. The "
+         "person can also do this on the page.",
+         {}, [], undo, changes=True),
 ]}
 SCHEMAS = [t.schema() for t in TOOLS.values()]

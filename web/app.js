@@ -23,6 +23,10 @@ const frameBox = document.getElementById("frame");
 const emptyFrame = frameBox.cloneNode(true).childNodes;
 const clipLine = document.getElementById("clipLine");
 const clipTitle = document.getElementById("clipTitle");
+const clipTools = document.getElementById("clipTools");
+const clipAt = document.getElementById("clipAt");
+const clipAtLine = document.getElementById("clipAtLine");
+const clipUndo = document.getElementById("clipUndo");
 const fileInput = document.getElementById("file");
 const dropCover = document.getElementById("dropCover");
 const idle = text.placeholder;
@@ -353,8 +357,109 @@ function clearClip() {
   frameBox.replaceChildren(...[...emptyFrame].map((n) => n.cloneNode(true)));
   clipLine.textContent = "";
   clipTitle.textContent = "Your clip";
+  clipTools.hidden = true;
+  room.made = null;
   clipView("none");
 }
+
+function showClip(e) {
+  const clip = e.clip;
+  if (!clip) {
+    room.made = null;
+    clipTools.hidden = true;
+    clipLine.textContent = "The clip was taken back. Ask Muse to make it again.";
+    return;
+  }
+  room.made = { clip, version: e.id };
+  room.showing = null;
+  clipAt.max = clip.length;
+  const entry = e.kind === "edit" ? e.entry : null;
+  if (entry && entry.do === "title") clipAt.value = (entry.start + entry.end) / 2;
+  else if (entry && entry.do === "clip") clipAt.value = Math.min(clip.length / 2, clip.length - 0.1);
+  drawClipFrame();
+  const titles = clip.titles.length;
+  clipTitle.textContent = "Your clip";
+  clipPill.textContent = "Show your clip";
+  clipLine.textContent = "Moment " + clip.moment + " · " + clip.length + " s · the " + clip.layout + " layout · " + (titles ? titles + (titles === 1 ? " title" : " titles") : "no words yet") + ". Slide to see any second of it.";
+  clipTools.hidden = false;
+  popClip();
+}
+
+function showFinished(file) {
+  room.made = null;
+  room.showing = null;
+  const v = el("video");
+  v.src = "/api/clip/" + file.name;
+  v.controls = true;
+  v.playsInline = true;
+  v.preload = "metadata";
+  v.setAttribute("aria-label", "Your finished clip");
+  frameBox.replaceChildren(v);
+  clipTools.hidden = true;
+  clipTitle.textContent = "Your clip";
+  clipPill.textContent = "Show your clip";
+  clipLine.textContent = "The finished clip · " + file.length + " s · " + (file.size / 1e6).toFixed(1) + " MB.";
+  popClip();
+}
+
+function drawReady(j, e) {
+  const div = el("div", "ready");
+  div.appendChild(el("p", "ready-head", "Ready to post"));
+  const v = el("video");
+  v.src = "/api/clip/" + e.file;
+  v.controls = true;
+  v.playsInline = true;
+  v.preload = "metadata";
+  v.setAttribute("aria-label", "Your finished clip");
+  const body = el("div", "ready-body");
+  body.append(el("p", "ready-title", e.title), el("p", "ready-caption", e.caption), el("p", "ready-tags", e.hashtags.join(" ")));
+  if (e.english) body.appendChild(el("p", "ready-english", e.english));
+  const all = [e.title, e.caption, e.hashtags.join(" ")].concat(e.english ? [e.english] : []).join("\n\n");
+  const copy = el("button", "chip", "Copy all");
+  copy.type = "button";
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(all);
+      copy.textContent = "Copied";
+    } catch (err) {
+      copy.textContent = "Select the text to copy it";
+    }
+  });
+  const save = el("a", "chip", "Download the clip");
+  save.href = "/api/clip/" + e.file + "?download=1";
+  const row = el("div", "ready-actions");
+  row.append(copy, save);
+  body.appendChild(row);
+  div.append(v, body);
+  j.flow.appendChild(div);
+}
+
+function drawClipFrame() {
+  const made = room.made;
+  if (!made) return;
+  const t = Math.min(Number(clipAt.value), Math.max(0, made.clip.length - 0.05));
+  clipAtLine.textContent = t.toFixed(1) + " s";
+  const img = el("img");
+  img.src = "/api/clipframe?chat=" + encodeURIComponent(room.chat) + "&t=" + t.toFixed(2) + "&v=" + made.version;
+  img.alt = "Your clip at " + t.toFixed(1) + " seconds";
+  frameBox.replaceChildren(img);
+}
+
+clipAt.addEventListener("input", () => {
+  clearTimeout(room.frameTimer);
+  room.frameTimer = setTimeout(drawClipFrame, 120);
+});
+
+clipUndo.addEventListener("click", async () => {
+  clipUndo.disabled = true;
+  try {
+    const d = await post("/api/undo", { chat: room.chat });
+    if (!d.ok) clipLine.textContent = d.error || "Nothing was taken back.";
+  } catch (err) {
+    clipLine.textContent = "The studio is not answering. Start it again with: python app.py";
+  }
+  clipUndo.disabled = false;
+});
 
 function showRecording(e) {
   const r = e.recording;
@@ -393,6 +498,10 @@ function on(e) {
     showRecording(e);
     return;
   }
+  if (e.kind === "edit" || e.kind === "undo") {
+    showClip(e);
+    return;
+  }
   if (e.kind === "preview") {
     room.cut[e.name] = e;
     document.querySelectorAll(".moment").forEach((li) => {
@@ -425,6 +534,10 @@ function on(e) {
   } else if (e.kind === "answer") {
     hideLive(j);
     drawAnswer(j, e);
+  } else if (e.kind === "rendered") {
+    showFinished(e.file);
+  } else if (e.kind === "ready") {
+    drawReady(j, e);
   } else if (e.kind === "cut") {
     hideLive(j);
     bubble("note", e.by === "stop" ? "Stopped while Muse was thinking about step " + e.step + "." : "Muse stopped thinking about step " + e.step + " to read your message.", j.flow);

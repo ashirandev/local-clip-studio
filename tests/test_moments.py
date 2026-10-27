@@ -170,7 +170,7 @@ class Moments(unittest.TestCase):
         self.assertEqual((first["start"], first["end"], first["look"]), (30, 50, 1))
         self.assertEqual((second["start"], second["end"], second["t"]), (5, 20, 10))
         self.assertEqual(first["t"], 44, "with no picture named, the card shows the one nearest the loudest second")
-        self.assertIn("Go on with moment 1 by yourself: do not ask the person to choose", step["result"])
+        self.assertIn("Go on with moment 1 by yourself and make the clip from it: do not ask the person to choose", step["result"])
         self.assertIn("moments proposed: 1. 0:30-0:50, 2. 0:05-0:20 · no clip made yet", brain.sent[-1][-1]["content"])
         self.assertIn("never tell the person a clip is ready when no tool made it", step["result"])
         ready = self.previews_ready(2)

@@ -28,8 +28,8 @@ import threading
 import time
 import traceback
 
-from . import hearing, maps, mind, previews, recording, words
-from .tools import SCHEMAS, TOOLS, Refused
+from . import faces, hearing, maps, mind, previews, project, recording, render, words
+from .tools import SCHEMAS, TOOLS, Refused, describe
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = os.environ.get("LCS_WORK") or os.path.join(ROOT, "work")
@@ -52,6 +52,8 @@ which plan step it works on (plan_step).
 - Every call has a why: one short line, in the language the person writes in, telling the person why you take this \
 step.
 - When a tool refuses, its answer says what to fix. Fix the input and call again.
+- A clip is done only when the person has it: after the last change, render it, then hand it over with a title, \
+the post text and hashtags. Plan those two steps too.
 - Do not repeat a call that already gave you its answer.
 - Each tool result ends with a line that starts with "Now:". It is the current state; trust it over anything older.
 - When the work is done, or only the person can decide, answer briefly, in the language the person writes in. Say \
@@ -75,6 +77,9 @@ class Chat:
         self.live, self.live_rev = None, 0
         self.clip = self.recording = None
         self.looks, self.moments = [], None
+        self.project = project.Project()
+        self.rendered = []
+        self.told = []
         self.cond = threading.Condition()
         folder = os.path.join(WORK, "chats")
         os.makedirs(folder, exist_ok=True)
@@ -102,8 +107,14 @@ class Chat:
         for e in chat.events:
             if e["kind"] == "opened":
                 if e["recording"]["path"] != path:
-                    chat.looks, chat.moments = [], None
+                    chat.looks, chat.moments, chat.project, chat.rendered = [], None, project.Project(), []
                 path = e["recording"]["path"]
+            elif e["kind"] == "edit":
+                chat.project.add(e["entry"])
+            elif e["kind"] == "undo":
+                chat.project.undo()
+            elif e["kind"] == "rendered":
+                chat.rendered.append(e["file"])
             elif e["kind"] == "step" and e.get("look"):
                 chat.looks.append(e["look"])
             elif e["kind"] == "step" and e.get("moments"):
@@ -149,9 +160,14 @@ class Chat:
     def say(self, words, mind_key, pictures=(), shown=None):
         """The person's message: a new job, or, while Muse works, words that cut in on the job running now.
         Pictures (jpg paths) go to Muse with the words, in the same message. shown is what the page shows instead
-        of words, when Muse is told more than the person said."""
-        content = _with_pictures(words, pictures)
+        of words, when Muse is told more than the person said. What the person changed on the page since Muse last
+        worked goes first, so Muse never works from an old clip."""
         shown = words if shown is None else shown
+        with self.cond:
+            told, self.told = self.told, []
+        if told:
+            words = "[studio] Since your last answer: %s. Now: %s\n\n%s" % ("; ".join(told), self.clip_line(), words)
+        content = _with_pictures(words, pictures)
         with self.cond:
             job = self.job
             if job and not job.done:
@@ -168,13 +184,79 @@ class Chat:
         job = self.job
         return bool(job and job.stop())
 
+    def edit(self, entry, job=None):
+        """Adds one change to the clip's project list; the page redraws the clip. Returns the clip's state."""
+        with self.cond:
+            self.project.add(entry)
+            self.changed += 1
+        self.emit("edit", job=job, entry=entry, clip=self.clip_view(), said=describe(entry))
+        return self.project.state()
+
+    def undo(self, job=None):
+        """Takes the last change back, or returns None when there is none. The person's undo is told to Muse
+        before its next job (or in the state line of the job running now)."""
+        with self.cond:
+            entry = self.project.undo()
+            if entry is None:
+                return None
+            self.changed += 1
+            if job is None:
+                self.told.append("the person took back %s" % describe(entry))
+        self.emit("undo", job=job, entry=entry, clip=self.clip_view(), said=describe(entry))
+        return entry
+
+    def finished(self):
+        """The finished file made from the clip as it is now, or None: {"name", "signature", "seconds", "size",
+        "length"}. A change after the render makes it stale, and undoing that change makes it current again."""
+        sign = project.signature(self.project.entries)
+        return next((f for f in reversed(self.rendered) if f["signature"] == sign
+                     and os.path.isfile(os.path.join(render.folder("clips"), f["name"]))), None)
+
+    def clip_view(self):
+        """The clip as the page draws it: its length, layout and words on screen, or None before it is made."""
+        state = self.project.state()
+        if not state["clip"]:
+            return None
+        return {"length": state["length"], "layout": state["clip"]["layout"]["kind"],
+                "moment": state["clip"]["moment"],
+                "titles": [{"text": t["text"], "start": t["start"], "end": t["end"]} for t in state["titles"]],
+                "changes": len(self.project.entries)}
+
+    def clip_line(self):
+        """One line on the clip for Muse's state: what it is made of, or that none is made."""
+        state = self.project.state()
+        clip = state["clip"]
+        if not clip:
+            return "no clip made yet"
+        a, b = clip["pieces"][0][0], clip["pieces"][-1][1]
+        st = state["style"]["name"] if state["style"] else (self.clip or {}).get("style", "clean")
+        words = "; ".join('"%s" %g-%g s at the %s' % (t["text"], t["start"], t["end"], t["place"])
+                          for t in state["titles"])
+        extras = ["captions on" if state["captions"] else "no captions"]
+        if state["blurs"]:
+            extras.append("%d blur%s" % (len(state["blurs"]), "" if len(state["blurs"]) == 1 else "s"))
+        if state["hits"]:
+            extras.append("hits: " + ", ".join("%s at %g s" % (h["kind"], h["at"]) for h in state["hits"]))
+        done = self.finished()
+        if done:
+            made = "finished file %s, made from the clip as it is now" % done["name"]
+        elif self.rendered:
+            made = ("the last finished file is older than the last change: render again before you hand it over, and "
+                    "never say the clip is ready until then")
+        else:
+            made = ("no finished file yet: the person sees only a preview on the page, so never say the clip is "
+                    "ready")
+        return ("clip: moment %d (%s-%s, %g s), %s layout, %s style, %s, %s · %s"
+                % (clip["moment"], recording.clock(a), recording.clock(b), state["length"], clip["layout"]["kind"],
+                   st, "words on screen: " + words if words else "no words on screen", ", ".join(extras), made))
+
     def open(self, rec, job=None):
         """Opens rec as this chat's recording (one at a time) and shows it.
         Returns (the recording open before, the path of a picture from rec or None)."""
         with self.cond:
             had, self.recording = self.recording, rec
             if not had or had["path"] != rec["path"]:
-                self.looks, self.moments = [], None
+                self.looks, self.moments, self.project, self.rendered = [], None, project.Project(), []
             self.changed += 1
         frame = recording.frame(rec)
         self.emit("opened", job=job, recording=rec, frame=frame, line=recording.describe(rec))
@@ -277,6 +359,33 @@ class Job:
         self.working("Writing down what is said in %s-%s" % (recording.clock(start), recording.clock(end)))
         try:
             return hearing.hear(rec, start, end, on_start=self.started_work)
+        finally:
+            self.done_working()
+
+    def find_faces(self, rec, start, end):
+        """The faces in start-end for a tool: the page says so, and Stop ends it at once (faces.Stopped)."""
+        self.working("Finding the faces in %s-%s" % (recording.clock(start), recording.clock(end)))
+        try:
+            return faces.sample(rec, start, end, on_start=self.started_work)
+        finally:
+            self.done_working()
+
+    def edit(self, entry):
+        return self.chat.edit(entry, job=self.n)
+
+    def render(self, rec, state, out):
+        """Renders the clip into out for a tool: the page shows how far it has got, and Stop ends FFmpeg at once."""
+        total, shown = max(0.1, state["length"]), [0.0]
+
+        def progress(done):
+            if time.time() - shown[0] >= SHOW_THINKING_EVERY:
+                shown[0] = time.time()
+                self.working("Rendering the clip: %.0f of %.0f s (%d%%)" % (min(done, total), total,
+                                                                              min(99, 100 * done / total)))
+
+        self.working("Rendering the clip: starting")
+        try:
+            return render.export(rec, state, out, on_progress=progress, on_start=self.started_work)
         finally:
             self.done_working()
 
@@ -540,7 +649,7 @@ class Job:
             parts.append("moments proposed: " + ", ".join(
                 "%d. %s-%s" % (m["n"], recording.clock(m["start"]), recording.clock(m["end"]))
                 for m in self.chat.moments))
-            parts.append("no clip made yet")
+        parts.append(self.chat.clip_line())
         return " · ".join(parts)
 
 

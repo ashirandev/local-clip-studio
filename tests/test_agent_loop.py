@@ -191,7 +191,7 @@ class Loop(unittest.TestCase):
         results = [e["result"] for e in events if e["kind"] == "step"]
         self.assertIn("There is no recipe for cooking yet. The recipes are: game (Game stream), seller", results[0])
         self.assertIn("Do not use a recipe made for another kind of video", results[0])
-        self.assertIn("style must be one of: clean, pop, calm", results[1])
+        self.assertIn("style must be one of: clean, pop, sticker", results[1])
         self.assertIsNone(self.chat.clip)
 
     def test_another_recipe_replaces_the_first(self):

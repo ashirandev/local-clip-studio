@@ -12,12 +12,17 @@ fixes what fails, and hands over a vertical clip ready to post. To change anythi
 
 ## Quick start
 
-Python 3.11 or newer, and [FFmpeg](https://ffmpeg.org/) (`ffmpeg` and `ffprobe` on the PATH). The studio itself
-uses the Python standard library only.
+Python 3.11 or newer, and [FFmpeg](https://ffmpeg.org/) (`ffmpeg` and `ffprobe` on the PATH, built with libass,
+as the common builds are). The studio uses three Python packages: OpenCV to find faces, pythainlp to break Thai
+words onto lines, and NumPy.
 
 ```
+pip install -r requirements.txt
 python app.py
 ```
+
+The face finder's model (YuNet, 230 KB) is downloaded from OpenCV Zoo the first time it is needed; set
+`LCS_FACE_MODEL` to the file if you have it. The Thai and Latin font (Kanit) is in `fonts/`.
 
 Then open http://127.0.0.1:8899/ . Set `LCS_PORT` to use another port, and `LCS_VIDEOS` to the folders your
 recordings are in (separated by `;` on Windows; the default is `~/Videos`).
@@ -124,6 +129,22 @@ the result and the engine numbers.
   from that look, and a rough 480p preview of the stretch is cut in the background, so the card plays a second or
   two later. Muse goes on with the best one by itself; a tap on another card switches. Until a tool has made the
   clip, the state Muse reads says "no clip made yet", so it cannot claim one.
+- **Muse edits the clip with tools, and the program draws it.** From a moment, Muse makes the clip in one of four
+  layouts: the game as a card with the streamer's face in a circle above it, the face above the game, the face alone,
+  or one part of the picture filling the frame. Muse chooses the layout and the part of the picture to show; the
+  program finds the face itself (YuNet, a picture every half second of the moment, the face that stays in one place)
+  and works out every pixel. Letting the model place everything was measured first: it cut heads and showed the face
+  camera twice.
+- **Words never cover a face or the product.** Every title is measured as libass will draw it, then refused at a
+  time or a place where it would cover a face the program found, or the product Muse named, and the refusal lists
+  the times and places that are clear. A blur over the face the clip shows is refused too: the face is the point.
+- **Every change is one entry, and undo takes it back.** The clip is a list of entries (the moment and layout, the
+  style, titles, captions, blurs, hits). The same list draws the preview and the finished file. After each change
+  Muse sees the frame it made, and the page shows the clip with a slider to any second. The person can undo on the
+  page too, and Muse is told before it answers next.
+- **A clip is ready only when its file is.** Render returns when the file exists. Hand-over takes only a file made
+  from the clip as it is now: a change after the render makes the file old, and the state Muse reads says so in
+  words, so it cannot tell the person a clip is ready when it is not.
 - **Every page shows the chat the server has open.** When another chat opens, every page follows it, so neither an
   address nor a second tab can leave a page working on another chat.
 
@@ -157,10 +178,13 @@ Each piece is listed with its licence. The Status column says whether this build
 | [FFmpeg](https://ffmpeg.org/) | reads each recording (ffprobe) and takes pictures from it; later cuts and renders the clip | LGPL-2.1+ (GPL for some builds) | used |
 | [Omnilingual ASR](https://github.com/facebookresearch/omnilingual-asr) (Meta), CTC 1B v2 | writes down what is said, in many languages, with the time of every phrase | Apache-2.0 | used |
 | [FLEURS](https://huggingface.co/datasets/google/fleurs) (Google), Thai *train* transcripts | counted once into `clipstudio/thai_marks.json`, which puts back the Thai vowel marks Omnilingual cannot write | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | used |
-| [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) (OpenCV Zoo) | finds faces, so text never covers one | MIT | planned |
+| [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) (OpenCV Zoo) | finds faces, so the layouts frame them and words never cover one | MIT | used |
+| [OpenCV](https://opencv.org/) (`opencv-python`) | runs YuNet | Apache-2.0 | used |
+| [PyThaiNLP](https://github.com/PyThaiNLP/pythainlp) | breaks Thai titles and captions at word boundaries | Apache-2.0 | used |
+| [NumPy](https://numpy.org/) | holds the pictures the face finder reads | BSD-3-Clause | used |
 | [SFace](https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface) (OpenCV Zoo) | tells faces apart, so other people's faces can be blurred | Apache-2.0 | planned |
 | [MMS-TTS Thai](https://huggingface.co/facebook/mms-tts-tha) (Meta) | an optional voice-over, off by default | [CC-BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/), **non-commercial** | planned |
-| Kanit, Prompt (Google Fonts) | Thai and Latin text on the clip | SIL Open Font License 1.1 | planned |
+| [Kanit](https://fonts.google.com/specimen/Kanit) (Google Fonts), in `fonts/` with its licence | Thai and Latin text on the clip | SIL Open Font License 1.1 | used |
 
 Model weights are downloaded when they are first needed. None of them are committed here.
 
@@ -184,6 +208,8 @@ Model weights are downloaded when they are first needed. None of them are commit
 | 2026-10-27, this build | Opening to cards with hearing, one run each | the review clip: 7 steps, 0 refused, 2:48 (1:19 without hearing); the 4-hour stream: 7 steps, 0 refused, 3:12 |
 | 2026-10-27, this build | Do phrases start where speech starts? | 46 of 50 start at least 10 dB over their stretch's quiet floor; the other 4 at 8.6-9.9 dB, two of them cut by the first frame of the stretch |
 | 2026-10-27, this build | Muse's answer after the cards, before any clip existed | it said the clip was made, with captions and a blurred chat. Now the state Muse reads says "no clip made yet": next run, it said only that the moments were ready to preview (one run, not yet a measurement) |
+| 2026-10-27, this build | The editor, one live run each on Glimmer Q3, from opening the recording | the review clip: 14 steps, 3:00, no question to the person, a title clear of the face; it found four faults, all fixed: "the clip is ready" with no file made, a free window of 0.4 s offered, a key word inside "50–75", a title over the product. The 4-hour stream: 11 steps, 2:54, 0 refused, card layout with the face found in 37 of 40 pictures; it found two: the chat blur put over the streamer's face, and a Thai key word that coloured the whole title |
+| 2026-10-27, this build | Drawing one preview frame of the clip | 0.1-0.45 s for a layout from a 1080p stream; one 1080x1920 frame with a title, captions and a hit in under 1 s |
 
 New measurements are added here as the build is tested, each with its date.
 

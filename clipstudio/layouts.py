@@ -1,0 +1,357 @@
+"""The four layouts of the vertical clip, each drawn by the program: Muse chooses which one and what part of the
+picture it shows, and the program works out every pixel.
+
+Free placement was measured first (10-26, four recordings): Muse found the right regions but cut heads, showed the
+face camera twice and covered the chest with the game. So the shapes are fixed:
+
+- card: the game as a rounded card across the middle with a soft shadow, the face camera in a ringed circle above
+  it, and the same moment, blurred and darkened toward the edges, behind both
+- stack: the face camera on top, the game below it, a dark seam and a shadow between them
+- face: the face alone, filling the frame
+- subject: one part of the picture (a product, the action) filling the frame
+
+A layout is a plain dict, kept in the clip's project list, so the same numbers draw the preview frame and the
+finished clip. Boxes are (x, y, w, h). The source boxes are in pixels of the recording, and the frame boxes are in
+pixels of the 1080x1920 clip. Everything drawn around the parts (background, shadows, ring, seam) sits under them or
+outside them, so to_frame() stays true: a part's picture is shown whole at its frame box, only the card's rounded
+corners (CARD_RADIUS px) are cut.
+
+Words go only where a phone leaves them readable: Meta's published Reels numbers leave about 270 px free at the
+top, 670 px at the bottom and 65 px at each side, with about 120 px more on the right for the buttons in the lower
+half. Each layout names its places for words inside that, and keeps a band for the captions. A place is never on
+the face: the stack has no place at the top, because its top panel is the face; its words go on the seam.
+"""
+import math
+import os
+import shutil
+import subprocess
+
+from . import recording
+
+W, H = 1080, 1920
+KINDS = ("card", "stack", "face", "subject")
+SAID = {
+    "card": "the picture as a card across the middle, the face in a circle above it, the title on top; for a game "
+            "stream with a face camera",
+    "stack": "the face on top, the picture below it; for a stream when the face matters as much as the game",
+    "face": "the face alone, filling the frame; for a reaction",
+    "subject": "one part of the picture filling the frame, such as the product or the action; for a person on camera "
+               "or a product",
+}
+TOP = [65, 285, 950, 235]
+MIDDLE = [65, 905, 830, 170]
+CAPTIONS = [65, 1090, 830, 160]
+CIRCLE, RING = 400, 8
+CIRCLE_Y = 540
+CARD_Y = 890
+CARD_X = 28
+CARD_W = W - 2 * CARD_X
+CARD_RADIUS = 30
+CARD_LOWEST, CARD_TALLEST = 480, 760
+STACK_TOP = 760
+SEAM = 8
+GROUND = "0x101014"
+FACE_SHARE = {"circle": 1.5, "stack": 2.0, "face": 3.5}
+LEAVE_OUT = 3.0
+SMALLEST_CARD = 0.4
+SHARPEN_FROM = 1.5
+SHARPEN = "unsharp=5:5:0.7:5:5:0"
+SHADOW = {"card": (22, 18, 0.55), "circle": (14, 10, 0.5)}
+SHAPES = 2
+
+
+def make(kind, size, face=None, crop=None):
+    """The layout of kind for a recording of size (w, h): its parts, its places for words, its caption band and
+    notes on what the program fixed. face is the face's box in the recording (from the face finder), crop the part
+    of the picture to show (whole picture when None). A layout that cannot be drawn raises ValueError."""
+    if kind not in KINDS:
+        raise ValueError("layout %r is not a layout: use one of %s." % (kind, ", ".join(KINDS)))
+    w, h = size
+    crop = _inside(crop or [0, 0, w, h], w, h)
+    notes, parts = [], []
+    if h > w and kind in ("card", "stack"):
+        notes.append("The recording is already vertical, so its picture fills the frame (the subject layout) "
+                     "instead of a %s, which would show the face twice." % kind)
+        kind = "subject"
+    room = [0, 0, w, h]
+    away = _grown(face, LEAVE_OUT, w, h) if face else None
+    if kind == "card":
+        if face:
+            square = _around(face, FACE_SHARE["circle"], 1.0, room)
+            parts.append({"name": "circle", "src": square, "dst": [(W - CIRCLE) // 2, CIRCLE_Y, CIRCLE, CIRCLE]})
+            crop = _leave_out(crop, away, notes)
+        else:
+            notes.append("No face was given or found, so the card has no circle.")
+        crop, height = _card(crop, notes)
+        parts.insert(0, {"name": "card", "src": crop, "dst": [CARD_X, CARD_Y, CARD_W, height]})
+        places = {"top": TOP, "middle": MIDDLE}
+    elif kind == "stack":
+        if not face:
+            raise ValueError("The stack layout needs a face: none was found in the moment's pictures. Give face as a "
+                             "box on your 0-1000 grid, or choose the subject layout.")
+        top_h = STACK_TOP - SEAM // 2
+        bottom_y = STACK_TOP + SEAM // 2
+        top = _around(face, FACE_SHARE["stack"], W / top_h, room)
+        game = _fit(crop, W / (H - bottom_y), [0, 0, w, h])
+        game = _leave_out(game, away, notes, size=(w, h))
+        parts += [{"name": "top", "src": top, "dst": [0, 0, W, top_h]},
+                  {"name": "bottom", "src": game, "dst": [0, bottom_y, W, H - bottom_y]}]
+        places = {"middle": [65, STACK_TOP - 120, 950, 240]}
+    elif kind == "face":
+        if not face:
+            raise ValueError("The face layout needs a face: none was found in the moment's pictures. Give face as a "
+                             "box on your 0-1000 grid, or choose the subject layout.")
+        part = _around(face, FACE_SHARE["face"], W / H, room, at=0.40)
+        parts.append({"name": "whole", "src": part, "dst": [0, 0, W, H]})
+        places = {"top": TOP}
+    else:
+        part = _fit(crop, W / H, [0, 0, w, h], grow=1.2)
+        parts.append({"name": "whole", "src": part, "dst": [0, 0, W, H]})
+        places = {"top": TOP, "middle": MIDDLE}
+    return {"kind": kind, "size": [w, h], "face": face, "parts": parts, "places": places,
+            "captions": CAPTIONS, "background": kind == "card", "notes": notes}
+
+
+def _even(v):
+    return int(round(v / 2.0)) * 2
+
+
+def _within_even(box):
+    """The largest box on even pixels inside box, so rounding never takes it over what it was kept clear of."""
+    x0, y0 = 2 * math.ceil(box[0] / 2), 2 * math.ceil(box[1] / 2)
+    x1, y1 = 2 * math.floor((box[0] + box[2]) / 2), 2 * math.floor((box[1] + box[3]) / 2)
+    return [x0, y0, max(2, x1 - x0), max(2, y1 - y0)]
+
+
+def _inside(box, w, h):
+    x, y, bw, bh = box
+    x0, y0 = max(0.0, min(x, w - 2)), max(0.0, min(y, h - 2))
+    x1, y1 = max(x0 + 2, min(x + bw, w)), max(y0 + 2, min(y + bh, h))
+    return [x0, y0, x1 - x0, y1 - y0]
+
+
+def _place(cx, cy, bw, bh, room):
+    """A box of about bw x bh centred on (cx, cy) as far as room (x, y, w, h) allows, on even pixels inside it."""
+    lx, ly, rx, ry = _within_even(room)
+    rx, ry = lx + rx, ly + ry
+    bw, bh = max(2, min(_even(bw), rx - lx)), max(2, min(_even(bh), ry - ly))
+    x = min(max(lx, _even(cx - bw / 2)), rx - bw)
+    y = min(max(ly, _even(cy - bh / 2)), ry - bh)
+    return [x, y, bw, bh]
+
+
+def _around(face, share, aspect, room, at=0.5):
+    """The part of room around face with the face share times smaller than the part's height, aspect
+    (width / height) as asked, the face's middle at `at` of the height."""
+    fx, fy, fw, fh = face
+    bh = share * max(fh, fw)
+    bw = bh * aspect
+    if bw > room[2]:
+        bw, bh = room[2], room[2] / aspect
+    if bh > room[3]:
+        bw, bh = room[3] * aspect, room[3]
+    cx, cy = fx + fw / 2, fy + fh * 0.42 - bh * (at - 0.5)
+    return _place(cx, cy, bw, bh, room)
+
+
+def _fit(crop, aspect, room, grow=1.0):
+    """The smallest box of the asked aspect (width / height) that holds crop, grown by grow, inside room."""
+    x, y, bw, bh = crop
+    bh = max(bh, bw / aspect) * grow
+    bw = bh * aspect
+    if bw > room[2]:
+        bw, bh = room[2], room[2] / aspect
+    if bh > room[3]:
+        bw, bh = room[3] * aspect, room[3]
+    return _place(x + crop[2] / 2, y + crop[3] / 2, bw, bh, room)
+
+
+def _grown(face, share, w, h):
+    """A square around the face, share times its longer side, kept inside the picture."""
+    fx, fy, fw, fh = face
+    side = share * max(fw, fh)
+    return _inside([fx + fw / 2 - side / 2, fy + fh / 2 - side / 2, side, side], w, h)
+
+
+def _overlap(a, b):
+    return min(a[0] + a[2], b[0] + b[2]) > max(a[0], b[0]) and min(a[1] + a[3], b[1] + b[3]) > max(a[1], b[1])
+
+
+def _leave_out(crop, away, notes, size=None):
+    """crop without the face camera (away), so the face does not show twice: cut from the side the face is on, or,
+    when size (w, h) is given because the box must keep its shape, slide it sideways inside the picture. Left as it
+    is, with a note, when what is left would be too small or no slide clears it."""
+    if away is None or not _overlap(crop, away):
+        return crop
+    x, y, cw, ch = crop
+    ax, ay, aw, ah = away
+    if size:
+        slides = [nx for nx in (ax - cw, ax + aw) if 0 <= nx <= size[0] - cw]
+        if slides:
+            nx = min(slides, key=lambda v: abs(v - x))
+            notes.append("The picture below was moved off the face camera, so the face does not show twice.")
+            return [_even(nx) if _even(nx) + cw <= size[0] else int(nx), y, cw, ch]
+        notes.append("The face camera is inside the picture too, so the face shows twice; choose a crop beside it.")
+        return crop
+    options = [[x, y, ax - x, ch], [ax + aw, y, x + cw - ax - aw, ch], [x, y, cw, ay - y], [x, ay + ah, cw, y + ch - ay - ah]]
+    options = [o for o in options if o[2] > 0 and o[3] > 0 and not _overlap(o, away)]
+    best = max(options, key=lambda o: o[2] * o[3], default=None)
+    if best is None or best[2] * best[3] < SMALLEST_CARD * cw * ch:
+        notes.append("The face camera is inside the card too, so the face shows twice; choose a crop beside it.")
+        return crop
+    notes.append("The card leaves out the face camera, so the face does not show twice.")
+    return best
+
+
+def _card(crop, notes):
+    """(crop, card height): the card is CARD_W wide; its height follows the crop, from CARD_LOWEST to CARD_TALLEST
+    pixels, trimming the crop around its middle when it is too tall or too wide."""
+    x, y, cw, ch = crop
+    height = CARD_W * ch / cw
+    if height > CARD_TALLEST:
+        nh = cw * CARD_TALLEST / CARD_W
+        y, ch, height = y + (ch - nh) / 2, nh, CARD_TALLEST
+        notes.append("The card was trimmed at the top and bottom to fit the frame.")
+    elif height < CARD_LOWEST:
+        nw = ch * CARD_W / CARD_LOWEST
+        x, cw, height = x + (cw - nw) / 2, nw, CARD_LOWEST
+        notes.append("The card was trimmed at the sides to fit the frame.")
+    return _within_even([x, y, cw, ch]), _even(height)
+
+
+def to_frame(layout, box):
+    """Where a box of the recording shows in the clip's frame: a list of frame boxes, one for each part it is in
+    (the blurred background is not counted)."""
+    out = []
+    for part in layout["parts"]:
+        sx, sy, sw, sh = part["src"]
+        dx, dy, dw, dh = part["dst"]
+        x0, y0 = max(box[0], sx), max(box[1], sy)
+        x1, y1 = min(box[0] + box[2], sx + sw), min(box[1] + box[3], sy + sh)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        kx, ky = dw / sw, dh / sh
+        out.append([dx + (x0 - sx) * kx, dy + (y0 - sy) * ky, (x1 - x0) * kx, (y1 - y0) * ky])
+    return out
+
+
+# ---- drawing ---------------------------------------------------------------------------------------------------
+
+def graph(layout, src, out, first_input):
+    """(filter graph text from [src] to [out] drawing layout at 1080x1920, extra files): the shapes around the parts
+    (masks, shadows, the ring, the background's shade) are pictures made once, opened by the renderer as inputs from
+    first_input on, in the order of the files."""
+    files = []
+
+    def shape(path):
+        files.append(path)
+        return "[%d:v]" % (first_input + len(files) - 1)
+
+    parts = {p["name"]: p for p in layout["parts"]}
+    tail = "setsar=1,format=yuv420p[%s]" % out
+    if layout["kind"] in ("face", "subject"):
+        return "[%s]%s,%s" % (src, _scaled(parts["whole"]), tail), files
+    if layout["kind"] == "stack":
+        top, bottom = parts["top"], parts["bottom"]
+        bx, by = bottom["dst"][:2]
+        text = ("[%s]split=2[lay_a][lay_b];[lay_a]%s,pad=%d:%d:0:0:color=%s[lay_t];[lay_b]%s[lay_g];"
+                "[lay_t][lay_g]overlay=%d:%d[lay_1];[lay_1]%soverlay=0:%d:shortest=1,%s"
+                % (src, _scaled(top), W, H, GROUND, _scaled(bottom), bx, by, shape(seam_shade()), by, tail))
+        return text, files
+    card = parts["card"]
+    cx, cy, cw, ch = card["dst"]
+    sigma, drop, _ = SHADOW["card"]
+    pad = 3 * sigma
+    circle = parts.get("circle")
+    text = ("[%s]split=%d[lay_s1][lay_s2]%s;"
+            "[lay_s1]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,gblur=sigma=9,"
+            "eq=saturation=1.3:contrast=1.05:brightness=-0.04,scale=%d:%d[lay_bg0];"
+            "[lay_bg0]%soverlay=0:0:shortest=1[lay_bg];"
+            "[lay_bg]%soverlay=%d:%d:shortest=1[lay_1];"
+            "[lay_s2]%s,format=yuva420p[lay_c0];%sformat=gray[lay_cm];[lay_c0][lay_cm]alphamerge[lay_card];"
+            "[lay_1][lay_card]overlay=%d:%d:shortest=1"
+            % (src, 3 if circle else 2, "[lay_s3]" if circle else "", W, H, shape(shade()),
+               shape(shadow("card", cw, ch, CARD_RADIUS)), cx - pad, cy - pad + drop,
+               _scaled(card), shape(rounded(cw, ch, CARD_RADIUS)), cx, cy))
+    if not circle:
+        return text + "," + tail, files
+    dx, dy, d, _ = circle["dst"]
+    sigma, drop, _ = SHADOW["circle"]
+    pad = 3 * sigma
+    ring = d + 2 * RING
+    text += ("[lay_2];[lay_2]%soverlay=%d:%d:shortest=1[lay_3];[lay_3]%soverlay=%d:%d:shortest=1[lay_4];"
+             "[lay_s3]%s,format=yuva420p[lay_f];%sformat=gray[lay_fm];[lay_f][lay_fm]alphamerge[lay_circle];"
+             "[lay_4][lay_circle]overlay=%d:%d:shortest=1,%s"
+             % (shape(shadow("circle", ring, ring, ring / 2)), dx - RING - pad, dy - RING - pad + drop,
+                shape(ring_shape(ring, RING)), dx - RING, dy - RING,
+                _scaled(circle), shape(rounded(d, d, d / 2)), dx, dy, tail))
+    return text, files
+
+
+def _scaled(part):
+    """crop and scale for a part, sharpened a little when it is enlarged a lot."""
+    x, y, w, h = part["src"]
+    dw, dh = part["dst"][2:]
+    text = "crop=%d:%d:%d:%d,scale=%d:%d:flags=lanczos" % (w, h, x, y, dw, dh)
+    if dw / w >= SHARPEN_FROM:
+        text += "," + SHARPEN
+    return text
+
+
+# ---- shapes: pictures made once by FFmpeg and kept in work/shapes ----------------------------------------------
+
+def _round(r, w, h, pad=0):
+    """geq expression: 1 inside a w x h rounded rectangle with corner radius r, set pad px into the picture, with a
+    one-pixel soft edge, 0 outside."""
+    return ("clip(%.2f-hypot(max(0,abs(X+0.5-%.2f)-%.2f),max(0,abs(Y+0.5-%.2f)-%.2f))+0.5,0,1)"
+            % (r, pad + w / 2, w / 2 - r, pad + h / 2, h / 2 - r))
+
+
+def _shape(name, w, h, graph_text):
+    """The path of a w x h PNG drawn by graph_text from a black canvas to [o], made once: the name is the cache key,
+    so a change to how a shape is drawn raises SHAPES."""
+    folder = os.path.join(recording.WORK, "shapes")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "v%d_%s.png" % (SHAPES, name))
+    if not os.path.isfile(path):
+        subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+                        "color=black:s=%dx%d" % (w, h), "-filter_complex", "[0:v]" + graph_text, "-map", "[o]",
+                        "-frames:v", "1", "-f", "image2", path + ".part.png"], check=True, capture_output=True)
+        os.replace(path + ".part.png", path)
+    return path
+
+
+def rounded(w, h, r):
+    """A grey mask, white inside a w x h rounded rectangle (a circle when r is half of a square's side)."""
+    return _shape("round%dx%dr%d" % (w, h, r * 10), w, h, "format=gray,geq=lum='255*%s'[o]" % _round(r, w, h))
+
+
+def ring_shape(d, width):
+    """A white ring, d across and width thick, its inside reaching 1 px under the circle it frames."""
+    outer, inner = d / 2, d / 2 - width - 1
+    return _shape("ring%dw%d" % (d, width), d, d,
+                  "format=rgba,geq=r=255:g=255:b=255:a='255*%s*(1-%s)'[o]"
+                  % (_round(outer, d, d), _round(inner, 2 * inner, 2 * inner, pad=outer - inner)))
+
+
+def shadow(kind, w, h, r):
+    """A soft black shadow for a w x h rounded shape, blurred by the kind's sigma, 3 sigma of room on each side."""
+    sigma, _drop, strength = SHADOW[kind]
+    pad = 3 * sigma
+    return _shape("shadow_%s%dx%dr%d" % (kind, w, h, r * 10), w + 2 * pad, h + 2 * pad,
+                  "split[c][m];[m]format=gray,geq=lum='%d*%s',gblur=sigma=%d[a];[c]format=rgba[k];[k][a]alphamerge[o]"
+                  % (round(255 * strength), _round(r, w, h, pad=pad), sigma))
+
+
+def shade():
+    """The card layout's shade over the blurred background: darker toward the top (under the title), the bottom
+    and the corners, so the card is what the eye finds first."""
+    top = "120*pow(max(0,1-Y/760),1.6)"
+    bottom = "150*pow(max(0,(Y-1380)/540),1.6)"
+    corners = "90*clip((hypot((X-540)/540,(Y-960)/960)-0.55)/0.6,0,1)"
+    return _shape("shade", W, H, "format=rgba,geq=r=0:g=0:b=0:a='min(255,%s+%s+%s)'[o]" % (top, bottom, corners))
+
+
+def seam_shade():
+    """The stack's shadow cast by the face panel onto the game, 56 px deep."""
+    return _shape("seam", W, 56, "format=rgba,geq=r=0:g=0:b=0:a='110*pow(1-Y/56,2)'[o]")

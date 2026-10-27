@@ -31,7 +31,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl
 
-from . import __version__, agent, hearing, mind, previews, recording
+from . import __version__, agent, hearing, mind, previews, recording, render
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
@@ -47,6 +47,7 @@ GONE = "That chat is not open any more. Reload the page."
 NEWEST = 5
 FRAME = re.compile(r"^/api/frame/([0-9a-f]{16}\.jpg)$")
 PREVIEW = re.compile(r"^/api/preview/([0-9a-f]{16}\.mp4)$")
+CLIP = re.compile(r"^/api/clip/([0-9a-f]{16}\.mp4)$")
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 
@@ -76,7 +77,12 @@ class Handler(BaseHTTPRequestHandler):
         elif FRAME.match(path):
             self.send_frame(FRAME.match(path).group(1))
         elif PREVIEW.match(path):
-            self.send_preview(PREVIEW.match(path).group(1))
+            self.send_video(previews.folder(), PREVIEW.match(path).group(1), "preview")
+        elif CLIP.match(path):
+            self.send_video(render.folder("clips"), CLIP.match(path).group(1), "clip",
+                            download=query.get("download") == "1")
+        elif path == "/api/clipframe":
+            self.send_clip_frame(query)
         elif path.startswith("/api/"):
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
         else:
@@ -86,7 +92,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.named_well():
             return
         path = self.path.split("?", 1)[0]
-        if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/open"):
+        if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/open", "/api/undo"):
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
             return
         body = self.read_json()
@@ -100,6 +106,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": GONE}, HTTPStatus.NOT_FOUND)
         elif path == "/api/stop":
             self.send_json({"ok": True, "stopped": chat.stop()})
+        elif path == "/api/undo":
+            entry = chat.undo()
+            if entry is None:
+                self.send_json({"ok": False, "error": "There is nothing to take back."})
+            else:
+                self.send_json({"ok": True, "undone": agent.describe(entry)})
         elif path == "/api/open":
             self.open_recording(chat, body)
         else:
@@ -141,10 +153,37 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def send_preview(self, name):
-        full = os.path.join(previews.folder(), name)
+    def send_clip_frame(self, query):
+        """The chat's clip drawn at second t, as it stands now."""
+        chat = agent.find(str(query.get("chat") or ""))
+        try:
+            t = float(query.get("t") or 0)
+        except ValueError:
+            t = -1.0
+        if chat is None or not chat.recording or t < 0:
+            self.send_json({"ok": False, "error": "Send a chat that has a clip, and a time from 0."},
+                           HTTPStatus.NOT_FOUND)
+            return
+        try:
+            path = render.frame(chat.recording, chat.project.state(), t,
+                                chat.clip["style"] if chat.clip else "clean")
+        except render.NotDrawn as e:
+            self.send_json({"ok": False, "error": str(e)}, HTTPStatus.NOT_FOUND)
+            return
+        with open(path, "rb") as f:
+            body = f.read()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_video(self, folder, name, what, download=False):
+        """A video in the range the browser asks for. download asks the browser to save it as a file."""
+        full = os.path.join(folder, name)
         if not os.path.isfile(full):
-            self.send_json({"ok": False, "error": "There is no preview %s." % name}, HTTPStatus.NOT_FOUND)
+            self.send_json({"ok": False, "error": "There is no %s %s." % (what, name)}, HTTPStatus.NOT_FOUND)
             return
         size = os.path.getsize(full)
         start, end = 0, size - 1
@@ -166,6 +205,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.PARTIAL_CONTENT if asked else HTTPStatus.OK)
         self.send_header("Content-Type", "video/mp4")
         self.send_header("Accept-Ranges", "bytes")
+        if download:
+            self.send_header("Content-Disposition", 'attachment; filename="clip-%s"' % name)
         if asked:
             self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
         self.send_header("Content-Length", str(len(body)))

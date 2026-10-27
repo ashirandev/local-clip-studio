@@ -1,0 +1,129 @@
+"""The layouts as drawn: a box of the recording shows where to_frame() says, whatever is drawn around the parts, and
+no place for words is on the face. Checked on raw frames FFmpeg drew (no encoding):
+python -m unittest discover -s tests"""
+import importlib.util
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from clipstudio import layouts, recording  # noqa: E402
+
+FFMPEG = shutil.which("ffmpeg")
+HAS_NUMPY = importlib.util.find_spec("numpy") is not None
+SIZE = (1920, 1080)
+FACE = [1693.9, 428.7, 92.3, 113.8]
+
+
+def draw(lay, marker):
+    """The 1080x1920 frame of layout lay drawn from a grey recording with a magenta box at marker, as an (h, w, 3)
+    array."""
+    import numpy as np
+    x, y, w, h = [int(round(v)) for v in marker]
+    source = ("color=gray:s=%dx%d:r=30:d=1,drawbox=x=%d:y=%d:w=%d:h=%d:color=magenta:t=fill,format=yuv420p"
+              % (SIZE + (x, y, w, h)))
+    graph, files = layouts.graph(lay, "src", "out", 1)
+    cmd = [FFMPEG, "-v", "error", "-f", "lavfi", "-i", source]
+    for f in files:
+        cmd += ["-loop", "1", "-framerate", "30", "-i", f]
+    cmd += ["-filter_complex", "[0:v]null[src];" + graph, "-map", "[out]", "-frames:v", "1", "-f", "rawvideo",
+            "-pix_fmt", "rgb24", "-"]
+    run = subprocess.run(cmd, capture_output=True, timeout=120)
+    if run.returncode != 0:
+        raise AssertionError(run.stderr.decode("utf-8", "replace")[-2000:])
+    return np.frombuffer(run.stdout, np.uint8).reshape(1920, 1080, 3)
+
+
+def magenta(frame, region):
+    """(x0, y0, x1, y1) of the magenta pixels inside region (x, y, w, h) of the frame, or None."""
+    import numpy as np
+    x, y, w, h = [int(round(v)) for v in region]
+    part = frame[y:y + h, x:x + w].astype(int)
+    ys, xs = np.nonzero((part[:, :, 0] > 170) & (part[:, :, 1] < 90) & (part[:, :, 2] > 170))
+    if not len(xs):
+        return None
+    return x + int(xs.min()), y + int(ys.min()), x + int(xs.max()) + 1, y + int(ys.max()) + 1
+
+
+def overlap(a, b):
+    return min(a[0] + a[2], b[0] + b[2]) > max(a[0], b[0]) and min(a[1] + a[3], b[1] + b[3]) > max(a[1], b[1])
+
+
+@unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg, and numpy for the pixel checks")
+class Drawn(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.work, recording.WORK = recording.WORK, os.path.join(cls.tmp, "work")
+
+    @classmethod
+    def tearDownClass(cls):
+        recording.WORK = cls.work
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_a_box_of_the_recording_shows_where_to_frame_says_in_every_part(self):
+        for kind in layouts.KINDS:
+            lay = layouts.make(kind, SIZE, FACE)
+            for part in lay["parts"]:
+                sx, sy, sw, sh = part["src"]
+                marker = [round(v) for v in (sx + sw * 0.4, sy + sh * 0.4, sw * 0.2, sh * 0.2)]
+                (want,) = [b for b in layouts.to_frame(lay, marker) if overlap(b, part["dst"])]
+                r = layouts.CARD_RADIUS
+                dx, dy, dw, dh = part["dst"]
+                found = magenta(draw(lay, marker), [dx + r, dy + r, dw - 2 * r, dh - 2 * r])
+                self.assertIsNotNone(found, (kind, part["name"]))
+                got = list(found)
+                want = [want[0], want[1], want[0] + want[2], want[1] + want[3]]
+                reach = 1.2 * max(1, dw / sw) + 2
+                for k in range(4):
+                    self.assertLess(abs(got[k] - want[k]), reach, "%s %s: drawn at %s, to_frame says %s; the colour "
+                                    "planes blur one pixel of the recording and two of the frame, %.1f px here"
+                                    % (kind, part["name"], got, [round(v, 1) for v in want], reach))
+
+    def test_the_card_has_rounded_corners_a_shadow_and_a_ring(self):
+        lay = layouts.make("card", SIZE, FACE)
+        frame = draw(lay, [10, 10, 4, 4]).astype(int)
+        x, y, w, h = [p for p in lay["parts"] if p["name"] == "card"][0]["dst"]
+        grey = frame[y + h // 2, x + w // 2]
+        self.assertLess(abs(grey - 128).max(), 6, "the card's middle is the recording's grey: %s" % grey)
+        corner = frame[y + 2, x + 2]
+        self.assertGreater(abs(corner - grey).max(), 20, "the corner is cut round, so the background shows there")
+        below, beside = frame[y + h + 12, x + w // 2], frame[y + h // 2, x - 20]
+        lower = frame[y + h + 60, x + w // 2]
+        self.assertLess(below.mean(), lower.mean() - 10, "just under the card is darker than 60 px lower, though "
+                        "the background darkens toward the bottom: the card's shadow (%s vs %s)" % (below, lower))
+        self.assertTrue(beside.mean() < grey.mean(), "the background beside the card is darker than the card")
+        self.assertLess(frame[100, 540].mean(), frame[450, 540].mean() - 20, "the background darkens toward the top, "
+                        "where the phone's own bar and the title sit")
+        cx, cy, d, _ = [p for p in lay["parts"] if p["name"] == "circle"][0]["dst"]
+        self.assertGreater(frame[cy - layouts.RING // 2, cx + d // 2].min(), 235, "the ring above the circle is white")
+
+    def test_the_stack_has_a_dark_seam_between_its_panels(self):
+        lay = layouts.make("stack", SIZE, FACE)
+        frame = draw(lay, [10, 10, 4, 4]).astype(int)
+        top, bottom = [p["dst"] for p in lay["parts"]]
+        seam = frame[top[1] + top[3]:bottom[1], 100:980]
+        self.assertGreater(seam.shape[0], 0, "there is a seam")
+        self.assertLess(seam.max(), 40, "the seam is dark")
+        self.assertLess(frame[bottom[1] + 4, 540].mean(), frame[bottom[1] + 120, 540].mean() - 10,
+                        "the face panel casts a shadow onto the game")
+
+
+class Places(unittest.TestCase):
+    def test_no_place_for_words_is_on_the_face(self):
+        for kind in layouts.KINDS:
+            lay = layouts.make(kind, SIZE, FACE)
+            on_face = layouts.to_frame(lay, FACE)
+            self.assertEqual(bool(on_face), kind != "subject", "%s shows the face: %s" % (kind, on_face))
+            for name, box in list(lay["places"].items()) + [("captions", lay["captions"])]:
+                for face in on_face:
+                    self.assertFalse(overlap(box, face), "%s: the %s place %s is on the face %s"
+                                     % (kind, name, box, [round(v) for v in face]))
+
+
+if __name__ == "__main__":
+    unittest.main()

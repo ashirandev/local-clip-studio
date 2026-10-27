@@ -64,6 +64,11 @@
         <p class="hint">Your clip shows here while Muse makes it.</p>
       </div>
     </div>
+    <div class="clip-tools" id="clipTools" hidden>
+      <input type="range" id="clipAt" min="0" max="20" step="0.1" value="0" aria-label="Where in the clip">
+      <span class="clip-at" id="clipAtLine">0.0 s</span>
+      <button type="button" class="ghost" id="clipUndo">Undo</button>
+    </div>
     <p class="clip-line" id="clipLine"></p>
     <button type="button" class="clip-open" id="clipOpen" aria-label="Open the preview"></button>
     <button type="button" class="clip-hide" id="clipHide" aria-label="Hide the preview">×</button>
