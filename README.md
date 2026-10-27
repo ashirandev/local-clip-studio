@@ -164,6 +164,10 @@ the result and the engine numbers.
   second, and the card shows that part, up to the screen's own size, panning when the action moves. It moves only
   when the new place keeps changing and stays changed, so a tooltip or a notification does not pull it away, and it
   never shows the face camera. When the change is everywhere (a scrolling page), it shows the whole screen.
+- **Several clips in one go, each reported on its own.** When the person asks for every good moment, Muse proposes
+  up to eight and gives each its title and post text; the program makes, checks and hands over each clip. Names are
+  checked against the screen for every clip before any is made, a clip that fails a check is not handed over, and the
+  answer says which clips are ready and what failed in the others, never one "done" for all.
 - **Every change is one entry, and undo takes it back.** The clip is a list of entries (the moment and layout, the
   style, titles, captions, blurs, hits). The same list draws the preview and the finished file. After each change
   Muse sees the frame it made, and the page shows the clip with a slider to any second. The person can undo on the

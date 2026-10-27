@@ -297,7 +297,7 @@ def map_recording(job, why, stretch_s=None, top=6):
 
 LOOK_FRAMES = 4
 SHORTEST_LOOK, LONGEST_LOOK = 2, 600
-MOST_MOMENTS = 3
+MOST_MOMENTS = 8
 
 
 def _time(name, text):
@@ -491,7 +491,8 @@ def propose_moments(job, why, moments):
     if len(picked) > 1:
         lines.append("Misheard words are fixed in moment 1's lines; the other moments show theirs as heard until a "
                      "clip is made from one of them.")
-    lines.append("Go on with moment 1 by yourself and make the clip from it: do not ask the person to choose, and do not "
+    lines.append("When the person asked for several clips, make them all in one go, one from each moment. Otherwise "
+                 "go on with moment 1 by yourself and make the clip from it: do not ask the person to choose, and do not "
                  "list the moments again in words. They can tap another card to switch. Nothing is cut, laid out, captioned or blurred until a "
                  "tool's result says it is: never tell the person a clip is ready when no tool made it.")
     return "\n".join(lines)
@@ -1949,6 +1950,105 @@ def hand_over(job, why, title, caption, hashtags, english=""):
             % len(tags)) + (" " + spelling if spelling else "")
 
 
+LAYOUT_OF = {"explain": "card", "game": "card", "talk": "talk", "seller": "subject"}
+BATCH_WHY = "one of the clips the person asked for"
+
+
+def make_clips(job, why, clips):
+    rec = _open(job, "make clips from")
+    moments = job.chat.moments or []
+    if not moments:
+        raise Refused("No moments are proposed yet. Look at the recording and propose moments first: each clip is made "
+                      "from one of them.")
+    numbers = [c["moment"] for c in clips]
+    wrong = [n for n in numbers if not 1 <= n <= len(moments)]
+    if wrong:
+        raise Refused("There are %d moments, so %s %s not one of them." % (
+            len(moments), _numbers(wrong), "is" if len(wrong) == 1 else "are"))
+    if len(set(numbers)) < len(numbers):
+        raise Refused("Each moment makes one clip; moment %s is given twice." % _numbers(
+            sorted({n for n in numbers if numbers.count(n) > 1})))
+    spelled = []
+    for c in clips:
+        m = moments[c["moment"] - 1]
+        shown = _screen_words(job, rec, {"clip": {"pieces": [[m["start"], m["end"]]]}})
+        wrong = _misspelled(" ".join([c["title"], c.get("words") or "", c["caption"]] + list(c["hashtags"])), shown)
+        spelled += ["clip of moment %d: %s" % (c["moment"], " ".join(_names_said(wrong, "write them so")))] if wrong \
+            else []
+    if spelled:
+        raise Refused("Nothing was made. " + " ".join(spelled) + " Fix the words and make the clips again.")
+    recipe = (job.chat.clip or {}).get("recipe")
+    pictures, lines, first = len(job.pictures), [], None
+    for k, c in enumerate(clips, 1):
+        if job.stopped:
+            lines.append("The person pressed Stop before clip %d; it and the clips after it were not made." % k)
+            break
+        job.working("Making clip %d of %d, from moment %d" % (k, len(clips), c["moment"]))
+        job.chat.project = project.Project()
+        lines.append(_one_clip(job, rec, k, c, c.get("layout") or LAYOUT_OF.get(recipe, "subject")))
+        del job.pictures[pictures:]
+        if first is None and job.chat.project.entries:
+            first = list(job.chat.project.entries)
+    if first:
+        job.chat.project = project.Project(first)
+        job.show(clip=job.chat.clip_view())
+    done = sum(1 for line in lines if " handed over" in line and "not handed over" not in line)
+    return "\n".join(["Made %d clip%s, %d handed over; each is reported on its own:" % (
+        len(lines), "" if len(lines) == 1 else "s", done)] + lines + [
+        "The person sees a ready card for each clip handed over. The clip on the page now is the first one: change it "
+        "with your tools, and tell the person in one or two lines which clips are ready and what failed in the "
+        "others."])
+
+
+def _one_clip(job, rec, k, c, layout):
+    """One clip of make_clips, from its moment to the hand-over: the sentence reporting on it."""
+    n, head = c["moment"], "Clip %d (moment %d)" % (k, c["moment"])
+    try:
+        made = make_clip(job, BATCH_WHY, n, layout)
+        if made.startswith("Not made"):
+            return "%s: not made, the person pressed Stop." % head
+        state = _clip_state(job)
+        head = "Clip %d (moment %d, %s-%s, %g s, %s layout)" % (k, n, recording.clock(state["clip"]["pieces"][0][0]),
+                                                               recording.clock(state["clip"]["pieces"][-1][1]),
+                                                               state["length"], state["clip"]["layout"]["kind"])
+        notes, others = [], _undecided(state)
+        if others:
+            decide_people(job, BATCH_WHY, keep=others)
+            notes.append("kept %d other face%s as %s" % (len(others), "" if len(others) == 1 else "s",
+                                                          "they are" if len(others) > 1 else "it is"))
+        try:
+            add_captions(job, BATCH_WHY)
+        except Refused as e:
+            notes.append("no captions: %s" % e)
+        words, why_not = c.get("words") or c["title"], ""
+        for place in ("top", "middle"):
+            try:
+                add_title(job, BATCH_WHY, words, 0, _clip_state(job)["length"], place=place)
+                break
+            except Refused as e:
+                why_not = str(e)
+        else:
+            notes.append("no title on the clip: %s" % why_not)
+        made = render_clip(job, BATCH_WHY)
+        if made.startswith("Not rendered"):
+            return "%s: not rendered, the person pressed Stop." % head
+        check_clip(job, BATCH_WHY)
+        done = job.chat.finished()
+        checks = job.chat.checks.get(done["name"]) or []
+        failed = [ch["name"] for ch in checks if ch["ok"] is False]
+        if failed:
+            return "%s: rendered but not handed over, these checks failed: %s%s." % (
+                head, "; ".join(failed), "; " + "; ".join(notes) if notes else "")
+        handed = hand_over(job, BATCH_WHY, c["title"], c["caption"], c["hashtags"], c.get("english") or "")
+        if handed.startswith("Not handed"):
+            return "%s: not handed over, the person pressed Stop." % head
+    except Refused as e:
+        return "%s: not handed over: %s" % (head, e)
+    due = [ch for ch in checks if ch["ok"] is not None]
+    return "%s: handed over, %d of %d checks passed%s." % (head, len(due), len(due),
+                                                           "; " + "; ".join(notes) if notes else "")
+
+
 def _without_tags(words):
     """(the text without its lines of hashtags, those hashtags): the page shows the hashtags once, under the text."""
     kept, tags = [], []
@@ -2411,6 +2511,30 @@ TOOLS = {t.name: t for t in [
           "english": {"type": "string", "maxLength": 600,
                       "description": "The post text in English, when the clip's language is not English."}},
          ["title", "caption", "hashtags"], hand_over, changes=True),
+    Tool("make_clips", "Made the clips",
+         "Make a finished clip from each of several moments you proposed, in one go, when the person asks for more "
+         "than one clip or for every good moment. For each, the program makes the clip in the recipe's layout (or the "
+         "one you give), hides what is private, puts the captions and your title on, renders it, checks it and hands "
+         "it over; then it reports on each clip, handed over or why not. Give each clip its title and post text as at "
+         "hand-over. Names must be spelled as the screen shows them.",
+         {"clips": {"type": "array", "minItems": 2, "maxItems": MOST_MOMENTS, "items": {
+             "type": "object", "required": ["moment", "title", "caption", "hashtags"], "properties": {
+                 "moment": {"type": "integer", "minimum": 1, "maximum": MOST_MOMENTS,
+                            "description": "The moment's number, as you proposed it."},
+                 "layout": {"type": "string", "enum": list(layouts.KINDS) + ["talk"],
+                            "description": "Leave it out for the recipe's layout."},
+                 "title": {"type": "string", "maxLength": 100,
+                           "description": "The post's title, in the clip's language; also the words on the clip "
+                                          "unless you give words."},
+                 "words": {"type": "string", "maxLength": 60,
+                           "description": "Shorter words for the title on the clip, when the post's title is long."},
+                 "caption": {"type": "string", "maxLength": 600,
+                             "description": "The post text, a few short lines in the clip's language."},
+                 "hashtags": {"type": "array", "minItems": 1, "maxItems": MOST_TAGS, "items": {"type": "string"}},
+                 "english": {"type": "string", "maxLength": 600,
+                             "description": "The post text in English, when the clip's language is not English."}}},
+                   "description": "2 to %d clips, one for each moment." % MOST_MOMENTS}},
+         ["clips"], make_clips, changes=True),
     Tool("undo", "Took back the last change",
          "Take back the last change to the clip: a layout, a moved part, a style, a title, the captions, a blur, a hit, a "
          "look, a push or a decision about people. The "
