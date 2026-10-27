@@ -32,6 +32,7 @@ import math
 import os
 import shutil
 import subprocess
+import tempfile
 
 from . import effects, recording
 
@@ -492,10 +493,16 @@ def _shape(name, w, h, graph_text):
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, "v%d_%s.png" % (SHAPES, name))
     if not os.path.isfile(path):
-        subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
-                        "color=black:s=%dx%d" % (w, h), "-filter_complex", "[0:v]" + graph_text, "-map", "[o]",
-                        "-frames:v", "1", "-f", "image2", path + ".part.png"], check=True, capture_output=True)
-        os.replace(path + ".part.png", path)
+        fd, part = tempfile.mkstemp(prefix=os.path.basename(path) + ".", suffix=".part.png", dir=folder)
+        os.close(fd)
+        try:
+            subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+                            "color=black:s=%dx%d" % (w, h), "-filter_complex", "[0:v]" + graph_text, "-map", "[o]",
+                            "-frames:v", "1", "-f", "image2", part], check=True, capture_output=True)
+        except subprocess.CalledProcessError:
+            os.remove(part)
+            raise
+        os.replace(part, path)
     return path
 
 

@@ -262,11 +262,44 @@ class Preview(unittest.TestCase):
                                 range(int(shown[0]) + 10, int(shown[0] + shown[2]) - 10, 4)), 60, "the blur")
         self.assertLessEqual(most(range(1700, 1900, 4), range(100, 980, 4)), 12, "the rest is the same picture")
 
+    def test_two_requests_for_the_same_frame_at_once_both_get_it(self):
+        import threading
+        st = state("card", title=[TITLE])
+        for t in (0.6, 1.0, 1.4, 1.8, 2.2, 2.6):
+            start, got = threading.Barrier(2), []
+
+            def ask():
+                start.wait()
+                try:
+                    got.append(render.frame(self.rec, st, t))
+                except Exception as e:
+                    got.append(e)
+            both = [threading.Thread(target=ask) for _ in range(2)]
+            for b in both:
+                b.start()
+            for b in both:
+                b.join()
+            self.assertTrue(all(isinstance(g, str) for g in got), "at %s s: %s" % (t, got))
+            self.assertEqual(got[0], got[1])
+            self.assertGreater(os.path.getsize(got[0]), 1000)
+        for name in ("clipframes", "shapes", "ass"):
+            folder = os.path.join(recording.WORK, name)
+            self.assertEqual([f for f in os.listdir(folder) if ".part" in f], [], "nothing half written is left")
+
     def test_a_frame_that_cannot_be_drawn_says_why(self):
         lines = text.caption_lines([{"from": 1.0, "to": 2.0, "text": "watch this now"}])
         with self.assertRaises(render.NotDrawn) as e:
             render.frame(self.rec, state(captions=[{"lines": lines, "band": [1090, 10]}]), 1.5)
         self.assertIn("band [1090, 10]", str(e.exception).replace("(", "[").replace(")", "]"))
+        broken = os.path.join(self.tmp, "not a video.mp4")
+        with open(broken, "wb") as f:
+            f.write(b"not a video" * 100)
+        with self.assertRaises(render.NotDrawn) as e:
+            render.frame(dict(self.rec, path=broken), state(), 1.5)
+        self.assertIn("FFmpeg could not draw the frame", str(e.exception))
+        self.assertNotIn("no reason", str(e.exception), "FFmpeg's own reason is passed on")
+        self.assertEqual([f for f in os.listdir(os.path.join(recording.WORK, "clipframes")) if ".part" in f], [],
+                         "a frame FFmpeg could not draw leaves nothing behind")
 
 
 MOVING = ("nullsrc=s=640x360:r=30:d=6,geq=lum='120+50*sin(2*PI*(X/80-T*2))+70*lt(abs(Y-20-50*T),15)':cb=128:cr=128,"

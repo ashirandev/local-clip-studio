@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 
 from . import effects, layouts, project, recording, text
@@ -81,10 +82,20 @@ def ass(state, default="clean"):
     body = text.document([st], events)
     path = os.path.join(folder("ass"), hashlib.sha1(body.encode("utf-8")).hexdigest()[:16] + ".ass")
     if not os.path.isfile(path):
-        with open(path + ".part", "w", encoding="utf-8", newline="\n") as f:
+        part = _part(path)
+        with open(part, "w", encoding="utf-8", newline="\n") as f:
             f.write(body)
-        os.replace(path + ".part", path)
+        os.replace(part, path)
     return path
+
+
+def _part(path):
+    """A new empty file beside path to write it into before it is moved to path: its own name, so two requests
+    making the same file at once (the page and Muse asking for the same frame) never write into one."""
+    folder, name = os.path.split(path)
+    fd, part = tempfile.mkstemp(prefix=name + ".", suffix=".part" + os.path.splitext(name)[1], dir=folder)
+    os.close(fd)
+    return part
 
 
 def after_source(state, src, out, first_input, default="clean"):
@@ -143,15 +154,17 @@ def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH):
     cmd = [shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y", "-ss", "%.3f" % at[1], "-i", rec["path"]]
     for f in files:
         cmd += ["-itsoffset", "%.3f" % t, "-loop", "1", "-framerate", "30", "-i", f]
-    cmd += ["-filter_complex", graph, "-map", "[fin]", "-frames:v", "1", "-q:v", "3", "-f", "image2",
-            target + ".part.jpg"]
+    part = _part(target)
+    cmd += ["-filter_complex", graph, "-map", "[fin]", "-frames:v", "1", "-q:v", "3", "-f", "image2", part]
     try:
         done = subprocess.run(cmd, capture_output=True, text=True, timeout=FRAME_SECONDS)
     except (subprocess.SubprocessError, OSError) as e:
+        os.remove(part)
         raise NotDrawn("FFmpeg could not draw the frame (%s)." % e)
-    if done.returncode != 0 or not os.path.isfile(target + ".part.jpg"):
+    if done.returncode != 0 or not os.path.getsize(part):
+        os.remove(part)
         raise NotDrawn("FFmpeg could not draw the frame: %s" % (done.stderr.strip().splitlines() or ["no reason"])[-1])
-    os.replace(target + ".part.jpg", target)
+    os.replace(part, target)
     return target
 
 

@@ -17,6 +17,7 @@ import math
 import os
 import shutil
 import subprocess
+import tempfile
 
 from . import faces, recording
 
@@ -162,11 +163,14 @@ def _crop(rec, best):
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, key + ".jpg")
     if not os.path.isfile(path):
+        fd, part = tempfile.mkstemp(prefix=key + ".", suffix=".part.jpg", dir=folder)
+        os.close(fd)
         done = subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y", "-ss", "%.2f" % t, "-i",
                                rec["path"], "-frames:v", "1", "-vf", "crop=%d:%d:%d:%d,scale=-2:%d"
-                               % (side, side, x, y, CROP_HEIGHT), "-q:v", "3", "-f", "image2", path + ".part.jpg"],
+                               % (side, side, x, y, CROP_HEIGHT), "-q:v", "3", "-f", "image2", part],
                               capture_output=True)
-        if done.returncode != 0 or not os.path.isfile(path + ".part.jpg"):
+        if done.returncode != 0 or not os.path.getsize(part):
+            os.remove(part)
             return None
-        os.replace(path + ".part.jpg", path)
+        os.replace(part, path)
     return path
