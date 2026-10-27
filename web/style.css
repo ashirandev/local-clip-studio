@@ -141,6 +141,10 @@ h1 { margin: 0; font-size: 18px; line-height: 1.3; }
 
 .machine p { margin: 4px 0 0; overflow-wrap: anywhere; }
 
+.machine-more summary { color: var(--muted); font-size: 14px; cursor: pointer; }
+
+.machine-more summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 body:not(.details) .detail { display: none !important; }
 
 body.details .simple { display: none !important; }

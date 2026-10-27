@@ -600,7 +600,7 @@ function drawMinds() {
     b.disabled = !m.ok;
     const dot = el("span", "dot " + (m.ok ? "ok" : "off"));
     dot.setAttribute("aria-hidden", "true");
-    b.append(dot, el("span", null, m.label), el("small", null, m.where.charAt(0).toUpperCase() + m.where.slice(1) + (m.ok ? "" : " · not ready")));
+    b.append(dot, el("span", null, m.label), el("small", null, m.ok ? m.where.charAt(0).toUpperCase() + m.where.slice(1) : "Not ready"));
     b.addEventListener("click", () => {
       room.mind = m.key;
       localStore("mind", m.key);
@@ -750,7 +750,7 @@ earlier.addEventListener("toggle", async () => {
     d.chats.forEach((c) => {
       const b = el("button", "earlier-chat" + (c.id === room.chat ? " here" : ""));
       b.type = "button";
-      b.append(el("span", "first", c.first), el("span", "meta", [c.recording, when(c.when), plural(c.messages, "message")].filter(Boolean).join(" · ")));
+      b.append(el("span", "first", c.recording || c.first), el("span", "meta", when(c.when)));
       b.addEventListener("click", () => {
         earlier.open = false;
         connect(c.id);
