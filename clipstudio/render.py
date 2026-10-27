@@ -56,13 +56,14 @@ def folder(name):
 
 def style_of(state, default="clean", kind="title"):
     """The text style the clip draws one part of its words in (kind: title, caption or big): the last style entry,
-    with the font the person gave that part ("fonts": {part: font}) or every part ("font"), else the house style the
-    recipe guessed."""
+    with the font and the size (1 to 5) given that part ("fonts": {part: font}, "sizes": {part: size}) or every part
+    ("font", "size"), else the house style the recipe guessed."""
     if kind not in text.KINDS:
         raise ValueError("kind %r is not a part of the words: use one of %s." % (kind, ", ".join(text.KINDS)))
     e = state["style"]
     if e:
-        return text.look(e["name"], e.get("font"), e.get("colour"), e.get("fonts"))[kind]
+        return text.look(e["name"], e.get("font"), e.get("colour"), e.get("fonts"), e.get("size"),
+                         e.get("sizes"))[kind]
     return text.STYLES.get(default) or text.STYLES["clean"]
 
 

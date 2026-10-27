@@ -17,6 +17,10 @@ can be told from one that is not. libass is given a folder holding only the chos
 the face that was measured is the face that is drawn: found through the computer's fonts instead, Sarabun Bold was
 drawn as another font (measured 10-27).
 
+Muse picks how big the words are from a scale of 1 to 5 (SIZES), for every part or for each part alone: 3 is the
+sizes tuned on phones and each step is SIZE_STEP times the one before, so a step stands the letters as tall in every
+font, and the lines and the outline grow with them.
+
 Times are seconds of the clip. A start or end is written between two frames (30 a second), so the first frame at
 or after start shows the words and the frame before it does not, whatever rounding libass does on its milliseconds.
 """
@@ -50,12 +54,13 @@ PAIR_GAP = 1.0
 OPENERS, CLOSERS = "([{\"'“‘", ")]}\"'”’,.!?%:;…"
 
 Style = collections.namedtuple("Style", "name fontname file colour key edge box edge_ratio shadow_ratio sizes note "
-                                        "scale", defaults=(1.0,))
+                                        "scale size", defaults=(1.0, 3))
 Style.__doc__ = """A way to draw words. colour is the text, key the key word (and the lit word in captions), edge
 the outline, or the box behind the text when box is True. sizes holds the title, caption and big-word sizes in
 pixels, and scale how much bigger they are than the size Kanit draws the same letters at: lines stand size / scale
 apart and the outline and shadow are edge_ratio and shadow_ratio of size / scale, so every font keeps the spacing
-and the outline the styles were tuned with. note says what was changed from what was asked."""
+and the outline the styles were tuned with. size is the step on the size scale (SIZES) the sizes were drawn at. note
+says what was changed from what was asked."""
 Measure = collections.namedtuple("Measure", "lines w h")
 _Layout = collections.namedtuple("_Layout", "lines w h left top")
 _Face = collections.namedtuple("_Face", "path index names full sub family weight italic licence postscript")
@@ -78,6 +83,11 @@ _HOUSE = {
 }
 TALL_THAI, TALL_LATIN = "กขคบ", "xnu"
 HOUSE_NAMES = tuple(_HOUSE)
+# The size scale: TUNED_SIZE is the sizes above, and each step is SIZE_STEP times the one before (from 1 to 5: 0.76,
+# 0.87, 1, 1.15 and 1.32 times the tuned sizes).
+SIZES = (1, 2, 3, 4, 5)
+TUNED_SIZE = 3
+SIZE_STEP = 1.15
 
 
 # ---- fonts -------------------------------------------------------------------------------------------------------
@@ -397,13 +407,17 @@ def ratio(a, b):
     return (hi + 0.05) / (lo + 0.05)
 
 
-def style(name=None, font=None, colour=None):
+def style(name=None, font=None, colour=None, size=TUNED_SIZE):
     """A house style (clean, pop or sticker; clean when name is None), with the person's font and text colour when
-    they asked for them. A colour that does not stand out 4.5:1 against the outline (or the box) gets a black or
-    white one that does: it is never refused, and note says what was changed."""
+    they asked for them, at size, a step on the size scale from 1 (smallest) to 5 (biggest). A colour that does not
+    stand out 4.5:1 against the outline (or the box) gets a black or white one that does: it is never refused, and
+    note says what was changed."""
     name = "clean" if name is None else name
     if name not in _HOUSE:
         raise ValueError("style %r is not a house style: use one of %s." % (name, ", ".join(HOUSE_NAMES)))
+    if isinstance(size, bool) or not isinstance(size, int) or size not in SIZES:
+        raise ValueError("size %r is not a size: use a whole number from %d (smallest) to %d (biggest), %d for the "
+                         "size tuned on phones." % (size, SIZES[0], SIZES[-1], TUNED_SIZE))
     house = _HOUSE[name]
     face, scale = house["face"], house["scale"]
     sizes = tuple(round(size * scale) for size in house["tuned"])
@@ -435,6 +449,8 @@ def style(name=None, font=None, colour=None):
             raise RuntimeError("fonts/ has no %s, so the %s style cannot be drawn: put the font files back in %s."
                                % (face, name, FONTS))
         path, index, _face = found
+    if size != TUNED_SIZE:
+        sizes = tuple(max(8, round(s * SIZE_STEP ** (size - TUNED_SIZE))) for s in sizes)
     text = house["colour"] if colour is None else _hex(colour, "colour")
     key, edge = house["key"], house["edge"]
     what = "box" if house["box"] else "outline"
@@ -448,10 +464,11 @@ def style(name=None, font=None, colour=None):
             key, text, ratio(key, edge), what, edge))
         key = text
     label = name
-    if face != house["face"] or text != house["colour"]:
-        label = "%s~%s" % (name, hashlib.sha1(("%s|%s|%s" % (face, path, text)).encode("utf-8")).hexdigest()[:6])
+    if face != house["face"] or text != house["colour"] or size != TUNED_SIZE:
+        seed = "%s|%s|%s" % (face, path, text) + ("" if size == TUNED_SIZE else "|%d" % size)
+        label = "%s~%s" % (name, hashlib.sha1(seed.encode("utf-8")).hexdigest()[:6])
     return Style(label, face, (path, index), text, key, edge, house["box"], house["edge_ratio"],
-                 house["shadow_ratio"], sizes, " ".join(notes), scale)
+                 house["shadow_ratio"], sizes, " ".join(notes), scale, size)
 
 
 @functools.lru_cache(maxsize=None)
@@ -465,21 +482,32 @@ def _tall(path, index, fontname, letters):
 STYLES = {n: style(n) for n in HOUSE_NAMES}
 
 
-def look(name=None, font=None, colour=None, fonts=None):
+def look(name=None, font=None, colour=None, fonts=None, size=None, sizes=None):
     """The style each part of the words is drawn in, {"title": Style, "caption": Style, "big": Style}: the house
-    style name with font for every part, and fonts ({part: font}) for the parts the person gave a font of their own,
-    so the title, the captions and the big words can each be changed alone."""
+    style name with font and size for every part, and fonts ({part: font}) and sizes ({part: size}) for the parts
+    given one of their own, so the title, the captions and the big words can each be changed alone."""
     fonts = {} if fonts is None else fonts
     if not isinstance(fonts, dict) or set(fonts) - set(KINDS):
         raise ValueError("fonts %r is not a font for each part: give {part: font} with the parts %s."
                          % (fonts, ", ".join(KINDS)))
-    return {kind: style(name, fonts.get(kind) or font, colour) for kind in KINDS}
+    sizes = {} if sizes is None else sizes
+    if not isinstance(sizes, dict) or set(sizes) - set(KINDS):
+        raise ValueError("sizes %r is not a size for each part: give {part: size} with the parts %s and sizes from "
+                         "%d to %d." % (sizes, ", ".join(KINDS), SIZES[0], SIZES[-1]))
+    size = TUNED_SIZE if size is None else size
+    return {kind: style(name, fonts.get(kind) or font, colour, size if sizes.get(kind) is None else sizes[kind])
+            for kind in KINDS}
 
 
 def _size(st, kind):
     if kind not in KINDS:
         raise ValueError("kind %r is not a kind of words: use one of %s." % (kind, ", ".join(KINDS)))
     return st.sizes[KINDS.index(kind)]
+
+
+def _smaller(st):
+    """What a refusal adds for words that would fit smaller: the size below the style's, when there is one."""
+    return ", or size %d" % (st.size - 1) if st.size > SIZES[0] else ""
 
 
 def _check_style(st):
@@ -810,7 +838,7 @@ def title(text, start, end, box, style, key=None):
     lay = _wrap(text, style, "title", int(w))
     if lay.w > w or lay.h > h:
         raise ValueError("the title needs %d x %d px but box %r is %d x %d: give a box at least that size, or fewer "
-                         "words." % (lay.w, lay.h, tuple(box), w, h))
+                         "words%s." % (lay.w, lay.h, tuple(box), w, h, _smaller(style)))
     ax = x + w / 2 - (lay.left + lay.w / 2)
     ay = y + h / 2 - (lay.top + lay.h / 2)
     return _dialogues(2, _cs_clock(a), _cs_clock(b), "%s_title" % style.name, ax, ay, _line_height(style, "title"),
@@ -883,8 +911,8 @@ def big_word(word, at, length, centre, style):
     grow = max(scale for _ms, scale in POP) / 100
     half_w, half_h = (right - left) * grow / 2, (bottom - top) * grow / 2
     if 2 * half_w > FRAME_W:
-        raise ValueError("word %r is %d px wide at its biggest, more than %d: use a shorter word."
-                         % (word, 2 * half_w, FRAME_W))
+        raise ValueError("word %r is %d px wide at its biggest, more than %d: use a shorter word%s."
+                         % (word, 2 * half_w, FRAME_W, _smaller(style)))
     if not (half_w <= cx <= FRAME_W - half_w and half_h <= cy <= FRAME_H - half_h):
         raise ValueError("centre %r puts word %r off the frame: use x from %d to %d and y from %d to %d."
                          % (tuple(centre), word, math.ceil(half_w), FRAME_W - math.ceil(half_w), math.ceil(half_h),
@@ -995,7 +1023,7 @@ def _check_line(k, line):
 
 def captions(lines, style, band, lit=False):
     """ASS events for caption lines (from caption_lines) inside band (y, h) of the 1080x1920 frame, two lines at a
-    time at most, in the style's colour. With lit=True each word lights up in the style's key colour as it is said
+    time when two fit the band and one at a time when they do not, in the style's colour. With lit=True each word lights up in the style's key colour as it is said
     (libass \\kf): for words over the picture that nobody on screen is saying, such as a voice-over or a song, since
     a lit word pulls the eye away from a person explaining on camera."""
     _check_style(style)
@@ -1021,6 +1049,13 @@ def captions(lines, style, band, lit=False):
     shown = [line["text"].strip() for line in lines]
     boxes = _draw_boxes(style, "caption", shown)
     lh = _line_height(style, "caption")
+    fitted = []
+    for page in pages:
+        if len(page) == 2 and _layout_of(tuple(line["text"].strip() for line in page), boxes, lh).h > h:
+            fitted += [page[:1], page[1:]]
+        else:
+            fitted.append(page)
+    pages = fitted
     events = []
     for n, page in enumerate(pages):
         start, end = _edge(page[0]["from"]), _edge(page[-1]["to"])
@@ -1030,8 +1065,8 @@ def captions(lines, style, band, lit=False):
             continue
         lay = _layout_of(tuple(line["text"].strip() for line in page), boxes, lh)
         if lay.h > h or lay.w > FRAME_W:
-            raise ValueError("the captions need %d x %d px but band %r is %d high: give a band at least %d high."
-                             % (lay.w, lay.h, tuple(band), h, lay.h))
+            raise ValueError("the captions need %d x %d px but band %r is %d high: give a band at least %d high%s."
+                             % (lay.w, lay.h, tuple(band), h, lay.h, _smaller(style)))
         ax = FRAME_W / 2 - (lay.left + lay.w / 2)
         ay = y + h / 2 - (lay.top + lay.h / 2)
         if lit:

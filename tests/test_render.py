@@ -166,6 +166,21 @@ class Stages(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "kind 'logo' is not a part of the words: use one of title"):
             render.style_of(own, kind="logo")
 
+    def test_the_style_entry_gives_every_part_or_each_part_its_size(self):
+        entry = {"do": "style", "name": "pop", "font": None, "colour": None, "size": 2, "sizes": {"title": 5}}
+        sized = dict(state(), style=entry)
+        self.assertEqual([render.style_of(sized, kind=k).size for k in text.KINDS], [5, 2, 2])
+        house = dict(state(), style=dict(entry, size=None, sizes=None))
+        self.assertEqual([render.style_of(house, kind=k).size for k in text.KINDS], [3, 3, 3])
+        lines = text.caption_lines([{"from": 1.0, "to": 2.0, "text": "ลดราคาเหลือ"}])
+        band = [1200, 400]
+        tall = []
+        for size in (1, 5):
+            st = dict(state(captions=[{"lines": lines, "band": band}]), style=dict(entry, size=size, sizes=None))
+            found = changed(drawn(state(), 1.5), drawn(st, 1.5))
+            tall.append(found[3] - found[1])
+        self.assertGreater(tall[1], tall[0] * 1.5, "size 5 is drawn bigger than size 1: %s" % tall)
+
     def test_captions_light_their_words_only_when_the_entry_says_lit(self):
         lines = text.caption_lines([{"from": 1.0, "to": 2.0, "text": "watch this now"}])
         band = [layouts.CAPTIONS[1], layouts.CAPTIONS[3]]

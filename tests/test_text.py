@@ -434,6 +434,95 @@ class CaptionLines(unittest.TestCase):
 
 
 @unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")
+class Sizes(unittest.TestCase):
+    TWO = [{"from": 0.5, "to": 2.0, "text": "ลดราคาเหลือ"}, {"from": 2.2, "to": 3.0, "text": "บาทนะครับ"}]
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp(prefix="lcs sizes ")
+        self.addCleanup(shutil.rmtree, self.folder, True)
+
+    def test_each_step_stands_the_letters_a_set_ratio_taller_in_every_font(self):
+        for name in text.HOUSE_NAMES:
+            self.assertEqual(text.style(name, size=text.TUNED_SIZE), text.style(name), "3 is the tuned sizes")
+            tuned = text.style(name).sizes
+            for n in text.SIZES:
+                st = text.style(name, size=n)
+                self.assertEqual(st.size, n)
+                for got, base in zip(st.sizes, tuned):
+                    self.assertLessEqual(abs(got - base * text.SIZE_STEP ** (n - 3)), 1, (name, n, st.sizes))
+        tall = {}
+        for font in (None, "Kanit"):
+            for n in text.SIZES:
+                st = text.style("pop", font, size=n)
+                tall[font, n] = text.measure(text.TALL_THAI, st, "caption", 1080).h
+                lh = text._line_height(st, "caption") / text._line_height(text.style("pop", font), "caption")
+                outline = float(text._ass_style(st, "caption").split(",")[16])
+                self.assertLess(abs(lh / text.SIZE_STEP ** (n - 3) - 1), 0.04, "lines grow with it: %s %d" % (font, n))
+                self.assertLess(abs(outline - 68 * 0.10 * text.SIZE_STEP ** (n - 3)), 0.3, "and the outline")
+        for n in text.SIZES:
+            want = text.SIZE_STEP ** (n - 3)
+            self.assertLess(abs(tall[None, n] / tall[None, 3] / want - 1), 0.06, tall)
+            self.assertLess(abs(tall[None, n] / tall["Kanit", n] - 1), 0.06, "as tall in Kanit: %s" % tall)
+
+    def test_each_part_can_have_a_size_of_its_own(self):
+        parts = text.look("pop", sizes={"caption": 5})
+        self.assertEqual(parts["title"], text.style("pop"))
+        self.assertEqual((parts["caption"].size, parts["big"].size), (5, 3))
+        self.assertNotEqual(parts["caption"].name, parts["title"].name, "two sizes are two ASS styles")
+        every = text.look("pop", size=2, sizes={"title": 4, "big": None})
+        self.assertEqual([every[k].size for k in text.KINDS], [4, 2, 2])
+        self.assertEqual(len({st.name for st in text.look("pop", sizes={"title": 4, "caption": 5, "big": 1}).values()}),
+                         3, "every size has a name of its own")
+        lines = text.caption_lines(self.TWO[:1])
+        small, big = text.style("pop"), text.style("pop", size=5)
+        heights = []
+        for styles in ([small, big], [big, small]):
+            frame = draw(text.document(styles, text.captions(lines, big, (1200, 400))), [30], self.folder)[30]
+            x0, y0, x1, y1 = drawn(frame)
+            heights.append(y1 - y0)
+        want = text.measure(lines[0]["text"], big, "caption", 1080).h
+        self.assertTrue(all(abs(h - want) <= 3 for h in heights), "drawn at its own size, whatever the order: %s "
+                        "against %d" % (heights, want))
+
+    def test_two_lines_too_tall_for_the_band_show_one_at_a_time(self):
+        two = text.caption_lines(self.TWO)
+        band = (1300, 130)
+        pages = lambda events: sorted({tuple(e.split(",")[1:3]) for e in events})
+        self.assertEqual(len(pages(text.captions(two, text.style("pop"), band))), 1, "two lines fit at 3")
+        big = text.captions(two, text.style("pop", size=5), band)
+        self.assertEqual(len(big), 2)
+        (a, b), (c, d) = pages(big)
+        self.assertLessEqual(b, c, "the second line follows the first")
+        self.assertIn("ลดราคาเหลือ", big[0])
+        self.assertIn("บาทนะครับ", big[1])
+        for frame in draw(doc(big, styles=[text.style("pop", size=5)]), [30, 75], self.folder, first=0).values():
+            x0, y0, x1, y1 = drawn(frame)
+            self.assertTrue(band[0] <= y0 and y1 <= sum(band), (y0, y1))
+
+    def test_refusals_say_which_sizes_there_are_and_offer_a_smaller_one(self):
+        for bad in (0, 6, 2.5, True, "3", None):
+            with self.assertRaisesRegex(ValueError, r"size %s is not a size: use a whole number from 1 \(smallest\) "
+                                        r"to 5 \(biggest\), 3 for the size tuned on phones" % re.escape(repr(bad))):
+                text.style("clean", size=bad)
+        for bad in ({"logo": 2}, [3]):
+            with self.assertRaisesRegex(ValueError, r"sizes %s is not a size for each part: give \{part: size\} "
+                                        r"with the parts title, caption, big and sizes from 1 to 5"
+                                        % re.escape(repr(bad))):
+                text.look(sizes=bad)
+        with self.assertRaisesRegex(ValueError, "size 9 is not a size"):
+            text.look(sizes={"caption": 9})
+        with self.assertRaisesRegex(ValueError, r"box \(0, 0, 300, 60\) is 300 x 60: give a box at least that size, "
+                                    r"or fewer words, or size 3\.$"):
+            text.title("ลดราคาเหลือ 1,990", 0, 1, (0, 0, 300, 60), text.style("clean", size=4))
+        with self.assertRaisesRegex(ValueError, r"or fewer words\.$"):
+            text.title("ลดราคาเหลือ 1,990", 0, 1, (0, 0, 300, 60), text.style("clean", size=1))
+        with self.assertRaisesRegex(ValueError, r"give a band at least \d+ high, or size 4\.$"):
+            text.captions(text.caption_lines(self.TWO), text.style("pop", size=5), (1300, 50))
+        with self.assertRaisesRegex(ValueError, r"use a shorter word, or size 4\.$"):
+            text.big_word("WWWWWWWW", 1, 1, (540, 960), text.style("pop", size=5))
+
+
+@unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")
 class Captions(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.mkdtemp(prefix="lcs captions ")
