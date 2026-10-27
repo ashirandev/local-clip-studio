@@ -2,17 +2,20 @@
 
     python -m unittest discover -s tests
 """
+import json
 import os
 import random
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, effects, faces, hearing, layouts, project, recording, render, tools  # noqa: E402
+from clipstudio import agent, effects, faces, hearing, layouts, mind, project, recording, render, tools, words  # noqa: E402
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_hearing import Worker  # noqa: E402
 from test_map import make_moment  # noqa: E402
@@ -845,13 +848,38 @@ class Tools(unittest.TestCase):
         self.assertEqual(self.chat.project.state()["titles"], [])
         self.assertEqual(tools.describe(self.chat.project.entries[-1]), 'taking the title "Boss down" off')
 
-    def test_muse_is_shown_thai_words_no_dictionary_has_and_fixes_or_keeps_them(self):
+    def test_thai_words_no_dictionary_has_are_found(self):
         self.assertEqual(tools._odd_thai("ดูรายละเอียดเพื่มเติมได้ในลิงก์"), ["เพื่มเติม"])
         self.assertEqual(tools._odd_thai("เครื่องลดความชื้น ใช้งานง่าย แค่เสียบปลั๊กแล้วกดเปิดเลย"), [])
         self.assertEqual(tools._odd_thai("He falls. Twice."), [])
         self.assertEqual(tools._odd_thai("ไตเติลสั้นๆ กับแฮชแท็ก ช่วงที่สวย ๆ"), [])
         self.assertEqual(tools._odd_thai("ต้วเลขสวยๆ"), ["ต้วเลข"])
 
+    def test_a_spelling_fix_is_kept_only_when_it_is_only_a_spelling_fix(self):
+        def answer(*texts):
+            asked = []
+
+            def ask(messages, schema):
+                asked.append(messages)
+                return json.dumps({"texts": list(texts)}, ensure_ascii=False)
+            return ask, asked
+
+        ask, asked = answer("ตัวเลข 75 ถูก")
+        self.assertEqual(words.spelled(ask, ["ok", "ต้วเลข 75 ถูก"]),
+                         (["ok", "ตัวเลข 75 ถูก"], [("ต้วเลข 75 ถูก", "ตัวเลข 75 ถูก")]))
+        self.assertEqual(len(asked[0]), 1, "a short conversation of its own")
+        self.assertIn('["ต้วเลข 75 ถูก"]', asked[0][0]["content"], "only the flagged text is asked about")
+        ask, asked = answer("ok")
+        self.assertEqual(words.spelled(ask, ["ok", "fine"]), (["ok", "fine"], []))
+        self.assertEqual(asked, [], "nothing flagged, nothing asked")
+        for wrong in ("ตัวเลข 76 ถูก", "ตัวเลข เจ็ดสิบหก ถูก", "เลขนี้ผิดทั้งหมดแล้วเขียนใหม่ 75", "ต้วเลข 75 ถูก ไมไ่ด้",
+                      "ต้วเลข 75 ผิด"):
+            self.assertEqual(words.spelled(answer(wrong)[0], ["ต้วเลข 75 ถูก"]), (["ต้วเลข 75 ถูก"], []), wrong)
+        self.assertEqual(words.spelled(lambda m, s: "not json", ["ต้วเลข 75 ถูก"]), (["ต้วเลข 75 ถูก"], []))
+        kept = "ต้วเลข 75 ถูกต้องครบถ้วนทุกอย่างแล้ว"
+        self.assertEqual(words.spelled(answer(kept + "นะ")[0], [kept]), ([kept], []), "the misspelling is still there")
+
+    def test_thai_spelling_is_fixed_before_it_is_burned_in_or_handed_over(self):
         def export(rec, state, out, on_progress=None, on_start=None, *, default):
             make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
             return out
@@ -861,19 +889,67 @@ class Tools(unittest.TestCase):
         try:
             brain, steps = self.run_job(
                 *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("add_title", words="ไมไ่ด้ล้ม", start=0, end=4, place="middle", why="the hook")],
+                '{"texts": ["ไม่ได้ล้ม"]}',
                 [call("decide_people", keep=[1], why="it is him")],
                 [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
                 [call("hand_over", title="สู้จบ", caption="ดูรายละเอียดเพื่มเติมได้ในลิงก์", hashtags=["#เกม"],
                       why="post")],
-                [call("hand_over", title="สู้จบ", caption="ดูรายละเอียดเพิ่มเติมได้ในลิงก์", hashtags=["#เกม"],
-                      why="fixed")],
+                '{"texts": ["ดูรายละเอียดเพิ่มเติมได้ในลิงก์"]}',
                 "Done.")
         finally:
             render.export = had
-        odd, fixed = steps[-2:]
-        self.assertTrue(odd["refused"])
-        self.assertIn('Check the Thai spelling here: "เพื่มเติม".', odd["result"])
-        self.assertFalse(fixed["refused"], fixed["result"])
+        title, handed = steps[-5], steps[-1]
+        self.assertFalse(title["refused"], title["result"])
+        self.assertIn('The program fixed the Thai spelling: "ไมไ่ด้ล้ม" is now "ไม่ได้ล้ม".', title["result"])
+        self.assertEqual([t["text"] for t in self.chat.project.state()["titles"]], ["ไม่ได้ล้ม"])
+        self.assertFalse(handed["refused"], handed["result"])
+        self.assertIn('"ดูรายละเอียดเพื่มเติมได้ในลิงก์" is now "ดูรายละเอียดเพิ่มเติมได้ในลิงก์"', handed["result"])
+        ready = [e for e in self.chat.events if e["kind"] == "ready"][-1]
+        self.assertEqual((ready["title"], ready["caption"]), ("สู้จบ", "ดูรายละเอียดเพิ่มเติมได้ในลิงก์"))
+        aside = [m for m in brain.sent if len(m) == 1]
+        self.assertEqual(len(aside), 2, "each fix is asked apart from the job's conversation")
+
+    def test_after_the_job_the_reasons_and_answers_shown_are_spelled_and_the_next_message_cancels_that(self):
+        brain, steps = self.run_job(
+            [call("open_recording", path=self.clip, why="เปิดไฟล์ที่ระบุ")],
+            [call("look_at_piece", start="0:30", end="0:50", why="ดูช่วงที่ไมไ่ด้ดู")],
+            "เสร็จแล้ว ต้วเลขครบ",
+            '{"texts": ["ดูช่วงที่ไม่ได้ดู", "เสร็จแล้ว ตัวเลขครบ"]}')
+        self.chat.job.speller.join(10)
+        spelled = [e for e in self.chat.events if e["kind"] == "spelled"]
+        self.assertEqual(spelled[-1]["fixes"], [
+            {"kind": "step", "step": 2, "field": "why", "text": "ดูช่วงที่ไม่ได้ดู"},
+            {"kind": "answer", "index": 0, "text": "เสร็จแล้ว ตัวเลขครบ"}])
+        self.assertEqual(len(brain.sent[-1]), 1, "asked apart from the job's conversation")
+        whys = [json.loads(c["function"]["arguments"]).get("why") for m in self.chat.messages
+                for c in m.get("tool_calls") or []]
+        answers = [m["content"] for m in self.chat.messages if m["role"] == "assistant" and not m.get("tool_calls")]
+        self.assertIn("ดูช่วงที่ไมไ่ด้ดู", whys, "what Muse reads back is not changed")
+        self.assertIn("เสร็จแล้ว ต้วเลขครบ", answers)
+
+        waiting = threading.Event()
+
+        def typed_meanwhile(asking):
+            waiting.set()
+            for _ in range(200):
+                if asking.cancelled:
+                    raise mind.Cancelled()
+                time.sleep(0.05)
+            return '{"texts": ["too late"]}'
+
+        brain, steps = self.run_job([call("look_at_piece", start="0:10", end="0:20", why="ดูต้วอย่าง")], "ok",
+                                    typed_meanwhile)
+        self.assertTrue(waiting.wait(10))
+        speller = self.chat.job.speller
+        real, mind.get = mind.get, lambda key: ScriptedMind("ok")
+        try:
+            self.chat.say("next", "local")
+        finally:
+            mind.get = real
+        speller.join(3)
+        self.assertFalse(speller.is_alive(), "the next message cancels the pass at once")
+        self.assertEqual(len([e for e in self.chat.events if e["kind"] == "spelled"]), 1, "the cancelled pass shows nothing")
 
     def test_a_number_on_screen_must_be_one_that_was_said(self):
         said = ["สินค้าราคา เจ็ดสิบห้า บาท", "ใช้ได้ 50 ตารางเมตร"]

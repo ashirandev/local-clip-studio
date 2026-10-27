@@ -35,6 +35,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = os.environ.get("LCS_WORK") or os.path.join(ROOT, "work")
 AGENT_TEMPERATURE = 0.5
 AGENT_MAX_TOKENS = 4096
+SPELL_TOKENS = 8192
 MAX_STEPS = 30
 GUARD_STOPS = 3
 SHOW_THINKING_EVERY = 0.4
@@ -81,6 +82,7 @@ class Chat:
         self.rendered = []
         self.checks = {}
         self.told = []
+        self.spelling = None
         self.cond = threading.Condition()
         folder = os.path.join(WORK, "chats")
         os.makedirs(folder, exist_ok=True)
@@ -178,6 +180,8 @@ class Chat:
                 self.emit("person", job=job.n, text=shown, cut_in=True)
                 job.cut_in(content)
                 return job
+            if self.spelling:
+                self.spelling.cancel()
             self.jobs += 1
             self.job = Job(self, mind.get(mind_key), content)
             self.emit("person", job=self.jobs, text=shown)
@@ -411,11 +415,11 @@ class Job:
         finally:
             self.done_working()
 
-    def ask_aside(self, messages, schema):
+    def ask_aside(self, messages, schema, doing="Fixing misheard words from the context"):
         """Asks Muse apart from this job's conversation (the conversation and its cache stay as they are) and
         returns the words of the answer. Stop cancels it (hearing.Stopped)."""
         asking = mind.Asking()
-        self.working("Fixing misheard words from the context")
+        self.working(doing)
         self.started_work(asking.cancel)
         try:
             return self.brain.ask(messages, temperature=0.2, max_tokens=hearing.FIX_TOKENS, asking=asking,
@@ -548,6 +552,45 @@ class Job:
         self.inbox = []
         self.emit("end", steps=self.steps, refused=self.refused, fixed=self.fixed,
                   seconds=round(time.time() - started, 1), why=end)
+        if end == "answered":
+            self.speller = threading.Thread(target=self.spell_shown, name="spell-%d" % self.n, daemon=True)
+            self.speller.start()
+
+    def spell_shown(self):
+        """After the job, the reasons and answers it showed, with their Thai spelling fixed in one question of their
+        own (words.spelled), as a "spelled" event the page redraws them from. Glimmer answers one question at a time,
+        so the person's next message cancels it: it never keeps Muse waiting. What Muse reads back is not changed."""
+        spots, texts, answers = [], [], 0
+        for e in [e for e in self.chat.events if e.get("job") == self.n]:
+            if e["kind"] == "step":
+                for field in ("why", "said"):
+                    if e.get(field):
+                        spots.append({"kind": "step", "step": e["step"], "field": field})
+                        texts.append(e[field])
+            elif e["kind"] == "answer":
+                if e.get("text"):
+                    spots.append({"kind": "answer", "index": answers})
+                    texts.append(e["text"])
+                answers += 1
+        if not any(words.odd_thai(t) for t in texts):
+            return
+        asking = mind.Asking()
+        with self.chat.cond:
+            if self.chat.job is not self:
+                return
+            self.chat.spelling = asking
+        try:
+            fixed, _ = words.spelled(lambda m, s: self.brain.ask(m, temperature=0.2, max_tokens=SPELL_TOKENS,
+                                                                 asking=asking, schema=s)["text"], texts)
+        except (mind.Cancelled, mind.MindError):
+            return
+        finally:
+            with self.chat.cond:
+                if self.chat.spelling is asking:
+                    self.chat.spelling = None
+        fixes = [dict(spot, text=after) for spot, before, after in zip(spots, texts, fixed) if after != before]
+        if fixes:
+            self.emit("spelled", fixes=fixes)
 
     def call(self, call):
         """Runs one tool call through the input check and the repeat guard. Returns (fields for the page, text)."""

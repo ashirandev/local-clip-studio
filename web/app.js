@@ -123,7 +123,7 @@ function job(n) {
     foot.hidden = true;
     box.append(plan, flow, live, foot);
     log.appendChild(box);
-    room.jobs[n] = { box, plan, flow, live, liveLine, liveThinking, foot, mind: "" };
+    room.jobs[n] = { box, plan, flow, live, liveLine, liveThinking, foot, mind: "", steps: {}, answers: [] };
   }
   return room.jobs[n];
 }
@@ -151,8 +151,11 @@ function drawStep(j, e) {
   const label = e.look ? "Looked at " + clock(e.look.start) + "–" + clock(e.look.end) : e.label || e.tool;
   head.append(el("span", "n", String(e.step)), el("span", "label", label));
   div.appendChild(head);
-  if (e.said) div.appendChild(el("p", "said", e.said));
-  div.appendChild(el("p", "why", e.why || "Muse gave no reason for this step."));
+  const said = e.said ? el("p", "said", e.said) : null;
+  if (said) div.appendChild(said);
+  const why = el("p", "why", e.why || "Muse gave no reason for this step.");
+  div.appendChild(why);
+  j.steps[e.step] = { why: why, said: said };
   if (e.look) div.appendChild(lookStrip(e.look));
   if (e.look && e.look.said && e.look.said.length) div.appendChild(saidFold(e.look.said));
   if (e.look && e.look.took) div.appendChild(el("p", "engine detail", "Heard in " + e.look.took + " s"));
@@ -281,7 +284,9 @@ function showMoment(m) {
 
 function drawAnswer(j, e) {
   const div = bubble("muse", null, j.flow);
-  div.appendChild(el("p", "words", e.text));
+  const words = el("p", "words", e.text);
+  div.appendChild(words);
+  j.answers.push(words);
   if (e.thinking) div.appendChild(fold("How Muse decided", e.thinking, "thinking"));
   if (e.engine) div.appendChild(el("p", "engine detail", engineLine(e.engine, e.mind)));
 }
@@ -565,6 +570,11 @@ function on(e) {
     showFinished(e.file);
   } else if (e.kind === "checked") {
     drawChecked(j, e);
+  } else if (e.kind === "spelled") {
+    e.fixes.forEach((f) => {
+      const spot = f.kind === "step" ? (j.steps[f.step] || {})[f.field] : j.answers[f.index];
+      if (spot) spot.textContent = f.text;
+    });
   } else if (e.kind === "ready") {
     drawReady(j, e);
   } else if (e.kind === "cut") {

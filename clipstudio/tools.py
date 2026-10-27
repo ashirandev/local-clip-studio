@@ -16,7 +16,8 @@ import shutil
 import subprocess
 import time
 
-from . import effects, faces, hearing, layouts, maps, mind, previews, project, recording, render, text, thai, tracks
+from . import (effects, faces, hearing, layouts, maps, mind, previews, project, recording, render, text, thai,
+               tracks, words)
 from .recipes import RECIPES, SIGNALS
 
 WHY = {"type": "string",
@@ -762,6 +763,10 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
     asked = _asked(job, person_said)
     rec = _open(job, "put words on")
     state = _clip_state(job)
+    try:
+        (words,), spelling = _spell(job, [words])
+    except hearing.Stopped:
+        return "Not put on: the person pressed Stop."
     length, lay = state["length"], state["clip"]["layout"]
     if not 0 <= start < length:
         raise Refused("start %g s is outside the clip, which is %g s long: use a start from 0 to %g, in seconds of "
@@ -833,6 +838,8 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
             " and the product" if state["clip"].get("product") else ""))] + notes
     if fixed:
         lines.append(fixed)
+    if spelling:
+        lines.append(spelling)
     lines.append(_show_frame(job, state, rec, (start + end) / 2, 'The clip with the title "%s":' % words))
     job.show(clip=job.chat.clip_view())
     return "\n".join(lines)
@@ -1423,35 +1430,19 @@ def check_clip(job, why):
     return "\n".join(out)
 
 
-THAI = re.compile("[\u0e01-\u0e5b]")
-_WORDS = []
-CREATOR_WORDS = {"\u0e44\u0e15\u0e40\u0e15\u0e34\u0e25", "\u0e41\u0e04\u0e1b\u0e0a\u0e31\u0e19", "\u0e41\u0e04\u0e1b\u0e0a\u0e31\u0e48\u0e19", "\u0e41\u0e2e\u0e0a\u0e41\u0e17\u0e47\u0e01", "\u0e04\u0e2d\u0e21\u0e42\u0e1a", "\u0e23\u0e35\u0e25", "\u0e23\u0e35\u0e25\u0e2a\u0e4c", "\u0e0a\u0e47\u0e2d\u0e15", "\u0e17\u0e23\u0e32\u0e19\u0e0b\u0e34\u0e0a\u0e31\u0e19"}
+_odd_thai = words.odd_thai
 
 
-def _odd_thai(words):
-    """Bits of Thai in words that no dictionary word makes up, each with the words on either side: the place a tone
-    mark or a vowel may be wrong (Glimmer writes ที้ for ที่, เพื่ม for เพิ่ม). PyThaiNLP's own corrections were
-    wrong on these (10-27), so Muse is shown where to look and fixes the spelling itself.
-
-    The repeat mark ๆ is not a word (สวยๆ is สวย said twice), and CREATOR_WORDS are loanwords for making clips that the
-    dictionary does not have (ไตเติล, แฮชแท็ก). Measured 10-27: in 32 answers Glimmer wrote with a short context, every
-    bit pointed at was one of these, so each one cost Muse a refused hand_over for nothing."""
-    if not THAI.search(words or ""):
-        return []
-    from pythainlp.corpus import thai_words
-    from pythainlp.tokenize import word_tokenize
-    from pythainlp.util import dict_trie
-    if not _WORDS:
-        _WORDS.append(thai_words() | CREATOR_WORDS)
-        _WORDS.append(dict_trie(_WORDS[0]))
-    toks = word_tokenize(words, engine="newmm", keep_whitespace=True, custom_dict=_WORDS[1])
-    out = []
-    for i, w in enumerate(toks):
-        base = w.strip().rstrip("ๆ").strip()
-        if THAI.search(base) and base not in _WORDS[0]:
-            near = [x for x in (toks[i - 1] if i else "", w, toks[i + 1] if i + 1 < len(toks) else "") if x.strip()]
-            out.append("".join(near))
-    return out
+def _spell(job, texts):
+    """(texts with the Thai spelling fixed in a short conversation of Muse's own, a sentence naming each fix or "").
+    When Muse cannot be asked, the texts stay as written. Stop raises hearing.Stopped."""
+    try:
+        fixed, changed = words.spelled(lambda m, s: job.ask_aside(m, s, "Checking the Thai spelling"), texts)
+    except mind.MindError:
+        return list(texts), ""
+    return fixed, " ".join('The program fixed the Thai spelling: "%s" is now "%s".' % (" ".join(a.split()),
+                                                                                       " ".join(b.split()))
+                           for a, b in changed)
 
 
 def _tag(word):
@@ -1480,12 +1471,10 @@ def hand_over(job, why, title, caption, hashtags, english=""):
                           % ", ".join(wrong))
     caption, more = _without_tags(caption)
     english, also = _without_tags(english)
-    odd = _odd_thai(title + "\n" + caption)
-    if odd and getattr(job, "spelled", None) != odd:
-        job.spelled = odd
-        raise Refused("Check the Thai spelling here: %s. A tone mark or a vowel is often wrong (ที้ for ที่, เพื่ม for "
-                      "เพิ่ม). Fix what is wrong and hand over again; if every word is right, hand over the same "
-                      "text again." % "; ".join('"%s"' % o for o in odd))
+    try:
+        (title, caption), spelling = _spell(job, [title, caption])
+    except hearing.Stopped:
+        return "Not handed over: the person pressed Stop."
     tags = list(dict.fromkeys(t for t in (_tag(w) for w in list(hashtags) + more + also) if t))
     if not tags:
         raise Refused("Give at least one hashtag, such as #gaming.")
@@ -1495,7 +1484,7 @@ def hand_over(job, why, title, caption, hashtags, english=""):
     job.show(ready=ready)
     return ("Handed over: the person sees the finished clip with its title, the post text and %d hashtags, a Copy all "
             "button and a download. Tell them in one or two short lines; do not repeat the text, it is on the page."
-            % len(tags))
+            % len(tags)) + (" " + spelling if spelling else "")
 
 
 def _without_tags(words):
