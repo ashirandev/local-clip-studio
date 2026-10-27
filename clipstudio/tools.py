@@ -697,11 +697,12 @@ def list_fonts(job, why):
 WORD_PARTS = {"title": "the title", "caption": "the captions", "big": "the big words of a hit"}
 
 
-def set_style(job, why, style, font=None, colour=None, part=None, person_said=None):
+def set_style(job, why, style, font=None, colour=None, size=None, part=None, person_said=None):
     state = _clip_state(job)
     shown = None
-    if part and not font:
-        raise Refused("A part takes a font of its own: give the font for %s, or leave part out." % WORD_PARTS[part])
+    if part and not font and not size:
+        raise Refused("A part takes a font or a size of its own: give it for %s, or leave part out."
+                      % WORD_PARTS[part])
     if font:
         letters = _letters(job, state)
         every = text.fonts(letters or None)
@@ -718,21 +719,30 @@ def set_style(job, why, style, font=None, colour=None, part=None, person_said=No
                           "their own words." % (entry["family"], entry["licence"], _free_fonts(every)))
         shown = entry["family"]
     before = state["style"] or {}
-    every, fonts = (before.get("font"), dict(before.get("fonts") or {})) if part or not font else (font, {})
+    every, fonts = before.get("font"), dict(before.get("fonts") or {})
+    whole, sizes = before.get("size"), dict(before.get("sizes") or {})
     if part:
-        fonts[part] = font
+        fonts.update({part: font} if font else {})
+        sizes.update({part: size} if size else {})
+    else:
+        every, fonts = (font, {}) if font else (every, fonts)
+        whole, sizes = (size, {}) if size else (whole, sizes)
     try:
-        drawn = text.look(style, every, colour, fonts or None)
+        drawn = text.look(style, every, colour, fonts or None, size=whole, sizes=sizes or None)
     except ValueError as e:
         raise Refused(str(e))
     entry = {"do": "style", "name": style, "font": every, "colour": colour}
-    if fonts:
-        entry["fonts"] = fonts
+    entry.update({"fonts": fonts} if fonts else {})
+    entry.update({"size": whole} if whole else {})
+    entry.update({"sizes": sizes} if sizes else {})
     state = job.edit(entry)
-    lines = ["The words on screen now use the %s style%s." % (style, " with the font %s%s" % (
-        shown, " for %s only" % WORD_PARTS[part] if part else "") if shown else "")]
-    if fonts and not part:
-        lines.append("Fonts of their own kept: %s." % ", ".join("%s for %s" % (f, WORD_PARTS[k]) for k, f in fonts.items()))
+    said = [" with the font %s" % shown if shown else "", " at size %d" % size if size else ""]
+    lines = ["The words on screen now use the %s style%s%s." % (style, "".join(said), " for %s only"
+                                                                % WORD_PARTS[part] if part and (shown or size) else "")]
+    kept = ["the font %s for %s" % (f, WORD_PARTS[k]) for k, f in fonts.items() if not (part and k == part)] + \
+           ["size %d for %s" % (n, WORD_PARTS[k]) for k, n in sizes.items() if not (part and k == part)]
+    if kept:
+        lines.append("Kept from before: %s." % ", ".join(kept))
     lines += list(dict.fromkeys(st.note for st in drawn.values() if st.note))
     if state["titles"]:
         t = state["titles"][0]
@@ -1538,7 +1548,9 @@ def describe(entry):
         return "the clip from moment %d in the %s layout" % (entry["moment"], entry["layout"]["kind"])
     if entry["do"] == "style":
         return "the %s style" % entry["name"] + (" with the font %s" % entry["font"] if entry.get("font") else "") + \
-            "".join(", %s in %s" % (WORD_PARTS[k], f) for k, f in (entry.get("fonts") or {}).items())
+            (" at size %d" % entry["size"] if entry.get("size") else "") + \
+            "".join(", %s in %s" % (WORD_PARTS[k], f) for k, f in (entry.get("fonts") or {}).items()) + \
+            "".join(", %s at size %d" % (WORD_PARTS[k], n) for k, n in (entry.get("sizes") or {}).items())
     if entry["do"] == "captions":
         return ("the lit captions" if entry.get("lit") else "the captions") if entry["lines"] else \
             "turning the captions off"
@@ -1734,9 +1746,14 @@ TOOLS = {t.name: t for t in [
           "colour": {"type": "string", "maxLength": 9,
                      "description": "The colour of the words the person asked for, like #FFD400. Leave it out for "
                                     "the style's own."},
+          "size": {"type": "integer", "minimum": text.SIZES[0], "maximum": text.SIZES[-1],
+                   "description": "How big the words are, %d (smallest) to %d (biggest); %d is the size tuned on "
+                                  "phones. Leave it out to keep the size." % (text.SIZES[0], text.SIZES[-1],
+                                                                              text.TUNED_SIZE)},
           "part": {"type": "string", "enum": list(WORD_PARTS),
-                   "description": "Give the font to one part only: " + "; ".join("%s: %s" % kv for kv in WORD_PARTS.items())
-                                  + ". Leave it out for every part."},
+                   "description": "Give the font or the size to one part only: " +
+                                  "; ".join("%s: %s" % kv for kv in WORD_PARTS.items()) + ". Leave it out for every "
+                                  "part."},
           "person_said": {"type": "string", "maxLength": 200,
                           "description": "Only for a font not known to be free that the person named: their own "
                                          "words asking for it, quoted. Leave it out otherwise."}},

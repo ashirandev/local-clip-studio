@@ -610,8 +610,13 @@ class Tools(unittest.TestCase):
                 [call("set_style", style="pop", part="caption", why="a part needs its font")],
                 [call("set_style", style="pop", font="Kanit Regular", part="caption", why="lighter captions")],
                 [call("set_style", style="sticker", why="another style")],
+                [call("set_style", style="sticker", size=4, part="caption", why="bigger captions")],
+                [call("set_style", style="sticker", size=9, why="too big")],
                 "Done.")
             parts = self.chat.project.state()["style"]
+            brain, whole = self.run_job([call("set_style", style="sticker", size=2, why="smaller everywhere")], "Done.")
+            smaller = self.chat.project.state()["style"]
+            self.chat.project.entries.pop()
             listed["free"] = False
             brain, later = self.run_job(
                 [call("set_style", style="clean", font="Kanit", why="not free now")],
@@ -619,7 +624,7 @@ class Tools(unittest.TestCase):
                 "Done.")
         finally:
             tools.text.fonts = real
-        title, listing, none, latin, black, bare, caption, sticker = steps[-8:]
+        title, listing, none, latin, black, bare, caption, sticker, bigger, nine = steps[-10:]
         self.assertFalse(title["refused"], title["result"])
         self.assertIn("บ", asked[0], "the fonts asked for must write the title's letters")
         self.assertIn("1 free to use in a video, 0 not known to be free.", listing["result"])
@@ -633,12 +638,15 @@ class Tools(unittest.TestCase):
         self.assertFalse(black["refused"], black["result"])
         self.assertIn("The words on screen now use the pop style with the font Kanit.", black["result"])
         self.assertTrue(bare["refused"])
-        self.assertIn("A part takes a font of its own: give the font for the captions", bare["result"])
+        self.assertIn("A part takes a font or a size of its own: give it for the captions", bare["result"])
         self.assertIn("with the font Kanit for the captions only.", caption["result"])
-        self.assertIn("Fonts of their own kept: Kanit Regular for the captions.", sticker["result"])
-        self.assertEqual((parts["name"], parts["font"], parts["fonts"]), ("sticker", "kanit black",
-                                                                          {"caption": "Kanit Regular"}))
-        self.assertEqual(tools.describe(self.chat.project.entries[-1]), "the clean style with the font Kanit")
+        self.assertIn("Kept from before: the font Kanit Regular for the captions.", sticker["result"])
+        self.assertIn("The words on screen now use the sticker style at size 4 for the captions only.", bigger["result"])
+        self.assertTrue(nine["refused"])
+        self.assertIn("size must be from 1 to 5; 9 is outside that.", nine["result"])
+        self.assertEqual((parts["name"], parts["font"], parts["fonts"], parts.get("size"), parts["sizes"]),
+                         ("sticker", "kanit black", {"caption": "Kanit Regular"}, None, {"caption": 4}))
+        self.assertEqual(tools.describe(self.chat.project.entries[-1]), "the clean style with the font Kanit, the captions at size 4")
         not_free, named = later
         self.assertTrue(not_free["refused"])
         self.assertIn("Kanit is not known to be free (its file names no licence)", not_free["result"])
@@ -646,7 +654,10 @@ class Tools(unittest.TestCase):
         self.assertEqual(self.chat.project.state()["style"]["font"], "Kanit")
         self.assertNotIn("fonts", self.chat.project.state()["style"], "a font for every part starts the parts over")
         drawn = render.style_of(parts and {"style": dict(parts, do="style")}, "clean", kind="caption")
-        self.assertEqual(drawn.fontname, "Kanit Regular", "the export draws the part in its own font")
+        self.assertEqual((drawn.fontname, drawn.size), ("Kanit Regular", 4), "the export draws the part as asked")
+        self.assertEqual(render.style_of({"style": dict(parts, do="style")}, "clean", kind="title").size, 3)
+        self.assertIn("at size 2.", whole[-1]["result"])
+        self.assertEqual((smaller["size"], smaller.get("sizes")), (2, None), "a size for every part starts them over")
 
     def test_muse_is_offered_the_sounds_the_renderer_makes(self):
         self.assertEqual(set(tools.SOUNDS), set(effects.SOUNDS))
