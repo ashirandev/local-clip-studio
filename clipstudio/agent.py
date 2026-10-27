@@ -28,7 +28,7 @@ import threading
 import time
 import traceback
 
-from . import maps, mind, recording, words
+from . import maps, mind, previews, recording, words
 from .tools import SCHEMAS, TOOLS, Refused
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -74,6 +74,7 @@ class Chat:
         self.job = None
         self.live, self.live_rev = None, 0
         self.clip = self.recording = None
+        self.looks, self.moments = [], None
         self.cond = threading.Condition()
         folder = os.path.join(WORK, "chats")
         os.makedirs(folder, exist_ok=True)
@@ -97,7 +98,29 @@ class Chat:
         chat.clip = guesses[-1]["clip"] if guesses else None
         opened = [e for e in chat.events if e["kind"] == "opened"]
         chat.recording = opened[-1]["recording"] if opened else None
+        path = None
+        for e in chat.events:
+            if e["kind"] == "opened":
+                if e["recording"]["path"] != path:
+                    chat.looks, chat.moments = [], None
+                path = e["recording"]["path"]
+            elif e["kind"] == "step" and e.get("look"):
+                chat.looks.append(e["look"])
+            elif e["kind"] == "step" and e.get("moments"):
+                chat.moments = e["moments"]
+        chat.catch_up_previews()
         return chat
+
+    def catch_up_previews(self):
+        """A preview the studio was closed before it was cut gets its event now: ready if its file is there."""
+        told = {e["name"] for e in self.events if e["kind"] == "preview"}
+        for e in [e for e in self.events if e["kind"] == "step" and e.get("moments")]:
+            for m in e["moments"]:
+                if m["preview"] not in told:
+                    told.add(m["preview"])
+                    ok = os.path.isfile(os.path.join(previews.folder(), m["preview"]))
+                    self.emit("preview", job=e["job"], name=m["preview"], ok=ok, seconds=0,
+                              error=None if ok else "The studio was closed before this preview was cut.")
 
     def add(self, message):
         """Adds a message at the end. Nothing earlier is ever changed."""
@@ -150,6 +173,8 @@ class Chat:
         Returns (the recording open before, the path of a picture from rec or None)."""
         with self.cond:
             had, self.recording = self.recording, rec
+            if not had or had["path"] != rec["path"]:
+                self.looks, self.moments = [], None
             self.changed += 1
         frame = recording.frame(rec)
         self.emit("opened", job=job, recording=rec, frame=frame, line=recording.describe(rec))
@@ -184,6 +209,7 @@ class Job:
         self.refused_last = False
         self.shown_live = 0.0
         self.stop_work = None
+        self.shown_extra = {}
         self.thread = threading.Thread(target=self.run, name="job-%d" % self.n, daemon=True)
 
     def emit(self, kind, **data):
@@ -218,6 +244,10 @@ class Job:
         """A tool's picture for Muse. Pictures never go in a tool result, so the loop sends them right after the
         results, as one message from the studio."""
         self.pictures.append((picture, caption))
+
+    def show(self, **fields):
+        """Fields the tool running now adds to its step on the page, such as the pictures of a look."""
+        self.shown_extra.update(fields)
 
     def working(self, line):
         """Shows how far a tool that takes a while has got. Like Muse's thinking, it is shown, not logged."""
@@ -292,8 +322,8 @@ class Job:
                     with chat.cond:
                         chat.live = None
                 calls = got["tool_calls"]
-                got["text"] = words.tidy(got["text"])
-                got["message"]["content"] = words.tidy(got["message"]["content"])
+                got["text"] = words.plain(words.tidy(got["text"]))
+                got["message"]["content"] = words.plain(words.tidy(got["message"]["content"]))
                 for i, call in enumerate(calls):
                     call.setdefault("id", "call_%d_%d" % (self.steps + 1, i))
                     if isinstance(call.get("function"), dict):
@@ -337,8 +367,7 @@ class Job:
                         self.guesses = None
                 if self.pictures:
                     pictures, self.pictures = self.pictures, []
-                    chat.add({"role": "user", "content": _with_pictures(
-                        "[studio] " + " ".join(caption for _, caption in pictures), [p for p, _ in pictures])})
+                    chat.add({"role": "user", "content": _studio_pictures(pictures)})
                 if self.guard_stops >= GUARD_STOPS:
                     end = "repeating"
                     self.emit("note", text="Muse kept repeating a call that had already given its answer, so the "
@@ -388,6 +417,7 @@ class Job:
         if step:
             self.tick(step)
         t0 = time.time()
+        self.shown_extra = {}
         try:
             text, ran = tool.run(self, why, **clean), True
         except Refused as e:
@@ -404,6 +434,10 @@ class Job:
             self.seen[key] = {"result": text, "times": 1, "changed": self.chat.changed}
         if not ran:
             return self.refuse(shown, name, text)
+        shown.update(self.shown_extra)
+        if self.plan and not step and name != "set_plan":
+            text += ("\n(This call named no plan_step, so the plan on the page did not move. Give every call the plan "
+                     "step it works on.)")
         if self.last_refused.get(name):
             self.fixed += 1
         self.last_refused[name] = False
@@ -474,6 +508,13 @@ class Job:
         rec = self.chat.recording
         parts.append("open: %s (%s long)" % (rec["name"], recording.clock(rec["seconds"])) if rec
                      else "no recording open")
+        if self.chat.looks:
+            parts.append("%d look%s made" % (len(self.chat.looks), "" if len(self.chat.looks) == 1 else "s"))
+        if self.chat.moments:
+            parts.append("moments proposed: " + ", ".join(
+                "%d. %s-%s" % (m["n"], recording.clock(m["start"]), recording.clock(m["end"]))
+                for m in self.chat.moments))
+            parts.append("no clip made yet")
         return " · ".join(parts)
 
 
@@ -495,12 +536,22 @@ def _with_pictures(words, pictures):
     """A user message's content: the words alone, or the words and each picture (a jpg path) inline."""
     if not pictures:
         return words
-    content = [{"type": "text", "text": words}]
-    for path in pictures:
-        with open(path, "rb") as f:
-            data = base64.b64encode(f.read()).decode("ascii")
-        content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + data}})
+    return [{"type": "text", "text": words}] + [_picture(path) for path in pictures]
+
+
+def _studio_pictures(pictures):
+    """The studio's message with the pictures tools made, each right after its caption, so Muse reads which
+    picture is which (one picture holding several frames broke Muse's 0-1000 grid)."""
+    content = []
+    for i, (path, caption) in enumerate(pictures):
+        content += [{"type": "text", "text": ("[studio] " if i == 0 else "") + caption}, _picture(path)]
     return content
+
+
+def _picture(path):
+    with open(path, "rb") as f:
+        data = base64.b64encode(f.read()).decode("ascii")
+    return {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + data}}
 
 
 def _append(path, row):

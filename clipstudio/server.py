@@ -14,6 +14,8 @@ through a name it owns), and a POST must be JSON (another web page cannot send J
 - POST /api/open {chat, path} or {chat, name, size, mtime}: opens a recording where it is (a dropped file is found
   by its name, size and time) and tells Muse, with any words typed with it
 - GET /api/frame/<name>.jpg: a picture from an open recording
+- GET /api/preview/<name>.mp4: the rough video of a proposed moment, in the byte range the browser asks for, so it
+  can play from any second
 - GET /api/events?chat=<id>: every event of the chat from the start, then each new one as it happens, and Muse's
   thinking while it is written (Server-Sent Events, so a reload redraws the whole chat and a running job carries on).
   Every page shows the chat the server has open: when another chat opens, the stream says "moved" and the page
@@ -28,7 +30,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl
 
-from . import __version__, agent, mind, recording
+from . import __version__, agent, mind, previews, recording
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
@@ -43,6 +45,8 @@ KEEP_ALIVE = 15
 GONE = "That chat is not open any more. Reload the page."
 NEWEST = 5
 FRAME = re.compile(r"^/api/frame/([0-9a-f]{16}\.jpg)$")
+PREVIEW = re.compile(r"^/api/preview/([0-9a-f]{16}\.mp4)$")
+RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -70,6 +74,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "folders": recording.folders(), "recordings": newest()})
         elif FRAME.match(path):
             self.send_frame(FRAME.match(path).group(1))
+        elif PREVIEW.match(path):
+            self.send_preview(PREVIEW.match(path).group(1))
         elif path.startswith("/api/"):
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
         else:
@@ -129,6 +135,38 @@ class Handler(BaseHTTPRequestHandler):
             body = f.read()
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "max-age=3600")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_preview(self, name):
+        full = os.path.join(previews.folder(), name)
+        if not os.path.isfile(full):
+            self.send_json({"ok": False, "error": "There is no preview %s." % name}, HTTPStatus.NOT_FOUND)
+            return
+        size = os.path.getsize(full)
+        start, end = 0, size - 1
+        asked = RANGE.match(self.headers.get("Range") or "")
+        if asked and asked.group(1):
+            start, end = int(asked.group(1)), min(int(asked.group(2) or end), end)
+        elif asked and asked.group(2):
+            start = max(0, size - int(asked.group(2)))
+        asked = bool(asked and (asked.group(1) or asked.group(2)))
+        if start > end:
+            self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+            self.send_header("Content-Range", "bytes */%d" % size)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        with open(full, "rb") as f:
+            f.seek(start)
+            body = f.read(end - start + 1)
+        self.send_response(HTTPStatus.PARTIAL_CONTENT if asked else HTTPStatus.OK)
+        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Accept-Ranges", "bytes")
+        if asked:
+            self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "max-age=3600")
         self.end_headers()

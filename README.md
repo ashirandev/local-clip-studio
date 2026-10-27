@@ -96,6 +96,14 @@ the result and the engine numbers.
   picture alone for a product review (a person at a table is just as loud the whole time). Each stretch starts well
   before its peak, so what led up to the peak is in it. The map is kept per file, so mapping a recording again is
   instant, and the page shows how far it has got while it reads. Stop ends it at once.
+- **Muse looks before it chooses.** Muse picks a stretch to look at, usually one the map lists, and gets 2 to 6
+  pictures of it, each as its own picture right after its time; the page shows them in the step. To see what led
+  up to a peak it can look earlier, or wider. The same look twice is refused, and its pictures are not sent again.
+- **A moment Muse proposes is one it has seen.** Muse proposes up to three moments, best first. Each must sit inside
+  one of its looks, and moments may not overlap. The page shows each as a card with Muse's reason and a picture
+  from that look, and a rough 480p preview of the stretch is cut in the background, so the card plays a second or
+  two later. Muse goes on with the best one by itself; a tap on another card switches. Until a tool has made the
+  clip, the state Muse reads says "no clip made yet", so it cannot claim one.
 - **Every page shows the chat the server has open.** When another chat opens, every page follows it, so neither an
   address nor a second tab can leave a page working on another chat.
 
@@ -147,6 +155,9 @@ Model weights are downloaded when they are first needed. None of them are commit
 | 2026-10-27, this build | Opening the review clip by dropping it | found where it is in 0.16 s by name, size and time; the folder, size and time of the file unchanged; from the file name alone Muse called it travel, with one picture it picked the product-review recipe |
 | 2026-10-27, this build | Mapping a 4-hour game stream (77 GB, 1080p, 60 fps, a keyframe every 4 s) | 1:54 for one pass that reads the sound and only the keyframes; the prototype took 4:48 in two passes, every frame decoded. Mapping it again: 0.13 s |
 | 2026-10-27, this build | What that map ranks first | the top 6 stretches are all louder and busier than 97-99% of the stream; in 4 of them the peak is the game's death screen (the streamer shouts at each death), with the fight that led to it in the 21 s before the peak |
+| 2026-10-27, this build | What a look costs Glimmer Q3 (vision on the processor) | 4 frames, each its own 540-pixel picture: 971 tokens read in 10.8 s; the same 4 frames in one picture: 293 tokens in 2.9 s |
+| 2026-10-27, this build | From opening to proposed moments, Glimmer Q3, one run each | the review clip (3:06): 7 steps, 0 refused, 3 cards at 1:19; the 4-hour stream: 10 steps, 0 refused, cards at 2:04 after looking at the map's top 6, each moment ending before the death screen. A rough 30 s preview: 1.3-2.1 s to cut |
+| 2026-10-27, this build | Muse's answer after the cards, before any clip existed | it said the clip was made, with captions and a blurred chat. Now the state Muse reads says "no clip made yet": next run, it said only that the moments were ready to preview (one run, not yet a measurement) |
 
 New measurements are added here as the build is tested, each with its date.
 

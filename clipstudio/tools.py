@@ -8,9 +8,10 @@ input. Every tool also gets two fields from the loop:
 Input is checked here, not trusted: the hosted API does not promise that arguments match the schema. Wrong input is
 refused with a sentence that says what to send instead, so Muse can fix it and call again.
 """
+import json
 import os
 
-from . import maps, recording
+from . import maps, previews, recording
 from .recipes import RECIPES, SIGNALS
 
 WHY = {"type": "string",
@@ -59,7 +60,8 @@ class Tool:
 
 
 def _value(name, value, spec):
-    """The value in the type its schema asks for, or Refused. Numbers sent as text are accepted."""
+    """The value in the type its schema asks for, or Refused. Numbers sent as text are accepted, and so is text
+    sent as a number."""
     kind = spec.get("type")
     if kind == "integer":
         if isinstance(value, str) and value.strip().lstrip("-").isdigit():
@@ -73,6 +75,8 @@ def _value(name, value, spec):
             raise Refused("%s must be from %s to %s; %d is outside that." % (name, low, high if high else "up", value))
         return value
     if kind == "string":
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            value = str(value)
         if not isinstance(value, str):
             raise Refused("%s must be text." % name)
         if spec.get("enum") and value.strip() not in spec["enum"]:
@@ -80,6 +84,13 @@ def _value(name, value, spec):
         if len(value) > spec.get("maxLength", 2000):
             raise Refused("%s is too long; keep it under %d characters." % (name, spec.get("maxLength", 2000)))
         return value.strip()
+    if kind == "array" and (spec.get("items") or {}).get("type") == "object":
+        if not isinstance(value, list):
+            raise Refused("%s must be a list." % name)
+        if not spec.get("minItems", 0) <= len(value) <= spec.get("maxItems", 100):
+            raise Refused("%s must have %d to %d items; it has %d."
+                          % (name, spec.get("minItems", 0), spec.get("maxItems", 100), len(value)))
+        return [_fields("%s %d" % (name.rstrip("s"), i), v, spec["items"]) for i, v in enumerate(value, 1)]
     if kind == "array":
         if not isinstance(value, list) or not all(isinstance(v, str) and v.strip() for v in value):
             raise Refused("%s must be a list of short lines of text." % name)
@@ -88,6 +99,26 @@ def _value(name, value, spec):
                           % (name, spec.get("minItems", 0), spec.get("maxItems", 100), len(value)))
         return [v.strip() for v in value]
     return value
+
+
+def _fields(name, value, spec):
+    """One object inside a list, its fields in the types its schema asks for, or Refused. An object sent as JSON
+    text is read."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            pass
+    fields = spec["properties"]
+    if not isinstance(value, dict):
+        raise Refused("%s must be an object with the fields %s." % (name, ", ".join(fields)))
+    extra = sorted(set(value) - set(fields))
+    if extra:
+        raise Refused("%s has no field named %s. Its fields are: %s." % (name, ", ".join(extra), ", ".join(fields)))
+    missing = [k for k in spec.get("required", []) if value.get(k) is None]
+    if missing:
+        raise Refused("%s needs %s." % (name, " and ".join(missing)))
+    return {k: _value("%s's %s" % (name, k), value[k], s) for k, s in fields.items() if value.get(k) is not None}
 
 
 def set_plan(job, why, steps):
@@ -160,12 +191,18 @@ MAP_ANYTHING = {"sound": 1.0, "screen": 1.0}
 STRETCH_DEFAULT = 30
 
 
-def map_recording(job, why, stretch_s=None, top=6):
+def _open(job, doing):
+    """The open recording, or Refused when there is none or its file has gone."""
     rec = job.chat.recording
     if not rec:
-        raise Refused("No recording is open, so there is nothing to map. Open one first.")
+        raise Refused("No recording is open, so there is nothing to %s. Open one first." % doing)
     if not os.path.isfile(rec["path"]):
         raise Refused("%s is no longer at %s. Tell the person, and ask where it is now." % (rec["name"], rec["path"]))
+    return rec
+
+
+def map_recording(job, why, stretch_s=None, top=6):
+    rec = _open(job, "map")
     clip = job.chat.clip
     recipe = RECIPES.get(clip["recipe"]) if clip else None
     by = recipe["map"] if recipe else MAP_ANYTHING
@@ -205,7 +242,126 @@ def map_recording(job, why, stretch_s=None, top=6):
         lines.append("%d. %s-%s, peak %s: %s; the picture is busier than %d%% of it."
                      % (i, recording.clock(s["start"]), recording.clock(s["end"]), recording.clock(s["peak"]), sound,
                         s["busier"]))
-    lines.append("Nothing in these stretches has been looked at yet: look at a stretch before you choose it.")
+    lines.append("Nothing in these stretches has been looked at yet: look at a stretch (its start and end as written "
+                 "here) before you propose it.")
+    return "\n".join(lines)
+
+
+LOOK_FRAMES = 4
+SHORTEST_LOOK, LONGEST_LOOK = 2, 600
+MOST_MOMENTS = 3
+
+
+def _time(name, text):
+    t = recording.seconds_of(text)
+    if t is None:
+        raise Refused('%s must be a time as the map writes it, like 1:51:44 or 35:43, or in seconds, like 6704; "%s" '
+                      'is not one.' % (name, text))
+    return t
+
+
+def look_at_piece(job, why, start, end, frames=LOOK_FRAMES):
+    rec = _open(job, "look at")
+    clock, length = recording.clock, rec["seconds"]
+    a, b = _time("start", start), _time("end", end)
+    if a >= length:
+        raise Refused("start %s is after the end of the recording, which is %s long." % (clock(a), clock(length)))
+    if b <= a:
+        raise Refused("end %s must come after start %s." % (clock(b), clock(a)))
+    fixed = ""
+    if b > length:
+        b, fixed = length, "The end was after the end of the recording, so this look ends there, at %s." % clock(length)
+    if b - a < SHORTEST_LOOK:
+        raise Refused("A look needs at least %d s from start to end; %s-%s is %.1f s."
+                      % (SHORTEST_LOOK, clock(a), clock(b), b - a))
+    if b - a > LONGEST_LOOK:
+        raise Refused("A look covers at most %d minutes; %s-%s is %s. Look at a shorter stretch, such as one the map "
+                      "lists." % (LONGEST_LOOK // 60, clock(a), clock(b), clock(b - a)))
+    a, b, looks = round(a, 2), round(b, 2), job.chat.looks
+    for seen in looks:
+        if (seen["start"], seen["end"], len(seen["pictures"])) == (a, b, frames):
+            raise Refused("Look %d already showed %s-%s in %d pictures, and they are earlier in this conversation. Look "
+                          "somewhere else (earlier, wider, or the next stretch of the map), or propose the moments you "
+                          "have looked at." % (seen["n"], clock(a), clock(b), frames))
+    look = {"n": len(looks) + 1, "start": a, "end": b, "pictures": [], "loudest": None}
+    for i in range(frames):
+        t = round(a + (i + 0.5) * (b - a) / frames, 2)
+        picture = recording.frame(rec, at=t)
+        if not picture:
+            raise Refused("ffmpeg could not take a picture from %s at %s, so nothing was looked at. Tell the person."
+                          % (rec["name"], clock(t)))
+        look["pictures"].append({"t": t, "frame": picture})
+    for i, p in enumerate(look["pictures"], 1):
+        job.attach(os.path.join(recording.WORK, "frames", p["frame"]),
+                   "Look %d, picture %d of %d, at %s:" % (look["n"], i, frames, clock(p["t"])))
+    lines = ["Look %d: %s-%s (%d s). Its %d pictures come next, each with its time."
+             % (look["n"], clock(a), clock(b), round(b - a), frames)]
+    if fixed:
+        lines.append(fixed)
+    m = maps.kept(rec)
+    peak = maps.loudest(m, a, b) if m else None
+    if peak:
+        look["loudest"] = peak[0]
+        lines.append("The sound rises most at %s, %+.1f dB over the minutes around it." % (clock(peak[0]), peak[1]))
+    lines.append("What is said here has not been heard yet, so judge by the pictures%s."
+                 % (" and the sound" if peak else ""))
+    lines.append("Next: in your next why, say what you saw and what led up to the peak. Then look earlier if the start "
+                 "of the action is missing, look wider if you need more, look at the next stretch of the map, or "
+                 "propose the moments you have looked at.")
+    looks.append(look)
+    job.show(look=look)
+    return "\n".join(lines)
+
+
+def propose_moments(job, why, moments):
+    rec = _open(job, "propose")
+    clock, looks = recording.clock, job.chat.looks
+    if not looks:
+        raise Refused("You have not looked at any stretch yet. Look first: a moment you propose must be one you saw.")
+    picked = []
+    for i, m in enumerate(moments, 1):
+        if not 1 <= m["look"] <= len(looks):
+            raise Refused("Moment %d names look %d, but your looks are: %s. Name one of them, or look first."
+                          % (i, m["look"], "; ".join("%d. %s-%s" % (s["n"], clock(s["start"]), clock(s["end"]))
+                                                      for s in looks)))
+        look = looks[m["look"] - 1]
+        a = _time("moment %d's start" % i, m["start"]) if m.get("start") else look["start"]
+        b = _time("moment %d's end" % i, m["end"]) if m.get("end") else look["end"]
+        if round(a) < round(look["start"]) or round(b) > round(look["end"]) or b <= a:
+            raise Refused("Moment %d (%s-%s) is not inside look %d (%s-%s). Give a start and an end inside what you "
+                          "saw, or look at that stretch first." % (i, clock(a), clock(b), look["n"],
+                                                                   clock(look["start"]), clock(look["end"])))
+        a, b = max(a, look["start"]), min(b, look["end"])
+        if not SHORTEST <= round(b - a) <= LONGEST:
+            raise Refused("Moment %d is %d s long; a clip is %d to %d s. Give it a start and an end inside look %d "
+                          "(%s-%s)." % (i, round(b - a), SHORTEST, LONGEST, look["n"], clock(look["start"]),
+                                        clock(look["end"])))
+        pictures = look["pictures"]
+        if m.get("picture") and m["picture"] > len(pictures):
+            raise Refused("Look %d has %d pictures, so moment %d cannot show picture %d."
+                          % (look["n"], len(pictures), i, m["picture"]))
+        aim = look["loudest"] if look["loudest"] is not None and a <= look["loudest"] <= b else (a + b) / 2
+        shown = pictures[m["picture"] - 1] if m.get("picture") else min(pictures, key=lambda p: abs(p["t"] - aim))
+        for other in picked:
+            if a < other["end"] and other["start"] < b:
+                raise Refused("Moments %d and %d overlap (%s-%s and %s-%s). Each moment must be its own stretch: move "
+                              "one, or keep only the better." % (other["n"], i, clock(other["start"]),
+                                                                  clock(other["end"]), clock(a), clock(b)))
+        picked.append({"n": i, "look": look["n"], "start": round(a, 2), "end": round(b, 2), "reason": m["reason"],
+                       "frame": shown["frame"], "t": shown["t"]})
+    for p in picked:
+        p["preview"] = previews.cut(job.chat, job.n, rec, p["start"], p["end"])
+    job.chat.moments = picked
+    job.show(moments=picked)
+    lines = ["Proposed %d moment%s. The person sees each as a card with your reason and a picture from your look; a "
+             "rough video of each is being cut and plays on its card when it is ready."
+             % (len(picked), "" if len(picked) == 1 else "s")]
+    lines += ["%d. %s-%s (%d s, from look %d): %s" % (p["n"], clock(p["start"]), clock(p["end"]),
+                                                     round(p["end"] - p["start"]), p["look"], p["reason"])
+              for p in picked]
+    lines.append("Go on with moment 1 by yourself: do not ask the person to choose, and do not list the moments again "
+                 "in words. They can tap another card to switch. Nothing is cut, laid out, captioned or blurred until a "
+                 "tool's result says it is: never tell the person a clip is ready when no tool made it.")
     return "\n".join(lines)
 
 
@@ -307,5 +463,38 @@ TOOLS = {t.name: t for t in [
           "top": {"type": "integer", "minimum": 1, "maximum": 12,
                   "description": "How many stretches to list (1 to 12, default 6)."}},
          [], map_recording),
+    Tool("look_at_piece", "Looked at a piece",
+         "Look at one stretch of the open recording: pictures spread evenly from start to end, each its own picture "
+         "with its time, sent to you right after the result. Look at a stretch before you propose it. To see what "
+         "led up to a peak, look earlier; to see more around it, look wider (at most 10 minutes).",
+         {"start": {"type": "string", "maxLength": 20,
+                    "description": "Where the stretch starts, written as the map writes times, like 1:51:23."},
+          "end": {"type": "string", "maxLength": 20, "description": "Where it ends, written the same way."},
+          "frames": {"type": "integer", "minimum": 2, "maximum": 6,
+                     "description": "How many pictures (2 to 6, default %d)." % LOOK_FRAMES}},
+         ["start", "end"], look_at_piece, changes=True),
+    Tool("propose_moments", "Proposed the moments",
+         "Propose the best moments for the clip, best first, each from a look you made. The person sees each as a "
+         "card with your reason, a picture from your look and a rough video of the stretch. Then go on with the "
+         "best one yourself; do not ask the person to choose.",
+         {"moments": {"type": "array", "minItems": 1, "maxItems": MOST_MOMENTS,
+                      "description": "1 to %d moments, best first." % MOST_MOMENTS,
+                      "items": {"type": "object", "properties": {
+                          "look": {"type": "integer", "minimum": 1,
+                                   "description": "The number of the look you saw this moment in."},
+                          "reason": {"type": "string", "maxLength": 300,
+                                     "description": "One line for the person, in their language: what happens, and "
+                                                    "what leads up to it, as you saw it."},
+                          "start": {"type": "string", "maxLength": 20,
+                                    "description": "Where the moment starts, inside that look, like 1:51:30. Leave "
+                                                   "it out to start where the look starts."},
+                          "end": {"type": "string", "maxLength": 20,
+                                  "description": "Where it ends, inside that look. Leave it out to end where the "
+                                                 "look ends."},
+                          "picture": {"type": "integer", "minimum": 1, "maximum": 6,
+                                      "description": "Which picture of that look shows the moment best. Leave it out "
+                                                     "for the one nearest the loudest second."}},
+                                "required": ["look", "reason"]}}},
+         ["moments"], propose_moments, changes=True),
 ]}
 SCHEMAS = [t.schema() for t in TOOLS.values()]

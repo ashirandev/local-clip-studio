@@ -27,7 +27,7 @@ const fileInput = document.getElementById("file");
 const dropCover = document.getElementById("dropCover");
 const idle = text.placeholder;
 
-const room = { mind: localStore("mind") || "local", minds: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null };
+const room = { mind: localStore("mind") || "local", minds: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null };
 
 function localStore(key, value) {
   try {
@@ -142,10 +142,12 @@ function drawPlan(j, e) {
 function drawStep(j, e) {
   const div = el("div", "step" + (e.refused ? " refused" : ""));
   const head = el("p", "step-head");
-  head.append(el("span", "n", String(e.step)), el("span", "label", e.label || e.tool));
+  const label = e.look ? "Looked at " + clock(e.look.start) + "–" + clock(e.look.end) : e.label || e.tool;
+  head.append(el("span", "n", String(e.step)), el("span", "label", label));
   div.appendChild(head);
   if (e.said) div.appendChild(el("p", "said", e.said));
   div.appendChild(el("p", "why", e.why || "Muse gave no reason for this step."));
+  if (e.look) div.appendChild(lookStrip(e.look));
   if (e.refused) div.appendChild(el("p", "result simple", "That did not work, so Muse tried again."));
   const input = inputLine(e.input);
   if (input) div.appendChild(el("p", "input detail", input));
@@ -156,6 +158,100 @@ function drawStep(j, e) {
   if (e.thinking) div.appendChild(fold("How Muse decided", e.thinking, "thinking"));
   if (e.engine) div.appendChild(el("p", "engine detail", engineLine(e.engine, j.mind)));
   j.flow.appendChild(div);
+  if (e.moments) drawMoments(j, e.moments);
+}
+
+function lookStrip(look) {
+  const row = el("div", "look");
+  look.pictures.forEach((p, i) => {
+    const fig = el("figure");
+    const img = el("img");
+    img.src = "/api/frame/" + p.frame;
+    img.alt = "Picture " + (i + 1) + " of " + look.pictures.length + ", at " + clock(p.t);
+    img.loading = "lazy";
+    fig.append(img, el("figcaption", null, clock(p.t)));
+    row.appendChild(fig);
+  });
+  return row;
+}
+
+function span(m) {
+  return clock(m.start) + "–" + clock(m.end);
+}
+
+function drawMoments(j, moments) {
+  document.querySelectorAll(".moments .chip").forEach((b) => (b.disabled = true));
+  const div = el("div", "moments");
+  div.appendChild(el("p", "moments-head", "The moments Muse found"));
+  const list = el("ol", "moment-list");
+  moments.forEach((m) => {
+    const li = el("li", "moment");
+    li.dataset.preview = m.preview;
+    const media = el("div", "moment-media");
+    const img = el("img");
+    img.src = "/api/frame/" + m.frame;
+    img.alt = "A picture from moment " + m.n + ", at " + clock(m.t);
+    media.append(img, el("span", "moment-wait", "Cutting a preview…"));
+    const body = el("div", "moment-body");
+    body.append(el("p", "moment-head", "Moment " + m.n + " · " + span(m) + " · " + Math.round(m.end - m.start) + " s"), el("p", "moment-why", m.reason));
+    if (m.n === 1) {
+      body.appendChild(el("p", "moment-pick", "Muse starts with this one"));
+    } else {
+      const b = el("button", "chip", "Use this one instead");
+      b.type = "button";
+      b.addEventListener("click", () => {
+        showMoment(m);
+        say("(tapped) Use moment " + m.n + " (" + clock(m.start) + "-" + clock(m.end) + ") instead.");
+      });
+      body.appendChild(b);
+    }
+    li.append(media, body);
+    list.appendChild(li);
+    if (room.cut[m.preview]) fillPreview(li, room.cut[m.preview]);
+  });
+  div.appendChild(list);
+  j.flow.appendChild(div);
+  showMoment(moments[0]);
+}
+
+function fillPreview(li, e) {
+  const media = li.querySelector(".moment-media");
+  if (!e.ok) {
+    media.querySelector(".moment-wait").textContent = "No preview: " + e.error;
+    return;
+  }
+  const v = el("video");
+  v.src = "/api/preview/" + e.name;
+  v.poster = media.querySelector("img").src;
+  v.controls = true;
+  v.preload = "metadata";
+  v.playsInline = true;
+  media.replaceChildren(v);
+}
+
+function showMoment(m) {
+  room.showing = m;
+  const ready = room.cut[m.preview];
+  if (ready && ready.ok) {
+    const v = el("video");
+    v.src = "/api/preview/" + m.preview;
+    v.muted = true;
+    v.autoplay = true;
+    v.loop = true;
+    v.playsInline = true;
+    v.controls = true;
+    v.setAttribute("aria-label", "A rough preview of moment " + m.n);
+    frameBox.replaceChildren(v);
+  } else {
+    const img = el("img");
+    img.src = "/api/frame/" + m.frame;
+    img.alt = "A picture from moment " + m.n;
+    frameBox.replaceChildren(img);
+  }
+  clipTitle.textContent = "Moment " + m.n;
+  clipPill.textContent = "Show moment " + m.n;
+  clipLine.textContent = span(m) + " of your video. " + (ready && ready.ok ? "A rough preview" : "Cutting a rough preview") + "; your clip shows here instead once Muse makes it.";
+  popClip();
 }
 
 function drawAnswer(j, e) {
@@ -276,6 +372,14 @@ function on(e) {
   }
   if (e.kind === "opened") {
     showRecording(e);
+    return;
+  }
+  if (e.kind === "preview") {
+    room.cut[e.name] = e;
+    document.querySelectorAll(".moment").forEach((li) => {
+      if (li.dataset.preview === e.name) fillPreview(li, e);
+    });
+    if (room.showing && room.showing.preview === e.name) showMoment(room.showing);
     return;
   }
   const j = job(e.job);
@@ -416,6 +520,8 @@ function show(chatId) {
   room.last = -1;
   room.jobs = {};
   room.open = new Set();
+  room.cut = {};
+  room.showing = null;
   log.replaceChildren(welcome.cloneNode(true));
   clearClip();
   fillNewest();

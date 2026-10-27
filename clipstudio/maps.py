@@ -99,6 +99,7 @@ def measure(rec, on_progress=None, on_start=None):
                 name, _, value = raw.decode("ascii", "replace").strip().partition("=")
                 if name == "out_time_us" and on_progress and value.isdigit():
                     on_progress(int(value) / 1e6)
+            proc.stdout.close()
             proc.wait()
         if stopped.is_set():
             raise Stopped()
@@ -152,12 +153,7 @@ def rank(m, weights, window, top):
     before a stream starts does not make its first words a peak. Each stretch is window seconds long with most of
     it before its peak, so what led up to the peak is in it."""
     n = m["seconds"]
-    heard = [v for v in m["sound"] if v is not None]
-    floor = min(heard) if heard else QUIET_DB
-    sound = [floor if v is None else v for v in m["sound"]]
-    usual = _quantile(sound, USUAL)
-    rise = [sound[t] - max(usual, statistics.median(sound[max(0, t - AROUND):t + AROUND + 1])) for t in range(n)]
-    loud = [sum(rise[max(0, t - 1):t + 2]) / 3 for t in range(n)]
+    loud, heard = _loud(m)
     gap = [0.0] * n
     last = 0
     for t, change in m["keyframes"]:
@@ -179,8 +175,30 @@ def rank(m, weights, window, top):
             continue
         out.append({"start": start, "end": end, "peak": peak, "rise": round(loud[peak], 1),
                     "louder": int(100 * louder[peak]) if heard else None, "busier": int(100 * busier[peak])})
-    return out, {"heard": bool(heard), "flat": bool(heard) and max(loud) < FLAT_DB, "loudest_rise": round(max(loud), 1)
+    return out, {"heard": heard, "flat": heard and max(loud) < FLAT_DB, "loudest_rise": round(max(loud), 1)
                  if heard else None, "every": _keyframe_gap(m)}
+
+
+def loudest(m, start, end):
+    """(The second between start and end where the sound rises most, how far it rises in dB), or None when the
+    recording has no sound."""
+    loud, heard = _loud(m)
+    span = range(max(0, int(start)), min(m["seconds"], int(math.ceil(end))))
+    if not heard or not span:
+        return None
+    t = max(span, key=lambda s: loud[s])
+    return t, round(loud[t], 1)
+
+
+def _loud(m):
+    """(How far each second's sound rises over the minutes around it, as a 3 s mean in dB; whether there is sound)."""
+    n = m["seconds"]
+    heard = [v for v in m["sound"] if v is not None]
+    floor = min(heard) if heard else QUIET_DB
+    sound = [floor if v is None else v for v in m["sound"]]
+    usual = _quantile(sound, USUAL)
+    rise = [sound[t] - max(usual, statistics.median(sound[max(0, t - AROUND):t + AROUND + 1])) for t in range(n)]
+    return [sum(rise[max(0, t - 1):t + 2]) / 3 for t in range(n)], bool(heard)
 
 
 def _quantile(xs, q):

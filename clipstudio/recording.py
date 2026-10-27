@@ -8,6 +8,7 @@ made by ffmpeg, is kept in work/frames to show on the page.
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -19,6 +20,7 @@ SMALLEST = 1_000_000
 MOST_FILES_LOOKED_AT = 50_000
 SAME_TIME = 2.0
 PROBE_SECONDS = 30
+NUMBER = re.compile(r"^\d+(\.\d+)?$")
 
 
 class NotOpened(Exception):
@@ -113,12 +115,15 @@ def probe(path):
             "codec": video.get("codec_name") or ""}
 
 
-def frame(rec):
-    """One picture from a tenth of the way in, 540 pixels on its long side: the file name in work/frames, or None."""
+def frame(rec, at=None):
+    """One picture at second at (default: a tenth of the way in), 540 pixels on its long side: the file name in
+    work/frames, or None."""
     tool = shutil.which("ffmpeg")
     if not tool:
         return None
-    key = hashlib.sha1(("%s|%d|%s" % (rec["path"], rec["size"], rec["mtime"])).encode("utf-8")).hexdigest()[:16]
+    at = rec["seconds"] / 10 if at is None else at
+    key = hashlib.sha1(("%s|%d|%s|%.2f" % (rec["path"], rec["size"], rec["mtime"], at)).encode("utf-8")
+                       ).hexdigest()[:16]
     folder = os.path.join(WORK, "frames")
     os.makedirs(folder, exist_ok=True)
     name = key + ".jpg"
@@ -126,7 +131,7 @@ def frame(rec):
     if not os.path.isfile(target):
         temp = os.path.join(folder, key + ".part.jpg")
         try:
-            subprocess.run([tool, "-v", "error", "-y", "-ss", "%.2f" % (rec["seconds"] / 10), "-i", rec["path"],
+            subprocess.run([tool, "-v", "error", "-y", "-ss", "%.2f" % at, "-i", rec["path"],
                             "-frames:v", "1", "-vf", "scale='if(gt(iw,ih),540,-2)':'if(gt(iw,ih),-2,540)'",
                             temp], capture_output=True, timeout=PROBE_SECONDS, check=True)
             os.replace(temp, target)
@@ -146,6 +151,21 @@ def describe(rec):
 def clock(seconds):
     s = int(round(seconds))
     return "%d:%02d:%02d" % (s // 3600, s % 3600 // 60, s % 60) if s >= 3600 else "%d:%02d" % (s // 60, s % 60)
+
+
+def seconds_of(text):
+    """Seconds from a time written as clock() writes it (1:51:44, 35:43) or as plain seconds (6704, 6704.5);
+    None when it is not a time."""
+    parts = str(text).strip().split(":")
+    if not 1 <= len(parts) <= 3 or not all(NUMBER.match(p) for p in parts):
+        return None
+    numbers = [float(p) for p in parts]
+    if any(n >= 60 for n in numbers[1:]):
+        return None
+    total = 0.0
+    for n in numbers:
+        total = total * 60 + n
+    return total
 
 
 def size_text(n):
