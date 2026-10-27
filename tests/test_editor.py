@@ -939,12 +939,14 @@ class Tools(unittest.TestCase):
         brain, steps = self.run_job(
             [call("open_recording", path=self.clip, why="เปิดไฟล์ที่ระบุ")],
             [call("look_at_piece", start="0:30", end="0:50", why="ดูช่วงที่ไมไ่ด้ดู")],
+            [call("propose_moments", why="เสนอ", moments=[{"look": 1, "reason": "ช่วงที่ต้วเลขชัด"}])],
             "เสร็จแล้ว ต้วเลขครบ",
-            '{"texts": ["ดูช่วงที่ไม่ได้ดู", "เสร็จแล้ว ตัวเลขครบ"]}')
+            '{"texts": ["ดูช่วงที่ไม่ได้ดู", "ช่วงที่ตัวเลขชัด", "เสร็จแล้ว ตัวเลขครบ"]}')
         self.chat.job.speller.join(10)
         spelled = [e for e in self.chat.events if e["kind"] == "spelled"]
         self.assertEqual(spelled[-1]["fixes"], [
             {"kind": "step", "step": 2, "field": "why", "text": "ดูช่วงที่ไม่ได้ดู"},
+            {"kind": "moment", "step": 3, "index": 0, "text": "ช่วงที่ตัวเลขชัด"},
             {"kind": "answer", "index": 0, "text": "เสร็จแล้ว ตัวเลขครบ"}])
         self.assertEqual(len(brain.sent[-1]), 1, "asked apart from the job's conversation")
         whys = [json.loads(c["function"]["arguments"]).get("why") for m in self.chat.messages

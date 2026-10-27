@@ -123,7 +123,7 @@ function job(n) {
     foot.hidden = true;
     box.append(plan, flow, live, foot);
     log.appendChild(box);
-    room.jobs[n] = { box, plan, flow, live, liveLine, liveThinking, foot, mind: "", steps: {}, answers: [] };
+    room.jobs[n] = { box, plan, flow, live, liveLine, liveThinking, foot, mind: "", steps: {}, answers: [], moments: {} };
   }
   return room.jobs[n];
 }
@@ -170,7 +170,7 @@ function drawStep(j, e) {
   if (e.thinking) div.appendChild(fold("How Muse decided", e.thinking, "thinking"));
   if (e.engine) div.appendChild(el("p", "engine detail", engineLine(e.engine, j.mind)));
   j.flow.appendChild(div);
-  if (e.moments) drawMoments(j, e.moments);
+  if (e.moments) j.moments[e.step] = drawMoments(j, e.moments);
 }
 
 function lookStrip(look) {
@@ -211,6 +211,7 @@ function drawMoments(j, moments) {
   const div = el("div", "moments");
   div.appendChild(el("p", "moments-head", "The moments Muse found"));
   const list = el("ol", "moment-list");
+  const reasons = [];
   moments.forEach((m) => {
     const li = el("li", "moment");
     li.dataset.preview = m.preview;
@@ -220,7 +221,9 @@ function drawMoments(j, moments) {
     img.alt = "A picture from moment " + m.n + ", at " + clock(m.t);
     media.append(img, el("span", "moment-wait", "Cutting a preview…"));
     const body = el("div", "moment-body");
-    body.append(el("p", "moment-head", "Moment " + m.n + " · " + span(m) + " · " + Math.round(m.end - m.start) + " s"), el("p", "moment-why", m.reason));
+    const why = el("p", "moment-why", m.reason);
+    reasons.push(why);
+    body.append(el("p", "moment-head", "Moment " + m.n + " · " + span(m) + " · " + Math.round(m.end - m.start) + " s"), why);
     if (m.said && m.said.length) body.appendChild(saidFold(m.said));
     if (m.n === 1) {
       body.appendChild(el("p", "moment-pick", "Muse starts with this one"));
@@ -240,6 +243,7 @@ function drawMoments(j, moments) {
   div.appendChild(list);
   j.flow.appendChild(div);
   showMoment(moments[0]);
+  return reasons;
 }
 
 function fillPreview(li, e) {
@@ -572,7 +576,7 @@ function on(e) {
     drawChecked(j, e);
   } else if (e.kind === "spelled") {
     e.fixes.forEach((f) => {
-      const spot = f.kind === "step" ? (j.steps[f.step] || {})[f.field] : j.answers[f.index];
+      const spot = f.kind === "step" ? (j.steps[f.step] || {})[f.field] : f.kind === "moment" ? (j.moments[f.step] || [])[f.index] : j.answers[f.index];
       if (spot) spot.textContent = f.text;
     });
   } else if (e.kind === "ready") {

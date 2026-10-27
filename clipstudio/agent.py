@@ -557,7 +557,7 @@ class Job:
             self.speller.start()
 
     def spell_shown(self):
-        """After the job, the reasons and answers it showed, with their Thai spelling fixed in one question of their
+        """After the job, the reasons, moment cards and answers it showed, with their Thai spelling fixed in one question of their
         own (words.spelled), as a "spelled" event the page redraws them from. Glimmer answers one question at a time,
         so the person's next message cancels it: it never keeps Muse waiting. What Muse reads back is not changed."""
         spots, texts, answers = [], [], 0
@@ -567,6 +567,10 @@ class Job:
                     if e.get(field):
                         spots.append({"kind": "step", "step": e["step"], "field": field})
                         texts.append(e[field])
+                for i, m in enumerate(e.get("moments") or []):
+                    if m.get("reason"):
+                        spots.append({"kind": "moment", "step": e["step"], "index": i})
+                        texts.append(m["reason"])
             elif e["kind"] == "answer":
                 if e.get("text"):
                     spots.append({"kind": "answer", "index": answers})
