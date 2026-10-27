@@ -409,6 +409,25 @@ function showFinished(file) {
   popClip();
 }
 
+function drawChecked(j, e) {
+  const due = e.checks.filter((c) => c.ok !== null);
+  const passed = due.filter((c) => c.ok).length;
+  const div = el("div", "checks" + (passed === due.length ? " all" : ""));
+  div.appendChild(el("p", "checks-head", "Checked " + passed + " of " + due.length + " on the finished file"));
+  const list = el("ul", "checks-list");
+  e.checks.forEach((c) => {
+    const li = el("li", c.ok === null ? "skip" : c.ok ? "pass" : "fail");
+    const mark = el("span", "mark", c.ok === null ? "–" : c.ok ? "✓" : "✗");
+    mark.setAttribute("aria-hidden", "true");
+    const words = el("span", "what");
+    words.append(el("span", "sr", c.ok === null ? "Not needed: " : c.ok ? "Passed: " : "Failed: "), el("b", null, c.name), el("small", null, c.found + (c.who === "program" ? "" : " · " + c.who)));
+    li.append(mark, words);
+    list.appendChild(li);
+  });
+  div.appendChild(list);
+  j.flow.appendChild(div);
+}
+
 function drawReady(j, e) {
   const div = el("div", "ready");
   div.appendChild(el("p", "ready-head", "Ready to post"));
@@ -544,6 +563,8 @@ function on(e) {
     drawAnswer(j, e);
   } else if (e.kind === "rendered") {
     showFinished(e.file);
+  } else if (e.kind === "checked") {
+    drawChecked(j, e);
   } else if (e.kind === "ready") {
     drawReady(j, e);
   } else if (e.kind === "cut") {

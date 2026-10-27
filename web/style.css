@@ -350,6 +350,28 @@ body.details .simple { display: none !important; }
   align-items: start;
 }
 
+.checks { padding: 10px 14px; border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: 14px; background: var(--surface); }
+
+.checks.all { border-left-color: var(--ok); }
+
+.checks-head { margin: 0; font-weight: 600; font-size: 15px; }
+
+.checks-list { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+
+.checks-list li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; align-items: start; }
+
+.checks-list .mark { font-weight: 700; text-align: center; }
+
+.checks-list .pass .mark { color: var(--ok); }
+
+.checks-list .fail .mark, .checks-list .fail b { color: var(--warn); }
+
+.checks-list .skip { color: var(--muted); }
+
+.checks-list .what { display: grid; overflow-wrap: anywhere; }
+
+.checks-list small { color: var(--muted); font-size: 14px; }
+
 .ready-head { grid-column: 1 / -1; margin: 0; font-weight: 600; font-size: 15px; color: var(--ok); }
 
 .ready video { display: block; width: 100%; aspect-ratio: 9 / 16; border-radius: 10px; background: var(--frame); }
