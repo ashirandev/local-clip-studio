@@ -376,11 +376,41 @@ def _card(crop, notes):
     return _within_even([x, y, cw, ch]), _even(height)
 
 
-def to_frame(layout, box):
+def face_room(layout):
+    """The face's box grown as the card leaves it out, or None when the layout has no face."""
+    return _grown(layout["face"], LEAVE_OUT, *layout["size"]) if layout.get("face") else None
+
+
+def followed(layout, plan):
+    """The card layout with its card following the action (focus.plan): the card shows plan's window, at the place
+    of each shot in turn."""
+    first = plan["shots"][0]
+    parts = [dict(p, src=[first["x"], first["y"]] + list(plan["size"]), follow=plan["shots"]) if p["name"] == "card"
+             else p for p in layout["parts"]]
+    return dict(layout, parts=parts)
+
+
+def parts_at(layout, t):
+    """The parts as they are at clip second t: a talk clip's shot on screen, a following card at its place then."""
+    if layout["kind"] == "talk":
+        from . import talk
+        return talk.parts_at(layout, t)
+    from . import focus
+    return [dict(p, src=[round(v) for v in focus.at(p["follow"], t)] + p["src"][2:]) if p.get("follow") else p
+            for p in layout["parts"]]
+
+
+def to_frame(layout, box, at=None):
     """Where a box of the recording shows in the clip's frame: a list of frame boxes, one for each part it is in
-    (the blurred background is not counted)."""
+    (the blurred background is not counted). At clip second at, or when at is None, anywhere it may show: once for
+    each place a following card holds."""
+    if at is not None:
+        parts = parts_at(layout, at)
+    else:
+        parts = [dict(p, src=[s["x"], s["y"]] + p["src"][2:]) for p in layout["parts"]
+                 for s in (p.get("follow") or [{"x": p["src"][0], "y": p["src"][1]}])]
     out = []
-    for part in layout["parts"]:
+    for part in parts:
         sx, sy, sw, sh = part["src"]
         dx, dy, dw, dh = part["dst"]
         x0, y0 = max(box[0], sx), max(box[1], sy)
@@ -481,10 +511,15 @@ def _pushed(part, pushes):
 
 
 def _scaled(part):
-    """crop and scale for a part, sharpened a little when it is enlarged a lot."""
+    """crop and scale for a part, sharpened a little when it is enlarged a lot. A following card's crop moves with t."""
     x, y, w, h = part["src"]
     dw, dh = part["dst"][2:]
-    text = "crop=%d:%d:%d:%d,scale=%d:%d:flags=lanczos" % (w, h, x, y, dw, dh)
+    if part.get("follow"):
+        from . import focus
+        text = "crop=w=%d:h=%d:x='%s':y='%s',scale=%d:%d:flags=lanczos" % (
+            w, h, focus.expression(part["follow"], "x"), focus.expression(part["follow"], "y"), dw, dh)
+    else:
+        text = "crop=%d:%d:%d:%d,scale=%d:%d:flags=lanczos" % (w, h, x, y, dw, dh)
     if dw / w >= SHARPEN_FROM:
         text += "," + SHARPEN
     return text

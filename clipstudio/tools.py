@@ -16,8 +16,8 @@ import shutil
 import subprocess
 import time
 
-from . import (effects, faces, hearing, layouts, maps, mind, previews, project, recording, render, screen, spoken,
-               talk, text, thai, tracks, words)
+from . import (effects, faces, focus, hearing, layouts, maps, mind, previews, project, recording, render, screen,
+               spoken, talk, text, thai, tracks, words)
 from .recipes import RECIPES, SIGNALS
 
 WHY = {"type": "string",
@@ -534,7 +534,7 @@ def _face_times(state, rec):
     lay = clip["layout"]
 
     def on_frame(at, box):
-        return layouts.to_frame(dict(lay, parts=talk.parts_at(lay, at)) if lay["kind"] == "talk" else lay, box)
+        return layouts.to_frame(lay, box, at)
 
     product = layouts.to_frame(lay, clip["product"]) if clip.get("product") else []
     if product:
@@ -619,7 +619,7 @@ def _show_frame(job, state, rec, t, caption):
     return "Its frame at %g s comes next as a picture." % round(t, 2)
 
 
-def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
+def make_clip(job, why, moment, layout, crop=None, face=None, product=None, follow=True):
     rec = _open(job, "make a clip from")
     moments = job.chat.moments
     if not moments:
@@ -641,6 +641,9 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
         lay = layouts.make(layout, (rec["width"], rec["height"]), box, _pixels("crop", crop, rec) if crop else None)
     except ValueError as e:
         raise Refused(str(e))
+    following = ""
+    if lay["kind"] == "card" and follow and not crop and _reads_screen(job):
+        lay, following = _follow(rec, lay, [[a, b]])
     item = [round(v) for v in _pixels("product", product, rec)] if product else None
     if item and not layouts.to_frame(lay, item):
         lay["notes"].append("The product you named is not in the clip's picture: choose a crop that holds it.")
@@ -659,6 +662,8 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
         state = job.edit({"do": "blur", "box": f["box"], "start": f["start"], "end": f["end"], "private": f["kind"]})
     lines = ["Made the clip from moment %d (%s-%s, %g s) in the %s layout." % (
         moment, recording.clock(a), recording.clock(b), state["length"], lay["kind"]), face_line] + lay["notes"]
+    if following:
+        lines.append(following)
     if private["said"]:
         lines.append(private["said"])
     if lay.get("safe"):
@@ -684,6 +689,31 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
                  "Then put the title on.")
     job.show(clip=job.chat.clip_view())
     return "\n".join(lines)
+
+
+def _follow(rec, lay, pieces):
+    """(the card layout following the action on the screen, the sentence for Muse), or the layout as it was."""
+    card = next(p for p in lay["parts"] if p["name"] == "card")
+    whole = card["src"][2]
+    try:
+        plan = focus.plan(rec, pieces, [0, 0, rec["width"], rec["height"]], card["dst"][2] / float(card["dst"][3]),
+                          layouts.face_room(lay))
+    except focus.FocusError as e:
+        return lay, "The card shows the whole screen: the screen could not be looked at (%s)." % e
+    if not plan:
+        return lay, ("The card shows the whole screen: the screen changes everywhere at once, or nowhere, so no one "
+                     "part of it is where the action is.")
+    size, shots = plan["size"], plan["shots"]
+    if len(shots) == 1:
+        moves = "holds one place, %s on your grid" % _grid([shots[0]["x"], shots[0]["y"]] + size, rec)
+    else:
+        moves = "moves to where the screen changes, %d places: %s" % (len(shots), "; ".join(
+            "%s on your grid from %g s" % (_grid([s["x"], s["y"]] + size, rec), s["from"]) for s in shots))
+    return layouts.followed(lay, plan), (
+        "The card follows the action on the screen: it shows %d x %d of the %d x %d picture, so the words on the "
+        "screen are %.1f times as big as on the card without following, and it %s. It never shows the face camera. "
+        "If it shows the wrong part, make the clip again with a crop around what matters, or with follow false for "
+        "the whole screen." % (size[0], size[1], rec["width"], rec["height"], whole / float(size[0]), moves))
 
 
 def _reads_screen(job):
@@ -1734,7 +1764,7 @@ def _still_seen(state, clip_file):
         points = p["points"]
         for point in (points[len(points) // 4], points[len(points) // 2], points[3 * len(points) // 4]):
             t, box = point[0], point[1:]
-            shown = layouts.to_frame(lay, box)
+            shown = layouts.to_frame(lay, box, t)
             try:
                 found = faces.sample(clip_file, t, t + 0.1)
             except (faces.NoFaces, faces.Stopped):
@@ -2096,6 +2126,10 @@ TOOLS = {t.name: t for t in [
          {"moment": {"type": "integer", "minimum": 1, "maximum": MOST_MOMENTS,
                      "description": "The number of the moment you proposed."},
           "layout": {"type": "string", "enum": list(layouts.KINDS) + ["talk"], "description": "Which layout."},
+          "follow": {"type": "boolean",
+                     "description": "For a card of a screen: true (the default) lets the program zoom the card to "
+                                    "where the screen changes and move with it, so its words can be read on a "
+                                    "phone; false shows the whole screen."},
           "crop": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0,
                                                                               "maximum": 1000},
                    "description": "[x1, y1, x2, y2] on your 0-1000 grid of the recording's picture: the part to show "

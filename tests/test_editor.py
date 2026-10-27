@@ -15,7 +15,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, effects, faces, hearing, layouts, mind, project, recording, render, screen, talk, text, tools, words  # noqa: E402,E501
+from clipstudio import agent, effects, faces, focus, hearing, layouts, mind, project, recording, render, screen, talk, text, tools, words  # noqa: E402,E501
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_hearing import Worker  # noqa: E402
 from test_map import make_moment  # noqa: E402
@@ -1012,6 +1012,40 @@ class Tools(unittest.TestCase):
         self.assertIn('"Egret" is not on the screen, which shows "Eaglet"', refused["result"])
         self.assertIn("hand over again unchanged", refused["result"])
         self.assertFalse(ready["refused"], ready["result"])
+
+    def test_a_tutorial_card_follows_the_action_and_muse_can_turn_it_off(self):
+        planned = []
+
+        def plan(rec, pieces, region, aspect, avoid=None):
+            planned.append((pieces, region, round(aspect, 2), avoid))
+            return {"zoom": 0.5, "size": [160, 104], "shots": [{"from": 0.0, "to": 8.0, "x": 10, "y": 6},
+                                                                  {"from": 8.0, "to": 20.0, "x": 150, "y": 70}]}
+
+        had, focus.plan = focus.plan, plan
+        screen_had, screen.readings = screen.readings, lambda rec, a, b, on_start=None: [{"at": a, "lines": []}]
+        try:
+            _, steps = self.run_job(*self.to_moment(), [call("load_recipe", type="explain", why="a tutorial")],
+                                    [call("make_clip", moment=1, layout="card", why="the screen")],
+                                    [call("make_clip", moment=1, layout="card", follow=False, why="whole")],
+                                    [call("make_clip", moment=1, layout="card", crop=[0, 0, 500, 500], why="mine")],
+                                    "Done.")
+            followed = self.chat.project.entries[-3]["layout"]
+        finally:
+            focus.plan, screen.readings = had, screen_had
+        made, whole, cropped = steps[-3:]
+        self.assertFalse(made["refused"], made["result"])
+        self.assertIn("The card follows the action on the screen: it shows 160 x 104 of the 320 x 180 picture",
+                      made["result"])
+        self.assertIn("moves to where the screen changes, 2 places:", made["result"])
+        self.assertNotIn("could not be drawn", made["result"], "FFmpeg draws the moving card")
+        card = next(p for p in followed["parts"] if p["name"] == "card")
+        self.assertEqual((card["src"], card["follow"][1]["x"]), ([10, 6, 160, 104], 150))
+        self.assertEqual(len(planned), 1, "only the first make_clip follows")
+        self.assertEqual((planned[0][0], planned[0][1]), ([[30.0, 50.0]], [0, 0, 320, 180]))
+        self.assertIsNotNone(planned[0][3], "the face camera is avoided")
+        self.assertNotIn("follows the action", whole["result"])
+        self.assertNotIn("follows the action", cropped["result"])
+        self.assertFalse(any(p.get("follow") for p in self.chat.project.state()["clip"]["layout"]["parts"]))
 
     def test_a_clip_whose_recipe_does_not_read_the_screen_is_not_read(self):
         asked = []

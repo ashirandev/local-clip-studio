@@ -159,6 +159,11 @@ the result and the engine numbers.
   key, an account number or a password, for as long as it shows. Patterns decide, not a model, and the words are
   never passed to Muse, so they cannot reach a title or a post. The last check reads the screen again and fails
   while a private line can be seen.
+- **A tutorial's screen is shown where the action is, at a size a phone can read.** A whole 1920-pixel screen on a
+  960-pixel card halves every word. In a screen explainer the program measures where the screen changes, second by
+  second, and the card shows that part, up to the screen's own size, panning when the action moves. It moves only
+  when the new place keeps changing and stays changed, so a tooltip or a notification does not pull it away, and it
+  never shows the face camera. When the change is everywhere (a scrolling page), it shows the whole screen.
 - **Every change is one entry, and undo takes it back.** The clip is a list of entries (the moment and layout, the
   style, titles, captions, blurs, hits). The same list draws the preview and the finished file. After each change
   Muse sees the frame it made, and the page shows the clip with a slider to any second. The person can undo on the
