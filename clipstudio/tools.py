@@ -10,8 +10,9 @@ refused with a sentence that says what to send instead, so Muse can fix it and c
 """
 import json
 import os
+import time
 
-from . import maps, previews, recording
+from . import hearing, maps, mind, previews, recording
 from .recipes import RECIPES, SIGNALS
 
 WHY = {"type": "string",
@@ -283,7 +284,11 @@ def look_at_piece(job, why, start, end, frames=LOOK_FRAMES):
             raise Refused("Look %d already showed %s-%s in %d pictures, and they are earlier in this conversation. Look "
                           "somewhere else (earlier, wider, or the next stretch of the map), or propose the moments you "
                           "have looked at." % (seen["n"], clock(a), clock(b), frames))
-    look = {"n": len(looks) + 1, "start": a, "end": b, "pictures": [], "loudest": None}
+    look = {"n": len(looks) + 1, "start": a, "end": b, "pictures": [], "loudest": None, "said": None}
+    try:
+        said = _what_is_said(job, rec, look)
+    except hearing.Stopped:
+        return "Not looked at: the person pressed Stop."
     for i in range(frames):
         t = round(a + (i + 0.5) * (b - a) / frames, 2)
         picture = recording.frame(rec, at=t)
@@ -303,14 +308,53 @@ def look_at_piece(job, why, start, end, frames=LOOK_FRAMES):
     if peak:
         look["loudest"] = peak[0]
         lines.append("The sound rises most at %s, %+.1f dB over the minutes around it." % (clock(peak[0]), peak[1]))
-    lines.append("What is said here has not been heard yet, so judge by the pictures%s."
-                 % (" and the sound" if peak else ""))
-    lines.append("Next: in your next why, say what you saw and what led up to the peak. Then look earlier if the start "
+    lines += said
+    lines.append("Next: in your next why, say what you saw and heard, and what led up to the peak. Then look earlier "
+                 "if the start "
                  "of the action is missing, look wider if you need more, look at the next stretch of the map, or "
                  "propose the moments you have looked at.")
     looks.append(look)
     job.show(look=look)
     return "\n".join(lines)
+
+
+def _what_is_said(job, rec, look):
+    """Lines for Muse about what is said in the look's stretch, as heard. The phrases go into look["said"].
+    Misheard words are fixed later, only for the moments Muse proposes (measured 10-27: the fix took 20-42 s a look
+    on Glimmer, the hearing 5.6 s, and most looks are not picked)."""
+    a, b, clock = look["start"], look["end"], recording.clock
+    if not rec["sound_tracks"]:
+        return ["The recording has no sound, so nothing is said."]
+    said = hearing.heard(rec, a, b)
+    if said is None:
+        started = time.time()
+        try:
+            said = job.hear(rec, a, b)
+        except hearing.HearingError as e:
+            return ["What is said here could not be heard: %s" % e]
+        look["took"] = round(time.time() - started, 1)
+        hearing.keep(rec, a, b, said)
+    look["said"] = said
+    if not said:
+        return ["No words were heard here."]
+    return (["What is said here, by time, as heard (some words may be misheard; the numbers are as heard):"] +
+            ["%s %s" % (clock(p["from"]), p["text"]) for p in said])
+
+
+def _fixed_said(job, look, a, b):
+    """The lines heard from a to b with misheard words fixed by Muse from the context: [{from, to, text, heard,
+    kept}], where kept says why a line stays as heard."""
+    said = [p for p in look.get("said") or [] if a <= p["from"] < b]
+    if not said:
+        return []
+    heard = [p["text"] for p in said]
+    before = [p["text"] for p in look["said"] if p["from"] < a]
+    clip = job.chat.clip
+    try:
+        fixed, kept = hearing.fix(job.ask_aside, heard, clip["title"] if clip else "video", before)
+    except mind.MindError as e:
+        fixed, kept = heard, ["Muse could not be asked (%s)" % e] * len(heard)
+    return [dict(p, text=text, heard=p["text"], kept=why) for p, text, why in zip(said, fixed, kept)]
 
 
 def propose_moments(job, why, moments):
@@ -349,16 +393,24 @@ def propose_moments(job, why, moments):
                                                                   clock(other["end"]), clock(a), clock(b)))
         picked.append({"n": i, "look": look["n"], "start": round(a, 2), "end": round(b, 2), "reason": m["reason"],
                        "frame": shown["frame"], "t": shown["t"]})
+    started = time.time()
+    try:
+        for p in picked:
+            p["said"] = _fixed_said(job, looks[p["look"] - 1], p["start"], p["end"])
+    except hearing.Stopped:
+        return "Not proposed: the person pressed Stop."
+    fixing = round(time.time() - started, 1)
     for p in picked:
         p["preview"] = previews.cut(job.chat, job.n, rec, p["start"], p["end"])
     job.chat.moments = picked
-    job.show(moments=picked)
-    lines = ["Proposed %d moment%s. The person sees each as a card with your reason and a picture from your look; a "
-             "rough video of each is being cut and plays on its card when it is ready."
-             % (len(picked), "" if len(picked) == 1 else "s")]
-    lines += ["%d. %s-%s (%d s, from look %d): %s" % (p["n"], clock(p["start"]), clock(p["end"]),
-                                                     round(p["end"] - p["start"]), p["look"], p["reason"])
-              for p in picked]
+    job.show(moments=picked, fixing=fixing)
+    lines = ["Proposed %d moment%s. The person sees each as a card with your reason, a picture from your look and "
+             "what is said in it, misheard words fixed from the context; a rough video of each is being cut and plays "
+             "on its card when it is ready." % (len(picked), "" if len(picked) == 1 else "s")]
+    for p in picked:
+        lines.append("%d. %s-%s (%d s, from look %d): %s" % (p["n"], clock(p["start"]), clock(p["end"]),
+                                                           round(p["end"] - p["start"]), p["look"], p["reason"]))
+        lines += ["   %s %s%s" % (clock(s["from"]), s["text"], " (as heard)" if s["kept"] else "") for s in p["said"]]
     lines.append("Go on with moment 1 by yourself: do not ask the person to choose, and do not list the moments again "
                  "in words. They can tap another card to switch. Nothing is cut, laid out, captioned or blurred until a "
                  "tool's result says it is: never tell the person a clip is ready when no tool made it.")
@@ -465,8 +517,9 @@ TOOLS = {t.name: t for t in [
          [], map_recording),
     Tool("look_at_piece", "Looked at a piece",
          "Look at one stretch of the open recording: pictures spread evenly from start to end, each its own picture "
-         "with its time, sent to you right after the result. Look at a stretch before you propose it. To see what "
-         "led up to a peak, look earlier; to see more around it, look wider (at most 10 minutes).",
+         "with its time, sent to you right after the result, and what is said in it, written down with times. Look "
+         "at a stretch before you propose it. To see what led up to a peak, look earlier; to see more around it, "
+         "look wider (at most 10 minutes).",
          {"start": {"type": "string", "maxLength": 20,
                     "description": "Where the stretch starts, written as the map writes times, like 1:51:23."},
           "end": {"type": "string", "maxLength": 20, "description": "Where it ends, written the same way."},

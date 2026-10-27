@@ -14,8 +14,9 @@ from http.server import ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, previews, recording, server, words  # noqa: E402
+from clipstudio import agent, hearing, previews, recording, server, words  # noqa: E402
 from test_agent_loop import ScriptedMind, call  # noqa: E402
+from test_hearing import Worker  # noqa: E402
 from test_map import make_moment  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
@@ -61,9 +62,13 @@ class Moments(unittest.TestCase):
         os.environ["LCS_VIDEOS"] = self.videos
         agent.WORK = recording.WORK = os.path.join(self.tmp, "work")
         self.smallest, recording.SMALLEST = recording.SMALLEST, 0
+        self.worker, self.url = Worker(), hearing.URL
+        hearing.URL = self.worker.url
         self.chat = agent.Chat()
 
     def tearDown(self):
+        hearing.URL = self.url
+        self.worker.close()
         recording.SMALLEST = self.smallest
         agent.CHATS.clear()
         agent._shown.clear()
@@ -175,6 +180,16 @@ class Moments(unittest.TestCase):
         self.assertEqual(sorted(s["codec_type"] for s in made["streams"]), ["audio", "video"])
         self.assertEqual([s["height"] for s in made["streams"] if s["codec_type"] == "video"], [480])
         self.assertEqual([n for n in os.listdir(previews.folder()) if ".part" in n], [])
+
+    def test_a_preview_that_cannot_be_told_about_does_not_stop_the_next(self):
+        class Gone:
+            def emit(self, *args, **fields):
+                raise OSError("the chat's folder is gone")
+
+        rec = recording.probe(self.clip)
+        previews.cut(Gone(), 1, rec, 30, 40)
+        name = previews.cut(self.chat, 1, rec, 40, 50)
+        self.assertEqual([(e["name"], e["ok"]) for e in self.previews_ready(1)], [(name, True)])
 
     def test_an_earlier_chat_keeps_its_looks_moments_and_previews(self):
         self.run_job(self.opened(), [call("look_at_piece", start="0:30", end="0:50", why="look")],

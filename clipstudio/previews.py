@@ -11,6 +11,7 @@ import os
 import queue
 import shutil
 import subprocess
+import sys
 import threading
 import time
 
@@ -46,13 +47,18 @@ def cut(chat, job, rec, start, end):
 
 
 def _work():
+    """Cuts the queued previews one by one, for as long as the studio runs. A preview that fails in a way nobody
+    can be told about (its chat's files are gone) is skipped, so it never stops the previews after it."""
     while True:
         chat, job, rec, start, end, preview = _todo.get()
-        started = time.time()
-        target = os.path.join(folder(), preview)
-        error = None if os.path.isfile(target) else _cut(rec, start, end, target)
-        chat.emit("preview", job=job, name=preview, ok=error is None, error=error,
-                  seconds=round(time.time() - started, 1))
+        try:
+            started = time.time()
+            target = os.path.join(folder(), preview)
+            error = None if os.path.isfile(target) else _cut(rec, start, end, target)
+            chat.emit("preview", job=job, name=preview, ok=error is None, error=error,
+                      seconds=round(time.time() - started, 1))
+        except Exception as e:
+            print("previews: %s could not be told about (%s)" % (preview, e), file=sys.stderr, flush=True)
 
 
 def _cut(rec, start, end, target):

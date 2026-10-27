@@ -28,7 +28,7 @@ import threading
 import time
 import traceback
 
-from . import maps, mind, previews, recording, words
+from . import hearing, maps, mind, previews, recording, words
 from .tools import SCHEMAS, TOOLS, Refused
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -266,20 +266,46 @@ class Job:
                 self.working("Mapping the video: %s of %s (%d%%)" % (recording.clock(min(done, total)),
                                                                      recording.clock(total), min(99, 100 * done / total)))
 
-        def started(stop):
-            with self.chat.cond:
-                self.stop_work, stopped = stop, self.stopped
-            if stopped:
-                stop()
-
         self.working("Mapping the video: starting")
         try:
-            return maps.measure(rec, on_progress=progress, on_start=started)
+            return maps.measure(rec, on_progress=progress, on_start=self.started_work)
         finally:
-            with self.chat.cond:
-                self.stop_work = None
-                if self.chat.live and self.chat.live["job"] == self.n:
-                    self.chat.live = None
+            self.done_working()
+
+    def hear(self, rec, start, end):
+        """Hears start to end for a tool: the page says so, and Stop ends it at once (hearing.Stopped)."""
+        self.working("Writing down what is said in %s-%s" % (recording.clock(start), recording.clock(end)))
+        try:
+            return hearing.hear(rec, start, end, on_start=self.started_work)
+        finally:
+            self.done_working()
+
+    def ask_aside(self, messages, schema):
+        """Asks Muse apart from this job's conversation (the conversation and its cache stay as they are) and
+        returns the words of the answer. Stop cancels it (hearing.Stopped)."""
+        asking = mind.Asking()
+        self.working("Fixing misheard words from the context")
+        self.started_work(asking.cancel)
+        try:
+            return self.brain.ask(messages, temperature=0.2, max_tokens=hearing.FIX_TOKENS, asking=asking,
+                                  schema=schema)["text"]
+        except mind.Cancelled:
+            raise hearing.Stopped()
+        finally:
+            self.done_working()
+
+    def started_work(self, stop):
+        """A tool's work that takes a while has begun: Stop ends it with stop(), at once if Stop came first."""
+        with self.chat.cond:
+            self.stop_work, stopped = stop, self.stopped
+        if stopped:
+            stop()
+
+    def done_working(self):
+        with self.chat.cond:
+            self.stop_work = None
+            if self.chat.live and self.chat.live["job"] == self.n:
+                self.chat.live = None
 
     def on_delta(self, kind, piece):
         chat = self.chat

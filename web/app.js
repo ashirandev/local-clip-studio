@@ -148,6 +148,9 @@ function drawStep(j, e) {
   if (e.said) div.appendChild(el("p", "said", e.said));
   div.appendChild(el("p", "why", e.why || "Muse gave no reason for this step."));
   if (e.look) div.appendChild(lookStrip(e.look));
+  if (e.look && e.look.said && e.look.said.length) div.appendChild(saidFold(e.look.said));
+  if (e.look && e.look.took) div.appendChild(el("p", "engine detail", "Heard in " + e.look.took + " s"));
+  if (e.moments && e.fixing) div.appendChild(el("p", "engine detail", "Misheard words fixed by Muse in " + e.fixing + " s"));
   if (e.refused) div.appendChild(el("p", "result simple", "That did not work, so Muse tried again."));
   const input = inputLine(e.input);
   if (input) div.appendChild(el("p", "input detail", input));
@@ -175,6 +178,21 @@ function lookStrip(look) {
   return row;
 }
 
+function saidFold(said) {
+  const d = el("details", "said-fold");
+  d.appendChild(el("summary", null, "What was said (" + plural(said.length, "line") + ")"));
+  const list = el("ul", "said-lines");
+  said.forEach((p) => {
+    const li = el("li");
+    li.append(el("span", "at", clock(p.from)), el("span", null, p.text));
+    if (p.kept) li.appendChild(el("span", "heard detail", "As heard, not fixed: " + p.kept + "."));
+    else if (p.heard && p.heard !== p.text) li.appendChild(el("span", "heard detail", "Heard as: " + p.heard));
+    list.appendChild(li);
+  });
+  d.appendChild(list);
+  return d;
+}
+
 function span(m) {
   return clock(m.start) + "–" + clock(m.end);
 }
@@ -194,6 +212,7 @@ function drawMoments(j, moments) {
     media.append(img, el("span", "moment-wait", "Cutting a preview…"));
     const body = el("div", "moment-body");
     body.append(el("p", "moment-head", "Moment " + m.n + " · " + span(m) + " · " + Math.round(m.end - m.start) + " s"), el("p", "moment-why", m.reason));
+    if (m.said && m.said.length) body.appendChild(saidFold(m.said));
     if (m.n === 1) {
       body.appendChild(el("p", "moment-pick", "Muse starts with this one"));
     } else {
@@ -476,6 +495,8 @@ function drawMinds() {
     mindsBox.appendChild(b);
     machineBox.appendChild(el("p", null, m.label + ": " + (m.ok ? m.name + " at " + m.url : m.why)));
   });
+  const h = room.hearing;
+  if (h) machineBox.appendChild(el("p", null, h.label + ": " + (h.ok ? h.name + " at " + h.url : h.why)));
   showStatus();
 }
 
@@ -505,6 +526,7 @@ async function health() {
     const r = await fetch("/api/health", { cache: "no-store" });
     const d = await r.json();
     room.minds = d.minds || [];
+    room.hearing = d.hearing || null;
     if (!room.minds.some((m) => m.key === room.mind)) room.mind = d.default;
     document.body.classList.toggle("away", d.here === false);
     drawMinds();

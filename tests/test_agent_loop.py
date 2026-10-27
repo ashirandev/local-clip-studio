@@ -26,7 +26,7 @@ class ScriptedMind:
     def __init__(self, *script):
         self.script, self.sent = list(script), []
 
-    def ask(self, messages, tools=None, temperature=None, max_tokens=None, on_delta=None, asking=None):
+    def ask(self, messages, tools=None, temperature=None, max_tokens=None, on_delta=None, asking=None, schema=None):
         self.sent.append(json.loads(json.dumps(messages)))
         item = self.script.pop(0)
         if callable(item):

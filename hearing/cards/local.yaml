@@ -1,0 +1,12 @@
+name: omniASR_tokenizer_written_v2@user
+tokenizer: file:///models/omniASR_tokenizer_written_v2.model
+
+---
+
+name: omniASR_CTC_1B_v2@user
+checkpoint: file:///models/omniASR-CTC-1B-v2.pt
+
+---
+
+name: omniASR_CTC_300M_v2@user
+checkpoint: file:///models/omniASR-CTC-300M-v2.pt

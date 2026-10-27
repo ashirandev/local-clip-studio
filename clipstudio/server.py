@@ -4,7 +4,8 @@ Standard library only. It listens on 127.0.0.1, so the recordings it opens never
 lets a phone on the same Wi-Fi use it too; then anyone on that network can open the videos in the folders.
 Two guards hold either way: a request must name the studio by an address or "localhost" (a web page cannot reach it
 through a name it owns), and a POST must be JSON (another web page cannot send JSON here without asking first).
-- GET /api/health: the two minds and whether each can answer, and whether the page is on this computer
+- GET /api/health: the two minds and whether each can answer, whether the hearing worker is ready, and whether
+  the page is on this computer
 - GET /api/chat[?id=<chat>]: the chat the page shows (or an earlier one, opened again), and whether Muse is working
 - POST /api/chat/new: a new, empty chat
 - GET /api/chats: the earlier chats, newest first
@@ -30,7 +31,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl
 
-from . import __version__, agent, mind, previews, recording
+from . import __version__, agent, hearing, mind, previews, recording
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
@@ -59,7 +60,7 @@ class Handler(BaseHTTPRequestHandler):
         query = dict(parse_qsl(query))
         if path == "/api/health":
             self.send_json({"ok": True, "version": __version__, "default": mind.DEFAULT, "here": self.here(),
-                            "minds": [m.status() for m in mind.MINDS.values()]})
+                            "minds": [m.status() for m in mind.MINDS.values()], "hearing": hearing.status()})
         elif path == "/api/chat":
             chat = agent.open_chat(query["id"]) if query.get("id") else agent.current()
             if chat is None:
@@ -299,6 +300,7 @@ def main():
     except OSError as e:
         sys.exit("Port %d on this computer is taken (%s). Set LCS_PORT to a free port and start again."
                  % (PORT, e.strerror))
+    hearing.start()
     print("Local Clip Studio %s: http://127.0.0.1:%d/" % (__version__, PORT), flush=True)
     if not ipaddress.ip_address(HOST).is_loopback:
         print("On a phone on the same Wi-Fi, open http://<this computer's address>:%d/" % PORT, flush=True)

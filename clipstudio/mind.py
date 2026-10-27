@@ -150,12 +150,12 @@ class Mind:
                 % (self.url, _reason(e)))
 
     def ask(self, messages, tools=None, temperature=CHAT_TEMPERATURE, max_tokens=None, on_delta=None,
-            asking=None):
+            asking=None, schema=None):
         """Asks once. Returns {text, thinking, tool_calls, message, engine}.
 
         on_delta(kind, piece) gets the thinking and the words as they are written ("thinking" or "text"). Pass an
-        Asking to be able to cancel; a cancelled question raises Cancelled. Anything else that goes wrong raises
-        MindError with a sentence.
+        Asking to be able to cancel; a cancelled question raises Cancelled. A JSON schema makes the answer's words
+        JSON of that shape. Anything else that goes wrong raises MindError with a sentence.
 
         message is the answer as it goes back into the conversation: the words and the tool calls, without the
         thinking. llama-server reuses everything before it; from this message on it reads again (a few hundred
@@ -177,6 +177,9 @@ class Mind:
             body["tools"] = tools
         if max_tokens:
             body["max_tokens"] = max_tokens
+        if schema:
+            body["response_format"] = {"type": "json_schema",
+                                       "json_schema": {"name": "answer", "strict": True, "schema": schema}}
         asking = asking or Asking()
         text, thinking, calls, finish, tail = [], [], {}, None, {}
         t0 = time.time()

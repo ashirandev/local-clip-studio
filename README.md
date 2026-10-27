@@ -22,6 +22,21 @@ python app.py
 Then open http://127.0.0.1:8899/ . Set `LCS_PORT` to use another port, and `LCS_VIDEOS` to the folders your
 recordings are in (separated by `;` on Windows; the default is `~/Videos`).
 
+**Hearing what is said** uses Meta's Omnilingual ASR, which needs Linux, so it runs in
+[Docker](https://www.docker.com/products/docker-desktop/) on the processor and leaves the graphics card to Muse.
+Build its image once, in this folder:
+
+```
+docker build -t local-clip-studio-hearing hearing
+```
+
+The studio then starts it by itself, before Muse is asked anything, and keeps it while the studio runs (it takes
+about 4 GB of memory). The first time, Omnilingual's own loader (fairseq2) downloads the model (3.9 GB) into
+`~/.cache/fairseq2`, which the studio keeps in a Docker volume, so it is downloaded once. That first download has not
+been tried on our machine, which already had the files: if you have `omniASR-CTC-1B-v2.pt` and
+`omniASR_tokenizer_written_v2.model`, set `LCS_HEARING_MODELS` to their folder to use them instead. Without Docker
+the studio still works; Muse just cannot hear, and says so.
+
 Drop a recording on the page, or tap one of your newest. It is opened where it is: a browser does not give the
 path of a dropped file, so the studio finds it in those folders by its name, size and time. Nothing is copied or
 uploaded, and the recording is only ever read.
@@ -99,6 +114,11 @@ the result and the engine numbers.
 - **Muse looks before it chooses.** Muse picks a stretch to look at, usually one the map lists, and gets 2 to 6
   pictures of it, each as its own picture right after its time; the page shows them in the step. To see what led
   up to a peak it can look earlier, or wider. The same look twice is refused, and its pictures are not sent again.
+- **Muse hears what is said in each look.** Omnilingual ASR writes the stretch down, every phrase with its own time
+  from the model's own frames (it decides one letter every 20 ms). The Thai marks it cannot write are put back, and
+  so are number words it began with a digit ("5้าสิบ" becomes ห้าสิบ). Then Muse fixes misheard words from the
+  context, in a question apart from the job, with every number taken out first as <N1>, <N2>...: a line whose answer
+  loses or adds a number, or rewrites more than 40% of it, keeps what was heard. A stretch is heard once and kept.
 - **A moment Muse proposes is one it has seen.** Muse proposes up to three moments, best first. Each must sit inside
   one of its looks, and moments may not overlap. The page shows each as a card with Muse's reason and a picture
   from that look, and a rough 480p preview of the stretch is cut in the background, so the card plays a second or
@@ -135,7 +155,8 @@ Each piece is listed with its licence. The Status column says whether this build
 | Muse Spark (Meta API) | the same mind without a graphics card, with your own key | Meta's API terms | used |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) (llama-server) | runs Glimmer locally | MIT | used |
 | [FFmpeg](https://ffmpeg.org/) | reads each recording (ffprobe) and takes pictures from it; later cuts and renders the clip | LGPL-2.1+ (GPL for some builds) | used |
-| [Omnilingual ASR](https://github.com/facebookresearch/omnilingual-asr) (Meta) | writes down what is said, in many languages | Apache-2.0 | planned |
+| [Omnilingual ASR](https://github.com/facebookresearch/omnilingual-asr) (Meta), CTC 1B v2 | writes down what is said, in many languages, with the time of every phrase | Apache-2.0 | used |
+| [FLEURS](https://huggingface.co/datasets/google/fleurs) (Google), Thai *train* transcripts | counted once into `clipstudio/thai_marks.json`, which puts back the Thai vowel marks Omnilingual cannot write | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | used |
 | [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) (OpenCV Zoo) | finds faces, so text never covers one | MIT | planned |
 | [SFace](https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface) (OpenCV Zoo) | tells faces apart, so other people's faces can be blurred | Apache-2.0 | planned |
 | [MMS-TTS Thai](https://huggingface.co/facebook/mms-tts-tha) (Meta) | an optional voice-over, off by default | [CC-BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/), **non-commercial** | planned |
@@ -157,6 +178,11 @@ Model weights are downloaded when they are first needed. None of them are commit
 | 2026-10-27, this build | What that map ranks first | the top 6 stretches are all louder and busier than 97-99% of the stream; in 4 of them the peak is the game's death screen (the streamer shouts at each death), with the fight that led to it in the 21 s before the peak |
 | 2026-10-27, this build | What a look costs Glimmer Q3 (vision on the processor) | 4 frames, each its own 540-pixel picture: 971 tokens read in 10.8 s; the same 4 frames in one picture: 293 tokens in 2.9 s |
 | 2026-10-27, this build | From opening to proposed moments, Glimmer Q3, one run each | the review clip (3:06): 7 steps, 0 refused, 3 cards at 1:19; the 4-hour stream: 10 steps, 0 refused, cards at 2:04 after looking at the map's top 6, each moment ending before the death screen. A rough 30 s preview: 1.3-2.1 s to cut |
+| 2026-10-27, this build | Omnilingual ASR CTC 1B in Docker on the processor (float32, 8 threads), Thai FLEURS, the 60 test sentences, spaces and punctuation left out | 8.4% character errors after the Thai repair (12.3% as the model wrote it), 5.4-5.6x real time, 4.0 GB of memory. bfloat16 took 2.2 GB but had not finished after about 20 minutes (float32: 132 s), so float32 stays |
+| 2026-10-27, this build | Numbers in the review clip as the model wrote them | "5้าสิบ", "เจ็ดสิบ5้า", "1ึ่ง.ิด5": a digit where a number word begins. Muse's card said 70 m² where the seller said 75. Now written as said (ห้าสิบ, เจ็ดสิบห้า, หนึ่งจุดห้า); FLEURS unchanged at 8.4% |
+| 2026-10-27, this build | Where the time of a 30 s look goes, Glimmer Q3 | hearing 5.3-6.2 s; Muse fixing the misheard words 20-42 s, mostly thinking (about 1,000 tokens written at "Reasoning strength: low"; with thinking switched off it wrote 2,600-2,900). So the fix runs only for the moments Muse proposes. A question asked apart from the job kept the job's cache: 2,136 tokens reused, 5 read new |
+| 2026-10-27, this build | Opening to cards with hearing, one run each | the review clip: 7 steps, 0 refused, 2:48 (1:19 without hearing); the 4-hour stream: 7 steps, 0 refused, 3:12 |
+| 2026-10-27, this build | Do phrases start where speech starts? | 46 of 50 start at least 10 dB over their stretch's quiet floor; the other 4 at 8.6-9.9 dB, two of them cut by the first frame of the stretch |
 | 2026-10-27, this build | Muse's answer after the cards, before any clip existed | it said the clip was made, with captions and a blurred chat. Now the state Muse reads says "no clip made yet": next run, it said only that the moments were ready to preview (one run, not yet a measurement) |
 
 New measurements are added here as the build is tested, each with its date.
