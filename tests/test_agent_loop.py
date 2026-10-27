@@ -89,6 +89,37 @@ class Loop(unittest.TestCase):
         with open(self.chat.log_path, encoding="utf-8") as f:
             self.assertEqual([json.loads(line)["id"] for line in f], [e["id"] for e in self.chat.events])
 
+    def test_a_full_memory_takes_out_the_oldest_pictures_and_asks_again(self):
+        picture = {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AA=="}}
+        self.chat.messages += [{"role": "user", "content": [{"type": "text", "text": "old"}] + [picture] * 12},
+                               {"role": "assistant", "content": "seen"},
+                               {"role": "user", "content": [{"type": "text", "text": "new"}, picture]},
+                               {"role": "assistant", "content": "seen too"}]
+
+        def full(asking):
+            raise mind.TooLong("full", 32800, 32768)
+
+        brain = ScriptedMind(full, "Done.")
+        job, events = self.run_job(brain)
+        self.assertEqual(events[-1]["why"], "answered")
+        sent = brain.sent[-1]
+        old = next(m["content"] for m in sent if isinstance(m["content"], list) and m["content"][0]["text"] == "old")
+        new = next(m["content"] for m in sent if isinstance(m["content"], list) and m["content"][0]["text"] == "new")
+        self.assertEqual(sum(p.get("text") == agent.TAKEN_OUT for p in old), 9,
+                         "32,800 + 2,048 for the answer - 32,768 = 2,080 tokens, 256 a picture")
+        self.assertEqual(sum(p["type"] == "image_url" for p in old), 3)
+        self.assertEqual(new[1], picture, "the newest pictures stay")
+        notes = [e["text"] for e in events if e["kind"] == "note"]
+        self.assertIn("took out the 9 oldest pictures it had already looked at, and asked again", notes[0])
+
+    def test_a_full_memory_with_no_picture_to_take_out_ends_the_job_saying_so(self):
+        def full(asking):
+            raise mind.TooLong("full", 32800, 32768)
+
+        job, events = self.run_job(ScriptedMind(full))
+        self.assertEqual(events[-1]["why"], "mind")
+        self.assertIn("no picture is left to take out", [e["text"] for e in events if e["kind"] == "note"][-1])
+
     def test_the_conversation_only_grows_at_its_end(self):
         brain = ScriptedMind([call("set_plan", steps=["find it"], why="plan")],
                              [call("find_recordings", why="look", plan_step=1)], "Done.",

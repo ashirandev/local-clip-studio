@@ -2317,6 +2317,10 @@ def render_clip(job, why):
 
 REEL_LONGEST = 90
 FIRST = 0.5
+SILENCE_FLOOR = "-50dB"
+OPENING = "It does not start black or silent"
+OPENING_LOOK = 8
+OPEN_AIR = 0.2
 CHECK_ROUNDS = 2
 
 
@@ -2347,12 +2351,47 @@ def _start_of(path, sound):
     cmd = [shutil.which("ffmpeg") or "ffmpeg", "-hide_banner", "-nostats", "-t", "1.5", "-i", path, "-vf",
            "blackdetect=d=%g:pix_th=0.10" % FIRST]
     if sound:
-        cmd += ["-af", "silencedetect=noise=-50dB:d=%g" % FIRST]
+        cmd += ["-af", "silencedetect=noise=%s:d=%g" % (SILENCE_FLOOR, FIRST)]
     log = subprocess.run(cmd + ["-f", "null", "-"], capture_output=True, text=True, encoding="utf-8",
                          errors="replace").stderr
     black = re.search(r"black_start:0(?:\.0+)?\b", log) is not None
     silent = re.search(r"silence_start: -?0(?:\.0+)?\b", log) is not None
     return black, silent
+
+
+def _first_sound(path):
+    """The second at which the file's sound first rises above SILENCE_FLOOR, as the opening check hears it: 0 when it
+    does from the start, None when it stays silent for OPENING_LOOK s."""
+    cmd = [shutil.which("ffmpeg") or "ffmpeg", "-hide_banner", "-nostats", "-t", str(OPENING_LOOK), "-i", path, "-vn",
+           "-af", "silencedetect=noise=%s:d=0.05" % SILENCE_FLOOR, "-f", "null", "-"]
+    log = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace").stderr
+    starts, ends = re.findall(r"silence_start: (-?[\d.]+)", log), re.findall(r"silence_end: ([\d.]+)", log)
+    if not starts or float(starts[0]) > 0.05:
+        return 0.0
+    return float(ends[0]) if ends else None
+
+
+def _sound_at(state, path):
+    """(seconds into the clip, second in the recording) of the finished file's first sound, or None when it is not
+    in the clip's first piece."""
+    first, piece = _first_sound(path), state["clip"]["pieces"][0]
+    if not first or first >= piece[1] - piece[0]:
+        return None
+    return first, piece[0] + first
+
+
+def _open_on_sound(job, moment):
+    """Moves the moment's start to OPEN_AIR s before the finished clip's first sound, when that sound comes within its
+    first piece and leaves FIRST s or more after it, and returns the seconds it moved; else None. Measured 10-28 on a
+    screen recording: two clips opened on 0.5 s of silence or more, so they failed the opening check, and Muse looked
+    again, took back a title of another clip, made both again as they were, and ran out of memory."""
+    state = _clip_state(job)
+    found = _sound_at(state, os.path.join(render.folder("clips"), job.chat.finished()["name"]))
+    if not found or state["length"] - found[0] < FIRST:
+        return None
+    m = job.chat.moments[moment - 1]
+    m["start"] = round(found[1] - OPEN_AIR, 2)
+    return round(found[0] - OPEN_AIR, 1)
 
 
 def _still_seen(state, clip_file):
@@ -2431,9 +2470,12 @@ def check_clip(job, why):
     check("The length fits a Reel", made["seconds"] <= REEL_LONGEST,
           "%.1f s; a Reel is at most %d s" % (made["seconds"], REEL_LONGEST))
     black, silent = _start_of(path, made["sound_tracks"])
-    check("It does not start black or silent", not (black or silent),
+    heard = _sound_at(state, path) if silent and not black else None
+    check(OPENING, not (black or silent),
           "picture and sound from the first %g s" % FIRST if not (black or silent) else
-          " and ".join(w for w, bad in (("black", black), ("silent", silent)) if bad) + " for the first %g s" % FIRST)
+          " and ".join(w for w, bad in (("black", black), ("silent", silent)) if bad) + " for the first %g s" % FIRST +
+          ("; the first sound is %g s in, at %s in the recording: propose the moment again from there and make the "
+           "clip again" % (round(heard[0], 1), recording.clock(heard[1])) if heard else ""))
     if any(p["blur"] for p in state["people"]):
         seen = _still_seen(state, made)
         check("No blurred face can be found", not seen,
@@ -2600,10 +2642,11 @@ def _title_where_clear(job, rec, words):
     return None
 
 
-def _one_clip(job, rec, k, c, layout, blur):
+def _one_clip(job, rec, k, c, layout, blur, opened=None):
     """One clip of make_clips, from its moment to the hand-over: the sentence reporting on it. Its words are
     proofread together first, so the title on the clip is spelled as the post text is. Each box in blur is
-    blurred for the whole clip. Seen 10-27 on a 4-hour game stream: six clips were made without the chat box blurred,
+    blurred for the whole clip. When the only check that fails is the silent opening, the moment is moved to its
+    first sound (_open_on_sound) and the clip is made once more; opened is the seconds it moved. Seen 10-27 on a 4-hour game stream: six clips were made without the chat box blurred,
     none passed the check for viewers' names, and Muse ran out of room fixing the first one by hand."""
     n, head = c["moment"], "Clip %d (moment %d)" % (k, c["moment"])
     try:
@@ -2616,6 +2659,9 @@ def _one_clip(job, rec, k, c, layout, blur):
                                                                recording.clock(state["clip"]["pieces"][-1][1]),
                                                                state["length"], state["clip"]["layout"]["kind"])
         notes, others = [], _undecided(state)
+        if opened:
+            notes.append("it opened on silence, so the program started it %g s later, %g s before its first sound"
+                         % (opened, OPEN_AIR))
         for box in blur:
             try:
                 blur_box(job, BATCH_WHY, box)
@@ -2647,6 +2693,9 @@ def _one_clip(job, rec, k, c, layout, blur):
         done = job.chat.finished()
         checks = job.chat.checks.get(done["name"]) or []
         failed = [ch["name"] for ch in checks if ch["ok"] is False]
+        later = _open_on_sound(job, n) if failed == [OPENING] and opened is None else None
+        if later:
+            return _one_clip(job, rec, k, c, layout, blur, opened=later)
         if failed:
             return "%s: rendered but not handed over, these checks failed: %s%s." % (
                 head, "; ".join(failed), "; " + "; ".join(notes) if notes else "")

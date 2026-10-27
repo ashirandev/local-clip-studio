@@ -34,6 +34,15 @@ class MindError(Exception):
     """A sentence for the page: what went wrong and what to do about it."""
 
 
+class TooLong(MindError):
+    """The conversation and the answer do not fit in the model's memory (its context): asked is how many tokens they
+    came to, room how many fit."""
+
+    def __init__(self, sentence, asked, room):
+        MindError.__init__(self, sentence)
+        self.asked, self.room = asked, room
+
+
 class Cancelled(Exception):
     """The question was cancelled while it was in flight."""
 
@@ -208,11 +217,20 @@ class Mind:
                     call["function"]["name"] += fn.get("name") or ""
                     call["function"]["arguments"] += fn.get("arguments") or ""
         except urllib.error.HTTPError as e:
-            raise MindError("%s refused the question (HTTP %d): %s"
-                            % (self.label, e.code, e.read().decode("utf-8", "replace")[:300]))
+            said = e.read().decode("utf-8", "replace")
+            sentence = "%s refused the question (HTTP %d): %s" % (self.label, e.code, said[:300])
+            full = _full(said)
+            if full:
+                raise TooLong(sentence, *full)
+            raise MindError(sentence)
         except (OSError, http.client.HTTPException, ValueError) as e:
             raise MindError(self.unreachable(e))
-        seconds = time.time() - t0
+        numbers = engine(tail, time.time() - t0)
+        if finish == "length" and numbers["written"] is not None and (not max_tokens or
+                                                                      numbers["written"] < max_tokens):
+            asked = (numbers["read_new"] or 0) + (numbers["reused"] or 0) + numbers["written"]
+            raise TooLong("%s's memory filled while it wrote its answer (%d tokens), so the answer was cut off."
+                          % (self.label, asked), asked, asked)
         words, calls = "".join(text), [calls[i] for i in sorted(calls)]
         if not words.strip() and not calls:
             if finish == "length":
@@ -223,7 +241,22 @@ class Mind:
         if calls:
             back["tool_calls"] = calls
         return {"text": words.strip(), "thinking": "".join(thinking).strip(), "tool_calls": calls, "message": back,
-                "engine": engine(tail, seconds)}
+                "engine": numbers}
+
+
+def _full(said):
+    """(tokens asked, tokens that fit) from llama-server's refusal of a question longer than its memory, else None."""
+    try:
+        got = json.loads(said)
+    except ValueError:
+        return None
+    error = got.get("error") if isinstance(got, dict) else None
+    if not isinstance(error, dict) or error.get("type") != "exceed_context_size_error":
+        return None
+    try:
+        return int(error["n_prompt_tokens"]), int(error["n_ctx"])
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def engine(got, seconds):

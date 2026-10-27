@@ -38,6 +38,11 @@ AGENT_MAX_TOKENS = 4096
 SPELL_TOKENS = 8192
 MAX_STEPS = 30
 GUARD_STOPS = 3
+REPLY_ROOM = 2048
+PICTURE_TOKENS = 256
+ROOM_TRIES = 4
+TAKEN_OUT = ("(A picture was here. It was taken out to make room in Muse's memory: the tool that showed it shows it "
+             "again.)")
 SHOW_THINKING_EVERY = 0.4
 CHATS_LISTED = 20
 CHAT_ID = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{4}$")
@@ -485,8 +490,7 @@ class Job:
                     chat.live = {"job": self.n, "step": self.steps + 1, "thinking": "", "text": ""}
                 self.emit("wait", step=self.steps + 1)
                 try:
-                    got = self.brain.ask(chat.messages, tools=SCHEMAS, temperature=AGENT_TEMPERATURE,
-                                         max_tokens=AGENT_MAX_TOKENS, on_delta=self.on_delta, asking=self.asking)
+                    got = self.ask()
                 except mind.Cancelled:
                     self.emit("cut", step=self.steps + 1, by="stop" if self.stopped else "person")
                     continue
@@ -556,6 +560,32 @@ class Job:
                       fault=traceback.format_exc())
         with chat.cond:
             self.close(end, started)
+
+    def ask(self):
+        """Muse's next answer. When the conversation and an answer no longer fit in Muse's memory (mind.TooLong),
+        the oldest pictures are taken out of it (make_room) and Muse is asked again, so a job is not ended by its own
+        length. Measured 10-28: a montage of 19 clips filled Glimmer's 32,768 tokens 20 tokens before its hand-over,
+        and a screen recording filled them while Muse wrote a call, which was cut off and could not be read."""
+        tries = 0
+        while True:
+            try:
+                return self.brain.ask(self.chat.messages, tools=SCHEMAS, temperature=AGENT_TEMPERATURE,
+                                      max_tokens=AGENT_MAX_TOKENS, on_delta=self.on_delta, asking=self.asking)
+            except mind.TooLong as e:
+                tries += 1
+                with self.chat.cond:
+                    if self.stopped:
+                        raise mind.Cancelled()
+                    took = make_room(self.chat.messages, e.asked + REPLY_ROOM - e.room) if tries <= ROOM_TRIES else 0
+                    if not took:
+                        raise mind.MindError(
+                            "%s's memory is full: this chat holds more than it can read at once (%d tokens), and no "
+                            "picture is left to take out. Start a new chat for the next clip." % (self.brain.label,
+                                                                                                 e.room))
+                    self.asking = mind.Asking()
+                self.emit("note", text="%s's memory was nearly full, so the studio took out the %d oldest picture%s "
+                                       "it had already looked at, and asked again." % (
+                                           self.brain.label, took, "" if took == 1 else "s"))
 
     def close(self, end, started):
         """Ends the job (the caller holds the lock). Words typed too late to be answered still go into the chat."""
@@ -733,6 +763,28 @@ class Job:
                 for m in self.chat.moments))
         parts.append(self.chat.clip_line())
         return " · ".join(parts)
+
+
+def make_room(messages, need):
+    """Takes pictures out of the conversation, oldest first, until about need tokens are free, and returns how many
+    it took; each leaves TAKEN_OUT in its place. A picture is counted as PICTURE_TOKENS, fewer than one takes
+    (measured 10-28: 280 to 360), so enough come out at once. The newest message with pictures keeps them: Muse may
+    not have looked at them yet."""
+    holding = [m for m in messages if isinstance(m.get("content"), list) and
+               any(p.get("type") == "image_url" for p in m["content"])]
+    took = 0
+    for m in holding[:-1]:
+        parts = []
+        for p in m["content"]:
+            if p.get("type") == "image_url" and took * PICTURE_TOKENS < need:
+                parts.append({"type": "text", "text": TAKEN_OUT})
+                took += 1
+            else:
+                parts.append(p)
+        m["content"] = parts
+        if took * PICTURE_TOKENS >= need:
+            break
+    return took
 
 
 def _sendable(call):

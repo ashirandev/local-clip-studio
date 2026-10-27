@@ -25,6 +25,7 @@ TOOL_CALL = [
 
 class Fake(BaseHTTPRequestHandler):
     chunks, pause, status, asked, models = TOOL_CALL, 0, 200, [], []
+    refusal = b'{"error": "the request exceeds the available context size"}'
 
     def do_GET(self):
         body = json.dumps({"data": [{"id": m} for m in self.models]}).encode()
@@ -40,7 +41,7 @@ class Fake(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream" if self.status == 200 else "application/json")
         self.end_headers()
         if self.status != 200:
-            self.wfile.write(b'{"error": "the request exceeds the available context size"}')
+            self.wfile.write(self.refusal)
             return
         try:
             for i, chunk in enumerate(self.chunks):
@@ -58,7 +59,7 @@ class Fake(BaseHTTPRequestHandler):
 
 class Stream(unittest.TestCase):
     def setUp(self):
-        Fake.chunks, Fake.pause, Fake.status = TOOL_CALL, 0, 200
+        Fake.chunks, Fake.pause, Fake.status, Fake.refusal = TOOL_CALL, 0, 200, Fake.refusal
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.mind = mind.Mind("test", "Test mind", "http://127.0.0.1:%d/v1" % self.server.server_port)
@@ -120,6 +121,26 @@ class Stream(unittest.TestCase):
             self.mind.ask([{"role": "user", "content": "hi"}])
         self.assertIn("HTTP 400", str(e.exception))
         self.assertIn("exceeds the available context size", str(e.exception))
+
+    def test_a_question_longer_than_the_memory_says_how_long_it_was(self):
+        Fake.status, Fake.refusal = 400, json.dumps({"error": {
+            "code": 400, "message": "request (32788 tokens) exceeds the available context size (32768 tokens)",
+            "type": "exceed_context_size_error", "n_prompt_tokens": 32788, "n_ctx": 32768}}).encode()
+        try:
+            with self.assertRaises(mind.TooLong) as e:
+                self.mind.ask([{"role": "user", "content": "hi"}])
+        finally:
+            Fake.refusal = b'{"error": "the request exceeds the available context size"}'
+        self.assertEqual((e.exception.asked, e.exception.room), (32788, 32768))
+        self.assertIn("HTTP 400", str(e.exception))
+
+    def test_an_answer_cut_where_the_memory_filled_is_not_an_answer(self):
+        Fake.chunks = TOOL_CALL[2:4] + [{"choices": [{"delta": {}, "finish_reason": "length"}],
+                                         "timings": {"prompt_n": 2062, "cache_n": 30591, "predicted_n": 115}}]
+        with self.assertRaises(mind.TooLong) as e:
+            self.mind.ask([{"role": "user", "content": "hi"}], max_tokens=4096)
+        self.assertEqual((e.exception.asked, e.exception.room), (32768, 32768))
+        self.assertIn("memory filled while it wrote its answer", str(e.exception))
 
     def test_thinking_that_runs_out_of_room_says_so(self):
         Fake.chunks = [{"choices": [{"delta": {"reasoning_content": "hmm"}}]},

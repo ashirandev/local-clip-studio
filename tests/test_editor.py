@@ -1107,13 +1107,18 @@ class Tools(unittest.TestCase):
         self.assertNotIn("follows the action", cropped["result"])
         self.assertFalse(any(p.get("follow") for p in self.chat.project.state()["clip"]["layout"]["parts"]))
 
-    def several(self, *clips_calls, black=False, recipe="explain"):
+    def several(self, *clips_calls, black=False, recipe="explain", quiet=0):
         """A tutorial with two moments proposed, then the given calls; screen and render are faked, the render black
-        and silent at its start when black."""
+        and silent at its start when black, and moment 2's first render silent for its first quiet seconds."""
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "one heard", "sure": 0.95}]
+        quieted = []
 
         def export(rec, state, out, on_progress=None, on_start=None, *, default):
-            make_moment(out, seconds=10, busy=(5, 10) if black else (0, 10), loud=(5, 10) if black else (0, 10))
+            hushed = quiet if state["clip"]["moment"] == 2 and not quieted else 0
+            if hushed:
+                quieted.append(out)
+            make_moment(out, seconds=10, busy=(5, 10) if black else (0, 10),
+                        loud=(5, 10) if black else (hushed, 10))
             return out
 
         had = screen.words, screen.readings, focus.plan, getattr(render, "export", None)
@@ -1201,6 +1206,17 @@ class Tools(unittest.TestCase):
         self.assertIn("Clip 1 (moment 1, 0:32-0:34, 2.6 s, card layout): rendered but not handed over, these checks "
                       "failed: It does not start black or silent", made["result"])
         self.assertEqual([e for e in self.chat.events if e["kind"] == "ready"], [])
+
+    def test_a_clip_that_opens_on_silence_is_started_at_its_first_sound(self):
+        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        _, steps = self.several([call("make_clips", clips=clips, why="both")], "Done.", quiet=2)
+        made = steps[-1]["result"]
+        self.assertIn("Made 2 clips, 2 handed over", made)
+        self.assertRegex(made, r"Clip 2 \(moment 2, 0:4\d-0:50, 8\.\d+ s, card layout\): handed over, \d of \d checks "
+                               r"passed; it opened on silence, so the program started it 1\.8 s later, 0\.2 s before "
+                               r"its first sound")
+        self.assertAlmostEqual(self.chat.moments[1]["start"], 41.8, delta=0.1)
 
     def test_several_clips_are_refused_whole_when_a_name_is_spelled_another_way(self):
         clips = [{"moment": 1, "title": "Egret one", "caption": "c1", "hashtags": ["#a"]},
