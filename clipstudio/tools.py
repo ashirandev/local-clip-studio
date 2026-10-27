@@ -13,7 +13,7 @@ import math
 import os
 import time
 
-from . import faces, hearing, layouts, maps, mind, previews, project, recording, render, text
+from . import faces, hearing, layouts, maps, mind, previews, project, recording, render, text, tracks
 from .recipes import RECIPES, SIGNALS
 
 WHY = {"type": "string",
@@ -95,6 +95,17 @@ def _value(name, value, spec):
             raise Refused("%s must be from %g to %s; %g is outside that." % (name, low, "%g" % high if high is not None
                                                                               else "up", value))
         return float(value)
+    if kind == "array" and (spec.get("items") or {}).get("type") == "integer":
+        if isinstance(value, str):
+            try:
+                value = json.loads(value if value.strip().startswith("[") else "[%s]" % value)
+            except ValueError:
+                pass
+        if isinstance(value, int) and not isinstance(value, bool):
+            value = [value]
+        if not isinstance(value, list):
+            raise Refused("%s must be a list of whole numbers, such as [2]." % name)
+        return [_value("%s's number %d" % (name, i), v, spec["items"]) for i, v in enumerate(value, 1)]
     if kind == "array" and (spec.get("items") or {}).get("type") == "number":
         if isinstance(value, str):
             try:
@@ -608,7 +619,9 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
     item = [round(v) for v in _pixels("product", product, rec)] if product else None
     if item and not layouts.to_frame(lay, item):
         lay["notes"].append("The product you named is not in the clip's picture: choose a crop that holds it.")
-    state = job.edit({"do": "clip", "moment": moment, "pieces": [[a, b]], "layout": lay, "product": item})
+    people = _people(rec, [[a, b]], box)
+    state = job.edit({"do": "clip", "moment": moment, "pieces": [[a, b]], "layout": lay, "product": item,
+                      "people": [{k: v for k, v in p.items() if k != "crop"} for p in people or []]})
     lines = ["Made the clip from moment %d (%s-%s, %g s) in the %s layout." % (
         moment, recording.clock(a), recording.clock(b), state["length"], lay["kind"]), face_line] + lay["notes"]
     lines.append("Places for words on screen, kept clear of the faces the program found%s (the band from y %d to %d "
@@ -619,6 +632,7 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
     at = min(max(0.0, peak - a), state["length"] - 0.1)
     lines.append(_show_frame(job, state, rec, at, "The clip at %g s (moment %d, %s layout):" % (
         round(at, 2), moment, lay["kind"])))
+    lines += _people_lines(job, people, rec)
     lines.append("Look at it: if a face or the action is cut badly, make the clip again with another layout or crop. "
                  "Then put the title on.")
     job.show(clip=job.chat.clip_view())
@@ -765,6 +779,112 @@ def _on_camera(rec, clip):
     return None
 
 
+PEOPLE_SHOWN = 8
+SAME_FACE = 0.3
+
+
+def _people(rec, pieces, face):
+    """The other people's faces in the clip, from the faces already found in each piece, most seen first: [{"n",
+    "seen", "of", "from", "to" (clip seconds), "box" (recording), "points": [[clip second, x, y, w, h]], "crop"}].
+    The face the layout shows, and a face that sits still (the person making the clip), are not among them. None
+    when the faces of a piece were not found."""
+    out = []
+    for a, b in pieces:
+        found = faces.kept(rec, a, b)
+        if not found:
+            return None
+        for tr in tracks.tracks(found, rec):
+            if tr["steady"] or face and _overlap(tr["box"], face) > SAME_FACE:
+                continue
+            points = []
+            for t, x, y, w, h in tr["points"]:
+                at = round(project.from_recording(pieces, min(max(t, a), b)), 3)
+                if not points or at > points[-1][0]:
+                    points.append([at, x, y, w, h])
+            out.append({"seen": tr["seen"], "of": len(found["samples"]), "from": points[0][0],
+                        "to": points[-1][0], "box": [round(v) for v in tr["box"]], "points": points,
+                        "crop": tr["crop"]})
+    out.sort(key=lambda p: -p["seen"])
+    for n, p in enumerate(out, 1):
+        p["n"] = n
+    return out
+
+
+def _overlap(a, b):
+    """Intersection over union of two boxes (x, y, w, h)."""
+    w = min(a[0] + a[2], b[0] + b[2]) - max(a[0], b[0])
+    h = min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1])
+    both = max(0, w) * max(0, h)
+    return both / (a[2] * a[3] + b[2] * b[3] - both) if both else 0.0
+
+
+def _people_lines(job, people, rec):
+    """What make_clip tells Muse about the other people, and their faces sent as pictures."""
+    if people is None:
+        return ["Other people's faces could not be looked for, so none are listed."]
+    if not people:
+        return ["No other person's face is in the clip."]
+    lines = ["Other people's faces in the clip: %d (the face the layout shows is not one of them). Decide about each "
+             "with decide_people before you render: blur a real person who is not the one making the clip, such as "
+             "someone passing behind; keep a face that belongs, such as a game character or a face on a screen or a "
+             "box." % len(people)]
+    for p in people:
+        shown = p["n"] <= PEOPLE_SHOWN and p.get("crop")
+        if p["seen"] == 1:
+            lines.append("- person %d: seen once, at %s of the clip, at %s on your grid (half a second: a passer-by, a "
+                         "game character or a face on a screen); kept unless you blur it%s" % (
+                             p["n"], recording.clock(p["from"]), _grid(p["box"], rec),
+                             "; its face comes next as a picture" if shown else ""))
+        else:
+            lines.append("- person %d: seen in %d of %d pictures, %s-%s of the clip, at %s on your grid; decide before "
+                         "you render%s" % (p["n"], p["seen"], p["of"], recording.clock(p["from"]),
+                                           recording.clock(p["to"]), _grid(p["box"], rec),
+                                           "; its face comes next as a picture" if shown else ""))
+        if shown:
+            job.attach(p["crop"], "Person %d:" % p["n"])
+    return lines
+
+
+def _undecided(state):
+    """The people seen in two pictures or more that nobody has decided about yet."""
+    return [p["n"] for p in state["people"] if p["blur"] is None and p["seen"] > 1]
+
+
+def decide_people(job, why, blur=None, keep=None):
+    rec = _open(job, "blur")
+    state = _clip_state(job)
+    people = {p["n"]: p for p in state["people"]}
+    if not people:
+        raise Refused("The clip has no other people's faces to decide about.")
+    blur, keep = sorted(set(blur or [])), sorted(set(keep or []))
+    if not blur and not keep:
+        raise Refused("Name at least one person to blur or to keep.")
+    both = sorted(set(blur) & set(keep))
+    if both:
+        raise Refused("Person %s is in both lists: each person is either blurred or kept." % _numbers(both))
+    unknown = [n for n in blur + keep if n not in people]
+    if unknown:
+        raise Refused("There is no person %s; the clip's people are %s." % (_numbers(unknown), _numbers(people)))
+    state = job.edit({"do": "people", "blur": blur, "keep": keep})
+    lines = ["Person %d is blurred where their face shows, %s-%s of the clip, and the blur moves with the face."
+             % (n, recording.clock(people[n]["from"]), recording.clock(people[n]["to"])) for n in blur]
+    if keep:
+        lines.append("Kept as they are: person %s." % _numbers(keep))
+    left = _undecided(state)
+    lines.append("Still to decide before you render: person %s." % _numbers(left) if left else
+                 "Every person seen in two pictures or more is decided.")
+    if blur:
+        p = people[blur[0]]
+        lines.append(_show_frame(job, state, rec, (p["from"] + p["to"]) / 2,
+                                 "The clip with person %d blurred:" % p["n"]))
+    return "\n".join(lines)
+
+
+def _numbers(ns):
+    ns = [str(n) for n in sorted(ns)]
+    return ns[0] if len(ns) == 1 else ", ".join(ns[:-1]) + " and " + ns[-1]
+
+
 BLUR_FACE_SHARE = 0.3
 PART_NAMES = {"card": "the card", "circle": "the circle with the face", "top": "the top panel",
               "bottom": "the panel below", "whole": "the frame"}
@@ -840,6 +960,10 @@ MOST_TAGS = 8
 def render_clip(job, why):
     rec = _open(job, "render")
     state = _clip_state(job)
+    left = _undecided(state)
+    if left:
+        raise Refused("Decide about person %s first, with decide_people: blur or keep. Nothing undecided is "
+                      "rendered." % _numbers(left))
     done = job.chat.finished()
     if done:
         return ("The finished file is already made from the clip as it is now (%s, %g s), so nothing was rendered "
@@ -910,6 +1034,9 @@ def describe(entry):
         return "the %s at %g s" % (entry["kind"], entry["at"])
     if entry["do"] == "sticker":
         return "the sticker at %g s" % entry["at"]
+    if entry["do"] == "people":
+        return "the decision on people (%s)" % "; ".join(
+            "%s person %s" % (k, _numbers(entry[k])) for k in ("blur", "keep") if entry[k])
     return 'the title "%s" at %g-%g s' % (entry["text"], entry["start"], entry["end"])
 
 
@@ -1121,6 +1248,16 @@ TOOLS = {t.name: t for t in [
           "end": {"type": "number", "minimum": 0, "description": "Until when, in seconds of the clip. Leave it out for "
                                                                  "the end."}},
          ["box"], blur_box, changes=True),
+    Tool("decide_people", "Decided about people",
+         "Decide who of the other people make_clip listed is blurred and who is kept. A blurred face is followed as "
+         "it moves. Blur a real person who is not the one making the clip, such as someone passing behind; keep a "
+         "face that belongs, such as a game character, or a face on a screen or a box. Every person seen in two "
+         "pictures or more must be decided before the clip is rendered; one call can decide them all.",
+         {"blur": {"type": "array", "items": {"type": "integer", "minimum": 1},
+                   "description": "The numbers of the people to blur, such as [2]."},
+          "keep": {"type": "array", "items": {"type": "integer", "minimum": 1},
+                   "description": "The numbers of the people to keep as they are."}},
+         [], decide_people, changes=True),
     Tool("add_hit", "Added a hit",
          "Put one effect on the second something lands, never before it: " +
          "; ".join("%s: %s" % kv for kv in HITS.items()) + ". Use it on the peak, at most a few in a clip.",
@@ -1149,7 +1286,8 @@ TOOLS = {t.name: t for t in [
                       "description": "The post text in English, when the clip's language is not English."}},
          ["title", "caption", "hashtags"], hand_over, changes=True),
     Tool("undo", "Took back the last change",
-         "Take back the last change to the clip: a layout, a style, a title, the captions, a blur or a hit. The "
+         "Take back the last change to the clip: a layout, a style, a title, the captions, a blur, a hit or a "
+         "decision about people. The "
          "person can also do this on the page.",
          {}, [], undo, changes=True),
 ]}

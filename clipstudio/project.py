@@ -4,7 +4,9 @@ never disagree.
 
 An entry is a plain dict with "do" saying what it is. Times are clip seconds, boxes on the recording are pixels of
 the recording, and boxes on the frame are pixels of the 1080x1920 clip.
-- clip: {"moment", "pieces": [[recording a, recording b], ...], "layout": a layouts.make() dict}
+- clip: {"moment", "pieces": [[recording a, recording b], ...], "layout": a layouts.make() dict, "product":
+  recording box or None, "people": [{"n", "seen", "of", "from", "to", "box", "points": [[clip second, x, y, w, h]]}]:
+  the other people's faces, followed through the clip}
 - style: {"name", "font", "colour"}
 - title: {"text", "start", "end", "place", "box": the place's frame box, "key"}
 - captions: {"lines": text.caption_lines() lines in clip seconds, "band": [y, h], "lit": each word lit as it is
@@ -13,12 +15,14 @@ the recording, and boxes on the frame are pixels of the 1080x1920 clip.
   y, w, h], ...] in recording pixels, "start", "end"}: a box that moves with a face
 - hit: {"kind": flash, shake, punch or word, "at", "word", "centre": [x, y] on the frame}
 - sticker: {"png": path of a PNG, "at", "length", "box": frame box the picture is fitted in}
+- people: {"blur": [person numbers], "keep": [person numbers]}: who of the clip's people is blurred; a later
+  decision about the same person wins, and a new clip entry starts with nobody decided
 """
 
 import hashlib
 import json
 
-DOES = ("clip", "style", "title", "captions", "blur", "hit", "sticker")
+DOES = ("clip", "style", "title", "captions", "blur", "hit", "sticker", "people")
 
 
 class Project:
@@ -39,12 +43,16 @@ class Project:
         """What the entries add up to: {"clip": the last clip entry or None, "length": clip seconds, "style": the
         last style entry or None, "titles": [title entries inside the clip], "captions": the last captions entry or
         None, "blurs": [blur entries], "hits": [hit entries inside the clip], "stickers": [sticker entries inside the
-        clip]}. A new clip entry keeps the words and effects; what starts after its end is not drawn."""
+        clip], "people": the clip's people, each with "blur" True, False or None when not decided}. A blurred
+        person's track is one of the blurs. A new clip entry keeps the words and effects; what starts after its end
+        is not drawn."""
         clip = style = captions = None
         titles, blurs, hits, stickers = [], [], [], []
+        decided = {}
         for e in self.entries:
             if e["do"] == "clip":
                 clip = e
+                decided = {}
             elif e["do"] == "style":
                 style = e
             elif e["do"] == "title":
@@ -57,14 +65,21 @@ class Project:
                 hits = [h for h in hits if not (h["kind"] == e["kind"] and abs(h["at"] - e["at"]) < 0.5)] + [e]
             elif e["do"] == "sticker":
                 stickers.append(e)
+            elif e["do"] == "people":
+                decided.update({n: True for n in e["blur"]})
+                decided.update({n: False for n in e["keep"]})
         length = round(sum(b - a for a, b in clip["pieces"]), 2) if clip else 0
         inside = (lambda when: clip is not None and when < length)
+        people = [dict(p, blur=decided.get(p["n"])) for p in (clip or {}).get("people") or []]
+        blurs = blurs + [{"do": "blur", "person": p["n"], "track": p["points"], "start": p["from"], "end": p["to"]}
+                         for p in people if p["blur"]]
         return {"clip": clip, "length": length, "style": style,
                 "titles": [t for t in titles if inside(t["start"])],
                 "captions": captions if clip else None,
                 "blurs": [b for b in blurs if inside(b["start"])],
                 "hits": sorted([h for h in hits if inside(h["at"])], key=lambda h: h["at"]),
-                "stickers": sorted([k for k in stickers if inside(k["at"])], key=lambda k: k["at"])}
+                "stickers": sorted([k for k in stickers if inside(k["at"])], key=lambda k: k["at"]),
+                "people": people}
 
 
 def signature(entries):

@@ -597,6 +597,7 @@ function drawMinds() {
     b.type = "button";
     b.setAttribute("role", "radio");
     b.setAttribute("aria-checked", String(m.key === room.mind));
+    b.disabled = !m.ok;
     const dot = el("span", "dot " + (m.ok ? "ok" : "off"));
     dot.setAttribute("aria-hidden", "true");
     b.append(dot, el("span", null, m.label), el("small", null, m.where.charAt(0).toUpperCase() + m.where.slice(1) + (m.ok ? "" : " · not ready")));
@@ -640,7 +641,10 @@ async function health() {
     const d = await r.json();
     room.minds = d.minds || [];
     room.hearing = d.hearing || null;
-    if (!room.minds.some((m) => m.key === room.mind)) room.mind = d.default;
+    if (!room.minds.some((m) => m.key === room.mind && m.ok)) {
+      const ready = room.minds.find((m) => m.key === d.default && m.ok) || room.minds.find((m) => m.ok);
+      room.mind = ready ? ready.key : d.default;
+    }
     document.body.classList.toggle("away", d.here === false);
     drawMinds();
   } catch (e) {

@@ -236,6 +236,13 @@ class Chat:
                   else "no captions"]
         if state["blurs"]:
             extras.append("%d blur%s" % (len(state["blurs"]), "" if len(state["blurs"]) == 1 else "s"))
+        if state["people"]:
+            people = state["people"]
+            left = sum(1 for p in people if p["blur"] is None and p["seen"] > 1)
+            extras.append("other people: %d blurred, %d kept%s" % (
+                sum(1 for p in people if p["blur"]), sum(1 for p in people if p["blur"] is False or
+                                                         p["blur"] is None and p["seen"] == 1),
+                ", %d still to decide before rendering" % left if left else ""))
         if state["hits"]:
             extras.append("hits: " + ", ".join("%s at %g s" % (h["kind"], h["at"]) for h in state["hits"]))
         done = self.finished()

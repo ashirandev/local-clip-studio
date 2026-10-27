@@ -321,11 +321,16 @@ class Tools(unittest.TestCase):
         self.assertIn("- top (y 285 to 520): clear of faces at 0-4.7 s, 9.8-20 s", step["result"])
         self.assertIn("- middle (y 905 to 1075): clear of faces for the whole clip", step["result"])
         self.assertIn("comes next as a picture", step["result"])
+        self.assertIn("Other people's faces in the clip: 1 (the face the layout shows is not one of them).", step["result"])
+        self.assertIn("- person 1: seen in 10 of 40 pictures, 0:05-0:10 of the clip, at [438, 56, 562, 278] on your grid; "
+                      "decide before you render; its face comes next as a picture", step["result"])
         sent = brain.sent[-1][-1]
-        self.assertEqual([p["type"] for p in sent["content"]], ["text", "image_url"])
+        self.assertEqual([p["type"] for p in sent["content"]], ["text", "image_url", "text", "image_url"])
         self.assertTrue(sent["content"][0]["text"].startswith("[studio] The clip at "))
-        self.assertIn("clip: moment 1 (0:30-0:50, 20 s), subject layout, clean style, no words on screen, no captions · no "
-                      "finished file yet: the person sees only a preview on the page, so never say the clip is ready", brain.sent[-1][-2]["content"])
+        self.assertEqual(sent["content"][2]["text"], "Person 1:")
+        self.assertIn("clip: moment 1 (0:30-0:50, 20 s), subject layout, clean style, no words on screen, no captions, other "
+                      "people: 0 blurred, 0 kept, 1 still to decide before rendering · no finished file yet: the person sees "
+                      "only a preview on the page, so never say the clip is ready", brain.sent[-1][-2]["content"])
         edits = [e for e in self.chat.events if e["kind"] == "edit"]
         self.assertEqual(edits[-1]["clip"]["layout"], "subject")
 
@@ -415,7 +420,8 @@ class Tools(unittest.TestCase):
         self.assertEqual(word["result"], 'Added a big word that pops in, such as POW at 5.2 s ("POW").')
         self.assertIn("at 30 s is outside the clip, which is 20 s long", late["result"])
         self.assertIn("A word hit needs its word", wordless["result"])
-        self.assertIn("captions on, 1 blur, hits: word at 5.2 s · no finished file yet", brain.sent[-1][-1]["content"])
+        self.assertIn("captions on, 1 blur, other people: 0 blurred, 0 kept, 1 still to decide before rendering, hits: "
+                      "word at 5.2 s · no finished file yet", brain.sent[-1][-1]["content"])
         state = self.chat.project.state()
         self.assertEqual([round(x["from"], 2) for x in state["captions"]["lines"]][:1], [2.0],
                          "caption times are clip seconds: heard at 32 s of the recording, shown at 2 s of the clip")
@@ -453,6 +459,8 @@ class Tools(unittest.TestCase):
             brain, steps = self.run_job(
                 *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
                 [call("hand_over", title="t", caption="c", hashtags=["#a"], why="too soon")],
+                [call("render_clip", why="nobody decided")],
+                [call("decide_people", keep=[1], why="it is him, higher up")],
                 [call("render_clip", why="make the file")],
                 [call("render_clip", why="again")],
                 [call("add_title", words="Boss down", start=0, end=4, place="top", why="the hook")],
@@ -463,9 +471,13 @@ class Tools(unittest.TestCase):
                 "Done.")
         finally:
             render.export = had
-        early, first, again, titled, stale, undone, ready = steps[-7:]
+        early, undecided, kept, first, again, titled, stale, undone, ready = steps[-9:]
         self.assertTrue(early["refused"])
         self.assertIn("Render the clip first, then hand it over.", early["result"])
+        self.assertTrue(undecided["refused"])
+        self.assertEqual(undecided["result"], "Decide about person 1 first, with decide_people: blur or keep. Nothing "
+                                              "undecided is rendered.")
+        self.assertFalse(kept["refused"], kept["result"])
         self.assertRegex(first["result"], r"^Rendered the finished clip in 0:0\d: 20 s, 1080x1920, [\d.]+ MB\.")
         self.assertIn("already made from the clip as it is now", again["result"])
         self.assertEqual(made, [(20, "clean")],
@@ -480,6 +492,42 @@ class Tools(unittest.TestCase):
         self.chat.edit({"do": "style", "name": "pop", "font": None, "colour": None})
         self.assertIn("the last finished file is older than the last change", self.chat.clip_line())
         self.assertEqual(agent.Chat.load(self.chat.id).rendered, self.chat.rendered)
+
+    def test_muse_decides_who_is_blurred_and_a_blurred_face_is_followed_in_clip_seconds(self):
+        brain, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("decide_people", why="nobody named")],
+            [call("decide_people", blur=[1], keep=[1], why="both")],
+            [call("decide_people", blur=[2], why="no such person")],
+            [call("decide_people", blur="1", why="someone passing behind")],
+            "Done.")
+        empty, both, unknown, blurred = steps[-4:]
+        self.assertTrue(empty["refused"] and both["refused"] and unknown["refused"])
+        self.assertIn("Name at least one person to blur or to keep.", empty["result"])
+        self.assertIn("Person 1 is in both lists", both["result"])
+        self.assertIn("There is no person 2; the clip's people are 1.", unknown["result"])
+        self.assertFalse(blurred["refused"], blurred["result"])
+        self.assertIn("Person 1 is blurred where their face shows, 0:05-0:10 of the clip, and the blur moves with the face.",
+                      blurred["result"])
+        self.assertIn("Every person seen in two pictures or more is decided.", blurred["result"])
+        self.assertIn("comes next as a picture", blurred["result"], "the frame is drawn with the moving blur")
+        state = self.chat.project.state()
+        track = [b for b in state["blurs"] if b.get("person") == 1][0]["track"]
+        times = [p[0] for p in track]
+        self.assertEqual((times[0], times[-1]), (4.75, 9.75), "clip seconds, held half a picture at each end")
+        self.assertTrue(all(0 < b - a <= 0.5 for a, b in zip(times, times[1:])), times)
+        self.assertEqual(track[len(track) // 2][1:3], [140, 10], "the face's place in the recording")
+        self.assertEqual(tools.describe(self.chat.project.entries[-1]), "the decision on people (blur person 1)")
+        self.assertIn("other people: 1 blurred, 0 kept", self.chat.clip_line())
+        self.chat.project.add({"do": "people", "blur": [], "keep": [1]})
+        self.assertEqual([b for b in self.chat.project.state()["blurs"] if b.get("person")], [], "the later one wins")
+        self.chat.project.undo()
+        self.chat.project.undo()
+        self.assertEqual(tools._undecided(self.chat.project.state()), [1])
+        clip = dict(self.chat.project.state()["clip"])
+        self.chat.project.add({"do": "people", "blur": [1], "keep": []})
+        self.chat.project.add(clip)
+        self.assertEqual(tools._undecided(self.chat.project.state()), [1], "a new clip starts with nobody decided")
 
     def test_a_thai_key_word_is_one_word_of_the_title_not_the_whole_title(self):
         brain, steps = self.run_job(
