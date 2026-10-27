@@ -466,7 +466,7 @@ class Tools(unittest.TestCase):
                 [call("add_title", words="Boss down", start=0, end=4, place="top", why="the hook")],
                 [call("hand_over", title="t", caption="c", hashtags=["a"], why="stale")],
                 [call("undo", why="back to what was rendered")],
-                [call("hand_over", title="Boss down", caption="He falls.\nTwice.", why="post",
+                [call("hand_over", title="Boss down", caption="He falls.\nTwice.\n#gaming #boss", why="post",
                       hashtags=["gaming", "#gaming", "sifu clip", "#"])],
                 "Done.")
         finally:
@@ -485,7 +485,8 @@ class Tools(unittest.TestCase):
         self.assertTrue(stale["refused"], "a title came after the render, so the file is not the clip any more")
         self.assertFalse(ready["refused"], ready["result"])
         shown = [e for e in self.chat.events if e["kind"] == "ready"][-1]
-        self.assertEqual((shown["title"], shown["hashtags"]), ("Boss down", ["#gaming", "#sifuclip"]))
+        self.assertEqual((shown["title"], shown["hashtags"]), ("Boss down", ["#gaming", "#sifuclip", "#boss"]))
+        self.assertEqual(shown["caption"], "He falls.\nTwice.", "a line of hashtags goes to the hashtags, shown once")
         self.assertTrue(os.path.isfile(os.path.join(render.folder("clips"), shown["file"])))
         self.assertIn("finished file %s, made from the clip as it is now" % shown["file"],
                       brain.sent[-1][-1]["content"])

@@ -1,14 +1,14 @@
 :root {
-  --bg: #F4F5F7;
-  --surface: #FBFBFC;
-  --frame: #E7EAEE;
+  --bg: #F0F2F5;
+  --surface: #FFFFFF;
+  --frame: #E4E6EB;
   --text: #1C1E21;
-  --muted: #565E6A;
+  --muted: #65676B;
   --edge: #7E8794;
-  --line: #DCE0E5;
+  --line: #DADDE1;
   --accent: #0866FF;
-  --on-accent: #FBFBFC;
-  --you: #E3ECFF;
+  --on-accent: #FFFFFF;
+  --you: #E7F0FF;
   --ok: #1E7F3C;
   --warn: #8A4B00;
   --stop: #B3261E;
@@ -16,24 +16,22 @@
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #15171A;
-    --surface: #1D2025;
-    --frame: #0E1013;
-    --text: #E4E6EA;
-    --muted: #A0A8B3;
-    --edge: #6E7783;
-    --line: #2C3036;
-    --accent: #5B9BFF;
-    --on-accent: #0E1420;
-    --you: #22324D;
-    --ok: #4CC777;
-    --warn: #F0A856;
-    --stop: #FF8A80;
-    --on-stop: #0E1420;
-    color-scheme: dark;
-  }
+:root[data-theme="dark"] {
+  --bg: #15171A;
+  --surface: #1D2025;
+  --frame: #0E1013;
+  --text: #E4E6EA;
+  --muted: #A0A8B3;
+  --edge: #6E7783;
+  --line: #2C3036;
+  --accent: #5B9BFF;
+  --on-accent: #0E1420;
+  --you: #22324D;
+  --ok: #4CC777;
+  --warn: #F0A856;
+  --stop: #FF8A80;
+  --on-stop: #0E1420;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -117,7 +115,7 @@ h1 { margin: 0; font-size: 18px; line-height: 1.3; }
 
 .mind[aria-checked="true"] .dot { outline: 2px solid var(--on-accent); }
 
-.settings-button { display: inline-flex; align-items: center; gap: 6px; }
+.menu .settings-button { display: inline-flex; align-items: center; gap: 6px; }
 
 .top .short { display: none; }
 
@@ -271,7 +269,6 @@ body.details .simple { display: none !important; }
 .msg.you.tapped { font-size: 14px; }
 
 .step {
-  max-width: 90%;
   padding: 10px 14px;
   border: 1px solid var(--line);
   border-left: 4px solid var(--accent);
@@ -334,7 +331,6 @@ body.details .simple { display: none !important; }
 .said-lines .heard { grid-column: 2; color: var(--muted); }
 
 .moments {
-  max-width: 90%;
   padding: 10px 14px;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -344,7 +340,6 @@ body.details .simple { display: none !important; }
 .moments-head { margin: 0; font-weight: 600; font-size: 15px; }
 
 .ready {
-  max-width: 90%;
   padding: 10px 14px;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -647,9 +642,9 @@ h2 { margin: 0 0 12px; font-size: 15px; }
   .actions { gap: 6px; }
   .ghost { padding: 6px 8px; font-size: 13px; }
   .log { padding: 16px 12px; }
-  .step, .moments, .ready { max-width: 100%; }
+  .ready { grid-template-columns: minmax(0, 1fr); }
+  .ready video { width: min(240px, 70%); justify-self: center; }
   .moment { grid-template-columns: 1fr; gap: 8px; }
-  .ready { grid-template-columns: minmax(0, 140px) minmax(0, 1fr); }
   .composer { padding: 10px 12px 4px; }
   .status { padding: 4px 12px 10px; }
   .clip {

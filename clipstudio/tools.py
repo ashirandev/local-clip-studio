@@ -1000,7 +1000,9 @@ def hand_over(job, why, title, caption, hashtags, english=""):
     if not done:
         raise Refused("There is no finished file made from the clip as it is now, so there is nothing to hand over. "
                       "Render the clip first, then hand it over.")
-    tags = list(dict.fromkeys(t for t in (_tag(w) for w in hashtags) if t))
+    caption, more = _without_tags(caption)
+    english, also = _without_tags(english)
+    tags = list(dict.fromkeys(t for t in (_tag(w) for w in list(hashtags) + more + also) if t))
     if not tags:
         raise Refused("Give at least one hashtag, such as #gaming.")
     ready = {"file": done["name"], "length": done["length"], "title": title, "caption": caption, "hashtags": tags,
@@ -1010,6 +1012,17 @@ def hand_over(job, why, title, caption, hashtags, english=""):
     return ("Handed over: the person sees the finished clip with its title, the post text and %d hashtags, a Copy all "
             "button and a download. Tell them in one or two short lines; do not repeat the text, it is on the page."
             % len(tags))
+
+
+def _without_tags(words):
+    """(the text without its lines of hashtags, those hashtags): the page shows the hashtags once, under the text."""
+    kept, tags = [], []
+    for line in (words or "").splitlines():
+        if line.split() and all(w.startswith("#") for w in line.split()):
+            tags += line.split()
+        else:
+            kept.append(line)
+    return "\n".join(kept).strip(), tags
 
 
 def undo(job, why):

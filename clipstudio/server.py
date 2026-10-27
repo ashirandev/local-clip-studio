@@ -26,6 +26,8 @@ import ipaddress
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -48,6 +50,8 @@ NEWEST = 5
 FRAME = re.compile(r"^/api/frame/([0-9a-f]{16}\.jpg)$")
 PREVIEW = re.compile(r"^/api/preview/([0-9a-f]{16}\.mp4)$")
 CLIP = re.compile(r"^/api/clip/([0-9a-f]{16}\.mp4)$")
+POSTER = re.compile(r"^/api/clip/([0-9a-f]{16})\.jpg$")
+POSTER_AT = 1.0
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 
@@ -81,6 +85,8 @@ class Handler(BaseHTTPRequestHandler):
         elif CLIP.match(path):
             self.send_video(render.folder("clips"), CLIP.match(path).group(1), "clip",
                             download=query.get("download") == "1")
+        elif POSTER.match(path):
+            self.send_poster(POSTER.match(path).group(1))
         elif path == "/api/clipframe":
             self.send_clip_frame(query)
         elif path.startswith("/api/"):
@@ -143,6 +149,29 @@ class Handler(BaseHTTPRequestHandler):
         full = os.path.join(recording.WORK, "frames", name)
         if not os.path.isfile(full):
             self.send_json({"ok": False, "error": "There is no picture %s." % name}, HTTPStatus.NOT_FOUND)
+            return
+        with open(full, "rb") as f:
+            body = f.read()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "max-age=3600")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_poster(self, sign):
+        """A picture of the finished clip POSTER_AT seconds in, for its player to show before it plays. It is made
+        from the file the first time it is asked for."""
+        folder = render.folder("clips")
+        video, full = os.path.join(folder, sign + ".mp4"), os.path.join(folder, sign + ".jpg")
+        if not os.path.isfile(full) and os.path.isfile(video):
+            part = full + ".part.jpg"
+            subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y", "-ss", "%g" % POSTER_AT, "-i",
+                            video, "-frames:v", "1", "-vf", "scale=540:-2", "-q:v", "3", part], capture_output=True)
+            if os.path.isfile(part):
+                os.replace(part, full)
+        if not os.path.isfile(full):
+            self.send_json({"ok": False, "error": "There is no finished clip %s." % sign}, HTTPStatus.NOT_FOUND)
             return
         with open(full, "rb") as f:
             body = f.read()

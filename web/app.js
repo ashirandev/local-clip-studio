@@ -13,6 +13,8 @@ const mindsBox = document.getElementById("minds");
 const machineBox = document.getElementById("machine");
 const settings = document.getElementById("settings");
 const detailsBox = document.getElementById("details");
+const darkBox = document.getElementById("dark");
+const phone = window.matchMedia("(max-width: 760px)");
 const clipBox = document.getElementById("clip");
 const clipOpen = document.getElementById("clipOpen");
 const clipHide = document.getElementById("clipHide");
@@ -347,6 +349,10 @@ function clipView(view) {
 
 function popClip() {
   if (clipBox.dataset.view === "full") return;
+  if (phone.matches) {
+    clipView("tucked");
+    return;
+  }
   clipView("pip");
   clipBox.classList.remove("popping");
   void clipBox.offsetWidth;
@@ -390,6 +396,7 @@ function showFinished(file) {
   room.showing = null;
   const v = el("video");
   v.src = "/api/clip/" + file.name;
+  v.poster = "/api/clip/" + file.name.replace(/\.mp4$/, ".jpg");
   v.controls = true;
   v.playsInline = true;
   v.preload = "metadata";
@@ -407,6 +414,7 @@ function drawReady(j, e) {
   div.appendChild(el("p", "ready-head", "Ready to post"));
   const v = el("video");
   v.src = "/api/clip/" + e.file;
+  v.poster = "/api/clip/" + e.file.replace(/\.mp4$/, ".jpg");
   v.controls = true;
   v.playsInline = true;
   v.preload = "metadata";
@@ -632,8 +640,19 @@ document.addEventListener("click", (e) => {
 
 clipOpen.addEventListener("click", () => clipView("full"));
 clipHide.addEventListener("click", () => clipView("tucked"));
-clipBack.addEventListener("click", () => clipView("pip"));
-clipPill.addEventListener("click", () => clipView("pip"));
+clipBack.addEventListener("click", () => clipView(phone.matches ? "tucked" : "pip"));
+clipPill.addEventListener("click", () => clipView("full"));
+
+function showDark(on) {
+  if (on) document.documentElement.dataset.theme = "dark";
+  else delete document.documentElement.dataset.theme;
+  darkBox.checked = on;
+}
+
+darkBox.addEventListener("change", () => {
+  localStore("theme", darkBox.checked ? "dark" : "light");
+  showDark(darkBox.checked);
+});
 
 async function health() {
   try {
@@ -838,5 +857,6 @@ text.addEventListener("keydown", (e) => {
 });
 
 showDetails(localStore("details") === "1");
+showDark(localStore("theme") === "dark");
 health();
 connect();
