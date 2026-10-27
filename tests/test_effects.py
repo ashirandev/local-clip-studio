@@ -1,6 +1,7 @@
 """Effects, checked on raw frames FFmpeg drew (no encoding, so unchanged means byte-equal):
 python -m unittest discover -s tests"""
 import importlib.util
+import math
 import os
 import shutil
 import subprocess
@@ -226,9 +227,151 @@ class Hits(unittest.TestCase):
             effects.shake(-1)
 
 
+def marks(centre, other):
+    """A black 1080x1920 picture with a white 40 px square on centre and a grey one on other."""
+    return ("color=c=black:s=%%dx%%d:r=30:d=%%s,drawbox=x=%d:y=%d:w=40:h=40:color=white:t=fill,"
+            "drawbox=x=%d:y=%d:w=40:h=40:color=0x808080:t=fill,format=yuv420p"
+            % (centre[0] - 20, centre[1] - 20, other[0] - 20, other[1] - 20))
+
+
+def found(frame, near, level, reach=80):
+    """(centre x, centre y, side) of the square of luma level within reach px of near, each pixel weighed by how
+    much of it the square covers."""
+    import numpy as np
+    x0, y0 = max(0, int(near[0]) - reach), max(0, int(near[1]) - reach)
+    y = frame[0][y0:int(near[1]) + reach, x0:int(near[0]) + reach].astype(float)
+    weight = np.clip((y - 16) / (level - 16), 0, 1)
+    ys, xs = np.nonzero(weight > 0)
+    w = weight[ys, xs]
+    return float(((xs + x0) * w).sum() / w.sum()), float(((ys + y0) * w).sum() / w.sum()), float(w.sum()) ** 0.5
+
+
+@unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")
+class Push(unittest.TestCase):
+    START, END, ZOOM = 1.0, 2.0, 1.2
+
+    def zoom_at(self, k):
+        u = min(max((k / 30 - self.START) / (self.END - self.START), 0), 1)
+        z = 1 + (self.ZOOM - 1) * (1 - math.cos(math.pi * u)) / 2
+        return 2 * round(540 * z) / 1080, 2 * round(960 * z) / 1920
+
+    def pushed(self, centre, other):
+        size = (effects.FRAME_W, effects.FRAME_H)
+        got = frames([effects.slow_push(self.START, self.END, self.ZOOM, centre)], seconds=2.2, first=27, size=size,
+                     source=marks(centre, other))
+        plain = frames([], seconds=2.2, first=27, size=size, source=marks(centre, other))
+        return got, plain
+
+    def test_it_grows_around_its_centre_and_only_inside_its_time(self):
+        for centre, other in (((540, 960), (840, 1460)), ((130, 230), (540, 960)), ((1050, 1890), (700, 1300))):
+            got, plain = self.pushed(centre, other)
+            for k in (29, 60, 63):
+                self.assertTrue(same(got[k - 27], plain[k - 27]), (centre, k))
+            for k in (33, 40, 45, 52, 58):
+                zx, zy = self.zoom_at(k)
+                cx, cy, _side = found(got[k - 27], centre, 235)
+                self.assertLessEqual(abs(cx - (centre[0] - 0.5)), 0.75, (centre, k, cx))
+                self.assertLessEqual(abs(cy - (centre[1] - 0.5)), 0.75, (centre, k, cy))
+                want = (centre[0] - 0.5 + (other[0] - centre[0]) * zx, centre[1] - 0.5 + (other[1] - centre[1]) * zy)
+                gx, gy, side = found(got[k - 27], want, 126)
+                self.assertLessEqual(abs(gx - want[0]), 1.5, (centre, k, gx, want))
+                self.assertLessEqual(abs(gy - want[1]), 1.5, (centre, k, gy, want))
+                self.assertLessEqual(abs(side - 40 * zx), 2, (centre, k, side))
+
+    def test_it_eases_in_and_out_and_reaches_its_zoom(self):
+        got, _plain = self.pushed((540, 960), (840, 1460))
+        apart = [found(got[k - 27], (539.5 + 300 * self.zoom_at(k)[0], 1459.5), 126)[0] - 539.5
+                 for k in range(30, 60)]
+        steps = [b - a for a, b in zip(apart, apart[1:])]
+        self.assertTrue(all(s >= -0.5 for s in steps), steps)
+        self.assertLess(sum(steps[:4]), sum(steps[13:17]) / 3, "slow at the start")
+        self.assertLess(sum(steps[-4:]), sum(steps[13:17]) / 3, "slow at the end")
+        self.assertLessEqual(abs(apart[-1] - 300 * self.ZOOM), 2, apart[-1])
+
+    def test_a_frame_is_the_same_from_any_start(self):
+        push = effects.slow_push(0.5, 2.5, 1.1, (300, 700))
+        size = (effects.FRAME_W, effects.FRAME_H)
+        whole = frames([push], seconds=2, size=size, source=marks((300, 700), (800, 1500)))
+        alone = frames([push], seconds=2, first=40, size=size, source=marks((300, 700), (800, 1500)))
+        self.assertTrue(same(whole[47], alone[7]))
+
+    def test_push_refusals(self):
+        with self.assertRaisesRegex(ValueError, "start 1 to end 1.2 is 0.2 s: a slow push runs 0.5 to 30 seconds"):
+            effects.slow_push(1, 1.2)
+        with self.assertRaisesRegex(ValueError, "zoom 1.6 is not a slow push: use more than 1, up to 1.5"):
+            effects.slow_push(1, 3, zoom=1.6)
+        with self.assertRaisesRegex(ValueError, r"centre \(540, 2000\) is off the 1080x1920 frame"):
+            effects.slow_push(1, 3, centre=(540, 2000))
+        with self.assertRaisesRegex(ValueError, "end 1 is not after start 3"):
+            effects.slow_push(3, 1)
+
+
+RAMP = "color=black:s=256x16:d=1,format=rgb24,geq=r='X':g='X':b='X'"
+PATCHES = ("color=0x7080a0:s=64x16:d=1[a];color=0xe02020:s=64x16:d=1[b];color=0xc68863:s=64x16:d=1[c];"
+           "color=0x3a6ea5:s=64x16:d=1[d];[a][b][c][d]hstack=4,format=rgb24")
+
+
+def graded(source, name):
+    """The picture (rgb, as an (h, w, 3) int array) made yuv420p like a recording, through look name (or none)."""
+    import numpy as np
+    look = effects.look(name).graph[len("[in]"):-len("[out]")] if name else "null"
+    run = subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i", source, "-vf", "format=yuv420p,%s" % look,
+                          "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, timeout=60)
+    if run.returncode != 0:
+        raise AssertionError(run.stderr.decode("utf-8", "replace")[-2000:])
+    return np.frombuffer(run.stdout, np.uint8).reshape(16, 256, 3).astype(int)
+
+
+@unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")
+class Looks(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.ramp = {n: graded(RAMP, n)[8] for n in [None] + list(effects.LOOKS)}
+        cls.patches = {n: graded(PATCHES, n)[8, [32, 96, 160, 224]] for n in [None] + list(effects.LOOKS)}
+
+    def test_no_look_turns_a_darker_grey_lighter_than_a_brighter_one(self):
+        for name in effects.LOOKS:
+            luma = self.ramp[name] @ [0.2126, 0.7152, 0.0722]
+            self.assertGreaterEqual(min(b - a for a, b in zip(luma[::4], luma[4::4])), -0.5, name)
+
+    def test_vivid_deepens_the_darks_lifts_the_lights_and_keeps_grey_grey(self):
+        plain, vivid = self.ramp[None], self.ramp["vivid"]
+        self.assertLess(vivid[64].mean(), plain[64].mean() - 6)
+        self.assertGreater(vivid[192].mean(), plain[192].mean() + 6)
+        self.assertLessEqual(int(abs(vivid - vivid.mean(axis=1, keepdims=True)).max()), 4, "no colour cast")
+
+    def test_vivid_gives_blues_and_greens_more_colour_and_leaves_skin_and_red_as_they_were(self):
+        vivid, plain = self.patches["vivid"], self.patches[None]
+        for k, what in ((0, "a dull blue"), (3, "a sky blue")):
+            more = (vivid[k].max() - vivid[k].min()) / (plain[k].max() - plain[k].min())
+            self.assertGreater(more, 1.15, "%s gets more colour: %.2f times" % (what, more))
+        for k, what in ((1, "red"), (2, "skin")):
+            shift = (vivid[k] - vivid[k].mean()) - (plain[k] - plain[k].mean())
+            self.assertLessEqual(float(abs(shift).max()), 4, "%s keeps its colour (only its brightness follows the "
+                                 "contrast): %s vs %s" % (what, vivid[k], plain[k]))
+
+    def test_warm_warms_the_middle_and_keeps_black_and_white(self):
+        plain, warm = self.ramp[None], self.ramp["warm"]
+        self.assertGreaterEqual(warm[128][0] - warm[128][2], 12)
+        for x in (0, 255):
+            self.assertLessEqual(int(abs(warm[x] - plain[x]).max()), 3, "the %s end stays" % x)
+
+    def test_film_lifts_black_cools_it_and_softens_white_and_colour(self):
+        plain, film = self.ramp[None], self.ramp["film"]
+        self.assertGreaterEqual(int(film[0].min()), 10)
+        self.assertGreaterEqual(film[0][2] - film[0][0], 4, "the shadows lean blue")
+        self.assertLessEqual(int(film[255].max()), 246)
+        strong, strong_p = self.patches["film"][1], self.patches[None][1]
+        self.assertLess(int(strong.max() - strong.min()), int(strong_p.max() - strong_p.min()) - 10)
+
+    def test_a_look_that_does_not_exist_says_which_do(self):
+        with self.assertRaisesRegex(ValueError, "look 'sepia' is not a look: use one of vivid, warm, film."):
+            effects.look("sepia")
+
+
 @unittest.skipUnless(FFMPEG, "needs ffmpeg")
 class Speed(unittest.TestCase):
-    def test_a_frame_with_a_title_captions_and_a_hit_draws_in_under_a_second(self):
+    def test_a_frame_with_a_push_a_hit_a_title_and_captions_draws_in_under_a_second(self):
         import time
         from clipstudio import text
         folder = tempfile.mkdtemp(prefix="lcs speed ")
@@ -240,7 +383,8 @@ class Speed(unittest.TestCase):
         path = os.path.join(folder, "words.ass")
         with open(path, "w", encoding="utf-8") as f:
             f.write(text.document([st], events))
-        graph, files = effects.join([text.burn(path), effects.punch_in(2.0, 0.5)], "src", "outv", 1)
+        graph, files = effects.join([effects.slow_push(1.0, 3.0), effects.punch_in(2.0, 0.5), text.burn(path)],
+                                    "src", "outv", 1)
         started = time.time()
         run = subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=1080x1920:r=30:d=3",
                               "-filter_complex", "[0:v]trim=start_frame=63:end_frame=64,format=yuv420p[src];" + graph,

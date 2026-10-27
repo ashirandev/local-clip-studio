@@ -34,6 +34,7 @@ the seller said one.
 - Layout: the vertical frame follows the product, and keeps the face when it is in view.
 - The title names the product or its one best point, in the clip's language.
 - A spec card may show one number the seller said.
+- Look: warm, so faces look natural and a white product stays white. One slow push while the product is shown.
 
 ## Checked at the end
 

@@ -1,6 +1,6 @@
 """The clip drawn from its project list: one FFmpeg filter graph from the recording to the 1080x1920 frame.
 
-    recording piece(s)  ->  [src] at clip time t  ->  source stage (blurs)  ->  layout (layouts.py)
+    recording piece(s)  ->  [src] at clip time t  ->  source stage (blurs, look)  ->  layout (layouts.py, pushes)
                         ->  frame stage (camera hits, stickers, then the words, then flashes)
 
 The preview frame is the same graph started at the frame's time: the piece is opened at the matching recording
@@ -91,16 +91,21 @@ def after_source(state, src, out, first_input, default="clean"):
     """(graph text from [src] to [out], extra files) in three stages:
     - source stage, on the recording's picture: the blurs (a fixed box, or a face's track of [t, x, y, w, h] points in
       clip seconds), so a blurred box stays blurred wherever the layout shows it, the card's blurred background
-      included;
-    - the layout, to the 1080x1920 frame;
-    - frame stage: the camera hits (shake, punch-in), the stickers, then the words (titles, captions and big words,
+      included, then the colour look (state['look'], a name in effects.LOOKS, or None), so it grades the footage
+      and never the frame's design, the stickers or the words;
+    - the layout, to the 1080x1920 frame, with the slow pushes inside its main part, so the frame's design holds
+      still while the footage pushes in;
+    - frame stage: the camera hits (punch-in, shake), the stickers, then the words (titles, captions and big words,
       one ASS file), so the words hold still while the picture moves and stay on top of a sticker, then the flashes
       last, so a flash lights the words too.
     A drawing that cannot be made raises ValueError with the sentence for Muse."""
     blurs = [effects.blur_track(b["track"]) if b.get("track") else effects.blur_box(b["box"], b["start"], b["end"])
              for b in state.get("blurs") or []]
+    if state.get("look"):
+        blurs.append(effects.look(state["look"]))
     seen, files = effects.join(blurs, src, "seen", first_input)
-    lay, more = layouts.graph(state["clip"]["layout"], "seen", "drawn", first_input + len(files))
+    lay, more = layouts.graph(state["clip"]["layout"], "seen", "drawn", first_input + len(files),
+                              state.get("pushes") or [])
     files = files + more
     hits = _hits(state)
     camera = {"shake": lambda h: effects.shake(h["at"]),

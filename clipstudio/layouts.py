@@ -26,7 +26,7 @@ import os
 import shutil
 import subprocess
 
-from . import recording
+from . import effects, recording
 
 W, H = 1080, 1920
 KINDS = ("card", "stack", "face", "subject")
@@ -51,7 +51,11 @@ CARD_LOWEST, CARD_TALLEST = 480, 760
 STACK_TOP = 760
 SEAM = 8
 GROUND = "0x101014"
-FACE_SHARE = {"circle": 1.5, "stack": 2.0, "face": 3.5}
+FACE_SHARE = {"circle": 1.5, "stack": 2.0, "face": 4.0}
+HEAD_UP, HEAD_SIDE = 0.4, 0.15
+GAP = 24
+UNDER = 200
+SAFE_BOTTOM = 1500
 LEAVE_OUT = 3.0
 SMALLEST_CARD = 0.4
 SHARPEN_FROM = 1.5
@@ -101,15 +105,45 @@ def make(kind, size, face=None, crop=None):
         if not face:
             raise ValueError("The face layout needs a face: none was found in the moment's pictures. Give face as a "
                              "box on your 0-1000 grid, or choose the subject layout.")
-        part = _around(face, FACE_SHARE["face"], W / H, room, at=0.40)
+        part = _around(face, FACE_SHARE["face"], W / H, room)
         parts.append({"name": "whole", "src": part, "dst": [0, 0, W, H]})
-        places = {"top": TOP}
+        places, captions = _around_the_head(_head(face, part), notes)
     else:
         part = _fit(crop, W / H, [0, 0, w, h], grow=1.2)
         parts.append({"name": "whole", "src": part, "dst": [0, 0, W, H]})
         places = {"top": TOP, "middle": MIDDLE}
     return {"kind": kind, "size": [w, h], "face": face, "parts": parts, "places": places,
-            "captions": CAPTIONS, "background": kind == "card", "notes": notes}
+            "captions": captions if kind == "face" else CAPTIONS, "background": kind == "card", "notes": notes}
+
+
+def _head(face, part):
+    """The head's box on the frame of a whole-frame part: the face finder's box (brows to chin) with the hair above
+    it and the ears beside it."""
+    k = W / part[2]
+    x, y, w, h = (face[0] - part[0]) * k, (face[1] - part[1]) * k, face[2] * k, face[3] * k
+    return [x - HEAD_SIDE * w, y - HEAD_UP * h, w * (1 + 2 * HEAD_SIDE), h * (1 + HEAD_UP)]
+
+
+def _around_the_head(head, notes):
+    """(places, caption band) for words clear of the head: the title on top when the head leaves room under it,
+    otherwise just under the chin (a recording that is already vertical often has the face high, with nothing above
+    it to show), and the captions under the chin or under that title, above the phone apps' own words at the bottom;
+    when the face sits too low for that, the captions go between the title and the head."""
+    top, chin = head[1], head[1] + head[3]
+    tall = CAPTIONS[3]
+    if top - GAP >= TOP[1] + TOP[3]:
+        places, below = {"top": TOP}, chin + GAP
+    else:
+        places = {"middle": [65, _even(chin + GAP), 950, UNDER]}
+        below = chin + GAP + UNDER + GAP
+    y = max(CAPTIONS[1], _even(below))
+    if y + tall > SAFE_BOTTOM:
+        y = TOP[1] + TOP[3] + GAP
+        if "top" not in places or y + tall + GAP > top:
+            y = SAFE_BOTTOM - tall
+            notes.append("The face fills the picture, so the captions are as low as phone apps leave room for and "
+                         "may touch the chin.")
+    return places, [65, y, 830, tall]
 
 
 def _even(v):
@@ -237,10 +271,14 @@ def to_frame(layout, box):
 
 # ---- drawing ---------------------------------------------------------------------------------------------------
 
-def graph(layout, src, out, first_input):
+def graph(layout, src, out, first_input, pushes=()):
     """(filter graph text from [src] to [out] drawing layout at 1080x1920, extra files): the shapes around the parts
     (masks, shadows, the ring, the background's shade) are pictures made once, opened by the renderer as inputs from
-    first_input on, in the order of the files."""
+    first_input on, in the order of the files.
+
+    pushes are slow push-ins [{start, end, zoom, centre}] (centre on the frame): they push the main part's picture
+    (the card, the picture below the face, or the whole frame) inside its own place, so the card's shape and shadow,
+    the face circle and the background hold still. A centre outside the main part pushes toward its nearest point."""
     files = []
 
     def shape(path):
@@ -250,13 +288,13 @@ def graph(layout, src, out, first_input):
     parts = {p["name"]: p for p in layout["parts"]}
     tail = "setsar=1,format=yuv420p[%s]" % out
     if layout["kind"] in ("face", "subject"):
-        return "[%s]%s,%s" % (src, _scaled(parts["whole"]), tail), files
+        return "[%s]%s,%s" % (src, _pushed(parts["whole"], pushes), tail), files
     if layout["kind"] == "stack":
         top, bottom = parts["top"], parts["bottom"]
         bx, by = bottom["dst"][:2]
         text = ("[%s]split=2[lay_a][lay_b];[lay_a]%s,pad=%d:%d:0:0:color=%s[lay_t];[lay_b]%s[lay_g];"
                 "[lay_t][lay_g]overlay=%d:%d[lay_1];[lay_1]%soverlay=0:%d:shortest=1,%s"
-                % (src, _scaled(top), W, H, GROUND, _scaled(bottom), bx, by, shape(seam_shade()), by, tail))
+                % (src, _scaled(top), W, H, GROUND, _pushed(bottom, pushes), bx, by, shape(seam_shade()), by, tail))
         return text, files
     card = parts["card"]
     cx, cy, cw, ch = card["dst"]
@@ -272,7 +310,7 @@ def graph(layout, src, out, first_input):
             "[lay_1][lay_card]overlay=%d:%d:shortest=1"
             % (src, 3 if circle else 2, "[lay_s3]" if circle else "", W, H, shape(shade()),
                shape(shadow("card", cw, ch, CARD_RADIUS)), cx - pad, cy - pad + drop,
-               _scaled(card), shape(rounded(cw, ch, CARD_RADIUS)), cx, cy))
+               _pushed(card, pushes), shape(rounded(cw, ch, CARD_RADIUS)), cx, cy))
     if not circle:
         return text + "," + tail, files
     dx, dy, d, _ = circle["dst"]
@@ -286,6 +324,17 @@ def graph(layout, src, out, first_input):
                 shape(ring_shape(ring, RING)), dx - RING, dy - RING,
                 _scaled(circle), shape(rounded(d, d, d / 2)), dx, dy, tail))
     return text, files
+
+
+def _pushed(part, pushes):
+    """_scaled(part), then the slow pushes on its picture, their centres moved from the frame into the part."""
+    x, y, w, h = part["dst"]
+    text = _scaled(part)
+    for p in pushes:
+        cx, cy = effects._centre(p.get("centre", (W / 2, H / 2)))
+        inside = (min(max(cx - x, 0), w), min(max(cy - y, 0), h))
+        text += "," + effects.push_filters(p["start"], p["end"], p.get("zoom", 1.08), inside, (w, h))
+    return text
 
 
 def _scaled(part):

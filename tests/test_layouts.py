@@ -113,6 +113,81 @@ class Drawn(unittest.TestCase):
                         "the face panel casts a shadow onto the game")
 
 
+def moving(lay, t, pushes=(), source="testsrc2=s=%dx%d:r=30:d=3" % SIZE):
+    """The 1080x1920 frame at second t of layout lay drawn from a moving test picture, with the slow pushes."""
+    import numpy as np
+    graph, files = layouts.graph(lay, "src", "out", 1, pushes)
+    cmd = [FFMPEG, "-v", "error", "-f", "lavfi", "-i", source]
+    for f in files:
+        cmd += ["-loop", "1", "-framerate", "30", "-i", f]
+    cmd += ["-filter_complex", "[0:v]trim=start_frame=%d[src];%s" % (round(t * 30), graph), "-map", "[out]",
+            "-fps_mode", "passthrough", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
+    run = subprocess.run(cmd, capture_output=True, timeout=120)
+    if run.returncode != 0:
+        raise AssertionError(run.stderr.decode("utf-8", "replace")[-2000:])
+    return np.frombuffer(run.stdout, np.uint8).reshape(1920, 1080, 3)
+
+
+@unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg, and numpy for the pixel checks")
+class Pushed(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.work, recording.WORK = recording.WORK, os.path.join(cls.tmp, "work")
+
+    @classmethod
+    def tearDownClass(cls):
+        recording.WORK = cls.work
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_a_slow_push_moves_only_the_main_parts_picture_and_only_while_it_runs(self):
+        import numpy as np
+        for kind, main, centre in (("card", "card", [540, 1100]), ("card", "card", [540, 300]),
+                                   ("stack", "bottom", [700, 1300])):
+            lay = layouts.make(kind, SIZE, FACE)
+            x, y, w, h = [p["dst"] for p in lay["parts"] if p["name"] == main][0]
+            pushes = [{"start": 0.5, "end": 1.5, "zoom": 1.15, "centre": centre}]
+            for t in (0.4, 1.5):
+                self.assertTrue((moving(lay, t) == moving(lay, t, pushes)).all(), (kind, centre, t))
+            ys, xs = np.nonzero((moving(lay, 1.0) != moving(lay, 1.0, pushes)).any(axis=2))
+            self.assertGreater(len(xs), w * h * 0.1, "the main part's picture pushed in (the test picture's flat "
+                               "bars do not change): %s %s" % (kind, centre))
+            self.assertTrue(x <= xs.min() and xs.max() < x + w and y <= ys.min() and ys.max() < y + h,
+                            "%s %s: only the %s %s changed, not %s" % (kind, centre, main, [x, y, w, h],
+                                                                      [xs.min(), ys.min(), xs.max(), ys.max()]))
+
+    def test_the_push_holds_still_the_point_it_was_given_on_the_frame(self):
+        import numpy as np
+
+        def weighed(frame, box):
+            """(centre x, centre y, area) of the magenta in box, each pixel weighed by how magenta it is."""
+            x, y, w, h = box
+            rgb = frame[y:y + h, x:x + w].astype(float)
+            weight = np.clip((rgb[:, :, 0] - rgb[:, :, 1]) / 200, 0, 1)
+            ys, xs = np.nonzero(weight)
+            wt = weight[ys, xs]
+            return (xs * wt).sum() / wt.sum() + x, (ys * wt).sum() / wt.sum() + y, wt.sum()
+
+        for kind, main in (("card", "card"), ("stack", "bottom")):
+            lay = layouts.make(kind, SIZE, FACE)
+            part = [p for p in lay["parts"] if p["name"] == main][0]
+            sx, sy, sw, sh = part["src"]
+            marker = [round(v) for v in (sx + sw * 0.3, sy + sh * 0.6, sw * 0.1, sh * 0.1)]
+            source = ("color=gray:s=%dx%d:r=30:d=3,drawbox=x=%d:y=%d:w=%d:h=%d:color=magenta:t=fill,format=yuv420p"
+                      % (SIZE + tuple(marker)))
+            (shown,) = [b for b in layouts.to_frame(lay, marker) if overlap(b, part["dst"])]
+            centre = [shown[0] + shown[2] / 2, shown[1] + shown[3] / 2]
+            pushes = [{"start": 0.5, "end": 1.5, "zoom": 1.15, "centre": centre}]
+            plain = weighed(moving(lay, 1.0, source=source), part["dst"])
+            pushed = weighed(moving(lay, 1.0, pushes, source), part["dst"])
+            w, h = part["dst"][2:]
+            grown = (w + 2 * round(w / 2 * 0.075)) / w * (h + 2 * round(h / 2 * 0.075)) / h
+            for k in (0, 1):
+                self.assertLess(abs(pushed[k] - plain[k]), 1, "%s: the marker under the centre stays put: %s vs %s"
+                                % (kind, pushed, plain))
+            self.assertLess(abs(pushed[2] / plain[2] - grown), 0.02, "%s: halfway it is %.3f times the area, not "
+                            "%.3f" % (kind, pushed[2] / plain[2], grown))
+
 class Places(unittest.TestCase):
     def test_no_place_for_words_is_on_the_face(self):
         for kind in layouts.KINDS:
@@ -123,6 +198,27 @@ class Places(unittest.TestCase):
                 for face in on_face:
                     self.assertFalse(overlap(box, face), "%s: the %s place %s is on the face %s"
                                      % (kind, name, box, [round(v) for v in face]))
+
+    def test_the_face_layout_keeps_words_off_the_whole_head_and_above_the_apps_own_words(self):
+        for size, face, what in ((SIZE, FACE, "a face camera in a wide recording"),
+                                 ((1080, 1920), [474.7, 292.3, 345.1, 454.4], "a vertical recording, the face high"),
+                                 ((1080, 1920), [400, 450, 280, 360], "a vertical recording, the hair just under "
+                                  "the title's place"),
+                                 ((1080, 1920), [380, 900, 300, 380], "a vertical recording, the face low"),
+                                 ((1080, 1920), [380, 1300, 300, 380], "a vertical recording, the face at the bottom")):
+            lay = layouts.make("face", size, face)
+            (f,) = layouts.to_frame(lay, face)
+            head = [f[0] - 0.15 * f[2], f[1] - 0.4 * f[3], f[2] * 1.3, f[3] * 1.4]
+            self.assertEqual(len(lay["places"]), 1, what)
+            boxes = list(lay["places"].items()) + [("captions", lay["captions"])]
+            for name, box in boxes:
+                self.assertFalse(overlap(box, head), "%s: the %s place %s is on the head %s"
+                                 % (what, name, box, [round(v) for v in head]))
+                self.assertLessEqual(box[1] + box[3], layouts.SAFE_BOTTOM, "%s: %s" % (what, name))
+                self.assertGreaterEqual(box[1], 200, "%s: %s is below the phone's own bar" % (what, name))
+            (_, title), (_, captions) = boxes
+            self.assertFalse(overlap(title, captions), what)
+            self.assertGreaterEqual(title[3], 192, "%s: the title place holds two lines of the tallest style" % what)
 
 
 if __name__ == "__main__":

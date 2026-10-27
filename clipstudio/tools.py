@@ -13,7 +13,7 @@ import math
 import os
 import time
 
-from . import faces, hearing, layouts, maps, mind, previews, project, recording, render, text, tracks
+from . import effects, faces, hearing, layouts, maps, mind, previews, project, recording, render, text, tracks
 from .recipes import RECIPES, SIGNALS
 
 WHY = {"type": "string",
@@ -723,6 +723,55 @@ def _main_part(layout):
     return [round(x + w / 2), round(y + h / 2)]
 
 
+LOOKS = {"vivid": "more contrast and richer greens and blues, skin and reds kept: for games and flat footage",
+         "warm": "warmer middle tones, black and white kept, so a white product stays white: for faces, food and "
+                 "products",
+         "film": "soft blacks and whites and calmer colour: for a quiet, calm clip",
+         "none": "the footage as it was shot"}
+PUSH_ZOOM = 1.08
+
+
+def set_look(job, why, look):
+    rec = _open(job, "colour")
+    state = _clip_state(job)
+    name = None if look == "none" else look
+    if name is not None:
+        try:
+            effects.look(name)
+        except ValueError as e:
+            raise Refused(str(e))
+    if name == state["look"]:
+        raise Refused("The clip already has %s." % ("the %s look" % name if name else "no look"))
+    state = job.edit({"do": "look", "name": name})
+    lines = ["The footage now has the %s look: %s. Titles, captions and the frame's design keep their colours."
+             % (name, LOOKS[name]) if name else "The footage is as it was shot, with no look."]
+    lines.append(_show_frame(job, state, rec, state["length"] / 2, "The clip with %s:" % (
+        "the %s look" % name if name else "no look")))
+    return "\n".join(lines)
+
+
+def slow_push(job, why, start, end, zoom=PUSH_ZOOM):
+    rec = _open(job, "push in on")
+    state = _clip_state(job)
+    length = state["length"]
+    if not 0 <= start < length:
+        raise Refused("start %g s is outside the clip, which is %g s long: use seconds of the clip." % (start, length))
+    end = min(end, length)
+    centre = _main_part(state["clip"]["layout"])
+    try:
+        effects.slow_push(start, end, zoom, centre)
+    except ValueError as e:
+        raise Refused(str(e))
+    replaced = [p for p in state["pushes"] if p["start"] < end and start < p["end"]]
+    state = job.edit({"do": "push", "start": round(start, 2), "end": round(end, 2), "zoom": zoom, "centre": centre})
+    lines = ["A slow push in on the main picture from %g to %g s, to %g times its size, easing in and out, then it "
+             "cuts back. The frame's design and the words hold still." % (start, end, zoom)]
+    if replaced:
+        lines.append("It replaces the push at %s." % ", ".join("%g-%g s" % (p["start"], p["end"]) for p in replaced))
+    lines.append(_show_frame(job, state, rec, max(start, end - 0.1), "The clip at the end of the push:"))
+    return "\n".join(lines)
+
+
 def add_captions(job, why, on=True, lit=False):
     rec = _open(job, "caption")
     state = _clip_state(job)
@@ -1047,6 +1096,10 @@ def describe(entry):
         return "the %s at %g s" % (entry["kind"], entry["at"])
     if entry["do"] == "sticker":
         return "the sticker at %g s" % entry["at"]
+    if entry["do"] == "look":
+        return "the %s look" % entry["name"] if entry["name"] else "taking the look off"
+    if entry["do"] == "push":
+        return "the slow push at %g-%g s" % (entry["start"], entry["end"])
     if entry["do"] == "people":
         return "the decision on people (%s)" % "; ".join(
             "%s person %s" % (k, _numbers(entry[k])) for k in ("blur", "keep") if entry[k])
@@ -1271,6 +1324,21 @@ TOOLS = {t.name: t for t in [
           "keep": {"type": "array", "items": {"type": "integer", "minimum": 1},
                    "description": "The numbers of the people to keep as they are."}},
          [], decide_people, changes=True),
+    Tool("set_look", "Chose a colour look",
+         "Grade the footage with one colour look: " + "; ".join("%s: %s" % kv for kv in LOOKS.items()) + ". It "
+         "colours the footage only; titles, captions and the frame's design keep their colours.",
+         {"look": {"type": "string", "enum": list(LOOKS), "description": "Which look."}},
+         ["look"], set_look, changes=True),
+    Tool("slow_push", "Pushed in slowly",
+         "A slow push in on the clip's main picture, like a camera moving closer, for the build-up into the peak. "
+         "It eases in and out, then cuts back at the end. One per moment; a zoom of 1.05 to 1.12 reads as a "
+         "camera move, more reads as a zoom. A push over the time of an earlier one replaces it.",
+         {"start": {"type": "number", "minimum": 0, "description": "When it starts, in seconds of the clip."},
+          "end": {"type": "number", "minimum": 0, "description": "When it ends and cuts back, 0.5 to 30 s later: "
+                                                                 "on the peak."},
+          "zoom": {"type": "number", "minimum": 1.01, "maximum": 1.5,
+                   "description": "How much bigger the picture is at the end, such as 1.08."}},
+         ["start", "end"], slow_push, changes=True),
     Tool("add_hit", "Added a hit",
          "Put one effect on the second something lands, never before it: " +
          "; ".join("%s: %s" % kv for kv in HITS.items()) + ". Use it on the peak, at most a few in a clip.",
@@ -1299,8 +1367,8 @@ TOOLS = {t.name: t for t in [
                       "description": "The post text in English, when the clip's language is not English."}},
          ["title", "caption", "hashtags"], hand_over, changes=True),
     Tool("undo", "Took back the last change",
-         "Take back the last change to the clip: a layout, a style, a title, the captions, a blur, a hit or a "
-         "decision about people. The "
+         "Take back the last change to the clip: a layout, a style, a title, the captions, a blur, a hit, a look, a "
+         "push or a decision about people. The "
          "person can also do this on the page.",
          {}, [], undo, changes=True),
 ]}

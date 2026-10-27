@@ -12,7 +12,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import layouts, project, recording, render, text  # noqa: E402
+from clipstudio import effects, layouts, project, recording, render, text  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
 HAS_NUMPY = importlib.util.find_spec("numpy") is not None
@@ -29,7 +29,8 @@ def state(kind="subject", **entries):
     for do in ("title", "captions", "blur", "hit"):
         for e in entries.get(do, []):
             p.add(dict(e, do=do))
-    return dict(p.state(), stickers=entries.get("sticker", []))
+    return dict(p.state(), stickers=entries.get("sticker", []), pushes=entries.get("push", []),
+                look=entries.get("look"))
 
 
 def drawn(st, t):
@@ -158,15 +159,16 @@ class Stages(unittest.TestCase):
         self.assertGreater(int(c[edge].min(axis=1).mean()), 100, "the flash lights the outline")
         self.assertIsNone(changed(drawn(titled, 1.3), drawn(flashed, 1.3)), "the flash is over")
 
-    def test_camera_hits_move_the_picture_and_the_words_hold_still(self):
+    def test_the_camera_moves_the_picture_and_the_words_hold_still(self):
         titled = state("card", title=[TITLE])
         moved = state("card", title=[TITLE], hit=[{"kind": "punch", "at": 1.0, "word": None, "centre": [540, 960]},
-                                                  {"kind": "shake", "at": 2.0, "word": None, "centre": [540, 960]}])
+                                                  {"kind": "shake", "at": 2.0, "word": None, "centre": [540, 960]}],
+                      push=[{"start": 2.5, "end": 3.5, "zoom": 1.1, "centre": [540, 1150]}])
         x, y, w, h = layouts.TOP
         letters = drawn(titled, 0.9)[y:y + h, x:x + w].min(axis=2) > 240
         ys, xs = letters.nonzero()
         x, y, w, h = x + xs.min() - 6, y + ys.min() - 6, xs.max() - xs.min() + 13, ys.max() - ys.min() + 13
-        for t in (1.1, 2.05):
+        for t in (1.1, 2.05, 3.0):
             a, b = drawn(titled, t), drawn(moved, t)
             card = (a[1000:1300] != b[1000:1300]).any(axis=2).mean()
             self.assertGreater(card, 0.3, "the picture moved at %s s" % t)
@@ -174,6 +176,24 @@ class Stages(unittest.TestCase):
             white_b = (b[y:y + h, x:x + w].min(axis=2) > 240)
             self.assertGreater(int(white_a.sum()), 2000, "the title's letters are there")
             self.assertLess(int((white_a != white_b).sum()), white_a.sum() * 0.02, "the title held still at %s s" % t)
+
+    def test_a_look_grades_the_footage_and_never_the_words_or_the_frames_design(self):
+        titled = state("card", title=[TITLE])
+        lay = titled["clip"]["layout"]
+        x, y, w, h = [p["dst"] for p in lay["parts"] if p["name"] == "card"][0]
+        dx, dy, d, _ = [p["dst"] for p in lay["parts"] if p["name"] == "circle"][0]
+        tx, ty, tw, th = layouts.TOP
+        a = drawn(titled, 1.0)
+        for name in effects.LOOKS:
+            b = drawn(state("card", title=[TITLE], look=name), 1.0)
+            self.assertGreater((a[y + 40:y + h - 40, x + 40:x + w - 40] != b[y + 40:y + h - 40, x + 40:x + w - 40]
+                                ).any(axis=2).mean(), 0.3, "%s grades the card's footage" % name)
+            white_a = a[ty:ty + th, tx:tx + tw].min(axis=2) > 240
+            white_b = b[ty:ty + th, tx:tx + tw].min(axis=2) > 240
+            self.assertGreater(int(white_a.sum()), 2000, "the title's letters are there")
+            self.assertLess(int((white_a != white_b).sum()), white_a.sum() * 0.01, "%s leaves the title white" % name)
+            ring = (slice(dy - layouts.RING + 2, dy - 2), slice(dx + d // 2 - 20, dx + d // 2 + 20))
+            self.assertTrue((a[ring] == b[ring]).all(), "%s leaves the ring as it is" % name)
 
     def test_a_sticker_is_drawn_in_its_box_under_the_words(self):
         png = os.path.join(self.tmp, "sticker.png")
@@ -278,7 +298,7 @@ def apart(a, b):
 @unittest.skipUnless(FFMPEG and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class Export(unittest.TestCase):
     """A 3 s card clip of two pieces from a recording of moving stripes, a bar that moves down without ever coming
-    back, and a quiet tone, with a title and a sticker that pops in across the join, exported once."""
+    back, and a quiet tone, with a title, and a slow push and a sticker across the join, exported once."""
 
     @classmethod
     def setUpClass(cls):
@@ -297,7 +317,8 @@ class Export(unittest.TestCase):
         png = os.path.join(cls.tmp, "sticker.png")
         subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=0x2040ff:s=300x200", "-frames:v",
                         "1", png], check=True)
-        cls.state = dict(p.state(), stickers=[{"png": png, "at": 1.2, "length": 1.0, "box": [240, 1300, 600, 400]}])
+        cls.state = dict(p.state(), stickers=[{"png": png, "at": 1.2, "length": 1.0, "box": [240, 1300, 600, 400]}],
+                         pushes=[{"start": 1.0, "end": 2.6, "zoom": 1.1, "centre": [540, 900]}])
         cls.out = os.path.join(cls.tmp, "clip.mp4")
         cls.progress = []
         cls.made = render.export(cls.rec, cls.state, cls.out, on_progress=cls.progress.append)

@@ -243,6 +243,10 @@ class Chat:
                 sum(1 for p in people if p["blur"]), sum(1 for p in people if p["blur"] is False or
                                                          p["blur"] is None and p["seen"] == 1),
                 ", %d still to decide before rendering" % left if left else ""))
+        if state["look"]:
+            extras.append("%s look" % state["look"])
+        if state["pushes"]:
+            extras.append("slow push " + ", ".join("%g-%g s" % (p["start"], p["end"]) for p in state["pushes"]))
         if state["hits"]:
             extras.append("hits: " + ", ".join("%s at %g s" % (h["kind"], h["at"]) for h in state["hits"]))
         done = self.finished()

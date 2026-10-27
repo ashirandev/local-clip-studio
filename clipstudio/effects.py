@@ -261,15 +261,73 @@ def punch_in(at, length=0.5, zoom=1.15, centre=(540, 960)):
                     "[_a][_c]overlay=0:0:format=auto:enable='%s'[out]" % (wide, tall, FRAME_W, FRAME_H, x, y, when), [])
 
 
-def _centre(centre):
+def slow_push(start, end, zoom=1.08, centre=(540, 960)):
+    """A slow push-in on the whole frame: from start to end it grows smoothly from its own size to zoom times it
+    around centre (x, y on the 1080x1920 frame), easing in and out, then cuts back at end. Outside start to end every
+    frame is the input's own. The renderer pushes the layout's main part instead (layouts.graph), so the frame's
+    design holds still; this is the same push for a picture that is the whole frame."""
+    return Fragment("[in]%s[out]" % push_filters(start, end, zoom, centre, (FRAME_W, FRAME_H)), [])
+
+
+def push_filters(start, end, zoom, centre, size):
+    """The filters (text for one chain) of a slow push on a picture of size (w, h), around centre (x, y) in its
+    pixels: see slow_push. The point at centre stays where it is, give or take half a pixel, so no edge ever shows.
+    The picture grows in steps of 2 pixels, each frame drawn sharp at its own size."""
+    start, end = _window(start, end)
+    if not 0.5 <= end - start <= 30:
+        raise ValueError("start %s to end %s is %s s: a slow push runs 0.5 to 30 seconds." % (
+            _f(start), _f(end), _f(end - start)))
+    zoom = _number("zoom", zoom)
+    if not 1 < zoom <= 1.5:
+        raise ValueError("zoom %s is not a slow push: use more than 1, up to 1.5, such as 1.08." % _f(zoom))
+    w, h = size
+    cx, cy = _centre(centre, size)
+    u = "clip((t-%s)/%s,0,1)" % (_f(start), _f(end - start))
+    when = "gte(t,%s)*lt(t,%s)" % (_f(start), _f(end))
+    z = "(%s*(1-cos(PI*%s))/2*%s)" % (_f(zoom - 1), u, when)
+    wide = "(%d+2*round(%s*%s))" % (w, _f(w / 2), z)
+    tall = "(%d+2*round(%s*%s))" % (h, _f(h / 2), z)
+    # crop's offsets come from t too (crop keeps the size it first saw as iw and ih); exact=1 lets them be odd, so
+    # the centre does not jump by a pixel each time the size steps.
+    return ("scale=w='%s':h='%s':eval=frame:flags=lanczos,crop=w=%d:h=%d:x='round(%s*(%s/%d-1))':"
+            "y='round(%s*(%s/%d-1))':exact=1" % (wide, tall, w, h, _f(cx), wide, w, _f(cy), tall, h))
+
+
+def _centre(centre, size=(FRAME_W, FRAME_H)):
+    w, h = size
+    where = "the %dx%d frame" % size if size == (FRAME_W, FRAME_H) else "the %dx%d picture" % size
     if (not isinstance(centre, (tuple, list)) or len(centre) != 2
             or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in centre)):
-        raise ValueError("centre %r is not a point: give (x, y) on the %dx%d frame." % (centre, FRAME_W, FRAME_H))
+        raise ValueError("centre %r is not a point: give (x, y) on %s." % (centre, where))
     cx, cy = centre
-    if not (0 <= cx <= FRAME_W and 0 <= cy <= FRAME_H):
-        raise ValueError("centre %r is off the %dx%d frame: use x from 0 to %d and y from 0 to %d."
-                         % (tuple(centre), FRAME_W, FRAME_H, FRAME_W, FRAME_H))
+    if not (0 <= cx <= w and 0 <= cy <= h):
+        raise ValueError("centre %r is off %s: use x from 0 to %d and y from 0 to %d." % (tuple(centre), where, w, h))
     return cx, cy
+
+
+# ---- looks -------------------------------------------------------------------------------------------------------
+
+# vivid: more contrast for games and anything flat, as an S-curve on the brightness alone (u - 0.25 sin(2 pi u) / 2 pi
+# on the 16 to 235 range, which only rises), so no colour shifts, then more colour in the greens, cyans and blues
+# only, so a game's world and a sky get richer while skin and reds stay exactly as they were.
+# warm: the middle tones warmer for a face or food, black and white left where they are, so a white product stays
+# white. film: a calm, soft clip: black lifted and a little blue, white softened, colour a little less.
+LOOKS = {
+    "vivid": "lutyuv=y='if(between(val,16,235),16+219*((val-16)/219-0.25*sin(2*PI*(val-16)/219)/(2*PI)),val)',"
+             "huesaturation=saturation=0.3:colors=g+c+b:strength=10",
+    "warm": "curves=r='0/0 0.5/0.525 1/1':g='0/0 0.5/0.505 1/1':b='0/0 0.5/0.465 1/1',vibrance=intensity=0.05",
+    "film": "curves=r='0/0.05 0.5/0.51 1/0.95':g='0/0.05 0.5/0.5 1/0.95':b='0/0.08 0.5/0.49 1/0.92',"
+            "vibrance=intensity=-0.15",
+}
+
+
+def look(name):
+    """A colour look by name (see LOOKS) for the recording's picture: the same for every frame, so it never moves,
+    and every curve only rises, so a darker colour never comes out lighter than a brighter one. The picture keeps
+    its size."""
+    if name not in LOOKS:
+        raise ValueError("look %r is not a look: use one of %s." % (name, ", ".join(LOOKS)))
+    return Fragment("[in]%s[out]" % LOOKS[name], [])
 
 
 # ---- stickers ----------------------------------------------------------------------------------------------------

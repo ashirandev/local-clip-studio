@@ -12,7 +12,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, faces, hearing, layouts, project, recording, render, tools  # noqa: E402
+from clipstudio import agent, effects, faces, hearing, layouts, project, recording, render, tools  # noqa: E402
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_hearing import Worker  # noqa: E402
 from test_map import make_moment  # noqa: E402
@@ -153,6 +153,25 @@ class Projects(unittest.TestCase):
         self.assertEqual([k["png"] for k in p.state()["stickers"]], ["s6.png"])
         self.assertEqual(tools.describe(p.entries[-1]), "the sticker at 6 s")
         self.assertEqual(project.Project().state()["stickers"], [], "no clip, nothing drawn")
+
+    def test_the_last_look_wins_and_a_push_over_an_earlier_one_replaces_it(self):
+        p = project.Project()
+        self.assertEqual((p.state()["look"], p.state()["pushes"]), (None, []))
+        p.add({"do": "clip", "moment": 1, "pieces": [[30, 50]], "layout": {"kind": "card"}})
+        p.add({"do": "look", "name": "vivid"})
+        p.add({"do": "look", "name": "warm"})
+        self.assertEqual(p.state()["look"], "warm")
+        p.add({"do": "push", "start": 2, "end": 6, "zoom": 1.08, "centre": [540, 960]})
+        p.add({"do": "push", "start": 12, "end": 16, "zoom": 1.08, "centre": [540, 960]})
+        p.add({"do": "push", "start": 5, "end": 9, "zoom": 1.1, "centre": [540, 960]})
+        p.add({"do": "push", "start": 25, "end": 28, "zoom": 1.1, "centre": [540, 960]})
+        self.assertEqual([(q["start"], q["end"]) for q in p.state()["pushes"]], [(5, 9), (12, 16)],
+                         "2-6 overlapped 5-9 and went; 25-28 starts after the 20 s clip")
+        p.undo()
+        p.undo()
+        self.assertEqual([(q["start"], q["end"]) for q in p.state()["pushes"]], [(2, 6), (12, 16)])
+        p.add({"do": "look", "name": None})
+        self.assertIsNone(p.state()["look"])
 
     def test_clip_seconds_and_recording_seconds(self):
         pieces = [[100, 110], [200, 205]]
@@ -529,6 +548,36 @@ class Tools(unittest.TestCase):
         self.chat.project.add({"do": "people", "blur": [1], "keep": []})
         self.chat.project.add(clip)
         self.assertEqual(tools._undecided(self.chat.project.state()), [1], "a new clip starts with nobody decided")
+
+    def test_muse_grades_the_footage_and_pushes_in_on_the_build_up(self):
+        brain, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("set_look", look="vivid", why="a game")],
+            [call("set_look", look="vivid", why="again")],
+            [call("slow_push", start=1, end=1.2, why="too short")],
+            [call("slow_push", start=4, end=9, why="into the fall")],
+            [call("slow_push", start=8, end=12, zoom=1.1, why="later")],
+            "Done.")
+        vivid, again, short, first, later = steps[-5:]
+        self.assertFalse(vivid["refused"], vivid["result"])
+        self.assertIn("The footage now has the vivid look", vivid["result"])
+        self.assertIn("comes next as a picture", vivid["result"])
+        self.assertTrue(again["refused"])
+        self.assertIn("The clip already has the vivid look.", again["result"])
+        self.assertTrue(short["refused"])
+        self.assertIn("a slow push runs 0.5 to 30 seconds", short["result"])
+        self.assertFalse(first["refused"], first["result"])
+        self.assertIn("A slow push in on the main picture from 4 to 9 s, to 1.08 times its size", first["result"])
+        self.assertIn("It replaces the push at 4-9 s.", later["result"])
+        state = self.chat.project.state()
+        self.assertEqual(state["look"], "vivid")
+        self.assertEqual([(q["start"], q["end"], q["zoom"]) for q in state["pushes"]], [(8, 12, 1.1)])
+        self.assertEqual(state["pushes"][0]["centre"], tools._main_part(state["clip"]["layout"]))
+        self.assertIn("vivid look, slow push 8-12 s", self.chat.clip_line())
+        self.assertEqual(tools.describe(self.chat.project.entries[-1]), "the slow push at 8-12 s")
+
+    def test_muse_is_offered_the_looks_the_renderer_draws(self):
+        self.assertEqual(set(tools.LOOKS) - {"none"}, set(effects.LOOKS))
 
     def test_a_thai_key_word_is_one_word_of_the_title_not_the_whole_title(self):
         brain, steps = self.run_job(
