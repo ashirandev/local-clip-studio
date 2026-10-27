@@ -272,6 +272,25 @@ class Phones(unittest.TestCase):
         (game,) = [p["dst"] for p in lay["parts"] if p["name"] == "bottom"]
         self.assertLessEqual(game[1] + game[3], 1552, "the game ends above the apps' name and caption: %s" % game)
 
+    def test_the_cards_captions_cover_neither_the_picture_nor_the_face_and_suit_an_ad(self):
+        for size, face, what in list(RECORDINGS) + [((1920, 1080), None, "no face"), ((2560, 1080), FACE, "ultrawide"),
+                                                    ((1440, 1080), FACE, "4:3")]:
+            for crop in (None, [600, 0, 700, 1080], [0, 300, 1920, 500]):
+                lay = layouts.make("card", size, face, crop)
+                if lay["kind"] != "card":
+                    continue
+                parts = {p["name"]: p["dst"] for p in lay["parts"]}
+                band = lay["captions"]
+                for name, box in parts.items():
+                    self.assertFalse(overlap(band, box), "%s, crop %s: the captions %s cover the %s %s"
+                                     % (what, crop, band, name, box))
+                self.assertFalse(overlap(band, lay["places"]["top"]), what)
+                self.assertLessEqual(band[1] + band[3], 1250, "%s: an ad keeps the bottom 670 px for its button" % what)
+                if "circle" in parts:
+                    self.assertGreaterEqual(parts["circle"][2], layouts.CIRCLE_SMALLEST, what)
+                    self.assertLess(parts["circle"][1], band[1], "%s: the captions read under the face" % what)
+                self.assertLess(band[1], parts["card"][1], what)
+
     def test_a_subject_shows_whole_between_the_header_and_the_name(self):
         for crop in ([800, 300, 400, 500], [300, 400, 300, 300], [1400, 100, 350, 400]):
             lay = layouts.make("subject", SIZE, None, crop)
@@ -377,7 +396,8 @@ class Moved(unittest.TestCase):
         for k in (0, 1):
             self.assertLess(abs((card["src"][k] + card["src"][k + 2] / 2) - (before["src"][k] + before["src"][k + 2] / 2)),
                             1, "cut around the same middle")
-        self.assertIn("top and middle places would sit on it", there["notes"][-1], "the places it covers are named")
+        self.assertIn("Words in the top place would sit on it.", there["notes"][-1], "the places it covers are named")
+        self.assertIn("The captions would cover it", there["notes"][-1], "and the captions it would sit under")
 
     def test_only_a_box_the_frame_cannot_hold_is_refused(self):
         lay = layouts.make("card", SIZE, FACE)

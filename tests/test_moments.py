@@ -299,3 +299,100 @@ class Snap(unittest.TestCase):
     def test_edges_never_leave_the_look(self):
         look = dict(self.LOOK, start=30.9)
         self.assertEqual(tools._snapped(look, 31.5, 48.0)[0], 30.9)
+
+    def test_an_end_finishes_its_line_in_what_was_heard_past_the_look(self):
+        look = dict(self.LOOK, end=67.0, heard=[24.0, 73.0])
+        self.assertEqual(tools._snapped(look, 50.0, 67.0)[1], 70.25, "the line runs 3 s past the look: heard whole, "
+                         "so the clip ends after it")
+        self.assertEqual(tools._snapped(dict(self.LOOK, end=67.0), 50.0, 67.0)[1], 67.0, "a look heard only to its end "
+                         "keeps it")
+        self.assertEqual(tools._snapped(look, 50.0, 65.0)[1], 65.0, "5 s from the line's end is past FINISH_REACH")
+
+
+class Faces(unittest.TestCase):
+    def test_faces_found_over_the_moment_serve_its_pieces(self):
+        found = {"every": 0.5, "samples": [{"t": 30.0 + k * 0.5, "faces": [[100, 50, 40, 40, 0.9]]} for k in range(40)]}
+        had = tools.faces.kept
+        tools.faces.kept = lambda rec, a, b, every=0.5: found if (a, b) == (30.0, 50.0) else None
+        try:
+            state = {"clip": {"pieces": [[31.0, 35.0], [40.0, 49.0]], "span": [30.0, 50.0], "product": None,
+                              "layout": tools.layouts.make("subject", (320, 180))}, "length": 13.0}
+            times, _ = tools._face_times(state, {"width": 320, "height": 180})
+        finally:
+            tools.faces.kept = had
+        self.assertEqual(len(times), 9 + 19, "the pictures inside the pieces, none from the stretch cut out")
+        self.assertEqual([t for t, _ in times][:2] + [t for t, _ in times][-1:], [0.0, 0.5, 13.0])
+
+
+class InClip(unittest.TestCase):
+    def test_a_phrase_is_placed_in_clip_seconds_and_ends_with_its_piece(self):
+        pieces = [[30.0, 35.0], [40.0, 50.0]]
+        self.assertEqual(tools._in_clip(pieces, {"from": 41.0, "to": 43.0}, 15.0), (6.0, 8.0))
+        self.assertEqual(tools._in_clip(pieces, {"from": 33.0, "to": 37.0}, 15.0), (3.0, 5.0),
+                         "its end was cut out, so it ends where its piece does, not at the clip's end")
+        self.assertIsNone(tools._in_clip(pieces, {"from": 36.0, "to": 38.0}, 15.0))
+
+
+def said_line(a, b, text):
+    return {"from": a, "to": b, "text": text}
+
+
+class Pieces(unittest.TestCase):
+    SAID = [said_line(31.0, 33.0, "one two three"), said_line(36.0, 38.0, "four five"),
+            said_line(40.0, 43.0, "this is the long line we say"),
+            said_line(46.0, 49.5, "this is the long line we say again")]
+
+    def test_a_game_is_kept_whole(self):
+        self.assertEqual(tools._pieces(self.SAID, 30.0, 50.0, None), ([[30.0, 50.0]], None))
+
+    def test_still_silences_the_first_take_and_the_edges_are_cut(self):
+        pieces, said = tools._pieces(self.SAID, 30.0, 50.0, lambda x, y: True)
+        self.assertEqual(pieces, [[30.7, 33.3], [35.7, 38.3], [45.75, 49.8]])
+        self.assertIn('the first take of a line said again at 0:40 ("this is the long line we say"; the take from 0:46 '
+                      'is kept)', said)
+        self.assertIn("1 silence longer than 1 s while nothing moved on the picture", said)
+        self.assertIn("opens and closes 0.3 s from a word", said)
+
+    def test_a_silence_while_the_picture_moves_is_kept(self):
+        pieces, _ = tools._pieces(self.SAID, 30.0, 50.0, lambda x, y: False)
+        self.assertEqual(pieces, [[30.0, 40.0], [45.75, 50.0]], "only the first take goes")
+        pieces, _ = tools._pieces(self.SAID, 30.0, 50.0, lambda x, y: 33.0 <= x and y <= 36.0)
+        self.assertEqual(pieces, [[30.0, 33.3], [35.7, 40.0], [45.75, 50.0]])
+
+    def test_nothing_heard_keeps_the_moment(self):
+        self.assertEqual(tools._pieces([], 30.0, 50.0, lambda x, y: True), ([[30.0, 50.0]], None))
+
+
+@unittest.skipUnless(FFMPEG, "needs ffmpeg")
+class Still(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.work, recording.WORK = recording.WORK, os.path.join(cls.tmp, "work")
+        path = os.path.join(cls.tmp, "busy.mp4")
+        make_moment(path, seconds=30, busy=(20, 25))
+        cls.rec = recording.probe(path)
+
+    @classmethod
+    def tearDownClass(cls):
+        recording.WORK = cls.work
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_still_is_true_only_where_the_picture_does_not_move(self):
+        still = tools._still(self.rec, "explain", 10.0, 30.0, None)
+        self.assertTrue(still(12.0, 16.0))
+        self.assertFalse(still(21.0, 23.0))
+        self.assertFalse(still(18.5, 20.5), "a silence that runs into the movement is kept")
+        self.assertTrue(still(26.0, 29.0))
+
+    def test_movement_inside_the_face_camera_does_not_count(self):
+        still = tools._still(self.rec, "explain", 10.0, 30.0, [0, 0, 320, 180])
+        self.assertTrue(still(21.0, 23.0))
+
+    def test_a_game_cuts_nothing_and_a_talk_cuts_every_silence(self):
+        self.assertIsNone(tools._still(self.rec, "game", 10.0, 30.0, None))
+        self.assertTrue(tools._still(self.rec, "talk", 10.0, 30.0, None)(21.0, 23.0))
+
+    def test_a_picture_that_cannot_be_looked_at_counts_as_moving(self):
+        gone = dict(self.rec, path=os.path.join(self.tmp, "gone.mp4"))
+        self.assertFalse(tools._still(gone, "explain", 10.0, 30.0, None)(12.0, 16.0))

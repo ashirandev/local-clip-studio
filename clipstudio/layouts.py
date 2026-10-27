@@ -5,7 +5,9 @@ Free placement was measured first (10-26, four recordings): Muse found the right
 face camera twice and covered the chest with the game. So the shapes are fixed:
 
 - card: the game as a rounded card across the middle with a soft shadow, the face camera in a ringed circle above
-  it, and the same moment, blurred and darkened toward the edges, behind both
+  it, the captions between the two, and the same moment, blurred and darkened toward the edges, behind both. The
+  captions used to run across the card's middle, over the very words on the screen the clip is about (Tarm, 10-27:
+  "ไม่ควรวาง subtitle ทับกลางเนื้อหา"); between the face and the card they cover nothing and read as what the face says
 - stack: the face camera on top, the game below it, a dark seam and a shadow between them
 - face: the face alone, filling the frame
 - subject: one part of the picture (a product, the action) filling the frame
@@ -40,8 +42,8 @@ from . import effects, recording
 W, H = 1080, 1920
 KINDS = ("card", "stack", "face", "subject")
 SAID = {
-    "card": "the picture as a card across the middle, the face in a circle above it, the title on top; for a game "
-            "stream with a face camera",
+    "card": "the picture as a card across the middle, the face in a circle above it, the captions between the two "
+            "so they never cover the picture, the title on top; for a game stream with a face camera or a screen",
     "stack": "the face on top, the picture below it; for a stream when the face matters as much as the game",
     "face": "the face alone, filling the frame; for a reaction",
     "subject": "one part of the picture filling the frame, such as the product or the action; for a person on camera "
@@ -51,7 +53,8 @@ TOP = [65, 285, 950, 235]
 MIDDLE = [65, 905, 830, 170]
 CAPTIONS = [65, 1090, 830, 160]
 CIRCLE, RING = 400, 8
-CIRCLE_Y = 540
+CIRCLE_SMALLEST = 300
+CARD_TITLE = [65, 270, 950, 190]
 CARD_Y = 890
 CARD_X = 60
 CARD_W = W - 2 * CARD_X
@@ -100,7 +103,7 @@ def make(kind, size, face=None, crop=None):
         raise ValueError("layout %r is not a layout: use one of %s." % (kind, ", ".join(KINDS)))
     w, h = size
     crop = _inside(crop or [0, 0, w, h], w, h)
-    notes, parts = [], []
+    notes, parts, captions = [], [], CAPTIONS
     if h > w and kind in ("card", "stack"):
         notes.append("The recording is already vertical, so its picture fills the frame (the subject layout) "
                      "instead of a %s, which would show the face twice." % kind)
@@ -109,14 +112,15 @@ def make(kind, size, face=None, crop=None):
     away = _grown(face, LEAVE_OUT, w, h) if face else None
     if kind == "card":
         if face:
-            square = _around(face, FACE_SHARE["circle"], 1.0, room)
-            parts.append({"name": "circle", "src": square, "dst": [(W - CIRCLE) // 2, CIRCLE_Y, CIRCLE, CIRCLE]})
             crop = _leave_out(crop, away, notes)
         else:
             notes.append("No face was given or found, so the card has no circle.")
-        crop, height = _card(crop, notes)
-        parts.insert(0, {"name": "card", "src": crop, "dst": [CARD_X, CARD_Y, CARD_W, height]})
-        places = {"top": TOP, "middle": MIDDLE}
+        crop, height = _card(crop, notes, _CARD_ROOM - CIRCLE_SMALLEST - GAP if face else CARD_TALLEST)
+        circle, captions, card = _card_column(height, bool(face))
+        parts.append({"name": "card", "src": crop, "dst": card})
+        if face:
+            parts.append({"name": "circle", "src": _around(face, FACE_SHARE["circle"], 1.0, room), "dst": circle})
+        places = {"top": CARD_TITLE}
     elif kind == "stack":
         if not face:
             raise ValueError("The stack layout needs a face: none was found in the moment's pictures. Give face as a "
@@ -147,7 +151,7 @@ def make(kind, size, face=None, crop=None):
             notes.append("The subject is too big to show whole between the phone's header and the name and caption "
                          "at the bottom; choose the card layout to show all of it.")
     return {"kind": kind, "size": [w, h], "face": face, "parts": parts, "places": places,
-            "captions": captions if kind == "face" else CAPTIONS, "background": kind == "card", "notes": notes,
+            "captions": captions, "background": kind == "card", "notes": notes,
             "safe": {"box": SAFE, "buttons": BUTTONS, "said": SAFE_SAID}}
 
 
@@ -202,6 +206,8 @@ def moved(layout, name, box):
     on = [place for place, where in lay["places"].items() if _overlap(where, part["dst"])]
     if on:
         said += " Words in the %s place%s would sit on it." % (" and ".join(on), "s" if len(on) > 1 else "")
+    if name != "circle" and _overlap(lay["captions"], part["dst"]):
+        said += " The captions would cover it, from y %d to %d." % (lay["captions"][1], sum(lay["captions"][1::2]))
     lay["notes"].append(said)
     return lay
 
@@ -360,14 +366,32 @@ def _leave_out(crop, away, notes, size=None):
     return best
 
 
-def _card(crop, notes):
-    """(crop, card height): the card is CARD_W wide; its height follows the crop, from CARD_LOWEST to CARD_TALLEST
+_CARD_TOP = CARD_TITLE[1] + CARD_TITLE[3] + GAP
+_CARD_ROOM = SAFE_BOTTOM - _CARD_TOP - CAPTIONS[3] - GAP
+
+
+def _card_column(height, face):
+    """(circle box or None, caption band, card box) down the frame under the title: the face circle, the captions
+    under it, the card under them, centred in the room the phone leaves. The captions cover neither the face nor the
+    picture, and they end above y 1250 as an ad needs; the circle is as big as the card leaves room for, up to
+    CIRCLE."""
+    d = min(CIRCLE, _even(_CARD_ROOM - height - GAP)) if face else 0
+    y = _even(_CARD_TOP + (_CARD_ROOM - height - (d + GAP if face else 0)) / 2)
+    circle = [(W - d) // 2, y, d, d] if face else None
+    y += d + GAP if face else 0
+    band = [65, y, 950, CAPTIONS[3]]
+    return circle, band, [CARD_X, y + CAPTIONS[3] + GAP, CARD_W, height]
+
+
+def _card(crop, notes, tallest=CARD_TALLEST):
+    """(crop, card height): the card is CARD_W wide; its height follows the crop, from CARD_LOWEST to tallest
     pixels, trimming the crop around its middle when it is too tall or too wide."""
     x, y, cw, ch = crop
+    tallest = _even(min(tallest, CARD_TALLEST))
     height = CARD_W * ch / cw
-    if height > CARD_TALLEST:
-        nh = cw * CARD_TALLEST / CARD_W
-        y, ch, height = y + (ch - nh) / 2, nh, CARD_TALLEST
+    if height > tallest:
+        nh = cw * tallest / CARD_W
+        y, ch, height = y + (ch - nh) / 2, nh, tallest
         notes.append("The card was trimmed at the top and bottom to fit the frame.")
     elif height < CARD_LOWEST:
         nw = ch * CARD_W / CARD_LOWEST

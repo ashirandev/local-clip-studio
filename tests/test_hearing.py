@@ -13,7 +13,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, hearing, recording, thai  # noqa: E402
+from clipstudio import agent, hearing, recording, thai, tools  # noqa: E402
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_map import make_moment  # noqa: E402
 
@@ -23,7 +23,9 @@ HAS_NUMPY = importlib.util.find_spec("numpy") is not None
 
 
 class Worker:
-    """A fake hearing worker: answers /hear with the phrases it is given, after a delay, and keeps what it got."""
+    """A fake hearing worker: answers /hear with the phrases it is given, after a delay, and keeps what it got. The
+    phrases are in seconds of the look: a look hears tools.SPILL s of sound before it too, so they come back that
+    much later in the sound it was sent."""
 
     def __init__(self, phrases=(), delay=0.0, status=200):
         self.phrases, self.delay, self.status, self.got = list(phrases), delay, status, []
@@ -48,7 +50,8 @@ class Worker:
                 time.sleep(worker.delay)
                 if worker.status != 200:
                     return self.send(worker.status, {"error": "the model is still loading"})
-                self.send(200, {"phrases": worker.phrases, "seconds": 0.1})
+                self.send(200, {"phrases": [dict(p, **{"from": p["from"] + tools.SPILL, "to": p["to"] + tools.SPILL})
+                                            for p in worker.phrases], "seconds": 0.1})
 
         self.http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         threading.Thread(target=self.http.serve_forever, daemon=True).start()
@@ -227,7 +230,8 @@ class Look(unittest.TestCase):
                                   "Done.")
         job.run()
         self.assertEqual(len(self.worker.got), 1, "the second look of the same stretch was not heard again")
-        self.assertEqual(len(self.worker.got[0]), 20 * 16000 * 2, "20 s of 16 kHz mono 16-bit sound")
+        self.assertEqual(len(self.worker.got[0]), (20 + 2 * tools.SPILL) * 16000 * 2,
+                         "20 s of 16 kHz mono 16-bit sound, and SPILL s more at each side")
         for step in self.steps()[1:]:
             self.assertIn("What is said here, by time, as heard", step["result"])
             self.assertIn("0:31 สินค้าราคาเจ็ดสิบห้าบาท\n0:34 ใส่ทุกอยางเขาไป", step["result"])

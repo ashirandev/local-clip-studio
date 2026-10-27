@@ -112,6 +112,17 @@ class Talk(unittest.TestCase):
         self.assertEqual([(s["from"], s["to"], s["show"]) for s in shots][:1], [(0.0, 2.0, 2)],
                          "clip seconds: the clip starts with the right person's piece")
 
+    def test_a_piece_where_one_person_speaks_throughout_still_shows_them(self):
+        def fidget(rec, a, b, people):
+            n = round((b - a) * talk.MOTION_FPS)
+            return [[9.0] * n, [3.0] * n] if a < 2 else [[3.0] * n, [9.0] * n]
+
+        said = [{"from": 0.2, "to": 1.9}, {"from": 2.05, "to": 3.9}]
+        shots, _ = talk.plan(None, [[0, 2], [2, 4]], said, persons(), read=fidget)
+        self.assertEqual([s["show"] for s in shots], [1, 2], "resting movement is measured over the whole clip: per "
+                         "piece, the speaker's own talking would be their rest and the listener who fidgets would "
+                         "score close to them")
+
     def test_the_layout_crops_each_person_the_same_size_and_keeps_words_off_their_heads(self):
         shots = [{"from": 0, "to": 2.05, "show": 1}, {"from": 2.05, "to": 4.1, "show": 2},
                  {"from": 4.1, "to": 6, "show": 0}]

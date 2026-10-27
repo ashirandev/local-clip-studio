@@ -96,6 +96,65 @@ class Plan(unittest.TestCase):
         self.assertEqual(plan["shots"][-1]["to"], 8)
 
 
+def lines(x=300, y=200, n=8, height=18, width=420, sure=0.99):
+    """Lines of text as the screen reader gives them: n lines starting at x, one under the other from y."""
+    return [{"text": "line %d" % k, "box": [x, y + k * 2 * height, width, height], "sure": sure} for k in range(n)]
+
+
+class Letters(unittest.TestCase):
+    def test_the_usual_line_is_the_median_of_the_lines_read_surely_outside_the_face_camera(self):
+        camera = [{"box": [1000, 560 + k, 200, 90], "sure": 1} for k in range(9)]
+        text = lines(height=18) + lines(y=600, n=3, height=60, sure=0.5) + camera
+        self.assertEqual(focus.letters(text, avoid=[950, 550, 330, 170]), 18.0, "the face camera's own words are not "
+                         "the screen's")
+        self.assertIsNone(focus.letters([]))
+
+    def test_tarms_floor_of_16_px_on_a_phone(self):
+        width = focus.readable(18, 960)
+        self.assertAlmostEqual(focus.on_phone(18, width, 960), focus.PHONE_PX, places=6)
+        self.assertTrue(355 < width < 365, "18 px lines on a 960-pixel card: about 360 px of the screen, %g" % width)
+
+
+@unittest.skipUnless(FFMPEG, "needs ffmpeg")
+class Readable(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.work, recording.WORK = recording.WORK, os.path.join(self.tmp, "work")
+
+    def tearDown(self):
+        recording.WORK = self.work
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_a_still_screen_holds_on_its_lines_from_their_start_at_a_readable_size(self):
+        rec = screen(os.path.join(self.tmp, "s.mp4"), spots=())
+        text = lines(x=700, y=300, n=10, width=200) + lines(x=40, y=40, n=1)
+        plan = focus.plan(rec, [[0, 12]], [0, 0, 1280, 720], 16 / 9.0, text=text, shown=960)
+        self.assertEqual(plan["on"], "lines")
+        self.assertGreaterEqual(plan["letters"], focus.PHONE_PX - 0.5)
+        (shot,) = plan["shots"]
+        self.assertTrue(698 - 2 * 1280 / focus.SMALL_W <= shot["x"] <= 700, "the window starts where the lines do: %s"
+                        % shot)
+        self.assertTrue(shot["y"] <= 300 and shot["y"] + plan["size"][1] >= 300 + 18, "it holds the lines from the "
+                        "first: %s" % plan)
+
+    def test_a_blink_that_is_not_one_part_of_the_screen_is_not_chased(self):
+        rec = screen(os.path.join(self.tmp, "n.mp4"), spots=(), whole=(0, 12), area=(1100, 620))
+        plan = focus.plan(rec, [[0, 12]], [0, 0, 1280, 720], 16 / 9.0, text=lines(x=700, y=300), shown=960)
+        self.assertEqual(plan["on"], "lines", "a change everywhere is not followed; the card holds on the lines")
+
+    def test_a_change_in_one_part_is_followed_at_the_readable_size(self):
+        rec = screen(os.path.join(self.tmp, "a.mp4"))
+        plan = focus.plan(rec, [[0, 12]], [0, 0, 1280, 720], 16 / 9.0, text=lines(height=14), shown=960)
+        self.assertNotIn("on", plan)
+        self.assertEqual(len(plan["shots"]), 2, plan)
+        self.assertGreaterEqual(plan["letters"], focus.PHONE_PX - 0.5)
+        self.assertLess(plan["size"][0], 0.34 * 1280, "tighter than the change alone needs, so the lines can be read")
+
+    def test_without_lines_the_card_is_as_before(self):
+        rec = screen(os.path.join(self.tmp, "d.mp4"), spots=())
+        self.assertIsNone(focus.plan(rec, [[0, 12]], [0, 0, 1280, 720], 16 / 9.0, text=[], shown=960))
+
+
 class Path(unittest.TestCase):
     SHOTS = [{"from": 0.0, "to": 4.0, "x": 100, "y": 50}, {"from": 4.0, "to": 9.0, "x": 700, "y": 300},
              {"from": 9.0, "to": 12.0, "x": 300, "y": 20}]

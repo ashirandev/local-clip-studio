@@ -142,7 +142,8 @@ the result and the engine numbers.
   loses or adds a number, or rewrites more than 40% of it, keeps what was heard. A stretch is heard once and kept.
 - **A moment Muse proposes is one it has seen.** Muse proposes up to eight moments, best first. Each must sit inside
   one of its looks, and moments may not overlap. An edge that falls inside a line said is moved just outside it,
-  so a clip never opens or closes on half a word. The page shows each as a card with Muse's reason and a picture
+  so a clip never opens or closes on half a word; each look is heard 6 s past its edges, so a line the look cuts is
+  heard whole and the clip ends where the sentence does. The page shows each as a card with Muse's reason and a picture
   from that look, and a rough 480p preview of the stretch is cut in the background, so the card plays a second or
   two later. Muse goes on with the best one by itself; a tap on another card switches. Until a tool has made the
   clip, the state Muse reads says "no clip made yet", so it cannot claim one.
@@ -152,6 +153,11 @@ the result and the engine numbers.
   program finds the face itself (YuNet, a picture every half second of the moment, the face that stays in one place)
   and works out every pixel. Letting the model place everything was measured first: it cut heads and showed the face
   camera twice.
+- **The clip keeps the last take and drops the dead air.** A speaker who stumbles stops and says the line again;
+  the program finds a line said again after a stop, letter for letter (a name heard two ways still matches), and cuts
+  the first take with the stop. A silence over a second is cut down to 0.3 s a side, and the clip opens and closes
+  0.3 s from a word, but only while nothing moves on the screen: the answer streaming in while the speaker waits is
+  the payoff, not dead air. A game keeps every second. Muse is told what was cut and why.
 - **Words never cover a face or the product.** Every title is measured as libass will draw it, then refused at a
   time or a place where it would cover a face the program found, or the product Muse named, and the refusal lists
   the times and places that are clear. A blur over the face the clip shows is refused too: the face is the point.
@@ -161,10 +167,14 @@ the result and the engine numbers.
   never passed to Muse, so they cannot reach a title or a post. The last check reads the screen again and fails
   while a private line can be seen.
 - **A tutorial's screen is shown where the action is, at a size a phone can read.** A whole 1920-pixel screen on a
-  960-pixel card halves every word. In a screen explainer the program measures where the screen changes, second by
-  second, and the card shows that part, up to the screen's own size, panning when the action moves. It moves only
-  when the new place keeps changing and stays changed, so a tooltip or a notification does not pull it away, and it
-  never shows the face camera. When the change is everywhere (a scrolling page), it shows the whole screen.
+  960-pixel card halves every word. In a screen explainer the program measures how tall the screen's lines are (from
+  the same reading that hides private lines) and zooms until they are 16 px on a phone, then shows where the screen
+  changes, second by second, panning when the action moves. It moves only when the new place keeps changing and stays
+  changed, so a tooltip or a notification does not pull it away, and it never shows the face camera. When no one
+  part changes (nothing does, or a blinking button, or a scrolling page), the card holds where the most lines are,
+  from the first line and the first word. Muse is told how big the words come out on a phone.
+- **Captions never cover the picture.** In the card layout the captions sit between the face and the card, where
+  they read as what the face says and cover neither; every word stays above y 1250, clear of an ad's button.
 - **Several clips in one go, each reported on its own.** When the person asks for every good moment, Muse proposes
   up to eight and gives each its title and post text; the program makes, checks and hands over each clip. Names are
   checked against the screen for every clip before any is made, a clip that fails a check is not handed over, and the

@@ -86,13 +86,19 @@ def motion(rec, a, b, persons, fps=MOTION_FPS):
     return [change[:, :, i * tw:(i + 1) * tw].mean(axis=(1, 2)).round(3).tolist() for i in range(n)]
 
 
-def windows(values, fps, start, speech):
+def stillness(values):
+    """Each person's resting movement: the median of their values, plus one."""
+    return [statistics.median(v) + 1.0 for v in values]
+
+
+def windows(values, fps, start, speech, still=None):
     """Who speaks in each WINDOW seconds from start: [{"from", "to", "who", "scores"}], who a person's number, 0 when
     they move almost alike (together), None when nobody is heard or nobody is clearly ahead. speech is [[from, to]]
-    in the same seconds, or None when nobody listened, so movement alone decides."""
+    in the same seconds, or None when nobody listened, so movement alone decides. still is each person's resting
+    movement, from these values when not given."""
     if not values or not values[0]:
         return []
-    still = [statistics.median(v) + 1.0 for v in values]
+    still = still or stillness(values)
     per = max(1, round(WINDOW * fps))
     out = []
     for w in range(math.ceil(len(values[0]) / per)):
@@ -178,13 +184,18 @@ def shots(wins, turns_, people_count):
 def plan(rec, pieces, said, persons, read=None):
     """The shots of a clip made of pieces ([[recording a, recording b]]) of rec, with what the hearing heard (said:
     [{"from", "to"}] in recording seconds, or None when nobody listened) and the people found: clip seconds from 0 to
-    the clip's end, and the windows they were decided from."""
+    the clip's end, and the windows they were decided from. A person's resting movement is measured over the whole
+    clip: measured over each piece, a piece where one person speaks throughout makes their speaking their rest, so a
+    listener who fidgets at a third of it scores within AHEAD of them and nobody is shown speaking. Clips cut at their
+    silences have such pieces."""
     read = read or motion
     wins, starts, joins, at = [], [], [], 0.0
-    for a, b in pieces:
-        values = read(rec, a, b, persons)
+    read_ = [read(rec, a, b, persons) for a, b in pieces]
+    whole = [sum((values[i] for values in read_ if values and values[0]), []) for i in range(len(persons))]
+    still = stillness(whole) if whole and whole[0] else None
+    for (a, b), values in zip(pieces, read_):
         speech = None if said is None else [[p["from"], p["to"]] for p in said if p["from"] < b and a < p["to"]]
-        for w in windows(values, MOTION_FPS, a, speech):
+        for w in windows(values, MOTION_FPS, a, speech, still):
             wins.append(dict(w, **{"from": round(w["from"] - a + at, 3), "to": round(w["to"] - a + at, 3)}))
         starts += [round(p["from"] - a + at, 3) for p in said or [] if a <= p["from"] < b]
         at += b - a

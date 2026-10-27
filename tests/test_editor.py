@@ -259,18 +259,18 @@ class Draw(unittest.TestCase):
         shot = pixels(render.frame(self.rec, self.state("card"), 2.0))
         self.assertEqual(shot[:2], (540, 960))
         half = 0.5
-        cx, cy = 540 * half, (layouts.CIRCLE_Y + layouts.CIRCLE / 2) * half
+        parts = {p["name"]: p["dst"] for p in self.state("card")["clip"]["layout"]["parts"]}
+        circle_y, d, card_y = parts["circle"][1], parts["circle"][2], parts["card"][1]
+        cx, cy = 540 * half, (circle_y + d / 2) * half
         r, g, b = at(shot, cx, cy)
         self.assertTrue(r > 180 and g < 80 and b < 80, "red face camera in the circle: %s" % ((r, g, b),))
-        r, g, b = at(shot, cx, (layouts.CIRCLE_Y - layouts.RING / 2) * half)
+        r, g, b = at(shot, cx, (circle_y - layouts.RING / 2) * half)
         self.assertTrue(min(r, g, b) > 200, "white ring: %s" % ((r, g, b),))
-        card_y = (layouts.CARD_Y + 300) * half
-        row = [at(shot, x, card_y) for x in range(0, 540, 4)]
+        row = [at(shot, x, (card_y + 300) * half) for x in range(0, 540, 4)]
         self.assertFalse(any(p[0] > 180 and p[1] < 80 for p in row), "the face camera is not in the card again")
         self.assertTrue(any(p[2] > 150 and p[0] < 80 for p in
-                            [at(shot, x, y) for x in range(0, 540, 6) for y in range(int(layouts.CARD_Y * half),
-                                                                                     int(layouts.CARD_Y * half) + 300,
-                                                                                     6)]),
+                            [at(shot, x, y) for x in range(0, 540, 6) for y in range(int(card_y * half),
+                                                                                     int(card_y * half) + 300, 6)]),
                         "the blue square of the game is in the card")
 
     def test_every_layout_draws_a_whole_vertical_frame(self):
@@ -406,7 +406,7 @@ class Tools(unittest.TestCase):
             "Done.")
         results = [s["result"] for s in steps[-4:]]
         self.assertIn("start 25 s is outside the clip, which is 20 s long: use a start from 0 to 19", results[0])
-        self.assertIn("The card layout has no place called corner; its places are: top, middle.", results[1])
+        self.assertIn("The card layout has no place called corner; its places are: top.", results[1])
         self.assertIn("key 'you' is not one of the title's words", results[2])
         self.assertIn("There are 1 moments, so moment 2 is not one of them: 1. 0:30-0:50.", results[3])
         self.assertTrue(all(s["refused"] for s in steps[-4:]))
@@ -451,7 +451,7 @@ class Tools(unittest.TestCase):
         self.assertFalse(caps["refused"], caps["result"])
         self.assertRegex(caps["result"], r"^Captions on: 4 lines of what was said, numbers exactly as heard, in the band "
                                          r"from y 1090 to 1250")
-        self.assertIn("0:02 this is the\n0:03 moment\n", caps["result"])
+        self.assertIn("0:00 this is the\n0:02 moment\n", caps["result"], "the clip opens 0.3 s before the first word")
         self.assertIn("plain words, none lit, so the eye stays on the picture", caps["result"])
         self.assertNotIn("on camera", caps["result"])
         self.assertFalse(lit["refused"], "lit is Muse's choice, or the person's")
@@ -463,16 +463,17 @@ class Tools(unittest.TestCase):
         self.assertTrue(outside["refused"])
         self.assertIn("is not in the clip's picture (the subject layout leaves that part out)", outside["result"])
         self.assertFalse(blur["refused"], blur["result"])
-        self.assertIn("Blurred [400, 0, 600, 300] on your grid from 0 to 20 s, so nothing in it can be read. In the "
+        self.assertIn("Blurred [400, 0, 600, 300] on your grid from 0 to 18.3 s, so nothing in it can be read. In the "
                       "clip it shows in the frame at x ", blur["result"])
         self.assertEqual(word["result"], 'Added a big word that pops in, such as POW at 5.2 s ("POW").')
-        self.assertIn("at 30 s is outside the clip, which is 20 s long", late["result"])
+        self.assertIn("at 30 s is outside the clip, which is 18.3 s long", late["result"],
+                      "the 1.7 s of still silence before the first word is cut")
         self.assertIn("A word hit needs its word", wordless["result"])
         self.assertIn("captions on, 1 blur, other people: 0 blurred, 0 kept, 1 still to decide before rendering, hits: "
                       "word at 5.2 s · no finished file yet", brain.sent[-1][-1]["content"])
         state = self.chat.project.state()
-        self.assertEqual([round(x["from"], 2) for x in state["captions"]["lines"]][:1], [2.0],
-                         "caption times are clip seconds: heard at 32 s of the recording, shown at 2 s of the clip")
+        self.assertEqual([round(x["from"], 2) for x in state["captions"]["lines"]][:1], [0.3],
+                         "caption times are clip seconds: heard at 32 s of the recording, the clip opening at 31.7 s")
         self.assertEqual(state["blurs"][0]["box"], [128, 0, 64, 54])
 
     def test_words_stay_off_the_product_muse_names_and_a_key_inside_a_word_is_fixed(self):
@@ -806,7 +807,10 @@ class Tools(unittest.TestCase):
         self.faces = found([(30 + i * 0.5, [[60, 40, 40, 40], [220, 40, 40, 40]]) for i in range(40)], size=(320, 180))
         self.worker.phrases = [{"from": 1, "to": 9, "text": "hello there", "sure": 0.99},
                                {"from": 10.2, "to": 19, "text": "and you", "sure": 0.99}]
-        moving = lambda rec, a, b, persons, fps=10: [[9.0] * 100 + [1.0] * 100, [1.0] * 100 + [9.0] * 100]
+        def moving(rec, a, b, persons, fps=10):
+            first = [a + (i + 1) / fps < 40 for i in range(round((b - a) * fps))]
+            return [[9.0 if f else 1.0 for f in first], [1.0 if f else 9.0 for f in first]]
+
         real, talk.motion = talk.motion, moving
         try:
             brain, steps = self.run_job(
@@ -823,9 +827,10 @@ class Tools(unittest.TestCase):
         made, reaction, together, nobody, push, move = steps[-6:]
         self.assertFalse(made["refused"], made["result"])
         self.assertIn("in the talk layout. It follows 2 people, numbered from the left", made["result"])
-        self.assertIn("Shots: 0-10.2 s person 1; 10.2-20 s person 2.", made["result"])
+        self.assertIn("The program cut 2 s out of the moment", made["result"], "the stop between the two is cut")
+        self.assertIn("Shots: 0-8.6 s person 1; 8.6-18 s person 2.", made["result"], "the cut is where the pieces join")
         self.assertIn("comes next as a picture", made["result"])
-        self.assertIn("Shots now: 0-3 s person 1; 3-5 s person 2; 5-10.2 s person 1; 10.2-20 s person 2.",
+        self.assertIn("Shots now: 0-3 s person 1; 3-5 s person 2; 5-8.6 s person 1; 8.6-18 s person 2.",
                       reaction["result"])
         self.assertIn("Everyone is shown from 15 to 17 s.", together["result"])
         self.assertIn("comes next as a picture", together["result"])
@@ -839,7 +844,8 @@ class Tools(unittest.TestCase):
         self.assertEqual([p["name"] for p in lay["parts"]], ["person 1", "person 2", "everyone"])
         times, _ = tools._face_times(self.chat.project.state(), self.chat.recording)
         on = dict(times)
-        self.assertEqual((len(on[1.0]), len(on[16.0])), (1, 2),
+        near = lambda s: on[min(on, key=lambda k: abs(k - s))]
+        self.assertEqual((len(near(1.0)), len(near(16.0))), (1, 2),
                          "words keep clear of the face on screen: one person at 1 s, both on the card at 16 s")
         self.assertEqual(tools.describe(self.chat.project.entries[-1]), "changing the shots")
         self.faces = found([(30 + i * 0.5, [[140, 40, 40, 40]]) for i in range(40)], size=(320, 180))
@@ -888,7 +894,7 @@ class Tools(unittest.TestCase):
         finally:
             del os.environ["LCS_MUSIC"]
         pop, later, boom, past, song, outside_, silent, none = steps[-8:]
-        self.assertEqual(state["speech"], [[2, 4.5]])
+        self.assertEqual(state["speech"], [[0.3, 2.8]], "the clip opens 0.3 s before the word at 2 s")
         self.assertFalse(pop["refused"], pop["result"])
         self.assertIn("A pop at 3 s: a bubble", pop["result"])
         self.assertIn("It replaces the pop at 3 s.", later["result"])
@@ -951,7 +957,9 @@ class Tools(unittest.TestCase):
                       "as it shows)", checked["result"])
         self.assertIn("- FAILED: Nothing private can be read on the screen (not hidden: an email address at 0-6 s)",
                       again[-1]["result"])
-        self.assertEqual(asked, [(30.0, 50.0)] * 3, "read when the clip is made and at every check")
+        self.assertEqual(asked, [(30.0, 50.0)] * 4, "asked over the moment for the card's zoom and for the private "
+                         "lines when the clip is made (the second is the reading kept from the first), and at every "
+                         "check")
 
     def test_the_moments_of_a_tutorial_are_read_ahead_when_they_are_proposed(self):
         ahead = []
@@ -1016,7 +1024,7 @@ class Tools(unittest.TestCase):
     def test_a_tutorial_card_follows_the_action_and_muse_can_turn_it_off(self):
         planned = []
 
-        def plan(rec, pieces, region, aspect, avoid=None):
+        def plan(rec, pieces, region, aspect, avoid=None, text=None, shown=None):
             planned.append((pieces, region, round(aspect, 2), avoid))
             return {"zoom": 0.5, "size": [160, 104], "shots": [{"from": 0.0, "to": 8.0, "x": 10, "y": 6},
                                                                   {"from": 8.0, "to": 20.0, "x": 150, "y": 70}]}
@@ -1079,7 +1087,8 @@ class Tools(unittest.TestCase):
         made = steps[-1]
         self.assertFalse(made["refused"], made["result"])
         self.assertIn("Made 2 clips, 2 handed over; each is reported on its own:", made["result"])
-        self.assertIn("Clip 1 (moment 1, 0:30-0:40, 10 s, card layout): handed over, ", made["result"])
+        self.assertIn("Clip 1 (moment 1, 0:32-0:34, 2.6 s, card layout): handed over, ", made["result"],
+                      "the still silence around the one line, from 2 to 4 s, is cut")
         self.assertIn("Clip 2 (moment 2, 0:40-0:50, 10 s, card layout): handed over, ", made["result"])
         self.assertIn("no captions: Nothing was heard clearly", made["result"], "clip 2 has no words")
         ready = [e for e in self.chat.events if e["kind"] == "ready"]
@@ -1095,7 +1104,7 @@ class Tools(unittest.TestCase):
         _, steps = self.several([call("make_clips", clips=clips, why="both")], "Done.", black=True)
         made = steps[-1]
         self.assertIn("Made 2 clips, 0 handed over", made["result"])
-        self.assertIn("Clip 1 (moment 1, 0:30-0:40, 10 s, card layout): rendered but not handed over, these checks "
+        self.assertIn("Clip 1 (moment 1, 0:32-0:34, 2.6 s, card layout): rendered but not handed over, these checks "
                       "failed: It does not start black or silent", made["result"])
         self.assertEqual([e for e in self.chat.events if e["kind"] == "ready"], [])
 
@@ -1242,7 +1251,7 @@ class Tools(unittest.TestCase):
         self.assertIn("0:32 this is the moment\n", looked["result"])
         caps = steps[-1]
         self.assertFalse(caps["refused"], caps["result"])
-        self.assertIn('Left out 1 line the hearing was not sure of, because a wrong caption is worse than none: 0:05 '
+        self.assertIn('Left out 1 line the hearing was not sure of, because a wrong caption is worse than none: 0:03 '
                       '"bxo noqa mumble".', caps["result"])
         shown = " ".join(line["text"] for line in self.chat.project.state()["captions"]["lines"])
         self.assertNotIn("mumble", shown)

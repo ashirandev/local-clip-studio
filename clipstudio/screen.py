@@ -336,14 +336,22 @@ def _union(a, b):
     return [x1, y1, max(a[0] + a[2], b[0] + b[2]) - x1, max(a[1] + a[3], b[1] + b[3]) - y1]
 
 
-def hidden(rec, pieces, on_start=None):
+def _within(read, a, b):
+    """The readings of a stretch that hold for a to b inside it: the one showing at a, moved to a, and those after."""
+    before = [r for r in read if r["at"] <= a]
+    return ([dict(before[-1], at=a)] if before else []) + [r for r in read if a < r["at"] <= b]
+
+
+def hidden(rec, pieces, on_start=None, span=None):
     """[{"kind", "box": [x, y, w, h] in pixels of the recording, with room around the line, "start", "end": clip
     seconds}]: each private line the clip's pieces show, and for how long. A line that moves a little between two
-    readings is one line, its box grown to cover both places."""
+    readings is one line, its box grown to cover both places. span is the stretch the pieces were cut from, read once
+    (and read ahead while the moments were proposed), so a clip with its silences cut is not read piece by piece."""
+    whole = readings(rec, span[0], span[1], on_start) if span else None
     out, at = [], 0.0
     for a, b in pieces:
         before, shown = at, []
-        for r in readings(rec, a, b, on_start):
+        for r in (_within(whole, a, b) if span else readings(rec, a, b, on_start)):
             t = at + r["at"] - a
             seen = [(private(line["text"]), _padded(line["box"], rec)) for line in r["lines"]]
             seen = [s for s in seen if s[0]]

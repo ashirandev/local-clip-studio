@@ -72,6 +72,7 @@ def inside(found, box, slack=0):
 
 
 TITLE = {"text": "Boss down", "start": 0.5, "end": 3.5, "place": "top", "box": layouts.TOP, "key": None}
+ON_CARD = dict(TITLE, box=layouts.CARD_TITLE)
 
 
 @unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg, and numpy for the pixel checks")
@@ -229,11 +230,11 @@ class Stages(unittest.TestCase):
         self.assertIsNone(changed(drawn(titled, 1.3), drawn(flashed, 1.3)), "the flash is over")
 
     def test_the_camera_moves_the_picture_and_the_words_hold_still(self):
-        titled = state("card", title=[TITLE])
-        moved = state("card", title=[TITLE], hit=[{"kind": "punch", "at": 1.0, "word": None, "centre": [540, 960]},
+        titled = state("card", title=[ON_CARD])
+        moved = state("card", title=[ON_CARD], hit=[{"kind": "punch", "at": 1.0, "word": None, "centre": [540, 960]},
                                                   {"kind": "shake", "at": 2.0, "word": None, "centre": [540, 960]}],
                       push=[{"start": 2.5, "end": 3.5, "zoom": 1.1, "centre": [540, 1150]}])
-        x, y, w, h = layouts.TOP
+        x, y, w, h = layouts.CARD_TITLE
         letters = drawn(titled, 0.9)[y:y + h, x:x + w].min(axis=2) > 240
         ys, xs = letters.nonzero()
         x, y, w, h = x + xs.min() - 6, y + ys.min() - 6, xs.max() - xs.min() + 13, ys.max() - ys.min() + 13
@@ -267,14 +268,14 @@ class Stages(unittest.TestCase):
         self.assertGreater(int((on_top[y:y + h, x:x + w].min(axis=2) > 240).sum()), 2000, "the title stands on it")
 
     def test_a_look_grades_the_footage_and_never_the_words_or_the_frames_design(self):
-        titled = state("card", title=[TITLE])
+        titled = state("card", title=[ON_CARD])
         lay = titled["clip"]["layout"]
         x, y, w, h = [p["dst"] for p in lay["parts"] if p["name"] == "card"][0]
         dx, dy, d, _ = [p["dst"] for p in lay["parts"] if p["name"] == "circle"][0]
-        tx, ty, tw, th = layouts.TOP
+        tx, ty, tw, th = layouts.CARD_TITLE
         a = drawn(titled, 1.0)
         for name in effects.LOOKS:
-            b = drawn(state("card", title=[TITLE], look=name), 1.0)
+            b = drawn(state("card", title=[ON_CARD], look=name), 1.0)
             self.assertGreater((a[y + 40:y + h - 40, x + 40:x + w - 40] != b[y + 40:y + h - 40, x + 40:x + w - 40]
                                 ).any(axis=2).mean(), 0.3, "%s grades the card's footage" % name)
             white_a = a[ty:ty + th, tx:tx + tw].min(axis=2) > 240

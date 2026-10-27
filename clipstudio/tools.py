@@ -16,8 +16,10 @@ import shutil
 import subprocess
 import time
 
-from . import (effects, faces, focus, hearing, layouts, maps, mind, previews, project, recording, render, screen,
-               spoken, talk, text, thai, tracks, words)
+import numpy as np
+
+from . import (effects, faces, focus, hearing, layouts, maps, mind, pauses, previews, project, recording, render,
+               screen, spoken, takes, talk, text, thai, tracks, words)
 from .recipes import RECIPES, SIGNALS
 
 WHY = {"type": "string",
@@ -365,28 +367,36 @@ def look_at_piece(job, why, start, end, frames=LOOK_FRAMES):
     return "\n".join(lines)
 
 
+SPILL = 6.0
+
+
 def _what_is_said(job, rec, look):
     """Lines for Muse about what is said in the look's stretch, as heard. The phrases go into look["said"].
     Misheard words are fixed later, only for the moments Muse proposes (measured 10-27: the fix took 20-42 s a look
-    on Glimmer, the hearing 5.6 s, and most looks are not picked)."""
+    on Glimmer, the hearing 5.6 s, and most looks are not picked). The hearing takes SPILL s more on each side
+    (look["heard"]), so a line the look's edge falls in is heard whole and a moment's edge can move out of it: on
+    10-27 a look ending at 12:29 heard "ว่าตอนนี้นี่ย" as the last line, where the speaker went on to 12:30.4, "ว่าตอนนี้
+    เราทำไปถึงไหนแล้วนะครับ", and the clip ended in the middle of the sentence."""
     a, b, clock = look["start"], look["end"], recording.clock
     if not rec["sound_tracks"]:
         return ["The recording has no sound, so nothing is said."]
-    said = hearing.heard(rec, a, b)
+    ha, hb = round(max(0.0, a - SPILL), 2), round(min(rec["seconds"], b + SPILL), 2)
+    said = hearing.heard(rec, ha, hb)
     if said is None:
         started = time.time()
         try:
-            said = job.hear(rec, a, b)
+            said = job.hear(rec, ha, hb)
         except hearing.HearingError as e:
             return ["What is said here could not be heard: %s" % e]
         look["took"] = round(time.time() - started, 1)
-        hearing.keep(rec, a, b, said)
-    look["said"] = said
-    if not said:
+        hearing.keep(rec, ha, hb, said)
+    look["said"], look["heard"] = said, [ha, hb]
+    inside = [p for p in said if p["to"] > a and p["from"] < b]
+    if not inside:
         return ["No words were heard here."]
     return (["What is said here, by time, as heard (some words may be misheard; the numbers are as heard; a line "
              "marked (not sure) is one the hearing was not sure of, so do not build on it):"] +
-            ["%s %s%s" % (clock(p["from"]), p["text"], " (not sure)" if _unsure(p) else "") for p in said])
+            ["%s %s%s" % (clock(p["from"]), p["text"], " (not sure)" if _unsure(p) else "") for p in inside])
 
 
 def _fixed_said(job, rec, look, a, b):
@@ -431,25 +441,93 @@ def _fix_moment(job, rec, m):
 
 AIR = 0.25
 SNAP_REACH = 2.0
+FINISH_REACH = 4.0
 
 
 def _snapped(look, a, b):
     """(start, end, sentence or None): a moment's edges moved out of the words they would cut through, to just before
-    the line the start falls in and just after the line the end falls in, AIR seconds from the words, when the line is
-    within SNAP_REACH; never outside the look. A model's own edges sit in a pause about half the time (measured by
-    lane 5 on Tarm's own edits: 47%, 77% within 0.6 s), so a clip would often open or close on half a word."""
+    the line the start falls in when it began within SNAP_REACH, and just after the line the end falls in when it
+    finishes within FINISH_REACH (a sentence cut short is worse than an opening), AIR seconds from the words; never
+    outside what was heard. A model's own edges sit in a pause about half the time (measured by lane 5 on Tarm's own
+    edits: 47%, 77% within 0.6 s), so a clip would often open or close on half a word."""
     na, nb, said = a, b, look.get("said") or []
+    lo, hi = look.get("heard") or (look["start"], look["end"])
     for p in said:
         if p["from"] < a < p["to"] and a - p["from"] <= SNAP_REACH:
-            na = max(look["start"], p["from"] - AIR)
-        if p["from"] < b < p["to"] and p["to"] - b <= SNAP_REACH:
-            nb = min(look["end"], p["to"] + AIR)
+            na = max(lo, p["from"] - AIR)
+        if p["from"] < b < p["to"] and p["to"] - b <= FINISH_REACH:
+            nb = min(hi, p["to"] + AIR)
     moved = []
     if na != a:
         moved.append("starts %.1f s earlier, so it opens before a line rather than inside it" % (a - na))
     if nb != b:
         moved.append("ends %.1f s later, so it closes after a line rather than inside it" % (nb - b))
     return round(na, 2), round(nb, 2), " and ".join(moved) or None
+
+
+DEAD_AIR = 1.0
+KEPT_AIR = 0.3
+
+
+def _pieces(said, a, b, still):
+    """(the pieces of the recording a clip from a to b is made of, a sentence for Muse or None): the earlier take of a
+    line said again is cut (takes.said_again), and every silence longer than DEAD_AIR is cut down to KEPT_AIR at each
+    side (pauses.tighten), the clip's opening and closing silence down to KEPT_AIR, where still(x, y) says nothing
+    happens on the picture from x to y: a silence while the answer streams onto the screen is the payoff, not dead
+    air. still None keeps the moment whole (a game, where the action is the clip and nobody needs to speak). Measured
+    on 10-27's five clips: three opened silent for 0.5 s or more and were not handed over, and one held a first take
+    and an 8 s stop before the line was said again."""
+    if still is None:
+        return [[a, b]], None
+    said = [p for p in said if p["to"] > p["from"]]
+    again = takes.said_again(said, a, b)
+    pieces = takes.without([[a, b]], [x["cut"] for x in again])
+    try:
+        _, quiet = pauses.tighten(pieces, said, gap=DEAD_AIR, air=KEPT_AIR)
+    except ValueError:
+        quiet = []
+    words = sorted((max(p["from"], x), min(p["to"], y)) for p in said if not pauses.filler(p["text"])
+                   for x, y in pieces if p["from"] < y and x < p["to"])
+    if words:
+        quiet += [[pieces[0][0], words[0][0] - KEPT_AIR], [max(w[1] for w in words) + KEPT_AIR, pieces[-1][1]]]
+    quiet = [q for q in quiet if q[1] - q[0] >= 0.05 and still(q[0], q[1])]
+    pieces = takes.without(pieces, quiet)
+    gone = round((b - a) - sum(y - x for x, y in pieces), 1)
+    if gone < 0.1:
+        return pieces, None
+    parts = ["the first take of a line said again at %s (\"%s\"; the take from %s is kept)" % (
+        recording.clock(x["cut"][0]), x["first"], recording.clock(x["cut"][1] + takes.AIR)) for x in again]
+    inner = len(pieces) - 1 - len(again)
+    if inner > 0:
+        parts.append("%d silence%s longer than %g s while nothing moved on the picture"
+                     % (inner, "" if inner == 1 else "s", DEAD_AIR))
+    return pieces, "The program cut %g s out of the moment: %s." % (gone, "; ".join(
+        parts + ["the silence at its edges, so it opens and closes %g s from a word" % KEPT_AIR]))
+
+
+def _still(rec, recipe, a, b, avoid):
+    """still(x, y) for _pieces: True when less than focus.QUIET of the picture outside avoid (the face camera, which
+    moves while nobody speaks) changes in any second from x to y; always True for people talking, where a silence
+    is dead air whatever moves; None for a game. When the picture cannot be looked at, nothing counts as still."""
+    if recipe == "game":
+        return None
+    if recipe == "talk":
+        return lambda x, y: True
+    try:
+        found, _, (sw, sh) = focus.heat(rec, [0, 0, rec["width"], rec["height"]], a, b)
+    except focus.FocusError:
+        return lambda x, y: False
+    keep = np.ones((sh, sw), np.float32)
+    if avoid:
+        k = sw / float(rec["width"])
+        keep[max(0, int(avoid[1] * k)):int(math.ceil((avoid[1] + avoid[3]) * k)),
+             max(0, int(avoid[0] * k)):int(math.ceil((avoid[0] + avoid[2]) * k))] = 0
+    moved = [float((m * keep).sum()) >= focus.QUIET * sw * sh for m in found]
+
+    def still(x, y):
+        first, last = int((x - a) / focus.STEP), int(math.ceil((y - a) / focus.STEP))
+        return not any(moved[max(0, first):min(len(moved), last)])
+    return still
 
 
 def propose_moments(job, why, moments):
@@ -576,6 +654,15 @@ def _the_face(job, rec, a, b, face):
     return None, "No face was found in the moment's %d pictures." % n
 
 
+def _found_faces(rec, pieces, span=None):
+    """[(a, b, the faces found from a to b, or None when nobody looked)]: the faces found over span, the moment the
+    clip was made from, as one stretch; or over each piece, for a clip kept from before clips were cut into pieces.
+    The faces are looked for over the whole moment, so a piece alone was never looked at: asked piece by piece, a
+    clip with its silences cut knew no face, and words could go on one."""
+    whole = faces.kept(rec, *span) if span else None
+    return [(span[0], span[1], whole)] if whole else [(a, b, faces.kept(rec, a, b)) for a, b in pieces]
+
+
 def _face_times(state, rec):
     """[(clip second, [boxes in the frame to keep words off])] for every picture the face finder took of the clip,
     and the seconds between two pictures. The product Muse named is in every picture."""
@@ -588,14 +675,14 @@ def _face_times(state, rec):
     product = layouts.to_frame(lay, clip["product"]) if clip.get("product") else []
     if product:
         out = [(round(k * every, 2), list(product)) for k in range(int(state["length"] / every) + 1)]
-    for a, b in clip["pieces"]:
-        found = faces.kept(rec, a, b)
+    for a, b, found in _found_faces(rec, clip["pieces"], clip.get("span")):
         if not found:
             continue
         every = found["every"]
         for t, boxes in faces.between(found, a, b):
             at = project.from_recording(clip["pieces"], t)
-            out.append((at, [f for box in boxes for f in on_frame(at, box)] + product))
+            if at is not None:
+                out.append((at, [f for box in boxes for f in on_frame(at, box)] + product))
     return sorted(out, key=lambda x: x[0]), every
 
 
@@ -684,8 +771,9 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
         _fix_moment(job, rec, m)
     except hearing.Stopped:
         return "Not made: the person pressed Stop."
+    recipe = (job.chat.clip or {}).get("recipe")
     if layout == "talk":
-        return _make_talk(job, rec, moment, m)
+        return _make_talk(job, rec, moment, m, *_pieces(m.get("said") or [], a, b, _still(rec, "talk", a, b, None)))
     try:
         box, face_line = _the_face(job, rec, a, b, face)
     except faces.Stopped:
@@ -694,9 +782,10 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
         lay = layouts.make(layout, (rec["width"], rec["height"]), box, _pixels("crop", crop, rec) if crop else None)
     except ValueError as e:
         raise Refused(str(e))
+    pieces, cut = _pieces(m.get("said") or [], a, b, _still(rec, recipe, a, b, layouts.face_room(lay)))
     following = ""
     if lay["kind"] == "card" and follow and not crop and _reads_screen(job):
-        lay, following = _follow(rec, lay, [[a, b]])
+        lay, following = _follow(rec, lay, pieces, [a, b])
     item = [round(v) for v in _pixels("product", product, rec)] if product else None
     if item and not layouts.to_frame(lay, item):
         lay["notes"].append("The product you named is not in the clip's picture: choose a crop that holds it.")
@@ -704,17 +793,19 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
         lay["notes"].append("This is a seller clip and no product box was named, so nothing keeps words off the "
                             "product. Make the clip again with product: [x1, y1, x2, y2] on your grid around the product "
                             "in the picture.")
-    private = _private_lines(job, rec, lay, [[a, b]])
+    private = _private_lines(job, rec, lay, pieces, [a, b])
     if private is None:
         return "Not made: the person pressed Stop."
-    people = _people(rec, [[a, b]], box)
-    state = job.edit({"do": "clip", "moment": moment, "pieces": [[a, b]], "layout": lay, "product": item,
+    people = _people(rec, pieces, box, [a, b])
+    state = job.edit({"do": "clip", "moment": moment, "pieces": pieces, "span": [a, b], "layout": lay, "product": item,
                       "people": [{k: v for k, v in p.items() if k != "crop"} for p in people or []],
-                      "speech": _speech(rec, job.chat.looks[m["look"] - 1], [[a, b]])})
+                      "speech": _speech(rec, job.chat.looks[m["look"] - 1], pieces)})
     for f in private["shown"]:
         state = job.edit({"do": "blur", "box": f["box"], "start": f["start"], "end": f["end"], "private": f["kind"]})
     lines = ["Made the clip from moment %d (%s-%s, %g s) in the %s layout." % (
         moment, recording.clock(a), recording.clock(b), state["length"], lay["kind"]), face_line] + lay["notes"]
+    if cut:
+        lines.append(cut)
     if following:
         lines.append(following)
     if private["said"]:
@@ -733,8 +824,8 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
                 t["text"], t["place"], t["start"], t["end"],
                 "; it now covers a face%s at %s: take it off with remove_title, then put it again" % (
                     " or the product" if state["clip"].get("product") else "", _spans(hit)) if hit else ""))
-    peak = m.get("t") if m.get("t") is not None else (a + b) / 2
-    at = min(max(0.0, peak - a), state["length"] - 0.1)
+    peak = project.from_recording(pieces, m["t"] if m.get("t") is not None else (a + b) / 2)
+    at = min(max(0.0, peak if peak is not None else state["length"] / 2), state["length"] - 0.1)
     lines.append(_show_frame(job, state, rec, at, "The clip at %g s (moment %d, %s layout):" % (
         round(at, 2), moment, lay["kind"])))
     lines += _people_lines(job, people, rec)
@@ -744,18 +835,27 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     return "\n".join(lines)
 
 
-def _follow(rec, lay, pieces):
+def _follow(rec, lay, pieces, span):
     """(the card layout following the action on the screen, the sentence for Muse), or the layout as it was."""
     card = next(p for p in lay["parts"] if p["name"] == "card")
     whole = card["src"][2]
     try:
+        text = [line for r in screen.readings(rec, span[0], span[1]) for line in r["lines"]]
+    except screen.ScreenError:
+        text = None
+    try:
         plan = focus.plan(rec, pieces, [0, 0, rec["width"], rec["height"]], card["dst"][2] / float(card["dst"][3]),
-                          layouts.face_room(lay))
+                          layouts.face_room(lay), text, card["dst"][2])
     except focus.FocusError as e:
         return lay, "The card shows the whole screen: the screen could not be looked at (%s)." % e
     if not plan:
         return lay, ("The card shows the whole screen: the screen changes everywhere at once, or nowhere, so no one "
                      "part of it is where the action is.")
+    readable = ""
+    if plan.get("letters"):
+        readable = (" The screen's words are about %g px on a phone%s." % (plan["letters"], "" if plan["letters"] >=
+                    focus.PHONE_PX - 0.5 else ", under the %d px floor: the screen writes them smaller than the "
+                    "closest zoom can lift" % focus.PHONE_PX))
     size, shots = plan["size"], plan["shots"]
     if len(shots) == 1:
         moves = "holds one place, %s on your grid" % _grid([shots[0]["x"], shots[0]["y"]] + size, rec)
@@ -763,10 +863,12 @@ def _follow(rec, lay, pieces):
         moves = "moves to where the screen changes, %d places: %s" % (len(shots), "; ".join(
             "%s on your grid from %g s" % (_grid([s["x"], s["y"]] + size, rec), s["from"]) for s in shots))
     return layouts.followed(lay, plan), (
-        "The card follows the action on the screen: it shows %d x %d of the %d x %d picture, so the words on the "
-        "screen are %.1f times as big as on the card without following, and it %s. It never shows the face camera. "
-        "If it shows the wrong part, make the clip again with a crop around what matters, or with follow false for "
-        "the whole screen." % (size[0], size[1], rec["width"], rec["height"], whole / float(size[0]), moves))
+        "%s: it shows %d x %d of the %d x %d picture, so the words on the screen are %.1f times as big as on the "
+        "card without following, and it %s. It never shows the face camera. If it shows the wrong part, make the clip "
+        "again with a crop around what matters, or with follow false for the whole screen.%s" % (
+            "Nothing on the screen changes, so the card holds where the most lines are written, from their start"
+            if plan.get("on") == "lines" else "The card follows the action on the screen", size[0], size[1],
+            rec["width"], rec["height"], whole / float(size[0]), moves, readable))
 
 
 def _reads_screen(job):
@@ -783,7 +885,9 @@ def _screen_words(job, rec, state):
     if not _reads_screen(job):
         return []
     try:
-        return [w for a, b in state["clip"]["pieces"] for w in screen.words(rec, a, b)]
+        span = state["clip"].get("span")
+        return screen.words(rec, *span) if span else [w for a, b in state["clip"]["pieces"]
+                                                       for w in screen.words(rec, a, b)]
     except screen.ScreenError:
         return []
 
@@ -821,14 +925,14 @@ NOTHING_PRIVATE = ("no line holds an email address, a phone number, a card or ID
                    "password")
 
 
-def _private_lines(job, rec, lay, pieces):
+def _private_lines(job, rec, lay, pieces, span=None):
     """{"shown": the private lines the screen shows in the clip's picture, "said": the sentence for Muse}, empty when
     the recipe does not read the screen, or None when the person pressed Stop."""
     if not _reads_screen(job):
         return {"shown": [], "said": ""}
     job.working("Reading the screen for anything private")
     try:
-        found = screen.hidden(rec, pieces, on_start=job.started_work)
+        found = screen.hidden(rec, pieces, on_start=job.started_work, span=span)
     except screen.Stopped:
         return None
     except screen.ScreenError as e:
@@ -850,7 +954,7 @@ def _private_check(job, rec, state):
     lay = state["clip"]["layout"]
     job.working("Reading the screen for anything private")
     try:
-        found = screen.hidden(rec, state["clip"]["pieces"], on_start=job.started_work)
+        found = screen.hidden(rec, state["clip"]["pieces"], on_start=job.started_work, span=state["clip"].get("span"))
     except screen.Stopped:
         return False, "not read: the person pressed Stop"
     except screen.ScreenError as e:
@@ -865,7 +969,7 @@ def _private_check(job, rec, state):
                                                                                "s") if shown else NOTHING_PRIVATE)
 
 
-def _make_talk(job, rec, moment, m):
+def _make_talk(job, rec, moment, m, pieces, cut):
     """make_clip in the talk layout: the people found, who speaks when, and the shots that follow them."""
     a, b = m["start"], m["end"]
     try:
@@ -881,12 +985,12 @@ def _make_talk(job, rec, moment, m):
                                                                                          len(found["samples"])))
     heard = job.chat.looks[m["look"] - 1].get("said")
     job.working("Watching who speaks")
-    shots, _ = talk.plan(rec, [[a, b]], heard, persons)
+    shots, _ = talk.plan(rec, pieces, heard, persons)
     lay = talk.make((rec["width"], rec["height"]), persons, shots)
-    people = _people(rec, [[a, b]], None)
-    state = job.edit({"do": "clip", "moment": moment, "pieces": [[a, b]], "layout": lay, "product": None,
+    people = _people(rec, pieces, None, [a, b])
+    state = job.edit({"do": "clip", "moment": moment, "pieces": pieces, "span": [a, b], "layout": lay, "product": None,
                       "people": [{k: v for k, v in p.items() if k != "crop"} for p in people or []],
-                      "speech": _speech(rec, job.chat.looks[m["look"] - 1], [[a, b]])})
+                      "speech": _speech(rec, job.chat.looks[m["look"] - 1], pieces)})
     lines = ["Made the clip from moment %d (%s-%s, %g s) in the talk layout. It follows %d people, numbered from the "
              "left: %s." % (moment, recording.clock(a), recording.clock(b), state["length"], len(persons), "; ".join(
                  "person %d at %s on your grid" % (p["n"], _grid(p["box"], rec)) for p in persons)),
@@ -895,12 +999,14 @@ def _make_talk(job, rec, moment, m):
                                                                     "alone)"),
              "Shots: %s." % talk.said(lay["shots"]),
              "If a shot shows the wrong person, or a reaction should be seen, change it with change_shot."]
+    if cut:
+        lines.insert(1, cut)
     lines += lay["notes"] + [lay["safe"]["said"]]
     lines.append("Places for words on screen, kept clear of every person's head (the band from y %d to %d is kept for "
                  "the captions):" % (lay["captions"][1], lay["captions"][1] + lay["captions"][3]))
     lines += _place_lines(state, rec)
-    peak = m.get("t") if m.get("t") is not None else (a + b) / 2
-    at = min(max(0.0, peak - a), state["length"] - 0.1)
+    peak = project.from_recording(pieces, m["t"] if m.get("t") is not None else (a + b) / 2)
+    at = min(max(0.0, peak if peak is not None else state["length"] / 2), state["length"] - 0.1)
     lines.append(_show_frame(job, state, rec, at, "The clip at %g s (moment %d, talk layout):" % (round(at, 2),
                                                                                                     moment)))
     lines += _people_lines(job, people, rec)
@@ -1380,6 +1486,23 @@ def _unsure(phrase):
     return phrase.get("sure", 1.0) < UNSURE and not phrase.get("named")
 
 
+def _in_clip(pieces, p, length):
+    """(from, to) in clip seconds of a phrase heard from p["from"] to p["to"] of the recording, or None when it starts
+    where the clip has no picture. A phrase whose end was cut out ends with its piece, not at the clip's end."""
+    a = project.from_recording(pieces, p["from"])
+    if a is None:
+        return None
+    b = project.from_recording(pieces, p["to"])
+    if b is None:
+        at = 0.0
+        for x, y in pieces:
+            if x <= p["from"] <= y:
+                b = at + y - x
+                break
+            at += y - x
+    return round(a, 2), round(min(length, b), 2)
+
+
 def add_captions(job, why, on=True, lit=False, pop=False):
     rec = _open(job, "caption")
     state = _clip_state(job)
@@ -1398,12 +1521,9 @@ def add_captions(job, why, on=True, lit=False, pop=False):
         if _unsure(p):
             unsure.append(p)
             continue
-        a = project.from_recording(clip["pieces"], p["from"])
-        if a is None:
-            continue
-        b = project.from_recording(clip["pieces"], p["to"])
-        phrases.append({"from": round(a, 2), "to": round(min(length, b if b is not None else length), 2),
-                        "text": p["text"]})
+        at = _in_clip(clip["pieces"], p, length)
+        if at:
+            phrases.append({"from": at[0], "to": at[1], "text": p["text"]})
     if not phrases:
         raise Refused("Nothing was heard clearly in this moment, so there are no words to caption. Leave the captions "
                       "off, and say so in your answer.")
@@ -1441,8 +1561,7 @@ def add_captions(job, why, on=True, lit=False, pop=False):
 
 def _on_camera(rec, clip):
     """Where a face sits still in the clip's pieces, as words for Muse, or None. Only faces already found are used."""
-    for a, b in clip["pieces"]:
-        found = faces.kept(rec, a, b)
+    for _, _, found in _found_faces(rec, clip["pieces"], clip.get("span")):
         g = faces.steady(found) if found else None
         if g:
             return "a face in the same place in %d of %d pictures" % (g["seen"], g["of"])
@@ -1453,14 +1572,13 @@ PEOPLE_SHOWN = 8
 SAME_FACE = 0.3
 
 
-def _people(rec, pieces, face):
+def _people(rec, pieces, face, span=None):
     """The other people's faces in the clip, from the faces already found in each piece, most seen first: [{"n",
     "seen", "of", "from", "to" (clip seconds), "box" (recording), "points": [[clip second, x, y, w, h]], "crop"}].
     The face the layout shows, and a face that sits still (the person making the clip), are not among them. None
     when the faces of a piece were not found."""
     out = []
-    for a, b in pieces:
-        found = faces.kept(rec, a, b)
+    for a, b, found in _found_faces(rec, pieces, span):
         if not found:
             return None
         for tr in tracks.tracks(found, rec):
@@ -1468,9 +1586,11 @@ def _people(rec, pieces, face):
                 continue
             points = []
             for t, x, y, w, h in tr["points"]:
-                at = round(project.from_recording(pieces, min(max(t, a), b)), 3)
-                if not points or at > points[-1][0]:
-                    points.append([at, x, y, w, h])
+                at = project.from_recording(pieces, min(max(t, a), b))
+                if at is not None and (not points or at > points[-1][0]):
+                    points.append([round(at, 3), x, y, w, h])
+            if not points:
+                continue
             out.append({"seen": tr["seen"], "of": len(found["samples"]), "from": points[0][0],
                         "to": points[-1][0], "box": [round(v) for v in tr["box"]], "points": points,
                         "crop": tr["crop"]})

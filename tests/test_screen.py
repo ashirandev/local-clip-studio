@@ -235,3 +235,23 @@ class Misspelled(unittest.TestCase):
                          [("Egret", "Eaglet"), ("Achilan.com", "ashiran.com"), ("Achilan", "Ashiran")])
         for fine in ("Choose the right Model", "Eaglet on ashiran.com", "Your machine", "Gemma"):
             self.assertEqual(tools._misspelled(fine, shown), [], fine)
+
+
+class Span(unittest.TestCase):
+    def test_pieces_cut_from_a_read_stretch_are_not_read_again(self):
+        key = {"text": "me@example.com", "box": [100, 100, 300, 20], "sure": 0.99}
+        read = [{"at": 10.0, "lines": []}, {"at": 14.0, "lines": [key]}, {"at": 22.0, "lines": []}]
+        asked = []
+
+        def readings(rec, a, b, on_start=None):
+            asked.append((a, b))
+            return read
+
+        had, screen.readings = screen.readings, readings
+        try:
+            found = screen.hidden({"width": 1920, "height": 1080}, [[10.0, 12.0], [15.0, 25.0]], span=[10.0, 30.0])
+        finally:
+            screen.readings = had
+        self.assertEqual(asked, [(10.0, 30.0)], "read once, over the moment")
+        self.assertEqual([(f["start"], f["end"]) for f in found], [(2.0, 9.0)], "shown from the second piece's start "
+                         "(the reading at 14 s holds at 15 s) to the reading at 22 s, clip seconds")

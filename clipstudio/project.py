@@ -7,7 +7,8 @@ the recording, and boxes on the frame are pixels of the 1080x1920 clip.
 - clip: {"moment", "pieces": [[recording a, recording b], ...], "layout": a layouts.make() dict, "product":
   recording box or None, "people": [{"n", "seen", "of", "from", "to", "box", "points": [[clip second, x, y, w, h]]}]:
   the other people's faces, followed through the clip, "speech": [[clip a, clip b]] when someone speaks, [] when
-  nobody does, None when the moment was never heard}
+  nobody does, None when the moment was never heard, "span": [recording a, recording b] of the moment the faces
+  were looked for over, which the pieces lie inside}
 - style: {"name", "font", "colour"}
 - title: {"text", "start", "end", "place", "box": the place's frame box, "key"}
 - captions: {"lines": text.caption_lines() lines in clip seconds, "band": [y, h], "pop": each word popped in as it is said, "lit": each word lit as it is
