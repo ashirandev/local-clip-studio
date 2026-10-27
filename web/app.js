@@ -323,7 +323,17 @@ function on(e) {
 
 function onThinking(live) {
   const j = room.jobs[live.job];
-  if (!j || j.live.hidden) return;
+  if (!j) return;
+  if (live.work) {
+    stopTimer();
+    j.liveLine.textContent = live.work;
+    j.liveThinking.textContent = "";
+    j.live.hidden = false;
+    j.box.appendChild(j.live);
+    scrollDown();
+    return;
+  }
+  if (j.live.hidden) return;
   const words = (live.thinking + (live.text ? "\n" + live.text : "")).trim();
   j.liveThinking.textContent = words.length > 1500 ? "…" + words.slice(-1500) : words;
   j.liveThinking.scrollTop = j.liveThinking.scrollHeight;

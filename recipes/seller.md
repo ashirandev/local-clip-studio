@@ -5,6 +5,7 @@ chip: It's a product review
 description: A person shows a product and talks about it, as in a review, an unboxing or a selling live. Pick it when the recording is about something people can buy.
 length: 30
 style: clean
+map: screen 1
 ---
 
 # Product review or selling live

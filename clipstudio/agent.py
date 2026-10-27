@@ -28,7 +28,7 @@ import threading
 import time
 import traceback
 
-from . import mind, recording, words
+from . import maps, mind, recording, words
 from .tools import SCHEMAS, TOOLS, Refused
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -123,19 +123,21 @@ class Chat:
     def busy(self):
         return bool(self.job and not self.job.done)
 
-    def say(self, words, mind_key, pictures=()):
+    def say(self, words, mind_key, pictures=(), shown=None):
         """The person's message: a new job, or, while Muse works, words that cut in on the job running now.
-        Pictures (jpg paths) go to Muse with the words, in the same message."""
+        Pictures (jpg paths) go to Muse with the words, in the same message. shown is what the page shows instead
+        of words, when Muse is told more than the person said."""
         content = _with_pictures(words, pictures)
+        shown = words if shown is None else shown
         with self.cond:
             job = self.job
             if job and not job.done:
-                self.emit("person", job=job.n, text=words, cut_in=True)
+                self.emit("person", job=job.n, text=shown, cut_in=True)
                 job.cut_in(content)
                 return job
             self.jobs += 1
             self.job = Job(self, mind.get(mind_key), content)
-            self.emit("person", job=self.jobs, text=words)
+            self.emit("person", job=self.jobs, text=shown)
             self.job.thread.start()
             return self.job
 
@@ -158,10 +160,11 @@ class Chat:
         picture from it. The file name can mislead (the review clip is called trip_...), the picture does not.
         Until the person types, the browser's language is the only clue to the language they read."""
         _, picture = self.open(rec)
-        message = "(opened) " + recording.describe(rec)
+        opened, said = "(opened) " + recording.describe(rec), ("\n" + words if words else "")
+        told = opened
         if language:
-            message += "\nThe person's browser is set to %s; answer in that language until they write." % language
-        return self.say(message + ("\n" + words if words else ""), mind_key, [picture] if picture else ())
+            told += "\nThe person's browser is set to %s; answer in that language until they write." % language
+        return self.say(told + said, mind_key, [picture] if picture else (), shown=opened + said)
 
 
 class Job:
@@ -180,6 +183,7 @@ class Job:
         self.last_refused = {}
         self.refused_last = False
         self.shown_live = 0.0
+        self.stop_work = None
         self.thread = threading.Thread(target=self.run, name="job-%d" % self.n, daemon=True)
 
     def emit(self, kind, **data):
@@ -196,9 +200,11 @@ class Job:
             if self.done:
                 return False
             self.stopped = True
-            asking = self.asking
+            asking, work = self.asking, self.stop_work
         if asking:
             asking.cancel()
+        if work:
+            work()
         return True
 
     def take_inbox(self):
@@ -212,6 +218,38 @@ class Job:
         """A tool's picture for Muse. Pictures never go in a tool result, so the loop sends them right after the
         results, as one message from the studio."""
         self.pictures.append((picture, caption))
+
+    def working(self, line):
+        """Shows how far a tool that takes a while has got. Like Muse's thinking, it is shown, not logged."""
+        with self.chat.cond:
+            self.chat.live = {"job": self.n, "step": self.steps, "work": line}
+            self.chat.live_rev += 1
+            self.chat.cond.notify_all()
+
+    def measure(self, rec):
+        """Maps rec for a tool: the page shows how far it has got, and Stop ends ffmpeg at once."""
+        total, shown = max(1.0, rec["seconds"]), [0.0]
+
+        def progress(done):
+            if time.time() - shown[0] >= SHOW_THINKING_EVERY:
+                shown[0] = time.time()
+                self.working("Mapping the video: %s of %s (%d%%)" % (recording.clock(min(done, total)),
+                                                                     recording.clock(total), min(99, 100 * done / total)))
+
+        def started(stop):
+            with self.chat.cond:
+                self.stop_work, stopped = stop, self.stopped
+            if stopped:
+                stop()
+
+        self.working("Mapping the video: starting")
+        try:
+            return maps.measure(rec, on_progress=progress, on_start=started)
+        finally:
+            with self.chat.cond:
+                self.stop_work = None
+                if self.chat.live and self.chat.live["job"] == self.n:
+                    self.chat.live = None
 
     def on_delta(self, kind, piece):
         chat = self.chat

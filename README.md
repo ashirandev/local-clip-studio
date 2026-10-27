@@ -90,6 +90,12 @@ the result and the engine numbers.
 - **Muse looks before it guesses.** When a recording opens, Muse gets its length, picture size and sound tracks
   (from ffprobe) and one picture from it. File names mislead: the demo's product review is called `trip_...mov`,
   and from the name alone Muse called it a travel clip; with the picture it picked the product-review recipe.
+- **A map before any look.** On a long recording Muse maps it first. One ffmpeg pass reads how loud every second is
+  against the minutes around it, and how much the picture changes at every keyframe; only the keyframes are
+  decoded, which is what makes it fast. The recipe says what ranks: sound and picture for a game stream, the
+  picture alone for a product review (a person at a table is just as loud the whole time). Each stretch starts well
+  before its peak, so what led up to the peak is in it. The map is kept per file, so mapping a recording again is
+  instant, and the page shows how far it has got while it reads. Stop ends it at once.
 - **Every page shows the chat the server has open.** When another chat opens, every page follows it, so neither an
   address nor a second tab can leave a page working on another chat.
 
@@ -135,11 +141,12 @@ Model weights are downloaded when they are first needed. None of them are commit
 |---|---|---|
 | 2026-10-26, before the event, private prototype | Glimmer UD-Q3_K_XL against Q4_K_M on one RTX 5070 Ti (16 GB), same settings | writing 54.5 vs 20.0 tokens/s, reading 1,677 vs 1,031 tokens/s, Thai captions no worse |
 | 2026-10-26, before the event, private prototype | Omnilingual ASR (CTC 1B) on Thai FLEURS, 60 sentences, with a fix for two lost Thai vowels | 7.9% character errors |
-
 | 2026-10-27, this build | The agent loop on Glimmer Q3: how much of each question is read again | step 2 of a job read 232 tokens new and reused 1,084; the first step of the next message read 119 new and reused 2,782 |
 | 2026-10-27, this build | A doubled Thai mark ("ค้้น") read back in the next question | it grew to 2, 3, 4, then 8 marks, then 15,000 tokens of thinking with no answer; now the program tidies it before it is read back, and each step stops at 4,096 tokens |
 | 2026-10-27, this build | Steering a running job on Glimmer Q3 | a typed message cut the question in flight 0.05 s after it was sent, and the next step used it; Stop ended the job 0.08 s after it was pressed |
 | 2026-10-27, this build | Opening the review clip by dropping it | found where it is in 0.16 s by name, size and time; the folder, size and time of the file unchanged; from the file name alone Muse called it travel, with one picture it picked the product-review recipe |
+| 2026-10-27, this build | Mapping a 4-hour game stream (77 GB, 1080p, 60 fps, a keyframe every 4 s) | 1:54 for one pass that reads the sound and only the keyframes; the prototype took 4:48 in two passes, every frame decoded. Mapping it again: 0.13 s |
+| 2026-10-27, this build | What that map ranks first | the top 6 stretches are all louder and busier than 97-99% of the stream; in 4 of them the peak is the game's death screen (the streamer shouts at each death), with the fight that led to it in the 21 s before the peak |
 
 New measurements are added here as the build is tested, each with its date.
 

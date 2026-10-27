@@ -1,7 +1,8 @@
 """Recipes: one file per kind of video in recipes/, each a short guide Muse reads before it plans that kind of clip.
 
 A recipe is Markdown with front matter, like a SKILL.md file: name, title, chip (the button that switches to it),
-description (when to pick it), length (seconds) and style (the house style it starts with), then the body. The body
+description (when to pick it), length (seconds), style (the house style it starts with) and map (what the map ranks
+by, such as "sound 1, screen 1"), then the body. The body
 says what a good clip of that kind is and which rules apply, in words, never in tool names, so it stays true as
 tools are added. Muse picks the recipe; the loop makes sure the rules that must hold are checked.
 """
@@ -9,7 +10,8 @@ import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FOLDER = os.path.join(ROOT, "recipes")
-FIELDS = ("name", "title", "chip", "description", "length", "style")
+FIELDS = ("name", "title", "chip", "description", "length", "style", "map")
+SIGNALS = ("sound", "screen")
 
 
 def read(path):
@@ -27,8 +29,20 @@ def read(path):
     if missing:
         raise ValueError("%s is missing %s." % (path, ", ".join(missing)))
     recipe["length"] = int(recipe["length"])
+    recipe["map"] = weights(recipe["map"], path)
     recipe["body"] = body.strip()
     return recipe
+
+
+def weights(text, path):
+    """{"sound": 1.0, "screen": 1.0} from "sound 1, screen 1". A signal left out counts 0."""
+    out = dict.fromkeys(SIGNALS, 0.0)
+    for part in text.split(","):
+        name, _, value = part.strip().partition(" ")
+        if name not in SIGNALS:
+            raise ValueError("%s: the map ranks by %s, not by %s." % (path, " and ".join(SIGNALS), name))
+        out[name] = float(value)
+    return out
 
 
 def load(folder=FOLDER):

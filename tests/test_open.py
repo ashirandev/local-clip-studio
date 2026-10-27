@@ -137,6 +137,7 @@ class Open(unittest.TestCase):
         self.assertTrue(said[1]["image_url"]["url"].startswith("data:image/jpeg;base64,/9j/"))
         person = [e for e in self.chat.events if e["kind"] == "person"][0]
         self.assertNotIn("base64", json.dumps(person))
+        self.assertEqual(person["text"].split("\n")[1:], ["funny, 20 s"])
         again = agent.Chat.load(self.chat.id)
         self.assertEqual((again.jobs, again.recording["name"]), (1, "my review.mp4"))
 

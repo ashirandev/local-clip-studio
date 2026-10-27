@@ -10,8 +10,8 @@ refused with a sentence that says what to send instead, so Muse can fix it and c
 """
 import os
 
-from . import recording
-from .recipes import RECIPES
+from . import maps, recording
+from .recipes import RECIPES, SIGNALS
 
 WHY = {"type": "string",
        "description": "One short line, in the language the person writes in, telling the person why you take "
@@ -156,6 +156,59 @@ def _names_here(folders):
     return out
 
 
+MAP_ANYTHING = {"sound": 1.0, "screen": 1.0}
+STRETCH_DEFAULT = 30
+
+
+def map_recording(job, why, stretch_s=None, top=6):
+    rec = job.chat.recording
+    if not rec:
+        raise Refused("No recording is open, so there is nothing to map. Open one first.")
+    if not os.path.isfile(rec["path"]):
+        raise Refused("%s is no longer at %s. Tell the person, and ask where it is now." % (rec["name"], rec["path"]))
+    clip = job.chat.clip
+    recipe = RECIPES.get(clip["recipe"]) if clip else None
+    by = recipe["map"] if recipe else MAP_ANYTHING
+    stretch = stretch_s or (clip["length_s"] if clip else STRETCH_DEFAULT)
+    m = maps.kept(rec)
+    if m:
+        head = "Mapped earlier, so this was instant."
+    else:
+        try:
+            m = job.measure(rec)
+        except maps.Stopped:
+            return "Not mapped: the person pressed Stop. Nothing was kept."
+        except maps.MapError as e:
+            raise Refused(str(e))
+        took = "%.1f s" % m["took"] if m["took"] < 60 else recording.clock(m["took"])
+        head = "Mapped in %s and kept, so mapping it again is instant." % took
+    stretches, about = maps.rank(m, by, stretch, top)
+    lines = ["%s %s (%s): how loud every second is against the minutes around it, and how much the picture "
+             "changes (read at each keyframe, about every %s s here)."
+             % (head, rec["name"], recording.clock(rec["seconds"]), about["every"])]
+    if not about["heard"]:
+        lines.append("It has no sound ffmpeg could read, so only the picture ranks.")
+    elif about["flat"]:
+        lines.append("The sound barely rises anywhere (at most %.1f dB over the minutes around it), so loudness "
+                     "says little in this recording." % about["loudest_rise"])
+    ranked = "Ranked by %s%s." % (", ".join("%s %g" % (s, by[s]) for s in SIGNALS),
+                                  " (the %s recipe)" % recipe["name"] if recipe else "")
+    if m["seconds"] <= stretch:
+        lines.append("%s The recording is no longer than one stretch of %d s, so all of it is one stretch:"
+                     % (ranked, stretch))
+    else:
+        lines.append("%s Stretches of %d s, each starting %d s before its peak so what led up to the peak is in it. "
+                     "Best first:" % (ranked, stretch, round(stretch * maps.LEAD)))
+    for i, s in enumerate(stretches, 1):
+        sound = ("the sound rises %+.1f dB over the minutes around it (louder than %d%% of the recording)"
+                 % (s["rise"], s["louder"]) if s["louder"] is not None else "no sound")
+        lines.append("%d. %s-%s, peak %s: %s; the picture is busier than %d%% of it."
+                     % (i, recording.clock(s["start"]), recording.clock(s["end"]), recording.clock(s["peak"]), sound,
+                        s["busier"]))
+    lines.append("Nothing in these stretches has been looked at yet: look at a stretch before you choose it.")
+    return "\n".join(lines)
+
+
 STYLES = {"clean": "plain text, quiet and clear", "pop": "bold colours and quick hits",
           "calm": "slow and relaxed, a few words at a time"}
 SHORTEST, LONGEST = 10, 90
@@ -244,5 +297,15 @@ TOOLS = {t.name: t for t in [
                     "description": "What the person asked for about the clip itself, in their own words (its mood, "
                                    "length or focus), if they said anything. It wins over every guess."}},
          ["type"], load_recipe, changes=True),
+    Tool("map_recording", "Mapped the video",
+         "Measure the open recording, then list the stretches that stand out, best first: how loud each second is "
+         "against the minutes around it, and how much the picture changes, ranked the way the recipe says. Use it "
+         "before you look at pieces of a long recording. The first time it reads the whole file (about half a "
+         "minute for every hour of a 1080p stream); after that it is instant. Nothing in the list has been looked at.",
+         {"stretch_s": {"type": "integer", "minimum": SHORTEST, "maximum": LONGEST,
+                        "description": "How long each stretch is, in seconds. Leave it out to use the clip's length."},
+          "top": {"type": "integer", "minimum": 1, "maximum": 12,
+                  "description": "How many stretches to list (1 to 12, default 6)."}},
+         [], map_recording),
 ]}
 SCHEMAS = [t.schema() for t in TOOLS.values()]
