@@ -21,7 +21,7 @@ import subprocess
 import tempfile
 import threading
 
-from . import effects, layouts, project, recording, text
+from . import cutout, effects, layouts, project, recording, text
 
 PREVIEW_WIDTH = 540
 FRAME_SECONDS = 60
@@ -81,16 +81,18 @@ def _hits(state):
     return hits
 
 
-def ass(state, default="clean"):
+def ass(state, default="clean", behind=False):
     """The path of the clip's ASS file (written once per content) with its titles, captions and big words, or None
-    when there are no words on screen."""
-    captions = state.get("captions")
-    words = [h for h in _hits(state) if h["kind"] == "word"]
-    if not (state["titles"] or captions or words):
+    when there are no words on screen. With behind=True it holds only the titles and big words that go behind the
+    person ("behind": True), and without it everything else."""
+    captions = None if behind else state.get("captions")
+    titles = [t for t in state["titles"] if bool(t.get("behind")) == behind]
+    words = [h for h in _hits(state) if h["kind"] == "word" and bool(h.get("behind")) == behind]
+    if not (titles or captions or words):
         return None
     st = _styles(state, default)
     events = []
-    for t in state["titles"]:
+    for t in titles:
         events += text.title(t["text"], t["start"], t["end"], t["box"], st["title"], t.get("key"))
     if captions:
         events += text.captions(captions["lines"], st["caption"], captions["band"], lit=captions.get("lit", False))
@@ -135,7 +137,11 @@ def after_source(state, src, out, first_input, default="clean"):
       and never the frame's design, the stickers or the words;
     - the layout, to the 1080x1920 frame, with the slow pushes inside its main part, so the frame's design holds
       still while the footage pushes in;
-    - frame stage: the camera hits (punch-in, shake), the glass boxes, the stickers, the flurries (state['flurries']:
+    - frame stage: first what needs the person cut out (cutout.py, from the person's mask state['mask']): the
+      footage in black and white around them and a white edge around them (state['cutouts']: {"look": grey or
+      outline, "start", "end"}) and the titles and big words with "behind": True drawn under them; then the camera
+      hits (punch-in, shake), so the person and all of that move together; then the glass boxes, the stickers, the
+      flurries (state['flurries']:
       {"pngs", "at", "box", "move", "count", "length", "size"}, see effects.flurry), then the words (titles, captions
       and big words, one ASS file), so the words hold still while the picture moves and stay on top of a sticker, a
       flurry or a glass box, then the flashes last, so a flash lights the words too.
@@ -149,9 +155,10 @@ def after_source(state, src, out, first_input, default="clean"):
                               state.get("pushes") or [])
     files = files + more
     hits = _hits(state)
+    fragments = _cut_out(state, default)
     camera = {"shake": lambda h: effects.shake(h["at"]),
               "punch": lambda h: effects.punch_in(h["at"], centre=h["centre"])}
-    fragments = [camera[h["kind"]](h) for h in hits if h["kind"] in camera]
+    fragments += [camera[h["kind"]](h) for h in hits if h["kind"] in camera]
     fragments += [layouts.glass(g["box"], g["start"], g["end"], g.get("tint", "light"), g.get("shine", True))
                   for g in state.get("glass") or []]
     fragments += [effects.sticker(k["png"], k["at"], k["length"], k["box"]) for k in state.get("stickers") or []]
@@ -163,6 +170,45 @@ def after_source(state, src, out, first_input, default="clean"):
     fragments += [effects.flash(h["at"]) for h in hits if h["kind"] == "flash"]
     stage, more = effects.join(fragments, "drawn", out, first_input + len(files))
     return ";".join((seen, lay, stage)), files + more
+
+
+CUTOUT_LOOKS = {"grey": cutout.grey, "outline": cutout.outline}
+
+
+def _cut_out(state, default):
+    """The frame stage's fragments that need the person's mask: the cut-out looks, then the words behind the person;
+    none when the clip asks for neither."""
+    cuts = state.get("cutouts") or []
+    behind_titles = [(t["start"], t["end"]) for t in state["titles"] if t.get("behind")]
+    behind_words = [(h["at"], h["at"] + WORD_SECONDS) for h in _hits(state) if h["kind"] == "word" and h.get("behind")]
+    if not (cuts or behind_titles or behind_words):
+        return []
+    if not state.get("mask"):
+        raise ValueError("The words behind the person and the cut-out looks need the person's mask, and this clip has "
+                         "none: run cut_out first.")
+    for c in cuts:
+        if c.get("look") not in CUTOUT_LOOKS:
+            raise ValueError("cut-out look %r is not a look: use one of %s." % (c.get("look"), ", ".join(CUTOUT_LOOKS)))
+    clip = state["clip"]
+    try:
+        mask = cutout.frame_mask(state["mask"], clip["pieces"], clip["layout"], state["length"],
+                                 state.get("pushes") or [])
+    except RuntimeError as e:
+        raise ValueError(str(e))
+    looks = [CUTOUT_LOOKS[c["look"]](mask, c["start"], c["end"]) for c in cuts]
+    words = ass(state, default, behind=True)
+    if words:
+        filters = text._ass_filter(words, text.fonts_folder(*_styles(state, default).values()))
+        looks.insert(sum(c["look"] == "grey" for c in cuts), cutout.behind(filters, mask, behind_titles + behind_words))
+    return looks
+
+
+def _picture_input(f, step=None):
+    """The input options for an extra file: the person's mask (a .mkv video in clip time) from clip second 0, or
+    from step for a preview; a picture looped at 30 fps, from step for a preview."""
+    if f.endswith(".mkv"):
+        return (["-ss", "%.6f" % step, "-itsoffset", "%.6f" % step] if step is not None else []) + ["-i", f]
+    return (["-itsoffset", "%.6f" % step] if step is not None else []) + ["-loop", "1", "-framerate", str(FPS), "-i", f]
 
 
 def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH):
@@ -193,7 +239,7 @@ def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH):
         return target
     cmd = [shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y", "-ss", "%.3f" % at[1], "-i", rec["path"]]
     for f in files:
-        cmd += ["-itsoffset", "%.6f" % step, "-loop", "1", "-framerate", str(FPS), "-i", f]
+        cmd += _picture_input(f, step)
     part = _part(target)
     cmd += ["-filter_complex", graph, "-map", "[fin]", "-frames:v", "1", "-q:v", "3", "-f", "image2", part]
     try:
@@ -399,7 +445,7 @@ def export(rec, state, out_path, on_progress=None, on_start=None, default="clean
     log_path = os.path.join(work, os.path.basename(out_path) + ".log")
     cmd = [_ffmpeg(), "-hide_banner", "-nostats", "-y", "-progress", "pipe:1"] + _inputs(rec, pieces)
     for f in files:
-        cmd += ["-loop", "1", "-framerate", str(FPS), "-i", f]
+        cmd += _picture_input(f)
     if music:
         cmd += _music_input(music)
     cmd += ["-/filter_complex", script, "-map", "[fin]"] + (["-map", "[snd]"] if sound or added else []) + [

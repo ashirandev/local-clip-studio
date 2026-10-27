@@ -378,6 +378,50 @@ class Preview(unittest.TestCase):
                 heights.append(ys.mean())
             self.assertEqual(sorted(heights, reverse=bool(early)), heights, "%s: %s" % (move, heights))
 
+    def test_a_preview_cuts_the_person_out_where_the_clip_shows_them(self):
+        import numpy as np
+        mask_path = os.path.join(self.tmp, "person.mkv")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=black:s=640x360:r=30:d=4", "-vf",
+                        "format=gray,drawbox=x=300:y=60:w=40:h=240:color=white:t=fill:enable='gte(t,0.9)'", "-c:v", "ffv1", "-pix_fmt",
+                        "gray", mask_path], check=True)
+        mask = {"path": mask_path, "person": "main", "fps": 30, "size": [640, 360], "from": 0.0, "to": 4.0}
+        plain = state()
+        (shown,) = layouts.to_frame(plain["clip"]["layout"], [300, 60, 40, 240])
+        x, y, w, h = (int(v) for v in shown)
+        person = (slice(y + 30, y + h - 30), slice(x + 30, x + w - 30))
+        around = (slice(y + h + 60, y + h + 260), slice(60, 1020))
+
+        def rgb(st, t):
+            raw = subprocess.run([FFMPEG, "-v", "error", "-i", render.frame(self.rec, st, t, width=1080), "-f",
+                                  "rawvideo", "-pix_fmt", "rgb24", "pipe:1"], capture_output=True, check=True).stdout
+            return np.frombuffer(raw, np.uint8).reshape(1920, 1080, 3).astype(int)
+
+        def colour(f):
+            return (f.max(axis=2) - f.min(axis=2)).mean()
+
+        grey = dict(plain, mask=mask, cutouts=[{"look": "grey", "start": 0.5, "end": 3.0}])
+        title = {"text": "SALE SALE SALE", "start": 0.5, "end": 3.0, "box": [100, y + h // 2 - 150, 880, 300]}
+        behind = dict(state(title=[dict(title, behind=True)]), mask=mask)
+        front = state(title=[title])
+        for t in (1.0 + 1 / 60, 2.2):
+            a = rgb(plain, t)
+            b = rgb(grey, t)
+            self.assertLess(colour(b[around]), 8, "black and white around the person at %.3f s" % t)
+            self.assertGreater(colour(a[around]), 40, "where the footage has colour")
+            self.assertLess(np.abs(b[person] - a[person]).mean(), 6, "the person keeps theirs at %.3f s" % t)
+            c, d = rgb(behind, t), rgb(front, t)
+            words = np.abs(d - a).max(axis=2) > 40
+            self.assertGreater(int(words[person].sum()), 500, "the words cross the person")
+            self.assertLess(np.abs(c[person] - a[person]).mean(), 6, "the person stands in front of the words")
+            beside = words.copy()
+            beside[:, x - 6:x + w + 6] = False
+            self.assertGreater(int(beside.sum()), 300, "the words reach past the person")
+            self.assertLess(np.abs(c - d).max(axis=2)[beside].mean(), 12, "and show there as drawn")
+        with self.assertRaisesRegex(render.NotDrawn, "need the person's mask, and this clip has none: run cut_out"):
+            render.frame(self.rec, dict(plain, cutouts=[{"look": "grey", "start": 0.5, "end": 3.0}]), 1.0)
+        with self.assertRaisesRegex(render.NotDrawn, "cut-out look 'blur' is not a look: use one of grey, outline"):
+            render.frame(self.rec, dict(grey, cutouts=[{"look": "blur", "start": 0.5, "end": 3.0}]), 1.0)
+
     def test_two_requests_for_the_same_frame_at_once_both_get_it(self):
         import threading
         st = state("card", title=[TITLE])
