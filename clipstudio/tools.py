@@ -16,8 +16,8 @@ import shutil
 import subprocess
 import time
 
-from . import (effects, faces, hearing, layouts, maps, mind, previews, project, recording, render, text, thai,
-               tracks, words)
+from . import (effects, faces, hearing, layouts, maps, mind, previews, project, recording, render, spoken, text,
+               thai, tracks, words)
 from .recipes import RECIPES, SIGNALS
 
 WHY = {"type": "string",
@@ -1316,7 +1316,6 @@ def render_clip(job, why):
 REEL_LONGEST = 90
 FIRST = 0.5
 CHECK_ROUNDS = 2
-DIGITS = re.compile(r"[0-9]+(?:[.,][0-9]+)*")
 
 
 def _said(job, state):
@@ -1326,9 +1325,19 @@ def _said(job, state):
 
 
 def _not_said(words, said):
-    """The numbers in words that are not among the numbers in said."""
-    heard = set().union(*[thai.values(s) for s in said]) if said else set()
-    return [m for m in DIGITS.findall(words) if thai.value(m) not in heard]
+    """The numbers in words that are not among the numbers in said (spoken.values: digits in any script, Thai and
+    English number words)."""
+    heard = set().union(*[spoken.values(s) for s in said]) if said else set()
+    return [m for m in spoken.DIGITS.findall(words) if spoken.digits(m) - heard]
+
+
+def _numbers_unread(job, said):
+    """A sentence when the clip is said in a language whose number words are not read here, else None."""
+    language = (job.chat.clip or {}).get("language") or ""
+    if spoken.reads(language, said):
+        return None
+    return ("the clip is said in %s, and the studio reads number words only in Thai and English: look at what was "
+            "said and check the numbers yourself" % (language or "a language it does not read"))
 
 
 def _start_of(path, sound):
@@ -1392,8 +1401,10 @@ def check_clip(job, why):
            ("; not said: %s" % "; ".join(unsaid[:3]) if unsaid else "")) if lines else "no captions")
     if kind == "seller":
         wrong = [n for t in state["titles"] for n in _not_said(t["text"], said)]
-        check("Numbers on screen were said", not wrong,
-              "not said: %s" % ", ".join(wrong) if wrong else "every number on screen was said")
+        unread = _numbers_unread(job, said) if wrong else None
+        check("Numbers on screen were said", None if unread else not wrong,
+              unread or ("not said: %s" % ", ".join(wrong) if wrong else "every number on screen was said"),
+              "Muse" if unread else "program")
     else:
         check("Numbers on screen were said", None, "numbers can come from what the screen shows")
     if kind == "game":
@@ -1428,8 +1439,9 @@ def check_clip(job, why):
     due = [c for c in checks if c["ok"] is not None]
     failed = [c for c in due if not c["ok"]]
     out = ["Checked %d of %d on the finished file %s:" % (len(due) - len(failed), len(due), done["name"])]
-    out += ["- %s: %s (%s)" % ("passed" if c["ok"] else "not needed" if c["ok"] is None else "FAILED", c["name"],
-                               c["found"]) for c in checks]
+    out += ["- %s: %s (%s)" % ("passed" if c["ok"] else "FAILED" if c["ok"] is False else
+                               "for you to check" if c["who"] == "Muse" else "not needed", c["name"], c["found"])
+            for c in checks]
     if kind == "game":
         for k, at in enumerate((0.25, 0.5, 0.75), 1):
             name = recording.frame(made, made["seconds"] * at)
@@ -1479,8 +1491,9 @@ def hand_over(job, why, title, caption, hashtags, english=""):
         raise Refused("These checks failed on the finished file: %s. Fix them, render again and check again; after "
                       "%d rounds you may hand it over and say what still fails." % ("; ".join(failed), CHECK_ROUNDS))
     if (job.chat.clip or {}).get("recipe") == "seller":
-        wrong = _not_said(" ".join([title, caption, english or ""]), _said(job, _clip_state(job)))
-        if wrong:
+        said = _said(job, _clip_state(job))
+        wrong = _not_said(" ".join([title, caption, english or ""]), said)
+        if wrong and not _numbers_unread(job, said):
             raise Refused("The post text has numbers that were not said: %s. Use only numbers the seller said."
                           % ", ".join(wrong))
     caption, more = _without_tags(caption)

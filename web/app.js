@@ -425,7 +425,7 @@ function drawChecked(j, e) {
     const mark = el("span", "mark", c.ok === null ? "–" : c.ok ? "✓" : "✗");
     mark.setAttribute("aria-hidden", "true");
     const words = el("span", "what");
-    words.append(el("span", "sr", c.ok === null ? "Not needed: " : c.ok ? "Passed: " : "Failed: "), el("b", null, c.name), el("small", null, c.found + (c.who === "program" ? "" : " · " + c.who)));
+    words.append(el("span", "sr", c.ok === null ? (c.who === "Muse" ? "Left to Muse: " : "Not needed: ") : c.ok ? "Passed: " : "Failed: "), el("b", null, c.name), el("small", null, c.found + (c.who === "program" ? "" : " · " + c.who)));
     li.append(mark, words);
     list.appendChild(li);
   });

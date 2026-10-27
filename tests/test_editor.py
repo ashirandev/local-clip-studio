@@ -970,6 +970,51 @@ class Tools(unittest.TestCase):
         self.assertEqual(tools._not_said("ลด 75 บาท ห้อง 50-75 m²", said), [])
         self.assertEqual(tools._not_said("ราคา 1,990 บาท ลด 75", said), ["1,990"])
         self.assertEqual(tools._not_said("ลด 20%", []), ["20"])
+        self.assertEqual(tools._not_said("75 sqm for 1,990", ["covers seventy-five square metres",
+                                                            "one thousand nine hundred and ninety baht"]), [])
+        self.assertEqual(tools._not_said("๗๕ ตร.ม.", ["เจ็ดสิบห้า"]), [])
+        self.assertEqual(tools._not_said("75 m²", ["七十五平方米"]), ["75"])
+
+    def test_a_seller_clip_in_a_language_whose_numbers_are_not_read_is_checked_by_muse(self):
+        self.worker.phrases = [{"from": 2, "to": 4.5, "text": "七十五平方米", "sure": 0.99}]
+
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            brain, steps = self.run_job(
+                [call("open_recording", path=self.clip, why="open it")],
+                [call("load_recipe", type="seller", language="Chinese", why="a seller")],
+                [call("look_at_piece", start="0:30", end="0:50", why="the top stretch")],
+                [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the size"}])],
+                '{"lines": ["七十五平方米"]}',
+                [call("make_clip", moment=1, layout="subject", why="the product")],
+                [call("add_title", words="75 m²", start=0, end=4, place="middle", why="the size")],
+                [call("decide_people", keep=[1], why="it is the seller")],
+                [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
+                [call("hand_over", title="75 m²", caption="七十五平方米", hashtags=["#home"], why="post")],
+                "Done.")
+        finally:
+            render.export = had
+        checked, handed = steps[-2:]
+        self.assertFalse(checked["refused"], checked["result"])
+        self.assertIn("- for you to check: Numbers on screen were said (the clip is said in Chinese, and the studio "
+                      "reads number words only in Thai and English", checked["result"])
+        self.assertFalse(handed["refused"], handed["result"])
+
+    def test_numbers_said_in_words_the_studio_cannot_read_are_left_to_muse_not_failed(self):
+        self.chat.clip = {"recipe": "seller", "language": "Chinese"}
+        self.assertIn("the clip is said in Chinese, and the studio reads number words only in Thai and English",
+                      tools._numbers_unread(self.chat.job or agent.Job(self.chat, ScriptedMind(), "x"), ["七十五"]))
+        for language, said in (("Thai", ["เจ็ดสิบห้า"]), ("", ["seventy five"]), ("", ["เจ็ดสิบห้า"])):
+            self.chat.clip = {"recipe": "seller", "language": language}
+            self.assertIsNone(tools._numbers_unread(agent.Job(self.chat, ScriptedMind(), "x"), said), said)
+        self.chat.clip = {"recipe": "seller", "language": ""}
+        self.assertIn("a language it does not read", tools._numbers_unread(agent.Job(self.chat, ScriptedMind(), "x"),
+                                                                            ["七十五平方米"]))
 
     def test_a_thai_key_word_is_one_word_of_the_title_not_the_whole_title(self):
         brain, steps = self.run_job(
