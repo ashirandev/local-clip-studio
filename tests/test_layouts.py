@@ -316,5 +316,81 @@ class Band(unittest.TestCase):
         self.assertLess(sharp(band), sharp(above) / 3, "and blurred, so it does not pull the eye")
 
 
+@unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg, and numpy for the pixel checks")
+class Moved(unittest.TestCase):
+    """The safe zone is where the program puts things by itself; a part goes wherever the person asks."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.work, recording.WORK = recording.WORK, os.path.join(cls.tmp, "work")
+
+    @classmethod
+    def tearDownClass(cls):
+        recording.WORK = cls.work
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def face_shows_in(self, lay, where):
+        circle = [p["dst"] for p in lay["parts"] if p["name"] == "circle"][0]
+        marker = [round(v) for v in (FACE[0] + 20, FACE[1] + 30, 50, 50)]
+        found = magenta(draw(lay, marker), circle)
+        self.assertIsNotNone(found, "%s: the face shows in the circle at %s" % (where, circle))
+        frame = draw(lay, [10, 10, 4, 4])
+        dx, dy, d, _ = circle
+        self.assertGreater(frame[dy - layouts.RING // 2, dx + d // 2].min(), 235, "%s: with its white ring" % where)
+        return circle
+
+    def test_the_face_circle_goes_to_the_bottom_right_corner_when_asked(self):
+        lay = layouts.make("card", SIZE, FACE)
+        corner = [700, 1500, 340, 340]
+        there = layouts.moved(lay, "circle", corner)
+        circle = self.face_shows_in(there, "card")
+        self.assertEqual(circle[2], circle[3], "it stays round")
+        self.assertEqual(circle, [700, 1500, 340, 340])
+        said = there["notes"][-1]
+        self.assertIn("As asked", said)
+        self.assertIn("caption", said)
+        self.assertIn("buttons", said)
+        self.assertNotEqual([p["dst"] for p in lay["parts"] if p["name"] == "circle"][0], circle,
+                            "the layout it came from is left as it was")
+        (shown,) = [b for b in layouts.to_frame(there, FACE) if overlap(b, circle)]
+        self.assertTrue(circle[0] <= shown[0] and shown[0] + shown[2] <= circle[0] + circle[2])
+
+    def test_a_circle_in_a_long_box_is_round_in_its_middle(self):
+        there = layouts.moved(layouts.make("card", SIZE, FACE), "circle", [100, 300, 600, 300])
+        self.assertEqual([p["dst"] for p in there["parts"] if p["name"] == "circle"][0], [250, 300, 300, 300])
+
+    def test_the_game_full_screen_takes_the_face_in_a_corner(self):
+        lay = layouts.make("subject", SIZE, FACE, crop=[0, 0, 1500, 1080])
+        there = layouts.moved(lay, "circle", [80, 1150, 300, 300])
+        self.face_shows_in(there, "subject")
+        self.assertEqual(there["notes"][-1], "As asked, the circle is at [80, 1150, 300, 300].",
+                         "inside the safe zone the note says only where")
+
+    def test_a_moved_card_shows_the_same_picture_unstretched(self):
+        lay = layouts.make("card", SIZE, FACE)
+        there = layouts.moved(lay, "card", [60, 400, 960, 540])
+        card = [p for p in there["parts"] if p["name"] == "card"][0]
+        before = [p for p in lay["parts"] if p["name"] == "card"][0]
+        self.assertEqual(card["dst"], [60, 400, 960, 540])
+        self.assertLess(abs(card["src"][2] / card["src"][3] - 960 / 540), 0.01, "not stretched: %s" % card["src"])
+        for k in (0, 1):
+            self.assertLess(abs((card["src"][k] + card["src"][k + 2] / 2) - (before["src"][k] + before["src"][k + 2] / 2)),
+                            1, "cut around the same middle")
+        self.assertIn("top and middle places would sit on it", there["notes"][-1], "the places it covers are named")
+
+    def test_only_a_box_the_frame_cannot_hold_is_refused(self):
+        lay = layouts.make("card", SIZE, FACE)
+        with self.assertRaisesRegex(ValueError, r"box \(900, 1800, 300, 300\) runs off the 1080x1920 frame"):
+            layouts.moved(lay, "circle", (900, 1800, 300, 300))
+        with self.assertRaisesRegex(ValueError, r"box \(10, 10, 60, 60\) is too small to show a part"):
+            layouts.moved(lay, "circle", (10, 10, 60, 60))
+        with self.assertRaisesRegex(ValueError, "part 'logo' is not in the card layout: use one of card, circle"):
+            layouts.moved(lay, "logo", (10, 10, 300, 300))
+        with self.assertRaisesRegex(ValueError, "The subject layout cannot take a face circle without a face"):
+            layouts.moved(layouts.make("subject", SIZE), "circle", (10, 300, 300, 300))
+        self.assertTrue(layouts.moved(lay, "circle", (0, 1580, 340, 340)), "a corner under the caption is fine")
+
+
 if __name__ == "__main__":
     unittest.main()

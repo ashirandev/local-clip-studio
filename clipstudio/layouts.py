@@ -27,6 +27,7 @@ the bottom 670 px free for the ad's button, so a clip that will be boosted keeps
 A place is never on the face: the stack has no place at the top, because its top panel is the face; its words go
 on the seam.
 """
+import copy
 import math
 import os
 import shutil
@@ -66,9 +67,11 @@ SAFE = [56, 250, 968, SAFE_BOTTOM - 250]
 BUTTONS = [900, 1080, 180, 780]
 SAFE_SAID = ("Phones cover the clip's top 250 px (the status bar and the app's header), everything below y %d (the "
              "name and the caption), the right side from x %d between y %d and %d (like, comment, share), and cut "
-             "51 px off each side. Keep words, stickers and faces inside x %d to %d, y %d to %d, and left of x %d "
-             "below y %d." % (SAFE_BOTTOM, BUTTONS[0], BUTTONS[1], BUTTONS[1] + BUTTONS[3], SAFE[0],
-                              SAFE[0] + SAFE[2], SAFE[1], SAFE_BOTTOM, BUTTONS[0], BUTTONS[1]))
+             "51 px off each side. When you choose, keep words, stickers and faces inside x %d to %d, y %d to %d, and "
+             "left of x %d below y %d. When the person asks for a spot, put it there and tell them what a phone "
+             "covers." % (SAFE_BOTTOM, BUTTONS[0], BUTTONS[1], BUTTONS[1] + BUTTONS[3], SAFE[0], SAFE[0] + SAFE[2],
+                          SAFE[1], SAFE_BOTTOM, BUTTONS[0], BUTTONS[1]))
+SMALLEST_PART = 120
 BAND = {"saturation": 1.1, "brightness": -0.12, "sigma": 14}
 LEAVE_OUT = 3.0
 SMALLEST_CARD = 0.4
@@ -137,13 +140,68 @@ def make(kind, size, face=None, crop=None):
             "safe": {"box": SAFE, "buttons": BUTTONS, "said": SAFE_SAID}}
 
 
+def moved(layout, name, box):
+    """A copy of layout with its part `name` drawn at box (x, y, w, h on the 1080x1920 frame), where the person asked:
+    the safe zone is where the program puts things by itself, never a limit on what a person asks for. The part
+    shows the same thing of the recording, cut around the same middle to the box's shape, so nothing is stretched;
+    a circle stays round, as big as the box's shorter side, in the box's middle. A face circle can be added this way
+    to a layout without one (the subject layout: the whole picture, the face in a corner). The notes say what a phone
+    covers there. Only a box the frame cannot hold raises ValueError."""
+    if (not isinstance(box, (tuple, list)) or len(box) != 4
+            or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in box)):
+        raise ValueError("box %r is not a box: give (x, y, w, h) on the %dx%d frame." % (box, W, H))
+    x, y, bw, bh = box
+    if bw < SMALLEST_PART or bh < SMALLEST_PART:
+        raise ValueError("box %r is too small to show a part: make w and h at least %d px." % (tuple(box), SMALLEST_PART))
+    if x < 0 or y < 0 or x + bw > W or y + bh > H:
+        raise ValueError("box %r runs off the %dx%d frame: keep x + w at most %d and y + h at most %d."
+                         % (tuple(box), W, H, W, H))
+    lay = copy.deepcopy(layout)
+    parts = {p["name"]: p for p in lay["parts"]}
+    if name == "circle" and name not in parts:
+        if lay["kind"] not in ("subject", "card") or not lay.get("face"):
+            raise ValueError("The %s layout cannot take a face circle%s: use it with the subject layout and a face."
+                             % (lay["kind"], "" if lay.get("face") else " without a face"))
+        w, h = lay["size"]
+        parts[name] = {"name": name, "src": _around(lay["face"], FACE_SHARE["circle"], 1.0, [0, 0, w, h])}
+        lay["parts"].append(parts[name])
+        if any(_overlap(p["src"], _grown(lay["face"], LEAVE_OUT, w, h)) for p in lay["parts"] if p["name"] != name):
+            lay["notes"].append("The face camera is inside the picture too, so the face shows twice; choose a crop "
+                                "beside it.")
+    elif name not in parts:
+        raise ValueError("part %r is not in the %s layout: use one of %s." % (name, lay["kind"], ", ".join(
+            [p["name"] for p in lay["parts"]] + ([] if "circle" in parts or lay["kind"] != "subject" else ["circle"]))))
+    part = parts[name]
+    if name == "circle":
+        side = 2 * math.floor(min(bw, bh) / 2)
+        part["dst"] = _place(x + bw / 2, y + bh / 2, side, side, [0, 0, W, H])
+    else:
+        part["dst"] = _within_even(box)
+        sx, sy, sw, sh = part["src"]
+        aspect = part["dst"][2] / part["dst"][3]
+        if sw / sh > aspect:
+            sx, sw = sx + (sw - sh * aspect) / 2, sh * aspect
+        else:
+            sy, sh = sy + (sh - sw / aspect) / 2, sw / aspect
+        part["src"] = [sx, sy, sw, sh]
+    said = "As asked, the %s is at %s." % (name, part["dst"])
+    covered = unsafe(part["dst"])
+    if covered:
+        said += " On a phone, " + "; ".join(covered) + "."
+    on = [place for place, where in lay["places"].items() if _overlap(where, part["dst"])]
+    if on:
+        said += " Words in the %s place%s would sit on it." % (" and ".join(on), "s" if len(on) > 1 else "")
+    lay["notes"].append(said)
+    return lay
+
+
 def unsafe(box):
     """What a phone covers of box (x, y, w, h on the 1080x1920 frame): a list of short reasons, empty when every
     pixel of it shows in both apps."""
     x, y, w, h = box
     out = []
     if x < SAFE[0] or x + w > SAFE[0] + SAFE[2]:
-        out.append("the phone cuts the clip's sides off (keep x from %d to %d)" % (SAFE[0], SAFE[0] + SAFE[2]))
+        out.append("the clip's sides are cut off (keep x from %d to %d)" % (SAFE[0], SAFE[0] + SAFE[2]))
     if y < SAFE[1]:
         out.append("the status bar and the app's header cover the top (keep y from %d)" % SAFE[1])
     if y + h > SAFE_BOTTOM:
@@ -341,8 +399,18 @@ def graph(layout, src, out, first_input, pushes=()):
 
     parts = {p["name"]: p for p in layout["parts"]}
     tail = "setsar=1,format=yuv420p[%s]" % out
+    circle = parts.get("circle")
+    if circle:
+        return ("[%s]split=2[lay_m][lay_sc];%s[lay_base];%s,%s"
+                % (src, _base(layout, parts, "lay_m", pushes, shape), _circle(circle, "lay_base", "lay_sc", shape),
+                   tail), files)
+    return "%s,%s" % (_base(layout, parts, src, pushes, shape), tail), files
+
+
+def _base(layout, parts, src, pushes, shape):
+    """The layout drawn from [src] without its face circle, as graph text whose last filter has no output label."""
     if layout["kind"] in ("face", "subject"):
-        return "[%s]%s,%s" % (src, _pushed(parts["whole"], pushes), tail), files
+        return "[%s]%s" % (src, _pushed(parts["whole"], pushes))
     if layout["kind"] == "stack":
         top, bottom = parts["top"], parts["bottom"]
         bx, by, _, bh = bottom["dst"]
@@ -352,39 +420,39 @@ def graph(layout, src, out, first_input, pushes=()):
                 "[lay_c]crop=%d:%d:%d:%d,scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,gblur=sigma=%s,"
                 "eq=saturation=%s:brightness=%s[lay_u];"
                 "[lay_t][lay_g]overlay=%d:%d[lay_1];[lay_1][lay_u]overlay=0:%d[lay_2];"
-                "[lay_2]%soverlay=0:%d:shortest=1[lay_3];[lay_3]%soverlay=0:%d:shortest=1,%s"
+                "[lay_2]%soverlay=0:%d:shortest=1[lay_3];[lay_3]%soverlay=0:%d:shortest=1"
                 % (src, _scaled(top), W, H, GROUND, _pushed(bottom, pushes),
                    sw, sh, sx, sy, W, H - under, W, H - under, BAND["sigma"], BAND["saturation"], BAND["brightness"],
-                   bx, by, under, shape(seam_shade()), by, shape(seam_shade()), under, tail))
-        return text, files
+                   bx, by, under, shape(seam_shade()), by, shape(seam_shade()), under))
+        return text
     card = parts["card"]
     cx, cy, cw, ch = card["dst"]
     sigma, drop, _ = SHADOW["card"]
     pad = 3 * sigma
-    circle = parts.get("circle")
-    text = ("[%s]split=%d[lay_s1][lay_s2]%s;"
+    return ("[%s]split=2[lay_s1][lay_s2];"
             "[lay_s1]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,gblur=sigma=9,"
             "eq=saturation=1.3:contrast=1.05:brightness=-0.04,scale=%d:%d[lay_bg0];"
             "[lay_bg0]%soverlay=0:0:shortest=1[lay_bg];"
             "[lay_bg]%soverlay=%d:%d:shortest=1[lay_1];"
             "[lay_s2]%s,format=yuva420p[lay_c0];%sformat=gray[lay_cm];[lay_c0][lay_cm]alphamerge[lay_card];"
             "[lay_1][lay_card]overlay=%d:%d:shortest=1"
-            % (src, 3 if circle else 2, "[lay_s3]" if circle else "", W, H, shape(shade()),
-               shape(shadow("card", cw, ch, CARD_RADIUS)), cx - pad, cy - pad + drop,
+            % (src, W, H, shape(shade()), shape(shadow("card", cw, ch, CARD_RADIUS)), cx - pad, cy - pad + drop,
                _pushed(card, pushes), shape(rounded(cw, ch, CARD_RADIUS)), cx, cy))
-    if not circle:
-        return text + "," + tail, files
+
+
+def _circle(circle, base, src, shape):
+    """The face circle, its ring and its shadow drawn over [base] from [src], as graph text whose last filter has no
+    output label."""
     dx, dy, d, _ = circle["dst"]
     sigma, drop, _ = SHADOW["circle"]
     pad = 3 * sigma
     ring = d + 2 * RING
-    text += ("[lay_2];[lay_2]%soverlay=%d:%d:shortest=1[lay_3];[lay_3]%soverlay=%d:%d:shortest=1[lay_4];"
-             "[lay_s3]%s,format=yuva420p[lay_f];%sformat=gray[lay_fm];[lay_f][lay_fm]alphamerge[lay_circle];"
-             "[lay_4][lay_circle]overlay=%d:%d:shortest=1,%s"
-             % (shape(shadow("circle", ring, ring, ring / 2)), dx - RING - pad, dy - RING - pad + drop,
-                shape(ring_shape(ring, RING)), dx - RING, dy - RING,
-                _scaled(circle), shape(rounded(d, d, d / 2)), dx, dy, tail))
-    return text, files
+    return ("[%s]%soverlay=%d:%d:shortest=1[lay_o1];[lay_o1]%soverlay=%d:%d:shortest=1[lay_o2];"
+            "[%s]%s,format=yuva420p[lay_f];%sformat=gray[lay_fm];[lay_f][lay_fm]alphamerge[lay_circle];"
+            "[lay_o2][lay_circle]overlay=%d:%d:shortest=1"
+            % (base, shape(shadow("circle", ring, ring, ring / 2)), dx - RING - pad, dy - RING - pad + drop,
+               shape(ring_shape(ring, RING)), dx - RING, dy - RING,
+               src, _scaled(circle), shape(rounded(d, d, d / 2)), dx, dy))
 
 
 def _pushed(part, pushes):
