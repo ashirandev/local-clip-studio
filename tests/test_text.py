@@ -218,7 +218,22 @@ class Fonts(unittest.TestCase):
         with open(st.file[0], "rb") as a, open(os.path.join(folder, os.listdir(folder)[0]), "rb") as b:
             self.assertEqual(a.read(), b.read(), "a copy of the very file")
         self.assertEqual(text.fonts_folder(st), folder, "made once")
-        self.assertEqual(text.fonts_folder(text.STYLES["pop"]), text.FONTS)
+
+    def test_libass_is_given_font_files_only_for_the_studios_own_faces_too(self):
+        styles = [text.STYLES[name] for name in text.HOUSE_NAMES]
+        folder = text.fonts_folder(*styles)
+        self.assertEqual(sorted(os.listdir(folder)), sorted({os.path.basename(st.file[0]) for st in styles}))
+        self.assertTrue(any(f.endswith(".txt") for f in os.listdir(text.FONTS)), "the licences stay in fonts/")
+        path = os.path.join(self.tmp, "words.ass")
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text.document(styles, [e for st in styles
+                                           for e in text.title(text.SAMPLE, 0, 1, (40, 40, 1000, 320), st)]))
+        run = subprocess.run([FFMPEG, "-v", "info", "-f", "lavfi", "-i", "color=c=gray:s=1080x1920:d=0.1", "-vf",
+                              text._ass_filter(path, folder), "-frames:v", "1", "-f", "null", "-"],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace")
+        self.assertEqual(run.returncode, 0, run.stderr[-800:])
+        self.assertIn("Loading font file", run.stderr, "libass reports what it loads at this log level")
+        self.assertNotIn("Error opening memory font", run.stderr)
 
     def test_every_free_thai_font_on_this_computer_is_drawn_as_itself(self):
         fake = text.STYLES["clean"]._replace(name="fake", fontname="No Such Font Anywhere")

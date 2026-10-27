@@ -348,9 +348,10 @@ def fonts(letters=None):
 
 
 def fonts_folder(*styles):
-    """The folder libass is given for the styles of one ASS file: fonts/ when they all use the studio's own faces,
-    else a folder in work/fonts holding a copy of each style's font file and nothing else, made once, so libass
-    draws exactly the faces that were chosen and measured, never another standing in for one."""
+    """The folder libass is given for the styles of one ASS file: a folder in work/fonts holding a copy of each
+    style's font file and nothing else, made once, so libass draws exactly the faces that were chosen and measured,
+    never another standing in for one. The studio's own faces are copied too: fonts/ also holds their licences, and
+    libass tries every file in its folder as a font."""
     if not styles:
         raise ValueError("fonts_folder needs a style: pass every style the ASS file uses.")
     for st in styles:
@@ -359,8 +360,6 @@ def fonts_folder(*styles):
 
 
 def _folder_for(*paths):
-    if all(os.path.dirname(path) == os.path.abspath(FONTS) for path in map(os.path.abspath, paths)):
-        return FONTS
     key = hashlib.sha1()
     for path in paths:
         seen = os.stat(path)
