@@ -402,6 +402,9 @@ def graph(layout, src, out, first_input, pushes=()):
     pushes are slow push-ins [{start, end, zoom, centre}] (centre on the frame): they push the main part's picture
     (the card, the picture below the face, or the whole frame) inside its own place, so the card's shape and shadow,
     the face circle and the background hold still. A centre outside the main part pushes toward its nearest point."""
+    if layout["kind"] == "talk":
+        from . import talk
+        return talk.graph(layout, src, out, first_input, pushes)
     files = []
 
     def shape(path):
