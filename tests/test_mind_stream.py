@@ -24,10 +24,18 @@ TOOL_CALL = [
 
 
 class Fake(BaseHTTPRequestHandler):
-    chunks, pause, status = TOOL_CALL, 0, 200
+    chunks, pause, status, asked, models = TOOL_CALL, 0, 200, [], []
+
+    def do_GET(self):
+        body = json.dumps({"data": [{"id": m} for m in self.models]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_POST(self):
-        self.rfile.read(int(self.headers["Content-Length"]))
+        self.asked.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
         self.send_response(self.status)
         self.send_header("Content-Type", "text/event-stream" if self.status == 200 else "application/json")
         self.end_headers()
@@ -69,6 +77,21 @@ class Stream(unittest.TestCase):
         self.assertEqual(got["message"]["tool_calls"], got["tool_calls"])
         self.assertEqual((got["engine"]["read_new"], got["engine"]["reused"], got["engine"]["write_per_s"]),
                          (14, 1088, 52.3))
+
+    def test_the_local_mind_names_its_model_so_a_router_server_can_route_it(self):
+        url = "http://127.0.0.1:%d/v1" % self.server.server_port
+        local = mind.Mind("local", "Muse Glimmer", url, model="muse-glimmer")
+        Fake.asked = []
+        local.ask([{"role": "user", "content": "hi"}])
+        self.assertEqual(Fake.asked[-1]["model"], "muse-glimmer")
+        Fake.models = ["muse-glimmer", "another"]
+        self.assertEqual(local.status()["name"], "muse-glimmer", "a router lists it by its name")
+        Fake.models = ["C:/models/Muse-Glimmer-30B-UD-Q3_K_XL.gguf"]
+        self.assertEqual(local.status()["name"], "Muse-Glimmer-30B-UD-Q3_K_XL.gguf",
+                         "a server of one model lists its file")
+        Fake.models = []
+        self.assertFalse(local.status()["ok"], "the server is asked, even with a model name")
+        self.assertEqual(mind.MINDS["local"].model_id, os.environ.get("LCS_MIND_MODEL", "muse-glimmer"))
 
     def test_cancel_stops_a_question_in_flight_within_a_second(self):
         Fake.pause = 10

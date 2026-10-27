@@ -2,7 +2,9 @@
 
 Two minds, one request format (the OpenAI chat API):
 - local: Muse Glimmer, Meta's open-weight model, on this computer through llama.cpp's own server (llama-server).
-  The address is one setting, LCS_MIND_URL, so any server that runs an eligible Muse model works.
+  The address is one setting, LCS_MIND_URL, so any server that runs an eligible Muse model works. Each question names
+  the model, LCS_MIND_MODEL (muse-glimmer): a router llama-server sends it to that model, and one that serves a
+  single model ignores the name.
 - spark: Muse Spark on Meta's hosted API, with the person's own key in META_API_KEY. The key is read from the
   environment when a question is asked and is never written anywhere.
 
@@ -132,7 +134,7 @@ class Mind:
         if self.key_env and not self.secret():
             return dict(out, ok=False, why="Set %s to your own Meta API key, then start the studio again."
                                            % self.key_env)
-        if self.model_id:
+        if self.key_env:
             return dict(out, ok=True, name=self.model_id)
         try:
             got = self._call("/models")
@@ -141,7 +143,7 @@ class Mind:
         ids = [m.get("id", "") for m in got.get("data") or []]
         if not ids:
             return dict(out, ok=False, why="The server at %s has no model loaded." % self.url)
-        return dict(out, ok=True, name=os.path.basename(ids[0]))
+        return dict(out, ok=True, name=self.model_id if self.model_id in ids else os.path.basename(ids[0]))
 
     def unreachable(self, e):
         if self.key_env:
@@ -241,7 +243,8 @@ def _reason(e):
 
 MINDS = {
     "local": Mind("local", "Muse Glimmer", os.environ.get("LCS_MIND_URL", "http://127.0.0.1:8863/v1"),
-                  reasoning_line="Reasoning strength: low", where="on this computer"),
+                  model=os.environ.get("LCS_MIND_MODEL", "muse-glimmer"), reasoning_line="Reasoning strength: low",
+                  where="on this computer"),
     "spark": Mind("spark", "Muse Spark", os.environ.get("LCS_SPARK_URL", "https://api.meta.ai/v1"),
                   model=os.environ.get("LCS_SPARK_MODEL", "muse-spark-1.3"), key_env="META_API_KEY",
                   where="on Meta's servers, with your own key"),

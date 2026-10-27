@@ -73,12 +73,28 @@ own server. This is the exact setup the demo runs on:
 | Server | llama.cpp `llama-server`, build b11716 |
 | Graphics card | NVIDIA RTX 5070 Ti, 16 GB |
 
-```
-llama-server -m Muse-Glimmer-30B-UD-Q3_K_XL.gguf -c 32768 -np 1 --jinja -fit on --host 127.0.0.1 --port 8863
+Start it in router mode, from a preset file, so the studio can ask it to step off the graphics card while SAM cuts a
+person out, and load it again after. `glimmer.ini` (use full paths to your files):
+
+```ini
+version = 1
+
+[muse-glimmer]
+model = Muse-Glimmer-30B-UD-Q3_K_XL.gguf
+c = 32768
+parallel = 1
+jinja = true
+fit = on
+load-on-startup = true
 ```
 
-The studio looks for it at `http://127.0.0.1:8863/v1`. Set `LCS_MIND_URL` to point it at any other server that runs
-an eligible Muse model.
+```
+llama-server --models-preset glimmer.ini --models-max 1 --host 127.0.0.1 --port 8863
+```
+
+The studio looks for it at `http://127.0.0.1:8863/v1` and names the model `muse-glimmer` in every question
+(`LCS_MIND_MODEL`). Set `LCS_MIND_URL` to point it at any other server that runs an eligible Muse model; a server
+that runs one model without a preset works too, but then nothing that needs SAM can run beside it.
 
 **2. Muse Spark on Meta's API.** This route needs no graphics card. Set `META_API_KEY` to your own key before
 starting the studio. `LCS_SPARK_MODEL` picks the model (default `muse-spark-1.3`). The key is read from the
