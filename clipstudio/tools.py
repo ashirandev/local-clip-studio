@@ -389,20 +389,28 @@ def _what_is_said(job, rec, look):
             ["%s %s%s" % (clock(p["from"]), p["text"], " (not sure)" if _unsure(p) else "") for p in said])
 
 
-def _fixed_said(job, look, a, b):
-    """The lines heard from a to b with misheard words fixed by Muse from the context: [{from, to, text, heard,
-    kept}], where kept says why a line stays as heard."""
+def _fixed_said(job, rec, look, a, b):
+    """The lines heard from a to b with misheard words fixed by Muse from the context and, when the recipe reads the
+    screen, from the words written on it: [{from, to, text, heard, kept, named}], where kept says why a line stays as
+    heard and named lists the names the fix took from the screen."""
     said = [p for p in look.get("said") or [] if a <= p["from"] < b]
     if not said:
         return []
     heard = [p["text"] for p in said]
     before = [p["text"] for p in look["said"] if p["from"] < a]
     clip = job.chat.clip
+    names = []
+    if _reads_screen(job):
+        try:
+            names = screen.words(rec, a, b)
+        except screen.ScreenError:
+            pass
     try:
-        fixed, kept = hearing.fix(job.ask_aside, heard, clip["title"] if clip else "video", before)
+        fixed, kept = hearing.fix(job.ask_aside, heard, clip["title"] if clip else "video", before, names)
     except mind.MindError as e:
         fixed, kept = heard, ["Muse could not be asked (%s)" % e] * len(heard)
-    return [dict(p, text=text, heard=p["text"], kept=why) for p, text, why in zip(said, fixed, kept)]
+    return [dict(p, text=text, heard=p["text"], kept=why, named=hearing.named(p["text"], text, names))
+            for p, text, why in zip(said, fixed, kept)]
 
 
 def propose_moments(job, why, moments):
@@ -447,7 +455,7 @@ def propose_moments(job, why, moments):
     started = time.time()
     try:
         for p in picked:
-            p["said"] = _fixed_said(job, looks[p["look"] - 1], p["start"], p["end"])
+            p["said"] = _fixed_said(job, rec, looks[p["look"] - 1], p["start"], p["end"])
     except hearing.Stopped:
         return "Not proposed: the person pressed Stop."
     fixing = round(time.time() - started, 1)
@@ -681,6 +689,45 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
 def _reads_screen(job):
     clip = job.chat.clip
     return bool(clip) and (RECIPES.get(clip["recipe"]) or {}).get("read") == "screen"
+
+
+NEAR_NAME = 0.5
+
+
+def _screen_words(job, rec, state):
+    """The words written on the screen in the clip, for a recipe that reads the screen; [] otherwise, or when it cannot
+    be read."""
+    if not _reads_screen(job):
+        return []
+    try:
+        return [w for a, b in state["clip"]["pieces"] for w in screen.words(rec, a, b)]
+    except screen.ScreenError:
+        return []
+
+
+def _misspelled(words, shown):
+    """[(a word in words, the screen's word it looks like)]: a name of five letters or more that the screen writes
+    another way, such as "Egret" where the screen shows "Eaglet"."""
+    out, long_ = [], {}
+    for s in shown:
+        if len(s) >= 5:
+            long_.setdefault(s.lower(), s)
+    for w in dict.fromkeys(screen.NAME.findall(words)):
+        x = w.lower()
+        if len(x) < 5 or any(x in s or s in x for s in long_):
+            continue
+        near = min((hearing._changed(x, s), s) for s in long_) if long_ else None
+        if near and near[0] <= NEAR_NAME:
+            out.append((w, long_[near[1]]))
+    return out
+
+
+def _names_said(wrong, then):
+    """The sentence for Muse about names written another way than on the screen, or []."""
+    if not wrong:
+        return []
+    return ["Spelled as the screen writes it? %s. If the speaker meant the screen's words, %s." % (
+        "; ".join('"%s" is not on the screen, which shows "%s"' % pair for pair in wrong), then)]
 
 
 def _private_spans(lines):
@@ -1070,6 +1117,7 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
         lines.append(fixed)
     if spelling:
         lines.append(spelling)
+    lines += _names_said(_misspelled(words, _screen_words(job, rec, state)), "put the title on again")
     lines.append(_show_frame(job, state, rec, (start + end) / 2, 'The clip with the title "%s":' % words))
     job.show(clip=job.chat.clip_view())
     return "\n".join(lines)
@@ -1244,8 +1292,9 @@ UNSURE = 0.88
 
 def _unsure(phrase):
     """True for a phrase the hearing was not sure of. Measured 10-27 on Thai FLEURS, clean and mixed with game
-    sound (141 garbled phrases, 399 good): below 0.88 are 73% of the garbled ones and 4% of the good ones."""
-    return phrase.get("sure", 1.0) < UNSURE
+    sound (141 garbled phrases, 399 good): below 0.88 are 73% of the garbled ones and 4% of the good ones. A phrase
+    whose fix took a name from the screen is sure: the screen wrote what the hearing could not."""
+    return phrase.get("sure", 1.0) < UNSURE and not phrase.get("named")
 
 
 def add_captions(job, why, on=True, lit=False):
@@ -1810,6 +1859,12 @@ def hand_over(job, why, title, caption, hashtags, english=""):
     if failed and rounds < CHECK_ROUNDS:
         raise Refused("These checks failed on the finished file: %s. Fix them, render again and check again; after "
                       "%d rounds you may hand it over and say what still fails." % ("; ".join(failed), CHECK_ROUNDS))
+    wrong = _misspelled(" ".join([title, caption, english or ""] + list(hashtags)),
+                        _screen_words(job, _open(job, "hand over"), _clip_state(job)))
+    if wrong and not any(e["kind"] == "misspelled" and e.get("job") == job.n for e in job.chat.events):
+        job.emit("misspelled", words=[w for w, _ in wrong])
+        raise Refused(" ".join(_names_said(wrong, "write them as the screen does")) + " If the speaker said them as "
+                      "you wrote them, hand over again unchanged.")
     if (job.chat.clip or {}).get("recipe") == "seller":
         said = _said(job, _clip_state(job))
         wrong = _not_said(" ".join([title, caption, english or ""]), said)

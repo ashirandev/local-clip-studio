@@ -102,6 +102,43 @@ class Hidden(unittest.TestCase):
         self.assertFalse(screen.covered(item, [{"track": [[0, 100, 200, 300, 40]], "start": 0.0, "end": 9.0}]))
 
 
+class Words(unittest.TestCase):
+    """The words a stretch shows, for names: sure lines only, never a private one, most seen first."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.work, recording.WORK = recording.WORK, self.tmp
+        self.real = screen._pictures
+        self.rec = {"path": "x.mp4", "size": 1, "mtime": 1, "width": 1920, "height": 1080}
+
+    def tearDown(self):
+        screen._pictures = self.real
+        recording.WORK = self.work
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def lines(self, *pairs):
+        return [{"text": t, "box": [0, 0, 10, 10], "sure": s} for t, s in pairs]
+
+    def test_words_come_from_the_readings_kept(self):
+        screen._keep(self.rec, 10.0, 20.0, [
+            {"at": 10.0, "lines": self.lines(("Get Eaglet", 0.99), ("ashiran.com", 0.99), ("luuatiuwhn", 0.6))},
+            {"at": 12.0, "lines": self.lines(("Eaglet Local AI", 0.95), ("write to me@example.com Secret", 0.99))}])
+        self.assertEqual(screen.words(self.rec, 10.0, 20.0), ["Eaglet", "Get", "Local", "ashiran.com"])
+        os.remove(os.path.join(self.tmp, "screen", screen._key(self.rec, 10.0, 20.0) + ".json"))
+        self.assertEqual(screen.words(self.rec, 10.0, 20.0), ["Eaglet", "Get", "Local", "ashiran.com"], "kept")
+
+    def test_a_stretch_not_read_yet_gives_its_words_from_a_few_pictures(self):
+        asked = []
+
+        def pictures(rec, times):
+            asked.extend(times)
+            return [{"at": t, "lines": self.lines(("Eaglet", 0.99))} for t in times]
+
+        screen._pictures = pictures
+        self.assertEqual(screen.words(self.rec, 30.0, 60.0), ["Eaglet"])
+        self.assertEqual(asked, [35.0, 45.0, 55.0])
+
+
 class Ahead(unittest.TestCase):
     """A stretch read in the background is waited for by the clip that needs it, never read twice."""
 
@@ -188,3 +225,13 @@ class Reads(unittest.TestCase):
         read = screen.kept(self.rec, 0.0, 2.0)
         self.assertEqual(len(read), 1, "a still page is read once, not every picture")
         self.assertTrue(any("Settings" in line["text"] for line in read[0]["lines"]), read)
+
+
+class Misspelled(unittest.TestCase):
+    def test_a_name_written_another_way_than_on_the_screen_is_found(self):
+        from clipstudio import tools
+        shown = ["Eaglet", "ashiran.com", "Ashiran", "Models", "Settings", "com", "Your"]
+        self.assertEqual(tools._misspelled("ดูข้อมูล Egret บน Achilan.com #Achilan", shown),
+                         [("Egret", "Eaglet"), ("Achilan.com", "ashiran.com"), ("Achilan", "Ashiran")])
+        for fine in ("Choose the right Model", "Eaglet on ashiran.com", "Your machine", "Gemma"):
+            self.assertEqual(tools._misspelled(fine, shown), [], fine)

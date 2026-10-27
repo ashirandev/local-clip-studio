@@ -10,6 +10,10 @@ alone, so READERS of them are read at once (measured 10-27 on 28 processor threa
 The proposed moments are read ahead, one at a time in a thread of their own, while Muse goes on working: a clip made
 from one of them finds it read, or waits for the reading under way instead of starting another.
 
+The words a stretch shows are also what names are checked against: a speech recogniser mishears a name such as
+Eaglet, and the screen has it written. Only words from lines that hold nothing private are given out, so a private
+word never reaches Muse.
+
 A private line is hidden whole: the reader gives a box per line, not per letter, and the whole line is the box that is
 sure to cover it. It is hidden from the reading before the first one that saw it until the first one that no longer
 does, since it came and went somewhere in between.
@@ -40,6 +44,10 @@ FORCE = 3.0
 PAD = 0.35
 SAME = 0.5
 READERS = 4
+SURE = 0.9
+MOST_WORDS = 40
+WORDS_FROM = 3
+NAME = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:[.-][A-Za-z0-9]+)*")
 _lock = threading.Lock()
 _reader = []
 _now = {}
@@ -241,15 +249,68 @@ def _read_stretch(rec, a, b, on_start):
         pool.shutdown(wait=True, cancel_futures=bool(stopped))
     if stopped:
         raise Stopped()
-    out = []
-    for at, reading in picked:
-        lines = []
-        for points, text, sure in reading.result():
-            xs, ys = [p[0] * back[0] for p in points], [p[1] * back[1] for p in points]
-            lines.append({"text": text, "box": [round(min(xs)), round(min(ys)), round(max(xs) - min(xs)),
-                                                round(max(ys) - min(ys))], "sure": round(float(sure), 2)})
-        out.append({"at": round(at, 2), "lines": lines})
+    out = [{"at": round(at, 2), "lines": _lines(reading.result(), back)} for at, reading in picked]
     _keep(rec, a, b, out)
+    return out
+
+
+def _lines(found, back):
+    out = []
+    for points, text, sure in found:
+        xs, ys = [p[0] * back[0] for p in points], [p[1] * back[1] for p in points]
+        out.append({"text": text, "box": [round(min(xs)), round(min(ys)), round(max(xs) - min(xs)),
+                                          round(max(ys) - min(ys))], "sure": round(float(sure), 2)})
+    return out
+
+
+def _pictures(rec, times):
+    """Readings of single pictures at these recording seconds, read at once."""
+    tool = shutil.which("ffmpeg")
+    if not tool:
+        raise ScreenError("FFmpeg is not installed, so the screen cannot be read.")
+    scale = min(1.0, LONG_SIDE / max(rec["width"], rec["height"]))
+    w, h = max(2, int(rec["width"] * scale) // 2 * 2), max(2, int(rec["height"] * scale) // 2 * 2)
+    back = (rec["width"] / float(w), rec["height"] / float(h))
+
+    def one(at):
+        data = subprocess.run([tool, "-v", "error", "-ss", "%.2f" % at, "-i", rec["path"], "-map", "0:v:0",
+                               "-frames:v", "1", "-vf", "scale=%d:%d" % (w, h), "-f", "rawvideo", "-pix_fmt", "bgr24",
+                               "pipe:1"], capture_output=True).stdout
+        if len(data) < w * h * 3:
+            return {"at": round(at, 2), "lines": []}
+        return {"at": round(at, 2), "lines": _lines(_read(np.frombuffer(data[:w * h * 3], np.uint8)
+                                                          .reshape(h, w, 3)), back)}
+
+    with ThreadPoolExecutor(READERS, thread_name_prefix="screen") as pool:
+        return list(pool.map(one, times))
+
+
+def words(rec, a, b):
+    """The words written on the screen from a to b that may be names, most seen first: Latin words of three letters
+    or more, read surely, from lines that hold nothing private. From the stretch's readings when it was read, else from
+    WORDS_FROM pictures read now."""
+    target = os.path.join(recording.WORK, "screen", _key(rec, a, b) + ".words.json")
+    try:
+        with open(target, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        pass
+    read = kept(rec, a, b)
+    if read is None:
+        read = _pictures(rec, [a + (b - a) * (k + 0.5) / WORDS_FROM for k in range(WORDS_FROM)])
+    count = {}
+    for r in read:
+        for line in r["lines"]:
+            if line["sure"] < SURE or private(line["text"]):
+                continue
+            for word in NAME.findall(line["text"]):
+                if len(word) >= 3:
+                    count[word] = count.get(word, 0) + 1
+    out = [w for w, _ in sorted(count.items(), key=lambda kv: (-kv[1], kv[0]))][:MOST_WORDS]
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target + ".part", "w", encoding="utf-8") as f:
+        json.dump(out, f, ensure_ascii=False)
+    os.replace(target + ".part", target)
     return out
 
 

@@ -14,6 +14,9 @@ points at a hearing worker run some other way; then the studio does not start on
 What was heard is kept per file and stretch in work/heard, so hearing a stretch again is instant. Each phrase has
 its own time in the recording, from the model's own frames.
 
+Names: a recogniser mishears a name it never learned (Eaglet came out as "egret"). When the screen shows words at
+the time, they are given with the question, and a line may change by as much more as the names it takes from them.
+
 The fix: Muse is asked, apart from the job's conversation (llama-server keeps that conversation's cache, measured
 10-27: 2,136 tokens reused after a question in between), to write each line as it was most likely said. The numbers
 are taken out first (<N1>, <N2>...), so Muse can only carry them back, never change them. A line keeps what was
@@ -198,9 +201,10 @@ def hear(rec, start, end, on_start=None):
              "sure": p.get("sure", 1.0)} for p in got["phrases"] if p["text"].strip()]
 
 
-def fix(ask, lines, kind, before=()):
+def fix(ask, lines, kind, before=(), names=()):
     """(each line as Muse fixed it, or as heard; a sentence for each line kept as heard, else None).
-    ask(messages, schema) asks Muse and returns its answer's words; before is lines heard earlier, as context."""
+    ask(messages, schema) asks Muse and returns its answer's words; before is lines heard earlier, as context; names
+    are words written on the screen at the time."""
     out, kept = list(lines), [None] * len(lines)
     todo = list(range(len(lines)))
     for attempt in range(2):
@@ -211,7 +215,8 @@ def fix(ask, lines, kind, before=()):
             for i in batch:
                 locked.append(thai.lock(lines[i], first=1 + sum(len(numbers) for _, numbers in locked)))
             try:
-                answer = json.loads(ask(_question(kind, before, [text for text, _ in locked]), _schema(len(batch))))
+                answer = json.loads(ask(_question(kind, before, [text for text, _ in locked], names),
+                                        _schema(len(batch))))
                 written = answer["lines"]
                 if len(written) != len(batch) or not all(isinstance(w, str) for w in written):
                     raise ValueError("%d lines came back for %d" % (len(written), len(batch)))
@@ -224,7 +229,8 @@ def fix(ask, lines, kind, before=()):
                 back = thai.unlock(w.strip(), numbers)
                 if back is None:
                     kept[i] = "a number was lost or added"
-                elif _changed(lines[i].replace(" ", ""), back.replace(" ", "")) > MOST_CHANGED:
+                elif _changed(lines[i].replace(" ", ""), back.replace(" ", "")) > MOST_CHANGED + sum(
+                        len(n) for n in named(lines[i], back, names)) / float(max(1, len(back.replace(" ", "")))):
                     kept[i] = "more than %d%% of it changed" % (100 * MOST_CHANGED)
                 else:
                     out[i], kept[i] = back, None
@@ -236,7 +242,12 @@ def fix(ask, lines, kind, before=()):
     return out, kept
 
 
-def _question(kind, before, lines):
+def named(heard, text, names):
+    """The names from the screen that text has and heard did not: what a fix took from the screen."""
+    return [n for n in names if n.lower() in text.lower() and n.lower() not in heard.lower()]
+
+
+def _question(kind, before, lines, names=()):
     rules = ("You fix what a speech recogniser wrote down from a %s recording. It mishears words. Write each "
              "line as the speaker most likely said it, "
              "using the lines around it as context. Rules: change only words that are wrong; keep a line as it is "
@@ -244,6 +255,9 @@ def _question(kind, before, lines):
              "exactly once, where it belongs, and never write a number yourself. Answer with JSON: "
              '{"lines": [...]}, the same number of lines, in the same order.' % kind)
     said = ""
+    if names:
+        said += ("Written on the screen at the time (when the speaker says one of these, spell it as written here): "
+                 "%s\n\n" % ", ".join(names))
     if before:
         said += "Heard just before (context only, do not answer these):\n" + "\n".join(before[-8:]) + "\n\n"
     said += "Lines to fix:\n" + "\n".join("%d. %s" % (i, line) for i, line in enumerate(lines, 1))

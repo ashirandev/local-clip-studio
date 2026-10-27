@@ -126,6 +126,22 @@ class Fix(unittest.TestCase):
         self.assertIsNone(kept[1])
         self.assertEqual(len(asked), 2)
 
+    def test_a_name_written_on_the_screen_may_replace_a_misheard_word(self):
+        ask, asked = fixes({"lines": ["Eaglet", "ไปที่ ashiran.com"]})
+        fixed, kept = hearing.fix(ask, ["egret", "ไปที่ achilan dotcom"], "Tutorial",
+                                  names=["Eaglet", "ashiran.com", "Settings"])
+        self.assertEqual((fixed, kept), (["Eaglet", "ไปที่ ashiran.com"], [None, None]))
+        self.assertIn("Written on the screen at the time (when the speaker says one of these, spell it as written "
+                      "here): Eaglet, ashiran.com, Settings\n\n", asked[0][0][1]["content"])
+        ask, asked = fixes({"lines": ["Eaglet"]}, {"lines": ["Eaglet"]})
+        fixed, kept = hearing.fix(ask, ["egret"], "Tutorial")
+        self.assertEqual((fixed, kept), (["egret"], ["more than 40% of it changed"]), "without the screen, too much")
+        self.assertNotIn("Written on the screen", asked[0][0][1]["content"])
+
+    def test_named_lists_the_names_a_fix_took_from_the_screen(self):
+        self.assertEqual(hearing.named("ดู egret", "ดู Eaglet", ["Eaglet", "Local"]), ["Eaglet"])
+        self.assertEqual(hearing.named("ดู Eaglet", "ดู Eaglet", ["Eaglet"]), [], "it was heard already")
+
     def test_many_lines_go_a_few_at_a_time_with_what_came_before_as_context(self):
         heard = ["คำว่า" + letter for letter in "กขคฆงจฉชซฌญฎฏฐฑ"]
         ask, asked = fixes({"lines": heard[:12]}, {"lines": heard[12:]})

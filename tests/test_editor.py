@@ -968,6 +968,51 @@ class Tools(unittest.TestCase):
             screen.ahead = had
         self.assertEqual(ahead, [(30.0, 50.0), "explain", "game"])
 
+    def test_the_words_on_the_screen_fix_names_and_a_name_written_another_way_is_pointed_out(self):
+        names = []
+        real_fix = hearing.fix
+
+        def fix(ask, lines, kind, before=(), names_=()):
+            names.append(list(names_))
+            return real_fix(ask, lines, kind, before, names_)
+
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "ดู egret", "sure": 0.7}]
+        had = hearing.fix, screen.words, screen.readings, getattr(render, "export", None)
+        hearing.fix, render.export = fix, export
+        screen.words = lambda rec, a, b: ["Eaglet", "Settings"]
+        screen.readings = lambda rec, a, b, on_start=None: [{"at": a, "lines": []}]
+        try:
+            _, steps = self.run_job(
+                [call("open_recording", path=self.clip, why="open it")],
+                [call("load_recipe", type="explain", why="a tutorial")],
+                [call("look_at_piece", start="0:30", end="0:50", why="the top stretch")],
+                [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the tone"}])],
+                '{"lines": ["ดู Eaglet"]}',
+                [call("make_clip", moment=1, layout="card", why="the screen")],
+                [call("decide_people", keep=[1], why="it is him")],
+                [call("add_captions", why="the words")],
+                [call("add_title", words="Egret on your PC", start=0, end=5, place="top", why="the name")],
+                [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
+                [call("hand_over", title="Egret", caption="c", hashtags=["#Egret"], why="post")],
+                [call("hand_over", title="Egret", caption="c", hashtags=["#Egret"], why="as said")], "Done.")
+        finally:
+            hearing.fix, screen.words, screen.readings, render.export = had
+        titled = next(s for s in steps if s["tool"] == "add_title")
+        refused, ready = steps[-2], steps[-1]
+        self.assertTrue(names and all(n == ["Eaglet", "Settings"] for n in names), names)
+        self.assertEqual([line["text"] for line in self.chat.project.state()["captions"]["lines"]], ["ดู Eaglet"],
+                         "heard unsure, but the screen wrote the name, so it is captioned")
+        self.assertIn('Spelled as the screen writes it? "Egret" is not on the screen, which shows "Eaglet". If the '
+                      'speaker meant the screen\'s words, put the title on again.', titled["result"])
+        self.assertTrue(refused["refused"])
+        self.assertIn('"Egret" is not on the screen, which shows "Eaglet"', refused["result"])
+        self.assertIn("hand over again unchanged", refused["result"])
+        self.assertFalse(ready["refused"], ready["result"])
+
     def test_a_clip_whose_recipe_does_not_read_the_screen_is_not_read(self):
         asked = []
         had, screen.readings = screen.readings, lambda rec, a, b, on_start=None: asked.append((a, b)) or []
