@@ -89,9 +89,14 @@ class Match(unittest.TestCase):
         self.assertEqual(len(pictures), 4, "the longest lines of each voice, up to PICTURES each")
         self.assertIn("number drawn over their head", asked[0][0]["text"])
 
+    def test_one_settled_voice_gives_the_other_voice_the_other_person(self):
+        for speaking in ((1, 2, 2, 2), (0, 0, 2, 2), (1, 1, 0, 0)):
+            answer, _ = self.ask(*speaking)
+            self.assertEqual(voices.match(answer, self.rec, self.voiced, persons()), {"low": 1, "high": 2}, speaking)
+
     def test_answers_that_do_not_settle_it_are_refused(self):
-        for speaking, why in (((1, 2, 2, 2), "do not agree"), ((1, 1, 1, 1), "same person"),
-                              ((0, 0, 2, 2), "could not tell")):
+        for speaking, why in (((1, 2, 1, 2), "do not agree"), ((1, 1, 1, 1), "same person"),
+                              ((0, 0, 0, 0), "could not tell")):
             answer, _ = self.ask(*speaking)
             with self.assertRaises(voices.VoiceError) as e:
                 voices.match(answer, self.rec, self.voiced, persons())

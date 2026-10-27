@@ -151,7 +151,10 @@ def picture(rec, at, persons, name):
 
 def match(ask, rec, voiced, persons):
     """{"low": person, "high": person}: which person each voice is, by Muse looking at frames from inside each
-    voice's lines. ask(content, schema) returns the answer's words. VoiceError when the pictures do not settle it."""
+    voice's lines. ask(content, schema) returns the answer's words. When Muse settles one voice and not the other, the
+    other voice is the other person: seen 10-28 on the Q&A, where one voice said two short lines, one at the clip's
+    end, and the clip fell back to the mouths and showed him for most of what she said. VoiceError when neither
+    voice is settled, or both are the same person."""
     if len(persons) != 2:
         raise VoiceError("Voices are matched for two people, and the program found %d." % len(persons))
     shown = moments_to_show(voiced)
@@ -178,15 +181,21 @@ def match(ask, rec, voiced, persons):
     for voice, n in zip(order, said):
         if n in names:
             votes[voice][n] = votes[voice].get(n, 0) + 1
-    out = {}
+    out, unsure = {}, []
     for voice, count in votes.items():
-        if not count:
-            raise VoiceError("Muse could not tell who speaks in the %s voice's pictures." % voice)
-        best = max(count.values())
+        best = max(count.values()) if count else 0
         top = [n for n, c in count.items() if c == best]
-        if len(top) > 1 or best * 2 <= sum(count.values()):
-            raise VoiceError("Muse's answers for the %s voice do not agree." % voice)
-        out[voice] = top[0]
+        if not count:
+            unsure.append("Muse could not tell who speaks in the %s voice's pictures." % voice)
+        elif len(top) > 1 or best * 2 <= sum(count.values()):
+            unsure.append("Muse's answers for the %s voice do not agree." % voice)
+        else:
+            out[voice] = top[0]
+    if not out:
+        raise VoiceError(" ".join(unsure))
+    if len(out) == 1:
+        settled, = out
+        out["high" if settled == "low" else "low"] = next(n for n in names if n != out[settled])
     if out["low"] == out["high"]:
         raise VoiceError("Muse named the same person for both voices.")
     return out

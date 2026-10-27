@@ -1166,6 +1166,20 @@ class Tools(unittest.TestCase):
         for e in ready:
             self.assertIn(("No viewer's name can be read", True), [(c["name"], c["ok"]) for c in e["checks"]])
 
+    def test_a_title_that_would_cover_a_face_goes_up_where_no_face_is(self):
+        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        had = tools._face_times
+        tools._face_times = lambda state, rec: ([(t / 4, [[0, 0, 1080, 1920]]) for t in range(1, 6)], 0.5)
+        try:
+            _, steps = self.several([call("make_clips", clips=clips, why="both")], "Done.")
+        finally:
+            tools._face_times = had
+        made = steps[-1]["result"]
+        self.assertIn("Clip 2 (moment 2, 0:40-0:50, 10 s, card layout): handed over", made)
+        self.assertIn("the title is on the clip only at the top from 1.5 to 10 s, where it covers no face", made)
+        self.assertIn("no title on the clip", made, "clip 1, 2.6 s long, has no clear 2 s after the face")
+
     def test_a_clip_that_fails_a_check_is_not_handed_over(self):
         clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
                  {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]

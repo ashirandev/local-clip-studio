@@ -2568,6 +2568,25 @@ def make_clips(job, why, clips, blur=None):
         "others."])
 
 
+def _title_where_clear(job, rec, words):
+    """Puts the title up in the earliest stretch of a layout place that covers no face, the longer first when two
+    start together, and says where and when; None when no stretch takes it. Seen 10-28 on a Q&A where both talkers
+    fill the frame in turn: two of three clips went out with no title, as no place was clear for the whole clip."""
+    state = _clip_state(job)
+    lay, length = state["clip"]["layout"], state["length"]
+    times, every = _face_times(state, rec)
+    stretches = sorted((a, a - b, name) for name, box in lay["places"].items()
+                       for a, b in _clear(_covered(box, times, every, 0, length), 0, length))
+    for a, minus, name in stretches:
+        start, end = math.ceil(a * 10) / 10, math.floor((a - minus) * 10) / 10
+        try:
+            add_title(job, BATCH_WHY, words, start, end, place=name)
+        except Refused:
+            continue
+        return "at the %s from %g to %g s" % (name, start, end)
+    return None
+
+
 def _one_clip(job, rec, k, c, layout, blur):
     """One clip of make_clips, from its moment to the hand-over: the sentence reporting on it. Each box in blur is
     blurred for the whole clip. Seen 10-27 on a 4-hour game stream: six clips were made without the chat box blurred,
@@ -2603,7 +2622,9 @@ def _one_clip(job, rec, k, c, layout, blur):
             except Refused as e:
                 why_not = str(e)
         else:
-            notes.append("no title on the clip: %s" % why_not)
+            placed = _title_where_clear(job, rec, words)
+            notes.append("the title is on the clip only %s, where it covers no face" % placed if placed else
+                         "no title on the clip: %s" % why_not)
         made = render_clip(job, BATCH_WHY)
         if made.startswith("Not rendered"):
             return "%s: not rendered, the person pressed Stop." % head
