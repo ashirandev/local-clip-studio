@@ -799,10 +799,15 @@ def _check_line(k, line):
         raise ValueError("line %d is not a caption line: pass what caption_lines() returned." % k)
 
 
-def captions(lines, style, band):
-    """ASS events for caption lines (from caption_lines) inside band (y, h) of the 1080x1920 frame: two lines at a
-    time at most, and each word lights up in the style's key colour as it is said (libass \\kf)."""
+def captions(lines, style, band, lit=False):
+    """ASS events for caption lines (from caption_lines) inside band (y, h) of the 1080x1920 frame, two lines at a
+    time at most, in the style's colour. With lit=True each word lights up in the style's key colour as it is said
+    (libass \\kf): for words over the picture that nobody on screen is saying, such as a voice-over or a song, since
+    a lit word pulls the eye away from a person explaining on camera."""
     _check_style(style)
+    if not isinstance(lit, bool):
+        raise ValueError("lit %r is not True or False: use True to light each word as it is said, False for plain "
+                         "words." % (lit,))
     if (not isinstance(band, (tuple, list)) or len(band) != 2
             or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in band)):
         raise ValueError("band %r is not a band: give (y, h) in pixels of the 1920 high frame." % (band,))
@@ -835,8 +840,12 @@ def captions(lines, style, band):
                              % (lay.w, lay.h, tuple(band), h, lay.h))
         ax = FRAME_W / 2 - (lay.left + lay.w / 2)
         ay = y + h / 2 - (lay.top + lay.h / 2)
+        if lit:
+            words = _karaoke(page, start)
+        else:
+            words = "{\\1c%s&}%s" % (_colour(style.colour), "\\N".join(line["text"].strip() for line in page))
         events.append("Dialogue: 1,%s,%s,%s_caption,,0,0,0,,{\\an8\\pos(%.2f,%.2f)}%s" % (
-            _cs_clock(start), _cs_clock(end), style.name, ax, ay, _karaoke(page, start)))
+            _cs_clock(start), _cs_clock(end), style.name, ax, ay, words))
     return events
 
 

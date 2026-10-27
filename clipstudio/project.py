@@ -7,7 +7,8 @@ the recording, and boxes on the frame are pixels of the 1080x1920 clip.
 - clip: {"moment", "pieces": [[recording a, recording b], ...], "layout": a layouts.make() dict}
 - style: {"name", "font", "colour"}
 - title: {"text", "start", "end", "place", "box": the place's frame box, "key"}
-- captions: {"lines": text.caption_lines() lines in clip seconds, "band": [y, h]}, or {"lines": []} for none
+- captions: {"lines": text.caption_lines() lines in clip seconds, "band": [y, h], "lit": each word lit as it is
+  said}, or {"lines": []} for none
 - blur: {"box": recording box, "start", "end"}: a fixed box, such as a stream's chat; or {"track": [[clip second, x,
   y, w, h], ...] in recording pixels, "start", "end"}: a box that moves with a face
 - hit: {"kind": flash, shake, punch or word, "at", "word", "centre": [x, y] on the frame}

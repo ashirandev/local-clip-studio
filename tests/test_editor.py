@@ -383,6 +383,7 @@ class Tools(unittest.TestCase):
             *script[:2], [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "he falls"}])],
             fixed, [call("make_clip", moment=1, layout="subject", why="the action")],
             [call("add_captions", why="say what he says")],
+            [call("add_captions", lit=True, why="karaoke")],
             [call("blur_box", box=[0, 0, 200, 1000], why="the left edge")],
             [call("blur_box", box=[400, 600, 600, 900], why="the face")],
             [call("blur_box", box=[400, 0, 600, 300], why="the names")],
@@ -390,7 +391,7 @@ class Tools(unittest.TestCase):
             [call("add_hit", at=30, kind="flash", why="too late")],
             [call("add_hit", at=6, kind="word", why="no word")],
             "Done.")
-        caps, outside, onface, blur, word, late, wordless = steps[-7:]
+        caps, lit, outside, onface, blur, word, late, wordless = steps[-8:]
         self.assertTrue(onface["refused"])
         self.assertIn("That box covers the face at [438, 667, 562, 889] on your grid, the face the clip shows",
                       onface["result"])
@@ -398,6 +399,14 @@ class Tools(unittest.TestCase):
         self.assertRegex(caps["result"], r"^Captions on: 4 lines of what was said, numbers exactly as heard, in the band "
                                          r"from y 1090 to 1250")
         self.assertIn("0:02 this is the\n0:03 moment\n", caps["result"])
+        self.assertIn("plain words, none lit, so the eye stays on the picture", caps["result"])
+        self.assertNotIn("on camera", caps["result"])
+        self.assertFalse(lit["refused"], "lit is Muse's choice, or the person's")
+        self.assertIn("each word lights up as it is said", lit["result"])
+        self.assertIn("A person is on camera (a face in the same place in 30 of 40 pictures). Lit words pull the eye "
+                      "away", lit["result"])
+        self.assertTrue(self.chat.project.state()["captions"]["lit"])
+        self.assertIn("lit captions on", self.chat.clip_line())
         self.assertTrue(outside["refused"])
         self.assertIn("is not in the clip's picture (the subject layout leaves that part out)", outside["result"])
         self.assertFalse(blur["refused"], blur["result"])

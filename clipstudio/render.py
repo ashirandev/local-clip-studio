@@ -75,7 +75,7 @@ def ass(state, default="clean"):
     for t in state["titles"]:
         events += text.title(t["text"], t["start"], t["end"], t["box"], st, t.get("key"))
     if captions:
-        events += text.captions(captions["lines"], st, captions["band"])
+        events += text.captions(captions["lines"], st, captions["band"], lit=captions.get("lit", False))
     for h in words:
         events += text.big_word(h["word"], h["at"], WORD_SECONDS, h["centre"], st)
     body = text.document([st], events)

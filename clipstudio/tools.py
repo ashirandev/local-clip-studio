@@ -709,7 +709,7 @@ def _main_part(layout):
     return [round(x + w / 2), round(y + h / 2)]
 
 
-def add_captions(job, why, on=True):
+def add_captions(job, why, on=True, lit=False):
     rec = _open(job, "caption")
     state = _clip_state(job)
     clip, length = state["clip"], state["length"]
@@ -733,9 +733,15 @@ def add_captions(job, why, on=True):
                       "say so in your answer.")
     lines = text.caption_lines(phrases, CAPTION_LETTERS)
     band = clip["layout"]["captions"]
-    state = job.edit({"do": "captions", "lines": lines, "band": [band[1], band[3]]})
-    out = ["Captions on: %d lines of what was said, numbers exactly as heard, in the band from y %d to %d; each word "
-           "lights up as it is said." % (len(lines), band[1], band[1] + band[3])]
+    state = job.edit({"do": "captions", "lines": lines, "band": [band[1], band[3]], "lit": bool(lit)})
+    out = ["Captions on: %d lines of what was said, numbers exactly as heard, in the band from y %d to %d; %s."
+           % (len(lines), band[1], band[1] + band[3],
+              "each word lights up as it is said" if lit else "plain words, none lit, so the eye stays on the picture")]
+    on_camera = _on_camera(rec, clip) if lit else None
+    if on_camera:
+        out.append("A person is on camera (%s). Lit words pull the eye away from a person who is talking, so the house "
+                   "way is plain captions here. Keep them lit only if the person asked for it; otherwise put the "
+                   "captions on again with lit false." % on_camera)
     times, every = _face_times(state, rec)
     hit = _covered(band, times, every, 0, length)
     if hit:
@@ -747,6 +753,16 @@ def add_captions(job, why, on=True):
     first = lines[0]
     out.append(_show_frame(job, state, rec, (first["from"] + first["to"]) / 2, "The clip with captions:"))
     return "\n".join(out)
+
+
+def _on_camera(rec, clip):
+    """Where a face sits still in the clip's pieces, as words for Muse, or None. Only faces already found are used."""
+    for a, b in clip["pieces"]:
+        found = faces.kept(rec, a, b)
+        g = faces.steady(found) if found else None
+        if g:
+            return "a face in the same place in %d of %d pictures" % (g["seen"], g["of"])
+    return None
 
 
 BLUR_FACE_SHARE = 0.3
@@ -886,7 +902,8 @@ def describe(entry):
     if entry["do"] == "style":
         return "the %s style" % entry["name"] + (" with the font %s" % entry["font"] if entry.get("font") else "")
     if entry["do"] == "captions":
-        return "the captions" if entry["lines"] else "turning the captions off"
+        return ("the lit captions" if entry.get("lit") else "the captions") if entry["lines"] else \
+            "turning the captions off"
     if entry["do"] == "blur":
         return "the blur at %g-%g s" % (entry["start"], entry["end"])
     if entry["do"] == "hit":
@@ -1082,9 +1099,14 @@ TOOLS = {t.name: t for t in [
          ["words", "start", "end", "place"], add_title, changes=True),
     Tool("add_captions", "Put the captions on",
          "Put captions of what was said in the moment on the clip: the words as heard and fixed from the context, "
-         "numbers exactly as said, a few words a line, the word being said lit up. The program places them in the "
-         "layout's caption band. Set on to false to take them off.",
-         {"on": {"type": "boolean", "description": "true to put captions on (the default), false to take them off."}},
+         "numbers exactly as said, a few words a line. The program places them in the layout's caption band. They "
+         "are plain words unless you set lit. Set on to false to take them off.",
+         {"on": {"type": "boolean", "description": "true to put captions on (the default), false to take them off."},
+          "lit": {"type": "boolean",
+                  "description": "true lights up each word as it is said, like karaoke. Use it only when nobody on "
+                                 "screen is talking: a voice-over or the words of a song over the picture. When a "
+                                 "person on camera explains something, the lit word pulls the eye away from them, "
+                                 "so leave it out, unless the person asked for lit words."}},
          [], add_captions, changes=True),
     Tool("blur_box", "Blurred a box",
          "Blur one box of the recording's picture so nothing in it can be read, such as a stream's chat with "

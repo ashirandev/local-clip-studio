@@ -295,24 +295,41 @@ class Captions(unittest.TestCase):
             x0, y0, x1, y1 = drawn(frame)
             self.assertTrue(band[0] <= y0 and y1 <= band[0] + band[1], (k, y0, y1))
 
-    def test_the_word_being_said_lights_up(self):
-        st = text.STYLES["clean"]
+    def lit_pixels(self, st, lit, frames):
+        """The ONE TWO caption (said from 1 to 2 s) drawn at frames: [(pixels in the key colour over ONE, over TWO),
+        (pixels in the text colour over the whole line)] per frame."""
+        import numpy as np
         lines = text.caption_lines([{"from": 1.0, "to": 2.0, "text": "ONE TWO"}])
         self.assertEqual([w["text"] for w in lines[0]["words"]], ["ONE ", "TWO"])
-        events = text.captions(lines, st, (1500, 300))
-        got = draw(doc(events), [30, 38, 53], self.folder, first=0)
-        import numpy as np
-        x0, y0, x1, y1 = drawn(got[30])
+        got = draw(doc(text.captions(lines, st, (1500, 300), lit=lit)), frames, self.folder, first=0)
+        x0, y0, x1, y1 = drawn(got[frames[0]])
         one, two = (text.measure(w, st, "caption", 1080).w for w in ("ONE", "TWO"))
         split = x0 + one + ((x1 - x0) - one - two) // 2
-        key = [int(st.key[k:k + 2], 16) for k in (1, 3, 5)]
 
-        def lit(frame, a, b):
-            return int((np.abs(frame[y0:y1, a:b].astype(int) - key).max(axis=2) < 40).sum())
-        self.assertEqual(lit(got[30], x0, x1), 0)
-        self.assertGreater(lit(got[38], x0, split), 50)
-        self.assertEqual(lit(got[38], split, x1), 0)
-        self.assertGreater(lit(got[53], split, x1), 50)
+        def near(frame, colour, a, b):
+            want = [int(colour[k:k + 2], 16) for k in (1, 3, 5)]
+            return int((np.abs(frame[y0:y1, a:b].astype(int) - want).max(axis=2) < 40).sum())
+        return [(near(got[k], st.key, x0, split), near(got[k], st.key, split, x1), near(got[k], st.colour, x0, x1))
+                for k in frames]
+
+    def test_with_lit_the_word_being_said_lights_up(self):
+        (a, b, _), (c, d, _), (_, e, _) = self.lit_pixels(text.STYLES["clean"], True, [30, 38, 53])
+        self.assertEqual(a + b, 0)
+        self.assertGreater(c, 50)
+        self.assertEqual(d, 0)
+        self.assertGreater(e, 50)
+
+    def test_plain_captions_by_default_never_light_a_word(self):
+        for name in ("clean", "pop"):
+            st = text.STYLES[name]
+            self.assertNotEqual(st.key.lower(), st.colour.lower())
+            for one, two, plain in self.lit_pixels(st, False, [30, 38, 53]):
+                self.assertEqual(one + two, 0, name)
+                self.assertGreater(plain, 200, name)
+        lines = text.caption_lines(SAID)
+        self.assertEqual(text.captions(lines, text.STYLES["pop"], (1350, 400)),
+                         text.captions(lines, text.STYLES["pop"], (1350, 400), lit=False))
+        self.assertNotIn("\\k", "".join(text.captions(lines, text.STYLES["pop"], (1350, 400))))
 
     def test_caption_refusals(self):
         lines = text.caption_lines(SAID)
@@ -320,6 +337,8 @@ class Captions(unittest.TestCase):
             text.captions(lines, text.STYLES["clean"], (1800, 300))
         with self.assertRaisesRegex(ValueError, r"the captions need \d+ x \d+ px but band \(1500, 40\) is 40 high"):
             text.captions(lines, text.STYLES["clean"], (1500, 40))
+        with self.assertRaisesRegex(ValueError, "lit 'yes' is not True or False"):
+            text.captions(lines, text.STYLES["clean"], (1500, 300), lit="yes")
 
 
 @unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")

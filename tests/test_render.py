@@ -132,6 +132,13 @@ class Stages(unittest.TestCase):
         self.assertTrue(found[1] >= band[0] - 2 and found[3] <= band[0] + band[1] + 2, "inside the band: %s" % (found,))
         self.assertIsNone(changed(drawn(plain, 0.5), drawn(captioned, 0.5)), "nothing before the words are said")
 
+    def test_captions_light_their_words_only_when_the_entry_says_lit(self):
+        lines = text.caption_lines([{"from": 1.0, "to": 2.0, "text": "watch this now"}])
+        band = [layouts.CAPTIONS[1], layouts.CAPTIONS[3]]
+        for entry, karaoke in (({}, False), ({"lit": False}, False), ({"lit": True}, True)):
+            with open(render.ass(state(captions=[dict(entry, lines=lines, band=band)])), encoding="utf-8") as f:
+                self.assertEqual("\\kf" in f.read(), karaoke, entry)
+
     def test_a_word_hit_pops_on_its_centre_for_its_length(self):
         plain, hit = state(), state(hit=[{"kind": "word", "at": 1.0, "word": "POW", "centre": [540, 960]}])
         found = changed(drawn(plain, 1.4), drawn(hit, 1.4))
