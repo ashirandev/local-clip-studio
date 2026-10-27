@@ -140,8 +140,9 @@ the result and the engine numbers.
   so are number words it began with a digit ("5้าสิบ" becomes ห้าสิบ). Then Muse fixes misheard words from the
   context, in a question apart from the job, with every number taken out first as <N1>, <N2>...: a line whose answer
   loses or adds a number, or rewrites more than 40% of it, keeps what was heard. A stretch is heard once and kept.
-- **A moment Muse proposes is one it has seen.** Muse proposes up to three moments, best first. Each must sit inside
-  one of its looks, and moments may not overlap. The page shows each as a card with Muse's reason and a picture
+- **A moment Muse proposes is one it has seen.** Muse proposes up to eight moments, best first. Each must sit inside
+  one of its looks, and moments may not overlap. An edge that falls inside a line said is moved just outside it,
+  so a clip never opens or closes on half a word. The page shows each as a card with Muse's reason and a picture
   from that look, and a rough 480p preview of the stretch is cut in the background, so the card plays a second or
   two later. Muse goes on with the best one by itself; a tap on another card switches. Until a tool has made the
   clip, the state Muse reads says "no clip made yet", so it cannot claim one.

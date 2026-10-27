@@ -14,7 +14,7 @@ from http.server import ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, hearing, previews, recording, server, words  # noqa: E402
+from clipstudio import agent, hearing, previews, recording, server, tools, words  # noqa: E402
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_hearing import Worker  # noqa: E402
 from test_map import make_moment  # noqa: E402
@@ -280,3 +280,22 @@ class Serve(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Snap(unittest.TestCase):
+    LOOK = {"start": 30.0, "end": 80.0, "said": [{"from": 31.0, "to": 34.5, "text": "a"},
+                                                 {"from": 46.0, "to": 49.0, "text": "b"},
+                                                 {"from": 60.0, "to": 70.0, "text": "c"}]}
+
+    def test_edges_inside_a_line_move_out_of_it_with_a_little_air(self):
+        self.assertEqual(tools._snapped(self.LOOK, 32.0, 48.0)[:2], (30.75, 49.25))
+        self.assertIn("starts 1.2 s earlier", tools._snapped(self.LOOK, 32.0, 48.0)[2])
+        self.assertIn("ends 1.2 s later", tools._snapped(self.LOOK, 32.0, 48.0)[2])
+
+    def test_edges_in_a_pause_or_far_inside_a_long_line_stay(self):
+        self.assertEqual(tools._snapped(self.LOOK, 40.0, 55.0), (40.0, 55.0, None))
+        self.assertEqual(tools._snapped(self.LOOK, 65.0, 75.0), (65.0, 75.0, None), "5 s into a line is too far")
+
+    def test_edges_never_leave_the_look(self):
+        look = dict(self.LOOK, start=30.9)
+        self.assertEqual(tools._snapped(look, 31.5, 48.0)[0], 30.9)

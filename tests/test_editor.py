@@ -1196,6 +1196,18 @@ class Tools(unittest.TestCase):
         self.assertEqual([(s["text"], s["heard"], s["kept"]) for s in second["said"]],
                          [("second fixed", "second heard", None)], "fixed when its clip was made")
 
+    def test_a_moment_does_not_open_in_the_middle_of_a_line(self):
+        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "first heard", "sure": 0.95}]
+        script = self.to_moment()
+        _, steps = self.run_job(
+            *script[:2], [call("propose_moments", why="mid", moments=[
+                {"look": 1, "start": "0:33", "end": "0:45", "reason": "one"}])],
+            '{"lines": ["first heard"]}', "Done.")
+        self.assertIn("The program moved its edges: it starts 1.2 s earlier, so it opens before a line rather than "
+                      "inside it.", steps[-1]["result"])
+        self.assertEqual((self.chat.moments[0]["start"], [s["text"] for s in self.chat.moments[0]["said"]]),
+                         (31.75, ["first heard"]), "the line it opened inside is now in it")
+
     def test_captions_can_pop_in_word_by_word_but_not_lit_as_well(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "this is the moment", "sure": 0.95}]
         script = self.to_moment()

@@ -429,6 +429,29 @@ def _fix_moment(job, rec, m):
         m["said"] = _fixed_said(job, rec, job.chat.looks[m["look"] - 1], m["start"], m["end"])
 
 
+AIR = 0.25
+SNAP_REACH = 2.0
+
+
+def _snapped(look, a, b):
+    """(start, end, sentence or None): a moment's edges moved out of the words they would cut through, to just before
+    the line the start falls in and just after the line the end falls in, AIR seconds from the words, when the line is
+    within SNAP_REACH; never outside the look. A model's own edges sit in a pause about half the time (measured by
+    lane 5 on Tarm's own edits: 47%, 77% within 0.6 s), so a clip would often open or close on half a word."""
+    na, nb, said = a, b, look.get("said") or []
+    for p in said:
+        if p["from"] < a < p["to"] and a - p["from"] <= SNAP_REACH:
+            na = max(look["start"], p["from"] - AIR)
+        if p["from"] < b < p["to"] and p["to"] - b <= SNAP_REACH:
+            nb = min(look["end"], p["to"] + AIR)
+    moved = []
+    if na != a:
+        moved.append("starts %.1f s earlier, so it opens before a line rather than inside it" % (a - na))
+    if nb != b:
+        moved.append("ends %.1f s later, so it closes after a line rather than inside it" % (nb - b))
+    return round(na, 2), round(nb, 2), " and ".join(moved) or None
+
+
 def propose_moments(job, why, moments):
     rec = _open(job, "propose")
     clock, looks = recording.clock, job.chat.looks
@@ -448,6 +471,7 @@ def propose_moments(job, why, moments):
                           "saw, or look at that stretch first." % (i, clock(a), clock(b), look["n"],
                                                                    clock(look["start"]), clock(look["end"])))
         a, b = max(a, look["start"]), min(b, look["end"])
+        a, b, snapped = _snapped(look, a, b)
         if not SHORTEST <= round(b - a) <= LONGEST:
             raise Refused("Moment %d is %d s long; a clip is %d to %d s. Give it a start and an end inside look %d "
                           "(%s-%s)." % (i, round(b - a), SHORTEST, LONGEST, look["n"], clock(look["start"]),
@@ -464,6 +488,7 @@ def propose_moments(job, why, moments):
                               "one, or keep only the better." % (other["n"], i, clock(other["start"]),
                                                                   clock(other["end"]), clock(a), clock(b)))
         picked.append({"n": i, "look": look["n"], "start": round(a, 2), "end": round(b, 2), "reason": m["reason"],
+                       "snapped": snapped,
                        "frame": shown["frame"], "t": shown["t"]})
     if _reads_screen(job):
         for p in picked:
@@ -487,6 +512,8 @@ def propose_moments(job, why, moments):
     for p in picked:
         lines.append("%d. %s-%s (%d s, from look %d): %s" % (p["n"], clock(p["start"]), clock(p["end"]),
                                                            round(p["end"] - p["start"]), p["look"], p["reason"]))
+        if p["snapped"]:
+            lines.append("   The program moved its edges: it %s." % p["snapped"])
         lines += ["   %s %s%s" % (clock(s["from"]), s["text"], " (as heard)" if s["kept"] else "") for s in p["said"]]
     if len(picked) > 1:
         lines.append("Misheard words are fixed in moment 1's lines; the other moments show theirs as heard until a "
