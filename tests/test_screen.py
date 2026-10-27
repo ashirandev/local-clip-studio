@@ -45,6 +45,8 @@ class Private(unittest.TestCase):
             ("hf_AbCdEfGhIjKlMnOpQrStUvWx", "a key or an account number"),
             ("password: hunter22", "a password"),
             ("API key = 9f8e7d6c", "a password"),
+            ("@dojin-25761 2 weeks ago", "a person's handle"),
+            ("Thanks @somchai_99!", "a person's handle"),
         ]:
             self.assertEqual(screen.private(line), kind, line)
 
@@ -53,7 +55,7 @@ class Private(unittest.TestCase):
                      "Muse-Glimmer-30B-UD-Q3_K_XL", "Huihui-Qwen3.8-27B-abliterated-Q3_K", "2026-10-12 14-17-28.mkv",
                      "-0.08%", "2,065+", "Forex 29 n.s. 2569", "luuatiuwhnForex100%Aaasls?luuauuu",
                      "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "127.0.0.1:8850/#chat/01c097110521", "Head to head, on one PC", "4111 1111 1111 1112",
-                     "Password", "1234567890123"]:
+                     "Password", "1234567890123", "price @ 20 baht", "@ab", "พี่ตูมตามอยู่จังหวัดไหนครับ"]:
             self.assertIsNone(screen.private(line), line)
 
 

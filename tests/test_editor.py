@@ -576,6 +576,10 @@ class Tools(unittest.TestCase):
         self.chat.project.undo()
         self.chat.project.undo()
         self.assertEqual(tools._undecided(self.chat.project.state()), [1])
+        _, crowd = self.run_job([call("decide_people", others="blur", why="a crowd behind")], "Done.")
+        self.assertIn("Person 1 is blurred where their face shows", crowd[-1]["result"],
+                      "others decides everyone not named")
+        self.chat.project.undo()
         clip = dict(self.chat.project.state()["clip"])
         self.chat.project.add({"do": "people", "blur": [1], "keep": []})
         self.chat.project.add(clip)
@@ -852,6 +856,54 @@ class Tools(unittest.TestCase):
         brain, steps = self.run_job([call("make_clip", moment=1, layout="talk", why="one person")], "Done.")
         self.assertTrue(steps[-1]["refused"])
         self.assertIn("found 1 sitting still", steps[-1]["result"])
+
+    def test_a_split_talk_clip_shows_both_people_and_hides_a_viewers_handle(self):
+        self.faces = found([(30 + i * 0.5, [[60, 40, 40, 40], [220, 40, 40, 40]]) for i in range(40)], size=(320, 180))
+        hidden = [{"kind": "a person's handle", "box": [200, 10, 100, 20], "start": 1.0, "end": 5.0}]
+        had = screen.hidden, screen.ahead, screen.words
+        screen.hidden = lambda rec, pieces, on_start=None, span=None: hidden
+        screen.ahead, screen.words = (lambda rec, a, b: None), (lambda rec, a, b: [])
+        try:
+            brain, steps = self.run_job([call("load_recipe", type="talk", why="two people talking")],
+                                        *self.to_moment(),
+                                        [call("make_clip", moment=1, layout="split", why="both faces, all the time")],
+                                        "Done.")
+        finally:
+            screen.hidden, screen.ahead, screen.words = had
+        made = steps[-1]
+        self.assertFalse(made["refused"], made["result"])
+        self.assertIn("in the split layout. It follows 2 people", made["result"])
+        self.assertIn("Person 1 is in the top half and person 2 in the lower half for the whole clip", made["result"])
+        self.assertIn("hid 1 private line", made["result"])
+        self.assertNotIn("Shots:", made["result"], "nothing in the split layout depends on who speaks")
+        state = self.chat.project.state()
+        self.assertEqual([(b["private"], b["start"], b["end"]) for b in state["blurs"] if b.get("private")],
+                         [("a person's handle", 1.0, 5.0)])
+        self.assertEqual(state["clip"]["layout"]["kind"], "split")
+
+    def test_in_a_split_clip_each_line_is_captioned_under_the_face_that_says_it(self):
+        self.faces = found([(30 + i * 0.5, [[60, 40, 40, 40], [220, 40, 40, 40]]) for i in range(40)], size=(320, 180))
+        self.worker.phrases = [{"from": 1, "to": 9, "text": "hello there", "sure": 0.99},
+                               {"from": 10.2, "to": 19, "text": "and you", "sure": 0.99}]
+        had = tools._voices
+        tools._voices = lambda job, rec, m, persons: (
+            [{"from": p["from"], "to": p["to"], "who": 2 - i} for i, p in enumerate(m["said"])],
+            "Two voices were heard, one at about 120 Hz and one at about 220 Hz.")
+        try:
+            brain, steps = self.run_job(*self.to_moment(), '{"lines": ["hello there", "and you"]}',
+                                        [call("make_clip", moment=1, layout="split", why="both faces")],
+                                        [call("add_captions", why="the words are the clip")], "Done.")
+        finally:
+            tools._voices = had
+        made, captioned = steps[-2:]
+        self.assertIn("Two voices were heard", made["result"])
+        self.assertIn("each under the face of the person who says it", captioned["result"])
+        caps = self.chat.project.state()["captions"]
+        lay = self.chat.project.state()["clip"]["layout"]
+        self.assertEqual(sorted(caps["bands"]), sorted(lay["bands"]))
+        self.assertEqual([line["who"] for line in caps["lines"]], [2] * len([l for l in caps["lines"]
+                                                                             if l["phrase"] == 0]) +
+                         [1] * len([l for l in caps["lines"] if l["phrase"] == 1]))
 
     def test_muse_is_offered_every_studio_sticker(self):
         offered = tools.TOOLS["add_sticker"].params["sticker"]["enum"]
@@ -1337,6 +1389,21 @@ class Tools(unittest.TestCase):
         self.assertEqual(tools._odd_thai("He falls. Twice."), [])
         self.assertEqual(tools._odd_thai("ไตเติลสั้นๆ กับแฮชแท็ก ช่วงที่สวย ๆ"), [])
         self.assertEqual(tools._odd_thai("ต้วเลขสวยๆ"), ["ต้วเลข"])
+
+    def test_glimmers_slips_are_taken_out_and_right_thai_is_left_alone(self):
+        mend = tools.words.mend
+        self.assertEqual(mend("ชั้่นสสส่วนสรุปประสบการณ์คาสิโนและคำตอบสสุดท้าย"),
+                         "ชั้นส่วนสรุปประสบการณ์คาสิโนและคำตอบสุดท้าย")
+        self.assertEqual(mend("ดูชั้่นส่วนที่ดีที่สุดเพื่ือเช็กว่าเป็่นช่วงคุย"), "ดูชั้นส่วนที่ดีที่สุดเพื่อเช็กว่าเป็นช่วงคุย")
+        self.assertEqual(mend("มมุมกว้างพรมแดงและรถ Mercedes"), "มุมกว้างพรมแดงและรถ Mercedes")
+        self.assertEqual(mend("ให้ผู้ใช้เลื่ือก"), "ให้ผู้ใช้เลือก")
+        for right in ("คนนั้นบอกว่าจนนานแล้วกันนะ", "เล็กกว่าแบบบนจอออก", "ไม่เคยมีเทสสักตัว บอทที่เปิดแอปปิด",
+                      "ถูกกดด้วยมือ ไม่มีสเปรด", "ลงช่องมิลลิวินาที"):
+            self.assertEqual(mend(right), right)
+        self.assertEqual(mend("H:\\Phone\\ชั้่น"), "H:\\Phone\\ชั้่น", "a path is never changed")
+        self.assertEqual(tools.words.tidy("สร้างคลิปแนวคคุยจากชั้่นสสสส่วน"), "สร้างคลิปแนวคุยจากชั้นส่วน",
+                         "what Muse writes is mended before it is read back, so the slip is not copied")
+        self.assertEqual(tools.words.tidy("สู่พื้�นที่งาน"), "สู่พื้นที่งาน", "half a letter is taken out")
 
     def test_a_spelling_fix_is_kept_only_when_it_is_only_a_spelling_fix(self):
         def answer(*texts):

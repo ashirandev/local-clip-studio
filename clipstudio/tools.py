@@ -18,7 +18,8 @@ import time
 
 import numpy as np
 
-from . import (effects, faces, focus, hearing, layouts, maps, mind, pauses, previews, project, recording, render,
+from . import (effects, faces, focus, hearing, layouts, maps, mind, montage, pauses, previews, project, recording,
+               render, voices,
                screen, spoken, takes, talk, text, thai, tracks, words)
 from .recipes import RECIPES, SIGNALS
 
@@ -196,6 +197,14 @@ def find_recordings(job, why, words="", newest=5):
     for i, (mtime, size, path) in enumerate(shown, 1):
         lines.append("%d. %s · %s · recorded %s · %s" % (i, os.path.basename(path), recording.size_text(size),
                                                        recording.when(mtime), path))
+    held = {}
+    for _, size, path in found:
+        held.setdefault(os.path.dirname(path), []).append(size)
+    for folder in sorted({os.path.dirname(p) for _, _, p in shown}):
+        sizes = held[folder]
+        if 2 <= len(sizes) <= MOST_CLIPS and max(sizes) < CLIP_SIZE:
+            lines.append("%s holds %d short recordings: to make one clip from several of them, open them together "
+                         "with open_clips." % (folder, len(sizes)))
     return "\n".join(lines)
 
 
@@ -234,6 +243,298 @@ def _names_here(folders):
         out += " The newest files here are named like: %s." % ", ".join(names[:4])
     if subfolders:
         out += " Folders: %s." % ", ".join(subfolders[:8])
+    return out
+
+
+MONTAGE = "montage"
+MOST_CLIPS = 30
+CLIP_SIZE = 1_000_000_000
+SHORTEST_PIECE, LONGEST_PIECE = 1.0, 8.0
+OVER_LENGTH = 1.25
+LINE_EVERY = 15.0
+
+
+def open_clips(job, why, folder):
+    try:
+        real = recording.check_folder(folder)
+    except recording.NotOpened as e:
+        raise Refused(str(e))
+    paths = recording.clips_in(real)
+    if len(paths) < 2:
+        raise Refused("%s holds %d recording%s; open_clips joins two or more. Open one with open_recording."
+                      % (real, len(paths), "" if len(paths) == 1 else "s"))
+    if len(paths) > MOST_CLIPS:
+        raise Refused("%s holds %d recordings, and a montage is made from at most %d. Ask the person which ones to "
+                      "use, and to put them in a folder of their own." % (real, len(paths), MOST_CLIPS))
+    recs, unread = [], []
+    for path in paths:
+        try:
+            recs.append(recording.probe(path))
+        except recording.NotOpened as e:
+            unread.append(str(e))
+    if len(recs) < 2:
+        raise Refused("Only %d of the recordings in %s could be read: %s" % (len(recs), real, " ".join(unread)))
+    clips = montage.gather(recs)
+    try:
+        for c in clips:
+            job.working("Looking at clip %d of %d" % (c["n"], len(clips)))
+            c["stills"] = montage.stills(c["rec"])
+            c["said"], c["unheard"] = _clip_said(job, c["rec"])
+    except hearing.Stopped:
+        return "Not opened: the person pressed Stop."
+    except montage.MontageError as e:
+        raise Refused(str(e))
+    finally:
+        job.done_working()
+    kept = []
+    height = montage.STRIP_HEIGHT if len(clips) <= montage.MANY else montage.STRIP_LOWEST
+    for c in clips:
+        rec = c["rec"]
+        picture = montage.strip(c, height)
+        if picture:
+            job.attach(picture, "Clip %d (%s, %g s): pictures at %s s:" % (
+                c["n"], rec["name"], rec["seconds"], ", ".join("%g" % t for t in montage.strip_times(rec["seconds"]))))
+        kept.append({"n": c["n"], "rec": rec, "when": montage.when(c), "stills": c["stills"], "said": c["said"],
+                     "unheard": c["unheard"], "picture": picture})
+    job.chat.clips = {"folder": real, "clips": kept}
+    job.show(clips=job.chat.clips)
+    lines = ["Opened %d clips from %s, numbered in the order they were shot, by the camera's clock where it wrote one. "
+             "A picture of each comes next: frames from it side by side, each marked with its second, and its number "
+             "in the corner." % (len(kept), real)]
+    lines += ["Not read: %s" % u for u in unread]
+    for c in kept:
+        lines += _clip_lines(c)
+    lines.append("Next: load the %s recipe, then arrange the clips: which go in, in what order, which seconds of "
+                 "each, the words on screen over each, and why. Every clip is either used or left out with a reason."
+                 % MONTAGE)
+    return "\n".join(lines)
+
+
+def _clip_said(job, rec):
+    """(what is said in a whole clip as heard, or None when it has no sound; why it could not be heard, or None)."""
+    if not rec["sound_tracks"]:
+        return None, None
+    said = hearing.heard(rec, 0.0, rec["seconds"])
+    if said is None:
+        try:
+            said = job.hear(rec, 0.0, rec["seconds"])
+        except hearing.HearingError as e:
+            return [], str(e)
+        hearing.keep(rec, 0.0, rec["seconds"], said)
+    return said, None
+
+
+def _clip_lines(c):
+    rec = c["rec"]
+    shape = "upright" if rec["height"] > rec["width"] else "lying (shown whole over a blurred copy of itself)" if (
+        not montage.fills(rec["width"], rec["height"])) else "square"
+    lines = ["%d. %s · %s · %g s · %s %dx%d" % (c["n"], rec["name"], c["when"], rec["seconds"], shape, rec["width"],
+                                                rec["height"])]
+    if c["stills"]:
+        lines.append("   The picture does not move at %s: a frozen screen, so no piece may hold it." %
+                     ", ".join("%g-%g s" % s for s in c["stills"]))
+    if c["said"] is None:
+        lines.append("   No sound.")
+    elif c["unheard"]:
+        lines.append("   What is said could not be heard: %s" % c["unheard"])
+    elif not c["said"]:
+        lines.append("   No words heard.")
+    else:
+        lines += ["   %g s %s%s" % (round(p["from"], 1), p["text"], " (not sure)" if _unsure(p) else "")
+                  for p in c["said"]]
+    return lines
+
+
+def arrange_clips(job, why, story, clips, left_out=None):
+    opened = job.chat.clips
+    if not opened:
+        raise Refused("No clips are open. Open a folder of clips with open_clips first.")
+    if (job.chat.clip or {}).get("recipe") != MONTAGE:
+        raise Refused("Load the %s recipe first: it says how to choose and order the clips." % MONTAGE)
+    known = {c["n"]: c for c in opened["clips"]}
+    used = [c["clip"] for c in clips]
+    both = sorted({c["clip"] for c in left_out or []} & set(used))
+    left_out = [c for c in left_out or [] if c["clip"] not in both]
+    named = used + [c["clip"] for c in left_out]
+    problems = []
+    twice = sorted({n for n in named if named.count(n) > 1})
+    if twice:
+        problems.append("Clip%s %s named twice: each clip is either used once or left out." % (
+            "s" if len(twice) > 1 else "", ", ".join(map(str, twice))))
+    strange = sorted({n for n in named if n not in known})
+    if strange:
+        problems.append("There is no clip %s: the clips are numbered 1 to %d." % (
+            ", ".join(map(str, strange)), len(known)))
+    missing = sorted(set(known) - set(named))
+    if missing:
+        problems.append("Clip%s %s %s neither used nor left out. Say for every clip whether it goes in, and why it "
+                        "does not when it does not." % ("s" if len(missing) > 1 else "", ", ".join(map(str, missing)),
+                                                        "are" if len(missing) > 1 else "is"))
+    pieces, lines = [], []
+    for k, c in enumerate(clips, 1):
+        if c["clip"] not in known:
+            continue
+        rec = known[c["clip"]]["rec"]
+        a = c.get("start", 0.0)
+        b = min(c.get("end", rec["seconds"]), rec["seconds"])
+        frozen = [s for s in known[c["clip"]]["stills"] if s[0] < b and a < s[1]]
+        if b <= a:
+            problems.append("Clip %d: start %g s must come before end %g s; the clip is %g s long."
+                            % (c["clip"], a, b, rec["seconds"]))
+        elif b - a < min(SHORTEST_PIECE, rec["seconds"]) - 0.01:
+            problems.append("Clip %d: %g-%g s is under %g s, too short to see. Keep more of it, or leave it out."
+                            % (c["clip"], a, b, SHORTEST_PIECE))
+        elif b - a > LONGEST_PIECE + 0.01:
+            problems.append("Clip %d: %g-%g s is %g s; a piece is at most %g s. Give the start and the end of the "
+                            "seconds where it happens, from its pictures' times." % (
+                                c["clip"], a, b, round(b - a, 1), LONGEST_PIECE))
+        elif frozen:
+            problems.append("Clip %d: its picture does not move at %s, and a frozen screen never goes in. Keep only "
+                            "seconds outside that, or leave the clip out." % (
+                                c["clip"], ", ".join("%g-%g s" % s for s in frozen)))
+        pieces.append({"rec": rec, "from": round(a, 2), "to": round(max(a, b), 2), "clip": c["clip"],
+                       "why": c["why"]})
+        if c.get("words"):
+            lines.append({"piece": len(pieces), "text": c["words"]})
+    length = sum(min(p["to"] - p["from"], LONGEST_PIECE) for p in pieces)
+    most = min(LONGEST, job.chat.clip["length_s"] * OVER_LENGTH)
+    if not SHORTEST <= round(length) <= most:
+        longest = sorted(pieces, key=lambda p: p["from"] - p["to"])[:3]
+        problems.append("The pieces add up to %g s%s; this clip is %d to %d s (about %d s was asked). %s" % (
+            round(length, 1), " counting each at most %g s" % LONGEST_PIECE if any(
+                p["to"] - p["from"] > LONGEST_PIECE for p in pieces) else "", SHORTEST, most,
+            job.chat.clip["length_s"], "Keep fewer seconds of each, or fewer clips; the longest pieces: %s." % ", ".join(
+                "clip %d, %g s" % (p["clip"], round(p["to"] - p["from"], 1)) for p in longest) if length > most
+            else "Keep more seconds of each, or more clips."))
+    if clips and not clips[0].get("words"):
+        problems.append("The first piece (clip %d) opens the clip: give it words that say where we are or what this "
+                        "is." % clips[0]["clip"])
+    if len(lines) < round(length / LINE_EVERY):
+        problems.append("%d line%s of words for %g s: give at least %d, one for each part of the story, so the "
+                        "viewer knows what each part is." % (len(lines), "" if len(lines) == 1 else "s",
+                                                             round(length, 1), round(length / LINE_EVERY)))
+    if problems:
+        raise Refused("Nothing was joined. Fix all of these, then call it again:\n- " + "\n- ".join(problems))
+    try:
+        texts, spelling = _spell(job, [ln["text"] for ln in lines]) if lines else ([], "")
+    except hearing.Stopped:
+        return "Not arranged: the person pressed Stop."
+    for ln, words in zip(lines, texts):
+        ln["text"] = words
+        _fits_a_place(words, "the words over clip %d" % pieces[ln["piece"] - 1]["clip"], job.chat.clip["style"])
+    out = montage.target(pieces, os.path.basename(opened["folder"]))
+    job.working("Joining %d pieces into one clip" % len(pieces))
+    try:
+        montage.join(pieces, out, on_start=job.started_work)
+    except montage.Stopped:
+        return "Not arranged: the person pressed Stop."
+    except montage.MontageError as e:
+        return "The clips could not be joined: %s Tell the person." % e
+    finally:
+        job.done_working()
+    try:
+        rec = recording.probe(out)
+    except recording.NotOpened as e:
+        return "The joined clips could not be read back: %s Tell the person." % e
+    job.chat.open(rec, job=job.n)
+    at = montage.starts(pieces)
+    for ln in lines:
+        k = ln["piece"] - 1
+        later = [x for x in lines if x["piece"] > ln["piece"]]
+        ln["start"], ln["end"] = at[k], (at[later[0]["piece"] - 1] if later else round(rec["seconds"], 2))
+    look, moment = _montage_moment(job, rec, pieces, at, story, lines)
+    job.chat.looks.append(look)
+    job.chat.moments = [moment]
+    job.show(look=look, moments=[moment], arranged={"story": story, "pieces": [
+        {"clip": p["clip"], "name": p["rec"]["name"], "from": p["from"], "to": p["to"], "at": t, "why": p["why"]}
+        for p, t in zip(pieces, at)], "left_out": left_out, "lines": lines})
+    said = ["Joined %d clips into one recording, %g s long, in your order: %s" % (
+        len(pieces), round(rec["seconds"], 1), story)]
+    if both:
+        said.append("Clip%s %s %s used, so %s left-out reason was dropped." % (
+            "s" if len(both) > 1 else "", ", ".join(map(str, both)), "are" if len(both) > 1 else "is",
+            "their" if len(both) > 1 else "its"))
+    for p, t in zip(pieces, at):
+        said.append("%g s: clip %d, %g-%g s of it: %s" % (t, p["clip"], p["from"], p["to"], p["why"]))
+    for c in left_out:
+        said.append("Left out: clip %d: %s" % (c["clip"], c["why"]))
+    if spelling:
+        said.append(spelling)
+    made = make_clip(job, why, 1, "subject")
+    return "\n".join(said) + "\n\n" + made
+
+
+def _fits_a_place(words, what, style):
+    """Refused when words do not fit the largest place for a title in the subject layout."""
+    lay = layouts.make("subject", (layouts.W, layouts.H))
+    band = max(lay["places"].values(), key=lambda b: b[2] * b[3])
+    try:
+        size = text.measure(words, render.style_of({"style": None}, style), "title", band[2])
+    except ValueError as e:
+        raise Refused("%s: %s" % (what, e))
+    if size.w > band[2] or size.h > band[3]:
+        raise Refused("%s take %d lines at the title size; the place holds %d px of the %d px they need. Use fewer "
+                      "words." % (what[0].upper() + what[1:], len(size.lines), band[3], size.h))
+
+
+def _montage_moment(job, rec, pieces, at, story, lines):
+    """The look and the one moment of a joined montage, made by the program from the clips Muse arranged: what is
+    said in each piece moved to the joined recording's seconds."""
+    said = []
+    for p, t in zip(pieces, at):
+        for s in hearing.heard(p["rec"], 0.0, p["rec"]["seconds"]) or []:
+            a, b = max(s["from"], p["from"]), min(s["to"], p["to"])
+            if b > a:
+                said.append(dict(s, **{"from": round(t + a - p["from"], 2), "to": round(t + b - p["from"], 2)}))
+    pictures = []
+    for p, t in zip(pieces, at):
+        mid = round(t + (p["to"] - p["from"]) / 2, 2)
+        frame = recording.frame(rec, at=mid)
+        if frame:
+            pictures.append({"t": mid, "frame": frame})
+    end = round(rec["seconds"], 2)
+    look = {"n": len(job.chat.looks) + 1, "start": 0.0, "end": end, "pictures": pictures, "loudest": None,
+            "said": said, "heard": [0.0, end]}
+    first = pictures[0] if pictures else {"t": 0.0, "frame": None}
+    moment = {"n": 1, "look": look["n"], "start": 0.0, "end": end, "reason": story, "snapped": None,
+              "frame": first["frame"], "t": first["t"], "said": _heard_said(look, 0.0, end), "lines": lines,
+              "preview": previews.cut(job.chat, job.n, rec, 0.0, end)}
+    return look, moment
+
+
+def _put_lines(job, rec, lines):
+    """Puts a montage's words on as titles, each at the first of the layout's places it covers no face in for its
+    whole time, else where it covers faces the least. Returns sentences for Muse."""
+    state = _clip_state(job)
+    lay = state["clip"]["layout"]
+    st = render.style_of(state, job.chat.clip["style"] if job.chat.clip else "clean")
+    times, every = _face_times(state, rec)
+    out = []
+    for ln in lines:
+        if any(t["text"] == ln["text"] and t["start"] == ln["start"] for t in state["titles"]):
+            continue
+        best = None
+        for name, band in lay["places"].items():
+            size = text.measure(ln["text"], st, "title", band[2])
+            if size.w > band[2] or size.h > band[3]:
+                continue
+            drawn = [band[0] + (band[2] - size.w) / 2, band[1] + (band[3] - size.h) / 2, size.w, size.h]
+            hit = _covered(drawn, times, every, ln["start"], ln["end"])
+            if best is None or sum(b - a for a, b in hit) < sum(b - a for a, b in best[2]):
+                best = (name, band, hit)
+            if not hit:
+                break
+        if best is None:
+            out.append('"%s" fits none of the places at the title size: arrange the clips again with fewer words.'
+                       % ln["text"])
+            continue
+        name, band, hit = best
+        text.title(ln["text"], ln["start"], ln["end"], band, st, None)
+        state = job.edit({"do": "title", "text": ln["text"], "start": ln["start"], "end": ln["end"], "place": name,
+                          "box": band, "key": None})
+        out.append('"%s" at the %s from %g to %g s%s.' % (
+            ln["text"], name, ln["start"], ln["end"], ", where it covers a face at %s: move it with remove_title and "
+            "add_title" % _spans(hit) if hit else ", clear of every face"))
     return out
 
 
@@ -509,7 +810,7 @@ def _still(rec, recipe, a, b, avoid):
     """still(x, y) for _pieces: True when less than focus.QUIET of the picture outside avoid (the face camera, which
     moves while nobody speaks) changes in any second from x to y; always True for people talking, where a silence
     is dead air whatever moves; None for a game. When the picture cannot be looked at, nothing counts as still."""
-    if recipe == "game":
+    if recipe in ("game", MONTAGE):
         return None
     if recipe == "talk":
         return lambda x, y: True
@@ -772,8 +1073,9 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     except hearing.Stopped:
         return "Not made: the person pressed Stop."
     recipe = (job.chat.clip or {}).get("recipe")
-    if layout == "talk":
-        return _make_talk(job, rec, moment, m, *_pieces(m.get("said") or [], a, b, _still(rec, "talk", a, b, None)))
+    if layout in ("talk", "speaker", "split"):
+        return _make_talk(job, rec, moment, m, *_pieces(m.get("said") or [], a, b, _still(rec, "talk", a, b, None)),
+                          name=layout)
     try:
         box, face_line = _the_face(job, rec, a, b, face)
     except faces.Stopped:
@@ -824,6 +1126,10 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
                 t["text"], t["place"], t["start"], t["end"],
                 "; it now covers a face%s at %s: take it off with remove_title, then put it again" % (
                     " or the product" if state["clip"].get("product") else "", _spans(hit)) if hit else ""))
+    if m.get("lines"):
+        lines.append("The words over the clips, put on by the program:")
+        lines += ["- " + s for s in _put_lines(job, rec, m["lines"])]
+        state = job.chat.project.state()
     peak = project.from_recording(pieces, m["t"] if m.get("t") is not None else (a + b) / 2)
     at = min(max(0.0, peak if peak is not None else state["length"] / 2), state["length"] - 0.1)
     lines.append(_show_frame(job, state, rec, at, "The clip at %g s (moment %d, %s layout):" % (
@@ -969,8 +1275,10 @@ def _private_check(job, rec, state):
                                                                                "s") if shown else NOTHING_PRIVATE)
 
 
-def _make_talk(job, rec, moment, m, pieces, cut):
-    """make_clip in the talk layout: the people found, who speaks when, and the shots that follow them."""
+def _make_talk(job, rec, moment, m, pieces, cut, name="talk"):
+    """make_clip in a layout of people talking: the people found, who speaks when, and the shots that follow them
+    (talk); the same with the others on screen in circles (speaker); or two people, one above the other, for the
+    whole clip (split)."""
     a, b = m["start"], m["end"]
     try:
         found = job.find_faces(rec, a, b)
@@ -980,38 +1288,96 @@ def _make_talk(job, rec, moment, m, pieces, cut):
         return "Not made: the person pressed Stop."
     persons = talk.people(found)
     if len(persons) < 2:
-        raise Refused("The talk layout follows two or more people talking, and the program found %d sitting still in "
-                      "the moment's %d pictures. Choose the face or the subject layout." % (len(persons),
+        raise Refused("The %s layout follows two or more people talking, and the program found %d sitting still in "
+                      "the moment's %d pictures. Choose the face or the subject layout." % (name, len(persons),
                                                                                          len(found["samples"])))
+    if name == "split" and len(persons) != 2:
+        raise Refused("The split layout shows two people, one above the other, and the program found %d. Choose the "
+                      "speaker or the talk layout." % len(persons))
     heard = job.chat.looks[m["look"] - 1].get("said")
-    job.working("Watching who speaks")
-    shots, _ = talk.plan(rec, pieces, heard, persons)
-    lay = talk.make((rec["width"], rec["height"]), persons, shots)
+    try:
+        spoken, voice_line = _voices(job, rec, m, persons)
+    except hearing.Stopped:
+        return "Not made: the person pressed Stop."
+    if name == "split":
+        lay = talk.split((rec["width"], rec["height"]), persons)
+    else:
+        job.working("Watching who speaks")
+        shots, _ = talk.plan(rec, pieces, heard, persons, voices=spoken)
+        lay = talk.make((rec["width"], rec["height"]), persons, shots, name == "speaker")
+    private = _private_lines(job, rec, lay, pieces, [a, b])
+    if private is None:
+        return "Not made: the person pressed Stop."
     people = _people(rec, pieces, None, [a, b])
     state = job.edit({"do": "clip", "moment": moment, "pieces": pieces, "span": [a, b], "layout": lay, "product": None,
                       "people": [{k: v for k, v in p.items() if k != "crop"} for p in people or []],
-                      "speech": _speech(rec, job.chat.looks[m["look"] - 1], pieces)})
-    lines = ["Made the clip from moment %d (%s-%s, %g s) in the talk layout. It follows %d people, numbered from the "
-             "left: %s." % (moment, recording.clock(a), recording.clock(b), state["length"], len(persons), "; ".join(
-                 "person %d at %s on your grid" % (p["n"], _grid(p["box"], rec)) for p in persons)),
-             "Who speaks was measured: whose mouth moves clearly more %s." % (
-                 "while words are heard" if heard is not None else "(the moment was never heard, so from movement "
-                                                                    "alone)"),
-             "Shots: %s." % talk.said(lay["shots"]),
-             "If a shot shows the wrong person, or a reaction should be seen, change it with change_shot."]
+                      "speech": _speech(rec, job.chat.looks[m["look"] - 1], pieces), "voices": spoken})
+    for f in private["shown"]:
+        state = job.edit({"do": "blur", "box": f["box"], "start": f["start"], "end": f["end"], "private": f["kind"]})
+    lines = ["Made the clip from moment %d (%s-%s, %g s) in the %s layout. It follows %d people, numbered from the "
+             "left: %s.%s" % (moment, recording.clock(a), recording.clock(b), state["length"], name, len(persons),
+                              "; ".join("person %d at %s on your grid" % (p["n"], _grid(p["box"], rec))
+                                        for p in persons),
+                              {"speaker": " Everyone is on screen all the time: the one shown fills the frame, the "
+                                          "others are in circles at the top.",
+                               "split": " Person 1 is in the top half and person 2 in the lower half for the whole "
+                                        "clip, so both are always on screen."}.get(name, ""))]
+    if voice_line:
+        lines.append(voice_line)
+    if name != "split":
+        lines += ["Who speaks was measured: %s." % (
+                      "from the voices; the mouths only find the listener's reactions" if spoken else
+                      "whose mouth moves clearly more while words are heard" if heard is not None else
+                      "whose mouth moves clearly more (the moment was never heard, so from movement alone)"),
+                  "Shots: %s." % talk.said(lay["shots"]),
+                  "If a shot shows the wrong person, or a reaction should be seen, change it with change_shot."]
     if cut:
         lines.insert(1, cut)
+    if private["said"]:
+        lines.append(private["said"])
     lines += lay["notes"] + [lay["safe"]["said"]]
     lines.append("Places for words on screen, kept clear of every person's head (the band from y %d to %d is kept for "
                  "the captions):" % (lay["captions"][1], lay["captions"][1] + lay["captions"][3]))
     lines += _place_lines(state, rec)
     peak = project.from_recording(pieces, m["t"] if m.get("t") is not None else (a + b) / 2)
     at = min(max(0.0, peak if peak is not None else state["length"] / 2), state["length"] - 0.1)
-    lines.append(_show_frame(job, state, rec, at, "The clip at %g s (moment %d, talk layout):" % (round(at, 2),
-                                                                                                    moment)))
+    lines.append(_show_frame(job, state, rec, at, "The clip at %g s (moment %d, %s layout):" % (round(at, 2),
+                                                                                                  moment, name)))
     lines += _people_lines(job, people, rec)
     job.show(clip=job.chat.clip_view())
     return "\n".join(lines)
+
+
+def _voices(job, rec, m, persons):
+    """(who says each of the moment's lines, [{"from", "to", "who"}] in seconds of the recording, or None; a sentence
+    for Muse). Two people only: their voices are told apart by how high they are, and Muse matches each voice to a
+    face from pictures. Stop raises hearing.Stopped."""
+    said = [p for p in m.get("said") or [] if p["to"] - p["from"] >= voices.SHORTEST]
+    if len(persons) != 2 or len(said) < 2:
+        return None, ""
+    job.working("Hearing how high each voice is")
+    try:
+        heard = voices.pitches(rec, said)
+    except voices.VoiceError as e:
+        return None, "The voices could not be heard (%s), so who speaks is found from mouths moving." % e
+    finally:
+        job.done_working()
+    cut = voices.split(heard)
+    if cut is None:
+        return None, ("The voices are too alike to tell apart by how high they are, so who speaks is found from mouths "
+                      "moving.")
+    voiced = voices.lines_of(heard, cut)
+    try:
+        people = voices.match(lambda content, schema: job.ask_aside([{"role": "user", "content": content}], schema,
+                                                                    "Telling the voices apart"), rec, voiced, persons)
+    except voices.VoiceError as e:
+        return None, ("Two voices were heard, but which one is whose face is not settled: %s Who speaks is found from "
+                      "mouths moving." % e)
+    tones = {v: round(float(np.median([f for (p, f), (_, w) in zip(heard, voiced) if w == v]))) for v in people}
+    return voices.speakers(heard, cut, people), (
+        "Two voices were heard, one at about %d Hz and one at about %d Hz, and matched to the faces from pictures: "
+        "person %d speaks in the lower voice, person %d in the higher one. Who says each line is taken from the voices."
+        % (tones["low"], tones["high"], people["low"], people["high"]))
 
 
 def change_shot(job, why, start, end, show):
@@ -1030,8 +1396,11 @@ def change_shot(job, why, start, end, show):
     if not 0 <= show <= count:
         raise Refused("show %d is not one of the people: use 1 to %d (numbered from the left), or 0 for everyone."
                       % (show, count))
+    if show == 0 and lay.get("seats"):
+        raise Refused("In the speaker layout everyone is on screen all the time; show the person who should fill the "
+                      "frame, 1 to %d." % count)
     shots = talk.with_shot(lay["shots"], round(start, 2), round(end, 2), show)
-    new = talk.make(tuple(lay["size"]), lay["people"], shots)
+    new = talk.make(tuple(lay["size"]), lay["people"], shots, bool(lay.get("seats")))
     state = job.edit({"do": "layout", "part": "shots", "box": None, "layout": new})
     lines = ["%s from %g to %g s. Shots now: %s." % ("Everyone is shown" if show == 0 else "Person %d is shown" % show,
                                                      start, end, talk.said(shots)),
@@ -1529,10 +1898,20 @@ def add_captions(job, why, on=True, lit=False, pop=False):
                       "off, and say so in your answer.")
     lines = text.caption_lines(phrases, CAPTION_LETTERS)
     band = clip["layout"]["captions"]
-    state = job.edit({"do": "captions", "lines": lines, "band": [band[1], band[3]], "lit": bool(lit),
-                      "pop": bool(pop)})
-    out = ["Captions on: %d lines of what was said, numbers exactly as heard, in the band from y %d to %d; %s."
-           % (len(lines), band[1], band[1] + band[3],
+    entry = {"do": "captions", "lines": lines, "band": [band[1], band[3]], "lit": bool(lit), "pop": bool(pop)}
+    bands, spoken = clip["layout"].get("bands"), clip.get("voices")
+    if bands and spoken:
+        who = {(round(v["from"], 2), round(v["to"], 2)): v["who"] for v in spoken}
+        owners = [who.get((round(p["from"], 2), round(p["to"], 2))) for p in said if not _unsure(p)
+                  and _in_clip(clip["pieces"], p, length)]
+        for line in lines:
+            line["who"] = owners[line["phrase"]] if line["phrase"] < len(owners) else None
+        entry["bands"] = {n: [b[1], b[3]] for n, b in bands.items()}
+    state = job.edit(entry)
+    under = ("each under the face of the person who says it" if entry.get("bands") and any(
+        line.get("who") for line in lines) else "in the band from y %d to %d" % (band[1], band[1] + band[3]))
+    out = ["Captions on: %d lines of what was said, numbers exactly as heard, %s; %s."
+           % (len(lines), under,
               "each word lights up as it is said" if lit else
               "each word pops in at its place as it is said and stays, so once said the line looks plain" if pop else
               "plain words, none lit, so the eye stays on the picture")]
@@ -1569,6 +1948,8 @@ def _on_camera(rec, clip):
 
 
 PEOPLE_SHOWN = 8
+PEOPLE_LISTED = 12
+CROWD_SHOWN = 4
 SAME_FACE = 0.3
 
 
@@ -1618,8 +1999,16 @@ def _people_lines(job, people, rec):
              "with decide_people before you render: blur a real person who is not the one making the clip, such as "
              "someone passing behind; keep a face that belongs, such as a game character or a face on a screen or a "
              "box." % len(people)]
-    for p in people:
-        shown = p["n"] <= PEOPLE_SHOWN and p.get("crop")
+    listed = sorted(people, key=lambda p: (-p["seen"], p["n"]))[:PEOPLE_LISTED]
+    rest = [p for p in people if p not in listed]
+    if rest:
+        twice = sum(1 for p in rest if p["seen"] > 1)
+        lines.append("A crowd: the %d seen most are listed; the other %d (%s) are decided together with others "
+                     "(blur or keep)." % (len(listed), len(rest), "%d seen in two pictures or more, %d seen once" % (
+                         twice, len(rest) - twice) if twice else "each seen once, for half a second"))
+    pictured = {p["n"] for p in listed[:CROWD_SHOWN]} if rest else {p["n"] for p in people if p["n"] <= PEOPLE_SHOWN}
+    for p in sorted(listed, key=lambda p: p["n"]):
+        shown = p["n"] in pictured and p.get("crop")
         if p["seen"] == 1:
             lines.append("- person %d: seen once, at %s of the clip, at %s on your grid (half a second: a passer-by, a "
                          "game character or a face on a screen); kept unless you blur it%s" % (
@@ -1640,13 +2029,16 @@ def _undecided(state):
     return [p["n"] for p in state["people"] if p["blur"] is None and p["seen"] > 1]
 
 
-def decide_people(job, why, blur=None, keep=None):
+def decide_people(job, why, blur=None, keep=None, others=None):
     rec = _open(job, "blur")
     state = _clip_state(job)
     people = {p["n"]: p for p in state["people"]}
     if not people:
         raise Refused("The clip has no other people's faces to decide about.")
     blur, keep = sorted(set(blur or [])), sorted(set(keep or []))
+    if others:
+        rest = sorted(set(people) - set(blur) - set(keep))
+        blur, keep = (sorted(blur + rest), keep) if others == "blur" else (blur, sorted(keep + rest))
     if not blur and not keep:
         raise Refused("Name at least one person to blur or to keep.")
     both = sorted(set(blur) & set(keep))
@@ -1656,18 +2048,30 @@ def decide_people(job, why, blur=None, keep=None):
     if unknown:
         raise Refused("There is no person %s; the clip's people are %s." % (_numbers(unknown), _numbers(people)))
     state = job.edit({"do": "people", "blur": blur, "keep": keep})
-    lines = ["Person %d is blurred where their face shows, %s-%s of the clip, and the blur moves with the face."
-             % (n, recording.clock(people[n]["from"]), recording.clock(people[n]["to"])) for n in blur]
-    if keep:
+    if len(blur) > PEOPLE_LISTED:
+        lines = ["%d people are blurred where their faces show, and each blur moves with its face." % len(blur)]
+    else:
+        lines = ["Person %d is blurred where their face shows, %s-%s of the clip, and the blur moves with the face."
+                 % (n, recording.clock(people[n]["from"]), recording.clock(people[n]["to"])) for n in blur]
+    if len(keep) > PEOPLE_LISTED:
+        lines.append("Kept as they are: %d people." % len(keep))
+    elif keep:
         lines.append("Kept as they are: person %s." % _numbers(keep))
     left = _undecided(state)
-    lines.append("Still to decide before you render: person %s." % _numbers(left) if left else
+    lines.append(("Still to decide before you render: %s." % _people_named(left)) if left else
                  "Every person seen in two pictures or more is decided.")
     if blur:
         p = people[blur[0]]
         lines.append(_show_frame(job, state, rec, (p["from"] + p["to"]) / 2,
                                  "The clip with person %d blurred:" % p["n"]))
     return "\n".join(lines)
+
+
+def _people_named(ns):
+    """"person 3" or "person 2 and 5", or for a crowd only how many, and that others decides them together."""
+    if len(ns) > PEOPLE_LISTED:
+        return "%d people (others: blur or keep decides everyone not named)" % len(ns)
+    return "person %s" % _numbers(ns)
 
 
 def _numbers(ns):
@@ -1861,8 +2265,8 @@ def render_clip(job, why):
     state = _clip_state(job)
     left = _undecided(state)
     if left:
-        raise Refused("Decide about person %s first, with decide_people: blur or keep. Nothing undecided is "
-                      "rendered." % _numbers(left))
+        raise Refused("Decide about %s first, with decide_people: blur or keep. Nothing undecided is rendered."
+                      % _people_named(left))
     done = job.chat.finished()
     if done:
         return ("The finished file is already made from the clip as it is now (%s, %g s), so nothing was rendered "
@@ -1988,7 +2392,8 @@ def check_clip(job, why):
               "%d blur over the whole clip" % len(whole) if whole else "no blur covers the whole clip, so the chat box "
                                                                       "shows")
     else:
-        check("No viewer's name can be read", None, "no chat box in this kind of clip")
+        check("No viewer's name can be read", None, "a handle on the screen is checked with the private lines"
+              if _reads_screen(job) else "no chat box in this kind of clip")
     if _reads_screen(job):
         check("Nothing private can be read on the screen", *_private_check(job, rec, state))
     if kind == "seller":
@@ -2266,6 +2671,10 @@ def load_recipe(job, why, type, length_s=None, style=None, language="", brief=""
         raise Refused("There is no recipe for %s yet. The recipes are: %s. Do not use a recipe made for another "
                       "kind of video: tell the person a clip of this kind is not ready yet, and what the studio can "
                       "make now." % (type, _recipe_list()))
+    if recipe["name"] == MONTAGE and not job.chat.clips:
+        raise Refused("The %s recipe is for several clips opened together with open_clips; this chat has %s. Pick "
+                      "the recipe for the kind of recording that is open." % (
+                          MONTAGE, "one recording open" if job.chat.recording else "no clips open"))
     clip = {"recipe": recipe["name"], "title": recipe["title"], "length_s": length_s or recipe["length"],
             "style": style or recipe["style"], "language": language, "brief": brief}
     had = job.chat.clip
@@ -2284,7 +2693,7 @@ def load_recipe(job, why, type, length_s=None, style=None, language="", brief=""
 def chips(clip):
     """The buttons under Muse's guesses. Each one sends a short message, as if the person had typed it."""
     out = [{"label": r["chip"], "say": "(tapped) %s." % r["chip"]} for r in RECIPES.values()
-           if r["name"] != clip["recipe"]]
+           if r["name"] not in (clip["recipe"], MONTAGE)]
     length = clip["length_s"]
     if length > SHORTEST:
         shorter = max(SHORTEST, round(length * 2 / 3))
@@ -2325,6 +2734,46 @@ TOOLS = {t.name: t for t in [
          "time; opening another replaces it.",
          {"path": {"type": "string", "maxLength": 1000, "description": "The recording's full path."}},
          ["path"], open_recording, changes=True),
+    Tool("open_clips", "Opened the clips",
+         "Open every recording in one folder together, to make one clip from several of them: a trip, an outing or "
+         "an event shot as many short clips. The program numbers them in the order they were shot, hears each, and "
+         "sends you a picture of each with frames from its start, middle and end.",
+         {"folder": {"type": "string", "maxLength": 1000, "description": "The folder's full path."}},
+         ["folder"], open_clips, changes=True),
+    Tool("arrange_clips", "Put the clips in order",
+         "Say which of the open clips go into the clip, in what order, which seconds of each, the words on screen "
+         "over each, and why; and why each clip left out is left out. The program joins the pieces into one "
+         "recording in that order, makes the clip from it and puts the words on. Call it again to change anything.",
+         {"story": {"type": "string", "maxLength": 300,
+                    "description": "One line for the person, in their language: what the clip tells, from its first "
+                                   "picture to its last."},
+          "clips": {"type": "array", "minItems": 1, "maxItems": MOST_CLIPS,
+                    "description": "The clips that go in, in the order they are shown.",
+                    "items": {"type": "object", "properties": {
+                        "clip": {"type": "integer", "minimum": 1, "maximum": MOST_CLIPS,
+                                 "description": "The clip's number."},
+                        "start": {"type": "number", "minimum": 0,
+                                  "description": "The second of the clip its piece starts at. Leave it out for its "
+                                                 "start."},
+                        "end": {"type": "number", "minimum": 0,
+                                "description": "The second of the clip its piece ends at. Leave it out for its end."},
+                        "words": {"type": "string", "maxLength": 80,
+                                  "description": "A short line on screen from this piece until the next piece with "
+                                                 "words, in the person's language. Leave it out where the picture "
+                                                 "says it all."},
+                        "why": {"type": "string", "maxLength": 200,
+                                "description": "One line for the person, in their language: why this piece goes "
+                                               "here."}},
+                              "required": ["clip", "why"]}},
+          "left_out": {"type": "array", "maxItems": MOST_CLIPS,
+                       "description": "Every clip that does not go in, each with why.",
+                       "items": {"type": "object", "properties": {
+                           "clip": {"type": "integer", "minimum": 1, "maximum": MOST_CLIPS,
+                                    "description": "The clip's number."},
+                           "why": {"type": "string", "maxLength": 200,
+                                   "description": "One line for the person, in their language: why it is left out."}},
+                                 "required": ["clip", "why"]}}},
+         ["story", "clips"], arrange_clips, changes=True),
     Tool("load_recipe", "Picked the kind of clip",
          "Read the recipe for this kind of video before you plan the clip, and give your guesses for it. The page "
          "shows your guesses with buttons, so the person can change any of them with one tap. Call it again when "
@@ -2390,14 +2839,16 @@ TOOLS = {t.name: t for t in [
          ["moments"], propose_moments, changes=True),
     Tool("make_clip", "Made the clip",
          "Make the vertical clip from one of the moments you proposed, in one of the layouts that the program "
-         "draws: " + "; ".join("%s: %s" % kv for kv in dict(layouts.SAID, talk=talk.SAID).items()) + ". The program "
+         "draws: " + "; ".join("%s: %s" % kv for kv in dict(layouts.SAID, talk=talk.SAID, speaker=talk.SPEAKER_SAID,
+                                                          split=talk.SPLIT_SAID).items()) + ". The program "
          "finds the face itself "
          "in the moment's pictures and fixes what it safely can, and says what it did. The clip's frame comes back "
          "to you as a picture. Call it again to remake the clip from another moment, layout or crop; the words on "
          "screen stay.",
          {"moment": {"type": "integer", "minimum": 1, "maximum": MOST_MOMENTS,
                      "description": "The number of the moment you proposed."},
-          "layout": {"type": "string", "enum": list(layouts.KINDS) + ["talk"], "description": "Which layout."},
+          "layout": {"type": "string", "enum": list(layouts.KINDS) + ["talk", "speaker", "split"],
+                     "description": "Which layout."},
           "follow": {"type": "boolean",
                      "description": "For a card of a screen: true (the default) lets the program zoom the card to "
                                     "where the screen changes and move with it, so its words can be read on a "
@@ -2523,7 +2974,9 @@ TOOLS = {t.name: t for t in [
          {"blur": {"type": "array", "items": {"type": "integer", "minimum": 1},
                    "description": "The numbers of the people to blur, such as [2]."},
           "keep": {"type": "array", "items": {"type": "integer", "minimum": 1},
-                   "description": "The numbers of the people to keep as they are."}},
+                   "description": "The numbers of the people to keep as they are."},
+          "others": {"type": "string", "enum": ["blur", "keep"],
+                     "description": "What happens to everyone not named in blur or keep, such as a crowd."}},
          [], decide_people, changes=True),
     Tool("move_part", "Moved a part of the frame",
          "Only when the person asks: put one part of the frame where they want it, anywhere on the clip, such as "
@@ -2668,7 +3121,7 @@ TOOLS = {t.name: t for t in [
              "type": "object", "required": ["moment", "title", "caption", "hashtags"], "properties": {
                  "moment": {"type": "integer", "minimum": 1, "maximum": MOST_MOMENTS,
                             "description": "The moment's number, as you proposed it."},
-                 "layout": {"type": "string", "enum": list(layouts.KINDS) + ["talk"],
+                 "layout": {"type": "string", "enum": list(layouts.KINDS) + ["talk", "speaker", "split"],
                             "description": "Leave it out for the recipe's layout."},
                  "title": {"type": "string", "maxLength": 100,
                            "description": "The post's title, in the clip's language; also the words on the clip "

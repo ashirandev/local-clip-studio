@@ -78,6 +78,7 @@ class Chat:
         self.live, self.live_rev = None, 0
         self.clip = self.recording = None
         self.looks, self.moments = [], None
+        self.clips = None
         self.project = project.Project()
         self.rendered = []
         self.checks = {}
@@ -121,10 +122,13 @@ class Chat:
                 chat.rendered.append(e["file"])
             elif e["kind"] == "checked":
                 chat.checks[e["file"]] = e["checks"]
-            elif e["kind"] == "step" and e.get("look"):
-                chat.looks.append(e["look"])
-            elif e["kind"] == "step" and e.get("moments"):
-                chat.moments = e["moments"]
+            elif e["kind"] == "step":
+                if e.get("clips"):
+                    chat.clips = e["clips"]
+                if e.get("look"):
+                    chat.looks.append(e["look"])
+                if e.get("moments"):
+                    chat.moments = e["moments"]
         chat.catch_up_previews()
         return chat
 

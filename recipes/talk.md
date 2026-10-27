@@ -6,6 +6,7 @@ description: Two or more people sit and talk, as in a podcast, an interview or a
 length: 45
 style: clean
 map: sound 1
+read: screen
 ---
 
 # Podcast or interview
@@ -21,10 +22,18 @@ joke and the laugh after it.
   the point lands, with the other person's reaction.
 - What is said matters more than how the picture changes.
 
+## Rules
+
+- A viewer's name or handle shown on the screen, such as on a comment card read out in a Q&A, is hidden.
+
 ## The clip
 
-- Layout: talk. It cuts to whoever speaks, to the one listening for a short reaction during a long answer, and to
-  everyone when they laugh or talk together. If a shot shows the wrong person, change who is shown then.
+- Layout: choose by how they talk. Two people trading quick lines, laughing, cutting in: one above the other,
+  each in half of the frame, so both faces are always there. When the turns come quickly or the listener's face tells
+  the story (laughing, nodding, surprise) and there are more than two, or one face should be big: whoever speaks
+  fills the frame and the others stay in circles. When one person tells a long story and the other mostly listens,
+  cut to whoever speaks, to the one listening for a short reaction, and to everyone when they laugh or talk together.
+  Never leave a person who speaks off the screen: if a shot shows the wrong person, change who is shown then.
 - Captions on: in a conversation the words are the clip. Plain captions, never lit word by word.
 - The title names the question or the claim in a few words, in the clip's language; a number in it must be one that
   was said.
@@ -34,5 +43,6 @@ joke and the laugh after it.
 ## Checked at the end
 
 - the captions are words that were said
+- nothing private can be read on the screen, a viewer's handle included
 - numbers on screen were said
 - the length is inside the Reel limit, and the clip does not start silent or black

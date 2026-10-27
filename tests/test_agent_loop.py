@@ -190,7 +190,8 @@ class Loop(unittest.TestCase):
         _, events = self.run_job(brain)
         results = [e["result"] for e in events if e["kind"] == "step"]
         self.assertIn("There is no recipe for cooking yet. The recipes are: explain (Tutorial or screen explainer), game "
-                      "(Game stream), seller (Product review or selling live), talk (Podcast or interview).", results[0])
+                      "(Game stream), montage (Trip or event clips), seller (Product review or selling live), talk "
+                      "(Podcast or interview).", results[0])
         self.assertIn("Do not use a recipe made for another kind of video", results[0])
         self.assertIn("style must be one of: clean, pop, sticker", results[1])
         self.assertIsNone(self.chat.clip)

@@ -155,6 +155,22 @@ def check_path(path):
     return real
 
 
+def check_folder(path):
+    """The real path when it is a folder inside the folders recordings are kept in, else NotOpened."""
+    real = os.path.realpath(path)
+    if not any(real == top or real.startswith(top + os.sep) for top in folders()):
+        raise NotOpened("%s is not inside the folders recordings are kept in (%s)." % (path, ", ".join(folders())))
+    if not os.path.isdir(real):
+        raise NotOpened("%s is not a folder on this computer." % path)
+    return real
+
+
+def clips_in(folder):
+    """The recordings directly in folder, by name."""
+    return sorted(os.path.join(folder, n) for n in os.listdir(folder)
+                  if n.lower().endswith(VIDEO_TYPES) and os.path.isfile(os.path.join(folder, n)))
+
+
 def probe(path):
     """{path, name, size, mtime, seconds, width, height, fps, sound_tracks, codec} as the viewer sees the picture."""
     tool = shutil.which("ffprobe")

@@ -158,12 +158,33 @@ the result and the engine numbers.
   the first take with the stop. A silence over a second is cut down to 0.3 s a side, and the clip opens and closes
   0.3 s from a word, but only while nothing moves on the screen: the answer streaming in while the speaker waits is
   the payoff, not dead air. A game keeps every second. Muse is told what was cut and why.
+- **In a conversation, every face stays on screen.** For two or more people talking, Muse picks one of three
+  layouts: cut to whoever speaks (with the listener's reaction during a long answer), keep everyone on screen with
+  whoever speaks filling the frame and the others in circles in the top corner away from the speaker's head, or, for
+  two people, split the screen into a top half and a bottom half for the whole clip. In the split each person's
+  captions sit under their own face. A Q&A's comment card is read like a tutorial's screen, and a viewer's handle on
+  it is hidden.
+- **Who speaks is heard, not guessed from lips.** On a real 720p Q&A, pixel change around two mouths could not tell
+  the two speakers apart (every score about 1.1). Their voices could: every line one said sat at 97 to 137 Hz, every
+  line the other said at 192 to 314 Hz. So the program measures the pitch of each line heard and parts the lines into
+  two voices when they sit far enough apart; then Muse looks at a few frames from inside each voice's longest lines,
+  each person's number drawn over their head, and says who is speaking. A voice goes to the person Muse names in
+  most of its frames, and two voices must go to two people, or the voices are not used. Two voices too alike, such
+  as two men of the same pitch, are left to the mouths.
+- **Many short clips become one, in an order Muse can explain.** Point Muse at a folder of phone clips from a trip
+  or an event. The program numbers them in the order the camera's clock says they were shot (an app that saves
+  clips writes the minute it saved them into the file's own time, so that one is not trusted), hears each one, and
+  shows Muse three frames of each in one picture. Muse says which go in, in what order, which seconds of each, a
+  line of words over each part of the story, and why, and why each clip it leaves out is left out. The program joins
+  the pieces into one upright recording (a clip shot lying down is shown whole over a blurred copy of itself), and
+  the clip is made from it like any other. A piece holds at most 8 s and no second where the picture is frozen, the
+  whole stays near the length asked for, and the first piece says where we are.
 - **Words never cover a face or the product.** Every title is measured as libass will draw it, then refused at a
   time or a place where it would cover a face the program found, or the product Muse named, and the refusal lists
   the times and places that are clear. A blur over the face the clip shows is refused too: the face is the point.
 - **Nothing private shows on a tutorial's screen.** In a screen explainer the program reads the screen at full size
   (RapidOCR, on the processor) and hides every line with an email address, a phone number, a card or ID number, a
-  key, an account number or a password, for as long as it shows. Patterns decide, not a model, and the words are
+  key, an account number, a password or someone's @handle, for as long as it shows. Patterns decide, not a model, and the words are
   never passed to Muse, so they cannot reach a title or a post. The last check reads the screen again and fails
   while a private line can be seen.
 - **A tutorial's screen is shown where the action is, at a size a phone can read.** A whole 1920-pixel screen on a

@@ -161,6 +161,56 @@ class Talk(unittest.TestCase):
         self.assertEqual(self.colour(5.0, lay, 220, 270), "blue", "everyone: the card's right side is person 2")
         self.assertEqual(self.colour(5.0, lay, 25, 270), "red", "and its left side person 1")
 
+    def test_the_speaker_layout_keeps_the_others_in_circles_that_switch_with_the_shot(self):
+        shots = [{"from": 0, "to": 2.05, "show": 1}, {"from": 2.05, "to": 4.1, "show": 2},
+                 {"from": 4.1, "to": 6, "show": 0}]
+        lay = talk.make((1280, 720), persons(), shots, seats=True)
+        self.assertEqual(talk.said(lay["shots"]), "0-2 s person 1; 2-6 s person 2",
+                         "everyone is on screen all the time, so a shot of everyone keeps the one before")
+        self.assertNotIn("everyone", [p["name"] for p in lay["parts"]])
+        self.assertEqual([p["name"] for p in talk.parts_at(lay, 1.0)], ["person 1", "circle 2"])
+        self.assertEqual([p["name"] for p in talk.parts_at(lay, 3.0)], ["person 2", "circle 1"])
+        one, two = (next(p for p in lay["parts"] if p["name"] == "circle %d" % n) for n in (1, 2))
+        self.assertEqual(one["src"][2:], two["src"][2:])
+        for n in ("1", "2"):
+            (other, box), = lay["seats"][n]
+            self.assertEqual(other, 3 - int(n))
+            self.assertLess(box[1] + box[3], 600, "the circles sit at the top")
+        for name, box in lay["places"].items():
+            for seat in talk.SEATS:
+                self.assertFalse(layouts._overlap(box, seat), "%s is clear of the circles" % name)
+        x, y = [round((v + talk.CIRCLE / 2) / 4) - 10 for v in lay["seats"]["1"][0][1][:2]]
+        self.assertEqual(self.colour(1.0, lay, x, y), "blue", "person 2 in the circle while person 1 speaks")
+        self.assertEqual(self.colour(1.0, lay, 125, 270), "red", "person 1 fills the frame")
+        x, y = [round((v + talk.CIRCLE / 2) / 4) - 10 for v in lay["seats"]["2"][0][1][:2]]
+        self.assertEqual(self.colour(3.0, lay, x, y), "red", "person 1 in the circle while person 2 speaks")
+        self.assertEqual(self.colour(3.0, lay, 125, 270), "blue")
+
+    def test_the_split_layout_shows_two_people_one_above_the_other_for_the_whole_clip(self):
+        lay = talk.split((1280, 720), persons())
+        top, low = lay["parts"]
+        self.assertEqual((top["name"], low["name"]), ("person 1", "person 2"))
+        self.assertEqual(top["dst"][1] + top["dst"][3] + layouts.SEAM, low["dst"][1])
+        self.assertEqual([p["name"] for p in layouts.parts_at(lay, 3.0)], ["person 1", "person 2"])
+        heads = [layouts._head(LEFT, top["src"]), layouts._head(RIGHT, low["src"])]
+        heads[1][1] += low["dst"][1]
+        self.assertEqual(sorted(lay["bands"]), ["1", "2"], "a caption band for each of them")
+        for n, head in zip(("1", "2"), heads):
+            band = lay["bands"][n]
+            self.assertTrue(head[1] + head[3] <= band[1] <= head[1] + head[3] + 2 * layouts.GAP,
+                            "person %s's captions sit right under their face" % n)
+            self.assertLessEqual(band[1] + band[3], layouts.SAFE_BOTTOM)
+            for other in heads:
+                self.assertFalse(layouts._overlap(band, other), "a caption band covers no face")
+        self.assertGreaterEqual(heads[0][1] + 0.4 * heads[0][3] / 1.4, layouts.SAFE[1], "no face under the header")
+        for part, other in ((top, RIGHT), (low, LEFT)):
+            self.assertFalse(layouts._overlap(part["src"], other), "each half leaves the other face out")
+        self.assertEqual(self.colour(1.0, lay, 125, 100), "red", "person 1 above")
+        self.assertEqual(self.colour(1.0, lay, 125, 300), "blue", "person 2 below")
+        with self.assertRaises(ValueError) as e:
+            talk.split((1280, 720), persons() + [{"n": 3, "box": [600, 200, 160, 160], "seen": 10, "of": 10}])
+        self.assertIn("found 3", str(e.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

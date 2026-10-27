@@ -459,6 +459,11 @@ def graph(layout, src, out, first_input, pushes=()):
     if layout["kind"] == "talk":
         from . import talk
         return talk.graph(layout, src, out, first_input, pushes)
+    if layout["kind"] == "split":
+        if pushes:
+            raise ValueError("A split clip shows two people in two halves, so it has no slow push: take the push off.")
+        from . import talk
+        return talk.split_graph(layout, src, out, first_input)
     files = []
 
     def shape(path):

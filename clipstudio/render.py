@@ -95,8 +95,11 @@ def ass(state, default="clean", behind=False):
     for t in titles:
         events += text.title(t["text"], t["start"], t["end"], t["box"], st["title"], t.get("key"))
     if captions:
-        events += text.captions(captions["lines"], st["caption"], captions["band"], lit=captions.get("lit", False),
-                                pop=captions.get("pop", False))
+        bands = captions.get("bands") or {}
+        for who in sorted({str(line.get("who")) for line in captions["lines"]}):
+            lines = [line for line in captions["lines"] if str(line.get("who")) == who]
+            events += text.captions(lines, st["caption"], bands.get(who) or captions["band"],
+                                    lit=captions.get("lit", False), pop=captions.get("pop", False))
     for h in words:
         events += text.big_word(h["word"], h["at"], WORD_SECONDS, h["centre"], st["big"])
     body = text.document(list(st.values()), events)

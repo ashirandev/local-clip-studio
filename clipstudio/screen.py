@@ -55,6 +55,7 @@ _todo = queue.Queue()
 _worker = []
 
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
+HANDLE = re.compile(r"(?<![A-Za-z0-9._%+-])@[A-Za-z0-9][A-Za-z0-9._-]{2,}")
 DIGITS = re.compile(r"(?<![A-Za-z0-9/._#=&?])\+?\d[\d -]{7,}\d(?![A-Za-z0-9/_#&])")
 TOKEN = re.compile(r"[A-Za-z0-9_-]{16,}")
 PASSWORD = re.compile(r"(?i)\b(?:pass(?:word|wd|code)?|secret|token|api[ _-]?key)\b\s*[:=]\s*[^\s:=]{4,}")
@@ -63,7 +64,7 @@ PREFIXES = ("sk-", "sk_", "pk_", "rk_", "hf_", "ghp_", "gho_", "github_pat_", "x
 KEY_LONG = 16
 KEY_MIXED = 6
 KINDS = ("an email address", "a card number", "an ID number", "a phone number", "a key or an account number",
-         "a password")
+         "a password", "a person's handle")
 
 
 class ScreenError(Exception):
@@ -93,6 +94,8 @@ def private(text):
             return "a key or an account number"
     if PASSWORD.search(text):
         return "a password"
+    if HANDLE.search(text):
+        return "a person's handle"
     return None
 
 
