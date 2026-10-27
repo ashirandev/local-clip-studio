@@ -1238,6 +1238,20 @@ class Tools(unittest.TestCase):
                                r"its first sound")
         self.assertAlmostEqual(self.chat.moments[1]["start"], 41.8, delta=0.1)
 
+    def test_a_silence_after_the_first_second_is_not_a_silent_start(self):
+        later, first = os.path.join(self.tmp, "later.mp4"), os.path.join(self.tmp, "first.mp4")
+        for path, quiet in ((later, "between(t,0.95,1.6)"), (first, "lt(t,0.6)")):
+            subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=440:d=3", "-af",
+                            "volume='if(%s,0,1)':eval=frame" % quiet, path], check=True)
+        self.assertEqual(tools._start_of(later, 1), (False, False))
+        self.assertEqual(tools._start_of(first, 1), (False, True))
+
+    def test_a_click_in_the_silence_is_not_the_first_sound(self):
+        path = os.path.join(self.tmp, "click.mp4")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=440:d=6", "-af",
+                        "volume='if(between(t,1,1.1)+between(t,3,6),1,0)':eval=frame", path], check=True)
+        self.assertAlmostEqual(tools._first_sound(path), 3.0, delta=0.05)
+
     def test_several_clips_are_refused_whole_when_a_name_is_spelled_another_way(self):
         clips = [{"moment": 1, "title": "Egret one", "caption": "c1", "hashtags": ["#a"]},
                  {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]

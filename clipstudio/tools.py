@@ -2330,6 +2330,7 @@ SILENCE_FLOOR = "-50dB"
 OPENING = "It does not start black or silent"
 OPENING_LOOK = 8
 OPEN_AIR = 0.2
+SOUND_HOLD = 0.25
 CHECK_ROUNDS = 2
 
 
@@ -2356,28 +2357,36 @@ def _numbers_unread(job, said):
 
 
 def _start_of(path, sound):
-    """(black picture at the start, silent sound at the start), each True when it lasts FIRST s from 0."""
+    """(black picture at the start, silent sound at the start), each True when it lasts FIRST s from 0. A stretch
+    that starts later is not the start: read as text, "silence_start: 0.951771" once passed for one at 0 (10-28),
+    and two clips that opened on words were not handed over."""
     cmd = [shutil.which("ffmpeg") or "ffmpeg", "-hide_banner", "-nostats", "-t", "1.5", "-i", path, "-vf",
            "blackdetect=d=%g:pix_th=0.10" % FIRST]
     if sound:
         cmd += ["-af", "silencedetect=noise=%s:d=%g" % (SILENCE_FLOOR, FIRST)]
     log = subprocess.run(cmd + ["-f", "null", "-"], capture_output=True, text=True, encoding="utf-8",
                          errors="replace").stderr
-    black = re.search(r"black_start:0(?:\.0+)?\b", log) is not None
-    silent = re.search(r"silence_start: -?0(?:\.0+)?\b", log) is not None
+    black = any(float(v) <= 0.05 for v in re.findall(r"black_start:(-?[\d.]+)", log))
+    silent = any(float(v) <= 0.05 for v in re.findall(r"silence_start: (-?[\d.]+)", log))
     return black, silent
 
 
 def _first_sound(path):
-    """The second at which the file's sound first rises above SILENCE_FLOOR, as the opening check hears it: 0 when it
-    does from the start, None when it stays silent for OPENING_LOOK s."""
+    """The second at which the file's sound first rises above SILENCE_FLOOR and stays up for SOUND_HOLD s, as the
+    opening check hears it: 0 when it does from the start, None when it does not within OPENING_LOOK s. A shorter
+    sound, such as a click or a breath, is not a start: measured 10-28, one 2.3 s into a screen recording's silence
+    moved a clip there, and it still opened on 0.5 s of silence."""
     cmd = [shutil.which("ffmpeg") or "ffmpeg", "-hide_banner", "-nostats", "-t", str(OPENING_LOOK), "-i", path, "-vn",
            "-af", "silencedetect=noise=%s:d=0.05" % SILENCE_FLOOR, "-f", "null", "-"]
     log = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace").stderr
-    starts, ends = re.findall(r"silence_start: (-?[\d.]+)", log), re.findall(r"silence_end: ([\d.]+)", log)
-    if not starts or float(starts[0]) > 0.05:
+    starts = [float(s) for s in re.findall(r"silence_start: (-?[\d.]+)", log)]
+    ends = [float(s) for s in re.findall(r"silence_end: ([\d.]+)", log)]
+    if not starts or starts[0] > 0.05:
         return 0.0
-    return float(ends[0]) if ends else None
+    for k, end in enumerate(ends):
+        if (starts[k + 1] if k + 1 < len(starts) else OPENING_LOOK) - end >= SOUND_HOLD:
+            return end
+    return None
 
 
 def _sound_at(state, path):
@@ -2483,8 +2492,9 @@ def check_clip(job, why):
     check(OPENING, not (black or silent),
           "picture and sound from the first %g s" % FIRST if not (black or silent) else
           " and ".join(w for w, bad in (("black", black), ("silent", silent)) if bad) + " for the first %g s" % FIRST +
-          ("; the first sound is %g s in, at %s in the recording: propose the moment again from there and make the "
-           "clip again" % (round(heard[0], 1), recording.clock(heard[1])) if heard else ""))
+          ("; the first sound is %g s in, at %g s in the recording: propose the moment again from %g s and make "
+           "the clip again" % (round(heard[0], 1), round(heard[1], 1), round(heard[1] - OPEN_AIR, 1)) if heard
+           else ""))
     if any(p["blur"] for p in state["people"]):
         seen = _still_seen(state, made)
         check("No blurred face can be found", not seen,
