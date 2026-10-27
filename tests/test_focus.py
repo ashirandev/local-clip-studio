@@ -57,7 +57,7 @@ class Plan(unittest.TestCase):
     def test_the_card_zooms_where_the_screen_changes_and_moves_when_the_change_moves(self):
         rec = screen(os.path.join(self.tmp, "a.mp4"))
         plan = focus.plan(rec, [[0, 12]], [0, 0, 1280, 720], 16 / 9.0)
-        self.assertEqual((plan["zoom"], plan["size"]), (0.5, [640, 360]))
+        self.assertEqual((plan["zoom"], plan["size"]), (0.34, [436, 246]), "the tightest zoom that holds the change")
         self.assertEqual(len(plan["shots"]), 2, plan)
         first, second = plan["shots"]
         self.assertEqual((first["from"], first["to"], second["to"]), (0.0, second["from"], 12))

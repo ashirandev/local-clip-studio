@@ -4,10 +4,12 @@ can read, and moves with it. Shown whole on a 960-pixel card, a 1920-pixel scree
 The card's part of the picture is looked at FPS times a second on small grey pictures. A pixel changed when its grey
 moved more than LEVEL; the changes are summed over each STEP seconds into a heat map. For each step, the window of the
 card's shape that holds the most change is found (an integral image, so every place is tried). One zoom serves the
-whole clip, so the words keep one size: the smallest of ZOOMS whose windows hold at least ENOUGH of the change, and
-CONCENTRATED times the share of the picture they cover (a window over half the picture holds half of a change that
-is everywhere). When none does, the change is everywhere (a page that scrolls, a game) and the card shows the whole
-picture. Each window is centred on the change it holds, so the action is not at its edge.
+whole clip, so the words keep one size. ZOOMS are the widths of Tarm's 15 hand crops of five tutorials (one row of
+a list, one pane, nearly the whole screen: 0.34, 0.55 and 0.76 of it, measured by lane 5 on 10-27; 0.5 keeps a
+1920-pixel screen at its own size on the card). The smallest is used whose windows hold at least ENOUGH of the
+change, and CONCENTRATED times the share of the picture they cover (a window over half the picture holds half of a
+change that is everywhere). When none does, the change is everywhere (a page that scrolls, a game) and the card shows
+the whole picture. Each window is centred on the change it holds, so the action is not at its edge.
 
 The window starts where the first change is. A step with less than QUIET of the picture changing keeps the window.
 A window moves only when another place holds MOVE_GAIN times its change for PERSIST busy steps in a row, the
@@ -30,7 +32,7 @@ FPS = 2
 SMALL_W = 384
 LEVEL = 20
 STEP = 1.0
-ZOOMS = (0.5, 0.75)
+ZOOMS = (0.34, 0.5, 0.75)
 ENOUGH = 0.6
 QUIET = 0.002
 HOLD = 2.5
