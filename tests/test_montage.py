@@ -242,6 +242,35 @@ class Arrange(unittest.TestCase):
         self.assertEqual(again.looks[again.moments[0]["look"] - 1]["end"], again.moments[0]["end"])
 
 
+    def test_a_line_that_would_cover_a_face_goes_up_where_it_covers_none(self):
+        had = tools._face_times
+        tools._face_times = lambda state, rec: ([(t / 4, [[0, 0, 1080, 1920]]) for t in range(1, 4)], 0.5)
+        try:
+            steps = self.run_job(*self.opened(), [call(
+                "arrange_clips", story="the day", why="in order", left_out=[],
+                clips=[{"clip": 2, "start": 0.5, "end": 2.5, "words": "We arrive", "why": "where we are"},
+                       {"clip": 1, "start": 1.0, "end": 2.0, "why": "what we did first"},
+                       {"clip": 3, "start": 0.0, "end": 1.9, "words": "The end", "why": "the last thing seen"}])],
+                "Done.")
+        finally:
+            tools._face_times = had
+        said = steps[-1]["result"]
+        self.assertIn('"We arrive" at the top from 1 to 3 s, the first part of its piece where it covers no face', said)
+        self.assertEqual([(t["text"], t["start"], t["end"]) for t in self.chat.project.state()["titles"]],
+                         [("We arrive", 1.0, 3.0), ("The end", 3.0, 4.9)])
+
+
+class Listing(unittest.TestCase):
+    def test_lines_the_hearing_was_not_sure_of_are_counted_not_listed(self):
+        c = {"n": 1, "rec": {"name": "a.mov", "seconds": 9.0, "width": 1080, "height": 1920}, "when": "shot 10:00",
+             "stills": [], "unheard": None,
+             "said": [{"from": 1.0, "to": 2.0, "text": "here we are", "sure": 0.97},
+                      {"from": 3.0, "to": 4.0, "text": "cabufro sinema", "sure": 0.4},
+                      {"from": 5.0, "to": 6.0, "text": "losa", "sure": 0.5}]}
+        self.assertEqual(tools._clip_lines(c)[1:], [
+            "   1 s here we are",
+            "   2 more lines heard but not sure, such as voices around the camera: left out."])
+
 
 class Crowd(unittest.TestCase):
     def test_a_crowd_is_summed_up_and_decided_together(self):

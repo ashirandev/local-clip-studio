@@ -168,6 +168,16 @@ class Blur(unittest.TestCase):
         for k in (12, 33, 63):
             self.assertIsNotNone(changed(got[k], self.plain[k]), k)
 
+    def test_too_many_sizes_share_blurs_by_time_alone(self):
+        def tracks(n):
+            return [[(k, 0, 0, 10 * 1.7 ** k, 10 * 1.7 ** k), (k + 0.5, 0, 0, 10 * 1.7 ** k, 10 * 1.7 ** k)]
+                    for k in range(n)]
+
+        self.assertEqual(len(effects.blur_tracks(tracks(effects.MOST_LANES))), effects.MOST_LANES,
+                         "faces of very different sizes keep their own blur")
+        self.assertEqual(len(effects.blur_tracks(tracks(effects.MOST_LANES + 1))), 1,
+                         "past MOST_LANES only the time keeps them apart")
+
     def test_a_track_stays_inside_the_picture(self):
         got = frames([effects.blur_track([(0, 590, 300, 80, 80), (0.3, 600, 330, 80, 80)])], seconds=0.4)
         x0, y0, x1, y1 = changed(got[6], self.plain[6])

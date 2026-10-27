@@ -430,6 +430,15 @@ class Preview(unittest.TestCase):
         with self.assertRaisesRegex(render.NotDrawn, "cut-out look 'blur' is not a look: use one of grey, outline"):
             render.frame(self.rec, dict(grey, cutouts=[{"look": "blur", "start": 0.5, "end": 3.0}]), 1.0)
 
+    def test_a_crowd_of_blurs_too_long_for_a_command_line_is_drawn(self):
+        tracks = [{"track": [[0.2 + 0.03 * k + 0.01 * i, 8 * k + i, 100 + 10 * (k % 9), 20 + k % 40, 20 + k % 40]
+                             for i in range(3)], "start": 0.2 + 0.03 * k, "end": 0.22 + 0.03 * k} for k in range(90)]
+        st = state(blur=tracks)
+        graph, _ = render.after_source(st, "src", "whole", 1)
+        self.assertGreater(len(graph), 32767, "longer than Windows lets a command line be")
+        self.assertLessEqual(graph.count("overlay="), effects.MOST_LANES + 4, "faces of many sizes, few at once")
+        self.assertTrue(os.path.isfile(render.frame(self.rec, st, 1.0)))
+
     def test_two_requests_for_the_same_frame_at_once_both_get_it(self):
         import threading
         st = state("card", title=[TITLE])

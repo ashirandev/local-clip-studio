@@ -246,12 +246,17 @@ def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH):
     for f in files:
         cmd += _picture_input(f, step)
     part = _part(target)
-    cmd += ["-filter_complex", graph, "-map", "[fin]", "-frames:v", "1", "-q:v", "3", "-f", "image2", part]
+    script = part + ".graph"
+    with open(script, "w", encoding="utf-8", newline="\n") as f:
+        f.write(graph)
+    cmd += ["-/filter_complex", script, "-map", "[fin]", "-frames:v", "1", "-q:v", "3", "-f", "image2", part]
     try:
         done = subprocess.run(cmd, capture_output=True, text=True, timeout=FRAME_SECONDS)
     except (subprocess.SubprocessError, OSError) as e:
         os.remove(part)
         raise NotDrawn("FFmpeg could not draw the frame (%s)." % e)
+    finally:
+        os.remove(script)
     if done.returncode != 0 or not os.path.getsize(part):
         os.remove(part)
         raise NotDrawn("FFmpeg could not draw the frame: %s" % (done.stderr.strip().splitlines() or ["no reason"])[-1])

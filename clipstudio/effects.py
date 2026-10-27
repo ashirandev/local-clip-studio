@@ -28,6 +28,7 @@ FRAME_W, FRAME_H, FPS = 1080, 1920, 30
 MOST_GAP = 0.5
 LANE_GAP = 0.1
 SAME_SIZE = 1.5
+MOST_LANES = 16
 STILL = 0.5
 POP = ((0.0, 0.6), (0.15, 1.1), (0.25, 1.0))
 FADE = 0.15
@@ -166,15 +167,27 @@ def blur_tracks(tracks, margin=0.15):
     and then stood still at the end of the recording for over an hour, with every blur its own split and overlay;
     with 35 it stood still too, with 20 it finished in 22 s. The 69 faces were never more than 5 at once. A track
     joins a fragment whose last track ends LANE_GAP s before it starts and whose box is within SAME_SIZE of its own,
-    as the fragment's box is its largest track's: a small face is not hidden under a big face's box."""
+    as the fragment's box is its largest track's: a small face is not hidden under a big face's box. When that makes
+    more than MOST_LANES fragments, sizes are not kept apart, so there are as many as faces show at once. More faces
+    than about 30 at once would still stand FFmpeg still."""
     margin = _number("margin", margin, 0)
     if margin > 1:
         raise ValueError("margin %s is more than 1: use a share of the box from 0 to 1, such as 0.15." % margin)
+    made = sorted((_track(points, margin) for points in tracks), key=lambda m: m[0][0][0])
+    lanes = _lanes(made, SAME_SIZE)
+    if len(lanes) > MOST_LANES:
+        lanes = _lanes(made, None)
+    return [_lane(lane["tracks"], lane["w"], lane["h"]) for lane in lanes]
+
+
+def _lanes(made, same):
+    """The tracks (track, w, h) in time order, put in lanes that never show two at once; with same, only tracks
+    whose boxes are within same of each other share a lane."""
     lanes = []
-    for track, w, h in sorted((_track(points, margin) for points in tracks), key=lambda m: m[0][0][0]):
-        free = [lane for lane in lanes if lane["end"] + LANE_GAP < track[0][0] and
-                max(lane["w"], w) <= SAME_SIZE * min(lane["w"], w) and
-                max(lane["h"], h) <= SAME_SIZE * min(lane["h"], h)]
+    for track, w, h in made:
+        free = [lane for lane in lanes if lane["end"] + LANE_GAP < track[0][0] and (
+            same is None or (max(lane["w"], w) <= same * min(lane["w"], w) and
+                             max(lane["h"], h) <= same * min(lane["h"], h)))]
         if free:
             lane = min(free, key=lambda lane: abs(lane["w"] - w) + abs(lane["h"] - h))
         else:
@@ -182,7 +195,7 @@ def blur_tracks(tracks, margin=0.15):
             lanes.append(lane)
         lane["tracks"].append(track)
         lane["w"], lane["h"], lane["end"] = max(lane["w"], w), max(lane["h"], h), track[-1][0]
-    return [_lane(lane["tracks"], lane["w"], lane["h"]) for lane in lanes]
+    return lanes
 
 
 def _track(points, margin):

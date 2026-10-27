@@ -352,8 +352,11 @@ def _clip_lines(c):
     elif not c["said"]:
         lines.append("   No words heard.")
     else:
-        lines += ["   %g s %s%s" % (round(p["from"], 1), p["text"], " (not sure)" if _unsure(p) else "")
-                  for p in c["said"]]
+        sure = [p for p in c["said"] if not _unsure(p)]
+        lines += ["   %g s %s" % (round(p["from"], 1), p["text"]) for p in sure]
+        if len(sure) < len(c["said"]):
+            lines.append("   %d more line%s heard but not sure, such as voices around the camera: left out." % (
+                len(c["said"]) - len(sure), "" if len(c["said"]) - len(sure) == 1 else "s"))
     return lines
 
 
@@ -516,7 +519,9 @@ def _montage_moment(job, rec, pieces, at, story, lines):
 
 def _put_lines(job, rec, lines):
     """Puts a montage's words on as titles, each at the first of the layout's places it covers no face in for its
-    whole time, else where it covers faces the least. Returns sentences for Muse."""
+    whole time, else where it covers faces the least, for the first stretch of its time (LISTED s or more) where it
+    covers none. Returns sentences for Muse. Seen 10-28: Muse spent four steps moving a line off a face itself, and
+    ran out of room before the hand-over."""
     state = _clip_state(job)
     lay = state["clip"]["layout"]
     st = render.style_of(state, job.chat.clip["style"] if job.chat.clip else "clean")
@@ -541,12 +546,18 @@ def _put_lines(job, rec, lines):
                        % ln["text"])
             continue
         name, band, hit = best
-        text.title(ln["text"], ln["start"], ln["end"], band, st, None)
-        state = job.edit({"do": "title", "text": ln["text"], "start": ln["start"], "end": ln["end"], "place": name,
+        start, end = ln["start"], ln["end"]
+        clear = _clear(hit, start, end) if hit else []
+        if clear:
+            start, end = clear[0]
+            start, end, hit = math.ceil(start * 10) / 10, math.floor(end * 10) / 10, []
+        text.title(ln["text"], start, end, band, st, None)
+        state = job.edit({"do": "title", "text": ln["text"], "start": start, "end": end, "place": name,
                           "box": band, "key": None})
         out.append('"%s" at the %s from %g to %g s%s.' % (
-            ln["text"], name, ln["start"], ln["end"], ", where it covers a face at %s: move it with remove_title and "
-            "add_title" % _spans(hit) if hit else ", clear of every face"))
+            ln["text"], name, start, end, ", where it covers a face at %s: move it with remove_title and "
+            "add_title" % _spans(hit) if hit else ", clear of every face" if clear == [] else
+            ", the first part of its piece where it covers no face"))
     return out
 
 
