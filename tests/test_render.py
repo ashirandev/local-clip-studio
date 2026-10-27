@@ -2,6 +2,7 @@
 unchanged means byte-equal): python -m unittest discover -s tests"""
 import importlib.util
 import json
+import math
 import os
 import re
 import shutil
@@ -425,6 +426,143 @@ class Export(unittest.TestCase):
         with self.assertRaises(render.NotDrawn) as e:
             render.export(self.rec, dict(self.state, clip=None), os.path.join(self.tmp, "x.mp4"))
         self.assertIn("no clip yet", str(e.exception))
+
+
+VOICE = "0.3*(between(t,1,2.5)+between(t,4,5))*(sin(2*PI*220*t)+0.5*sin(2*PI*440*t))"
+
+
+def meter(path):
+    """(integrated loudness in LUFS, true peak in dBTP) of a file's sound, as FFmpeg's ebur128 meter reads it."""
+    run = subprocess.run([FFMPEG, "-hide_banner", "-nostats", "-i", path, "-map", "0:a", "-af", "ebur128=peak=true",
+                          "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return (float(re.findall(r"I:\s+(-?[\d.]+) LUFS", run.stderr)[-1]),
+            float(re.findall(r"Peak:\s+(-?[\d.]+) dBFS", run.stderr)[-1]))
+
+
+def samples(path):
+    """A file's sound as one channel of 48 kHz floats."""
+    import numpy as np
+    raw = subprocess.run([FFMPEG, "-v", "error", "-i", path, "-map", "0:a", "-ac", "1", "-f", "f32le", "-"],
+                         capture_output=True, check=True).stdout
+    return np.frombuffer(raw, "<f4")
+
+
+def tone(x, a, b, f):
+    """The level in dB of the f Hz part of the sound from second a to b."""
+    import numpy as np
+    seg = x[round(a * 48000):round(b * 48000)]
+    spectrum = np.abs(np.fft.rfft(seg * np.hanning(len(seg)))) * 4 / len(seg)
+    k = int(np.argmin(np.abs(np.fft.rfftfreq(len(seg), 1 / 48000) - f)))
+    return 20 * math.log10(spectrum[k - 2:k + 3].max() + 1e-12)
+
+
+def band(x, a, b, low, high):
+    """The power in dB of the sound between low and high Hz from second a to b."""
+    import numpy as np
+    seg = x[round(a * 48000):round(b * 48000)]
+    power = np.abs(np.fft.rfft(seg * np.hanning(len(seg)))) ** 2
+    freqs = np.fft.rfftfreq(len(seg), 1 / 48000)
+    return 10 * math.log10(power[(freqs >= low) & (freqs <= high)].sum() / len(seg) + 1e-12)
+
+
+def power(x, a, b):
+    import numpy as np
+    return 10 * math.log10(float(np.mean(x[round(a * 48000):round(b * 48000)].astype(float) ** 2)))
+
+
+@unittest.skipUnless(FFMPEG and shutil.which("ffprobe") and HAS_NUMPY, "needs ffmpeg, ffprobe and numpy")
+class ExportSound(unittest.TestCase):
+    """A 7 s clip of a recording where someone speaks from 0.5 to 2 s and from 3.5 to 4.5 s of the clip, with music
+    of 2 s (a chord of 600 and 750 Hz, so it plays on from its start again), a thump at 1.6 s and a pop at 4.2 s, both
+    while someone speaks, exported once; and a recording with no sound at all, given the music and a pop."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.work, recording.WORK = recording.WORK, os.path.join(cls.tmp, "work")
+        talk = os.path.join(cls.tmp, "talk.mp4")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=8", "-f",
+                        "lavfi", "-i", "aevalsrc=exprs='%s':s=48000:c=stereo:d=8" % VOICE, "-c:v", "libx264",
+                        "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", talk], check=True)
+        cls.music = os.path.join(cls.tmp, "music.wav")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i",
+                        "aevalsrc=exprs='0.2*sin(2*PI*600*t)+0.2*sin(2*PI*750*t)':s=48000:c=stereo:d=2", cls.music],
+                       check=True)
+        p = project.Project([{"do": "clip", "moment": 1, "pieces": [[0.5, 7.5]],
+                              "layout": layouts.make("subject", (640, 360))}])
+        cls.state = dict(p.state(), sounds=[{"kind": "thump", "at": 1.6}, {"kind": "pop", "at": 4.2}],
+                         music={"path": cls.music, "from": 0.5, "level": -6, "duck": -12},
+                         speech=[[0.5, 2.0], [3.5, 4.5]])
+        cls.rec = recording.probe(talk)
+        cls.out = render.export(cls.rec, cls.state, os.path.join(cls.tmp, "clip.mp4"))
+        cls.sound = samples(cls.out)
+        still = os.path.join(cls.tmp, "still.mp4")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=4", "-c:v",
+                        "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", still], check=True)
+        cls.still = recording.probe(still)
+        p = project.Project([{"do": "clip", "moment": 1, "pieces": [[0, 4]],
+                              "layout": layouts.make("subject", (640, 360))}])
+        cls.quiet = dict(p.state(), sounds=[{"kind": "pop", "at": 1.0}], music={"path": cls.music}, speech=[])
+        cls.still_out = render.export(cls.still, cls.quiet, os.path.join(cls.tmp, "still_clip.mp4"))
+
+    @classmethod
+    def tearDownClass(cls):
+        recording.WORK = cls.work
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_with_its_music_and_sounds_the_clip_is_still_at_minus_14_lufs_and_never_over_its_peak(self):
+        loud, peak = meter(self.out)
+        self.assertLess(abs(loud - render.LUFS), 0.5, "the sound is at %s LUFS" % loud)
+        self.assertLess(peak, render.PEAK + 0.5, "its true peak is %s dBTP" % peak)
+        sound = probe(self.out)["audio"]
+        self.assertLess(abs(float(sound["duration"]) - self.state["length"]), 1 / 30)
+
+    def test_the_music_goes_down_by_its_duck_while_someone_speaks(self):
+        up, down = tone(self.sound, 2.6, 3.0, 600), tone(self.sound, 0.6, 1.0, 600)
+        self.assertLess(abs(up - down - 12), 1, "the music is %.1f dB lower under the voice" % (up - down))
+        self.assertLess(abs(tone(self.sound, 3.6, 4.1, 600) - down), 1, "and under the second span too")
+
+    def test_the_music_plays_its_level_under_the_voice_and_on_from_its_start_again(self):
+        gap = power(self.sound, 2.6, 3.0) - power(self.sound, 0.6, 1.0)
+        self.assertTrue(-8.5 < gap < -5, "between the words the music is %.1f dB under the voice" % gap)
+        self.assertGreater(tone(self.sound, 2.6, 3.0, 750), -40, "music still plays after its 2 s ran out")
+
+    def test_the_music_fades_in_and_out(self):
+        self.assertGreater(tone(self.sound, 0.2, 0.25, 600) - tone(self.sound, 0, 0.05, 600), 10, "it fades in")
+        self.assertGreater(tone(self.sound, 5.1, 5.4, 600) - tone(self.sound, 6.8, 7.0, 600), 10,
+                           "it fades out over the clip's last 1.5 s")
+
+    def test_the_sounds_are_heard_at_their_times(self):
+        self.assertGreater(band(self.sound, 1.6, 1.8, 40, 120) - band(self.sound, 1.1, 1.4, 40, 120), 15,
+                           "the thump at 1.6 s")
+        self.assertGreater(band(self.sound, 4.2, 4.3, 800, 1000) - band(self.sound, 3.8, 4.1, 800, 1000), 15,
+                           "the pop at 4.2 s")
+
+    def test_a_recording_with_no_sound_gets_its_music_and_sounds_at_minus_14_lufs(self):
+        sound = probe(self.still_out).get("audio")
+        self.assertIsNotNone(sound, "the clip has sound")
+        self.assertLess(abs(float(sound["duration"]) - 4), 1 / 30)
+        loud, _ = meter(self.still_out)
+        self.assertLess(abs(loud - render.LUFS), 0.5, "the music alone is at %s LUFS" % loud)
+
+    def test_music_that_cannot_be_played_says_why(self):
+        out = os.path.join(self.tmp, "x.mp4")
+        for music, said in (({"path": os.path.join(self.tmp, "none.mp3")}, "is not a file: give the path"),
+                            ({"path": self.music, "level": 3}, "music level 3 is not a music level: use -30 to 0"),
+                            ({"path": self.music, "duck": 0}, "db 0 is not a duck")):
+            with self.assertRaises(render.NotDrawn) as e:
+                render.export(self.rec, dict(self.state, music=music), out)
+            self.assertIn(said, str(e.exception))
+        with self.assertRaises(render.NotDrawn) as e:
+            render.export(self.rec, dict(self.state, speech=None), out)
+        self.assertIn("The music needs the times someone speaks", str(e.exception))
+        silent = os.path.join(self.tmp, "silent.wav")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "2",
+                        silent], check=True)
+        with self.assertRaises(render.NotDrawn) as e:
+            render.export(self.rec, dict(self.state, music={"path": silent}), out)
+        self.assertIn("The music silent.wav is silent from its second 0", str(e.exception))
+        self.assertFalse(os.path.exists(out))
 
 
 if __name__ == "__main__":

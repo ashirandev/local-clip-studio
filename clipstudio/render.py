@@ -6,7 +6,10 @@
 The preview frame is the same graph started at the frame's time: the piece is opened at the matching recording
 second and its timestamps are set so t is still clip time, so a title from 2 s to 5 s shows in the preview at 3 s
 exactly as it will in the finished clip. export() joins the pieces at 30 fps from clip second 0 and draws them with
-the same stages.
+the same stages. Its sound:
+
+    the pieces' sound joined  ->  -14 LUFS  ->  the sounds added (effects.sound)
+                              ->  the music under it, lower while someone speaks (effects.duck)  ->  a limiter
 """
 import hashlib
 import json
@@ -28,6 +31,9 @@ FPS, RATE = 30, 48000
 LUFS, PEAK, RANGE = -14, -1.5, 11
 PRESET, CRF = "medium", 19
 EXPORT_SECONDS = 600
+MUSIC_LEVEL, MUSIC_LEVELS, MUSIC_DUCK = -6, (-30, 0), -12
+MUSIC_IN, MUSIC_OUT = 0.3, 1.5
+SILENT = -70
 
 
 class NotDrawn(Exception):
@@ -170,11 +176,11 @@ def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH):
 
 # ---- the finished clip ---------------------------------------------------------------------------------------
 
-def _sound(pieces):
-    """Graph text from the first sound track of each piece's input to [snd], the pieces joined. Each input is
-    opened at its piece's start, so its timestamps start at 0."""
-    return "%sconcat=n=%d:v=0:a=1,aresample=%d[snd]" % ("".join("[%d:a:0]" % k for k in range(len(pieces))),
-                                                         len(pieces), RATE)
+def _sound(pieces, out="snd", level=""):
+    """Graph text from the first sound track of each piece's input to [out], the pieces joined, then level (the
+    second loudnorm pass, or nothing). Each input is opened at its piece's start, so its timestamps start at 0."""
+    return "%sconcat=n=%d:v=0:a=1,aresample=%d%s[%s]" % ("".join("[%d:a:0]" % k for k in range(len(pieces))),
+                                                          len(pieces), RATE, level, out)
 
 
 def _inputs(rec, pieces, sound_only=False):
@@ -191,18 +197,29 @@ def loudness(rec, pieces):
     "input_thresh", "target_offset"}), or None when the recording has no sound or the pieces are silent."""
     if not rec.get("sound_tracks"):
         return None
-    graph = _sound(pieces) + ";[snd]loudnorm=I=%s:TP=%s:LRA=%s:print_format=json[o]" % (LUFS, PEAK, RANGE)
-    cmd = [_ffmpeg(), "-hide_banner", "-nostats"] + _inputs(rec, pieces, True) + [
-        "-filter_complex", graph, "-map", "[o]", "-f", "null", "-"]
+    return _measured(_inputs(rec, pieces, True), _sound(pieces), "the clip's sound")
+
+
+def music_loudness(music, length):
+    """How loud the music is over the part the clip plays (from its second music["from"], for length seconds, from
+    its start again when it is shorter), as loudness() measures it, or None when that part is silent."""
+    return _measured(_music_input(music), "[0:a:0]%s[snd]" % _music_part(music, length), "the music")
+
+
+def _measured(inputs, graph, what):
+    """loudnorm's first-pass numbers for graph (text from the inputs to [snd]), or None when it is silent."""
+    graph += ";[snd]loudnorm=I=%s:TP=%s:LRA=%s:print_format=json[o]" % (LUFS, PEAK, RANGE)
+    cmd = [_ffmpeg(), "-hide_banner", "-nostats"] + inputs + ["-filter_complex", graph, "-map", "[o]", "-f", "null",
+                                                              "-"]
     try:
         done = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                               timeout=EXPORT_SECONDS)
     except (subprocess.SubprocessError, OSError) as e:
-        raise NotDrawn("FFmpeg could not measure the clip's sound (%s)." % e)
+        raise NotDrawn("FFmpeg could not measure %s (%s)." % (what, e))
     found = re.search(r"\{[^{}]*\"input_i\"[^{}]*\}", done.stderr)
     if done.returncode != 0 or not found:
-        raise NotDrawn("FFmpeg could not measure the clip's sound: %s"
-                       % (done.stderr.strip().splitlines() or ["no reason"])[-1])
+        raise NotDrawn("FFmpeg could not measure %s: %s" % (what, (done.stderr.strip().splitlines()
+                                                                   or ["no reason"])[-1]))
     measured = json.loads(found.group(0))
     try:
         if not math.isfinite(float(measured["input_i"])):
@@ -222,28 +239,123 @@ def _level(measured):
                                           RATE))
 
 
+def _music(state):
+    """The clip's music entry, checked, or None when the clip has no music."""
+    music = state.get("music")
+    if not music:
+        return None
+    path = music.get("path")
+    if not isinstance(path, str) or not os.path.isfile(path):
+        raise ValueError("music %r is not a file: give the path of a music or sound file that exists." % (path,))
+    start = music.get("from", 0)
+    if not isinstance(start, (int, float)) or isinstance(start, bool) or not 0 <= start < math.inf:
+        raise ValueError("music from %r is not a second of the music: use 0 or more." % (start,))
+    level = music.get("level", MUSIC_LEVEL)
+    low, high = MUSIC_LEVELS
+    if not isinstance(level, (int, float)) or isinstance(level, bool) or not low <= level <= high:
+        raise ValueError("music level %r is not a music level: use %d to %d dB against the voice, such as %d."
+                         % (level, low, high, MUSIC_LEVEL))
+    if state.get("speech") is None:
+        raise ValueError("The music needs the times someone speaks (state['speech']) to go down under the voice: "
+                         "give the heard phrases' [start, end] in clip seconds, or [] when nobody speaks.")
+    return dict(music, path=path, level=level, duck=music.get("duck", MUSIC_DUCK), **{"from": start})
+
+
+def _music_input(music):
+    """The music file opened so it plays on from its start again when it runs out."""
+    return ["-stream_loop", "-1", "-vn", "-i", music["path"]]
+
+
+def _music_part(music, length):
+    return "atrim=start=%.3f:duration=%.3f,asetpts=PTS-STARTPTS" % (music["from"], length)
+
+
+def _mix(state, voice, length, music_input, music_measured, out):
+    """Graph text to [out]: the clip's sound ([voice], or silence when the recording has none) with the sounds added
+    and the music under it. The music plays music["level"] dB under the voice's -14 LUFS, and music["duck"] dB lower
+    while someone speaks; it fades in over its first 0.3 s and out over the clip's last 1.5 s."""
+    if voice:
+        parts = ["[voice]aformat=sample_rates=%d:channel_layouts=stereo[mix_v]" % RATE]
+    else:
+        parts = ["aevalsrc=exprs=0:s=%d:c=stereo:d=%.3f[mix_v]" % (RATE, length)]
+    music = _music(state)
+    sounds = [effects.sound(s["kind"], s["at"], s.get("level", 0)) for s in state.get("sounds") or []]
+    parts.append(effects.join(sounds, "mix_v", "mix_s" if music else out, 0)[0])
+    if music:
+        if not music_measured:
+            raise ValueError("The music %s is silent from its second %s: choose another file or another start."
+                             % (os.path.basename(music["path"]), music["from"]))
+        fade = min(MUSIC_OUT, length / 3)
+        parts.append("[%d:a:0]%s,aformat=sample_rates=%d:channel_layouts=stereo,afade=t=in:d=%s,"
+                     "afade=t=out:st=%.3f:d=%s,volume=%.2fdB[mix_m]"
+                     % (music_input, _music_part(music, length), RATE, MUSIC_IN, length - fade, fade,
+                        LUFS + music["level"] - float(music_measured["input_i"])))
+        parts.append(effects.join([effects.duck(state["speech"], music["duck"])], "mix_m", "mix_d", 0)[0])
+        parts.append("[mix_s][mix_d]amix=inputs=2:duration=first:normalize=0[%s]" % out)
+    return ";".join(parts)
+
+
+def _mix_gain(rec, state, measured, music_measured):
+    """The gain in dB that brings the whole mix (the levelled voice, the sounds and the music) to -14 LUFS, measured
+    on the same mix the export makes, so music filling the quiet between words does not leave the clip quieter or
+    louder than every other clip; 0 when the mix is silent. It is read by FFmpeg's ebur128 meter, which reads like
+    the meters people check a clip with: loudnorm's own reading of the same mix was 0.7 LU lower (measured 10-27)."""
+    pieces, length = state["clip"]["pieces"], state["length"]
+    voice = rec.get("sound_tracks")
+    music = _music(state)
+    inputs = (_inputs(rec, pieces, True) if voice else []) + (_music_input(music) if music else [])
+    graph = _mix(state, voice, length, len(pieces) if voice else 0, music_measured, "snd")
+    if voice:
+        graph = _sound(pieces, "voice", _level(measured)) + ";" + graph
+    cmd = [_ffmpeg(), "-hide_banner", "-nostats"] + inputs + [
+        "-filter_complex", graph + ";[snd]ebur128=framelog=quiet[o]", "-map", "[o]", "-f", "null", "-"]
+    what = "the clip's sound with its sounds and music"
+    try:
+        done = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                              timeout=EXPORT_SECONDS)
+    except (subprocess.SubprocessError, OSError) as e:
+        raise NotDrawn("FFmpeg could not measure %s (%s)." % (what, e))
+    found = re.search(r"Integrated loudness:\s+I:\s+(-?[\d.]+) LUFS", done.stderr)
+    if done.returncode != 0 or not found:
+        raise NotDrawn("FFmpeg could not measure %s: %s" % (what, (done.stderr.strip().splitlines()
+                                                                   or ["no reason"])[-1]))
+    whole = float(found.group(1))
+    return LUFS - whole if whole > SILENT else 0.0
+
+
 def export(rec, state, out_path, on_progress=None, on_start=None, default="clean"):
     """Makes the finished clip at out_path and returns out_path once the file is there: H.264 and AAC, 30 fps,
     1080x1920, the sound at -14 LUFS, the index at the front of the file so it plays while it downloads. The pieces
-    are joined, then drawn by the same stages as the preview frame. The file is written next to out_path and only
-    replaces it when FFmpeg has finished. on_progress(seconds done) follows FFmpeg; on_start(stop) is given a
-    function that ends FFmpeg at once, after which export raises Stopped and leaves no file."""
+    are joined, then drawn by the same stages as the preview frame; the sounds (state['sounds']: {"kind", "at",
+    "level"}) and the music (state['music']: {"path", "from", "level", "duck"}, under the voice and lower while
+    someone speaks, state['speech']: [[start, end]] in clip seconds) are added to the levelled sound. The file is
+    written next to out_path and only replaces it when FFmpeg has finished. on_progress(seconds done) follows FFmpeg;
+    on_start(stop) is given a function that ends FFmpeg at once, after which export raises Stopped and leaves no
+    file."""
     clip = state["clip"]
     if not clip:
         raise NotDrawn("There is no clip yet, so there is nothing to make.")
     pieces, length = clip["pieces"], state["length"]
     count = len(pieces)
+    sound = rec.get("sound_tracks")
     try:
         drawn, files = after_source(state, "src", "fin", count, default)
+        music = _music(state)
+        added = bool(music or state.get("sounds"))
+        music_measured = music_loudness(music, length) if music else None
+        mixed = _mix(state, sound, length, count + len(files), music_measured, "mix") if added else ""
     except ValueError as e:
         raise NotDrawn(str(e))
-    sound = rec.get("sound_tracks")
     measured = loudness(rec, pieces) if sound else None
     streams = "".join("[%d:v:0]" % k + ("[%d:a:0]" % k if sound else "") for k in range(count))
     joined = "%sconcat=n=%d:v=1:a=%d[cat]%s;[cat]fps=%d[src]" % (
         streams, count, 1 if sound else 0, "[catsnd]" if sound else "", FPS)
     if sound:
-        joined += ";[catsnd]aresample=%d%s[snd]" % (RATE, _level(measured))
+        joined += ";[catsnd]aresample=%d%s[%s]" % (RATE, _level(measured), "voice" if added else "snd")
+    if added:
+        # the limiter, so a sound landing on a loud word never goes over PEAK
+        joined += ";%s;[mix]volume=%.2fdB,alimiter=limit=%.4f:level=0:latency=1[snd]" % (
+            mixed, _mix_gain(rec, state, measured, music_measured), 10 ** (PEAK / 20))
     graph = joined + ";" + drawn
     work = folder("exports")
     script = os.path.join(work, hashlib.sha1(graph.encode("utf-8")).hexdigest()[:16] + ".graph")
@@ -254,7 +366,9 @@ def export(rec, state, out_path, on_progress=None, on_start=None, default="clean
     cmd = [_ffmpeg(), "-hide_banner", "-nostats", "-y", "-progress", "pipe:1"] + _inputs(rec, pieces)
     for f in files:
         cmd += ["-loop", "1", "-framerate", str(FPS), "-i", f]
-    cmd += ["-/filter_complex", script, "-map", "[fin]"] + (["-map", "[snd]"] if sound else []) + [
+    if music:
+        cmd += _music_input(music)
+    cmd += ["-/filter_complex", script, "-map", "[fin]"] + (["-map", "[snd]"] if sound or added else []) + [
         "-t", "%.3f" % length, "-c:v", "libx264", "-preset", PRESET, "-crf", str(CRF), "-pix_fmt", "yuv420p",
         "-r", str(FPS), "-c:a", "aac", "-b:a", "192k", "-ar", str(RATE), "-movflags", "+faststart", "-f", "mp4",
         part]

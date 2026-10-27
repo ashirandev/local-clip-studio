@@ -1,8 +1,10 @@
-"""Effects: the pieces of FFmpeg filter graph that draw on the clip, each one exactly what its numbers say.
+"""Effects: the pieces of FFmpeg filter graph that draw on the clip or add to its sound, each one exactly what its
+numbers say.
 
 Every piece returns a Fragment: filter graph text with exactly one [in] and one [out], its own inner labels written
 [_a], [_b]..., and any extra file it needs (a sticker picture) as [f0], [f1]... in the order of its files. join()
-chains the fragments of one stage, so the renderer never has to know what is inside them.
+chains the fragments of one stage, so the renderer never has to know what is inside them. The sound pieces (sound,
+duck) take the clip's sound at 48 kHz stereo as [in] and need no file.
 
 Times are seconds of the clip (0 is its first frame). An expression uses only t, the frame's time: never n, never
 random(), and never a filter that remembers earlier frames, so a frame drawn on its own (the preview starts the graph
@@ -79,11 +81,22 @@ def _check(k, fragment):
 
 def _number(name, value, low=None):
     if not isinstance(value, (int, float)) or isinstance(value, bool) or value != value or abs(value) == math.inf:
-        raise ValueError("%s %r is not a number: give it in %s." % (name, value, "seconds of the clip" if name in (
-            "start", "end", "at", "length") else "pixels"))
+        raise ValueError("%s %r is not a number: give it in %s." % (name, value, _unit(name)))
     if low is not None and value < low:
         raise ValueError("%s %s is below %s: use %s from %s." % (name, _f(value), _f(low), name, _f(low)))
     return float(value)
+
+
+def _unit(name):
+    if name in ("start", "end", "at", "length") or name.startswith("t of"):
+        return "seconds of the clip"
+    if name in ("level", "db"):
+        return "dB"
+    if name == "zoom":
+        return "times the size, such as 1.1"
+    if name in ("strength", "margin"):
+        return "a share from 0 to 1"
+    return "pixels"
 
 
 def _window(start, end):
@@ -387,3 +400,92 @@ def _frame_box(box):
         raise ValueError("box %r runs off the %dx%d frame: keep x + w at most %d and y + h at most %d."
                          % (tuple(box), FRAME_W, FRAME_H, FRAME_W, FRAME_H))
     return x, y, w, h
+
+
+# ---- sound -------------------------------------------------------------------------------------------------------
+
+def _edge(length, attack, release):
+    """1 inside a sound of length seconds, rising from 0 over its first attack seconds and falling back to 0 over its
+    last release seconds, so the sound starts and ends at silence and never clicks."""
+    return "min(1,t/%s)*min(1,max(0,(%s-t)/%s))" % (_f(attack), _f(length), _f(release))
+
+
+def _hash(i):
+    """A number from -1 to 1 that looks random but is always the same for the same i."""
+    return "(2*(sin(%s*12.9898)*43758.5453-floor(sin(%s*12.9898)*43758.5453))-1)" % (i, i)
+
+
+def _noise(p):
+    """Noise along p: the hashed values at each whole p, joined smoothly, so the faster p runs, the brighter the
+    noise. st() and ld() only hold numbers within one sample's sum; nothing is carried to the next sample."""
+    return ("(st(1,%s);st(2,floor(ld(1)));st(3,ld(1)-ld(2));st(3,ld(3)*ld(3)*(3-2*ld(3)));%s+(%s-%s)*ld(3))"
+            % (p, _hash("ld(2)"), _hash("(ld(2)+1)"), _hash("ld(2)")))
+
+
+# The sounds are made here from t alone (t is 0 at the sound's start), so they need no file and no licence, and the
+# same clip always sounds the same. {name: (seconds, expression, filters after it)}. Each one's loudest 400 ms sit
+# under the voice's -14 LUFS: thump about -16, whoosh and ding -18, pop -20 (a pop is shorter than the meter's 400 ms).
+SOUNDS = {
+    # a deep hit for a punch-in or a shake: a sine falling from 155 to 45 Hz as it dies away, with a 4 ms tap at its
+    # front, so a phone's small speaker hears it land
+    "thump": (0.45, "%s*(0.57*exp(-t/0.11)*sin(2*PI*(45*t+4.4*(1-exp(-t/0.04))))+0.115*exp(-t/0.004)*%s)"
+              % (_edge(0.45, 0.002, 0.03), _hash("floor(t*24000)")), ""),
+    # air rushing past for a fast move or a flash: noise that swells and brightens to its middle, then fades
+    "whoosh": (0.5, "%s*0.26*pow(sin(2*PI*t),2)*%s"
+               % (_edge(0.5, 0.005, 0.05), _noise("500*t+5500*(t/2-sin(4*PI*t)/(8*PI))")), ",highpass=f=250"),
+    # a bubble for a sticker or a big word: a short sine rising from 280 to 900 Hz
+    "pop": (0.14, "%s*0.56*exp(-t/0.03)*sin(2*PI*(900*t-9.3*(1-exp(-t/0.015))))" % _edge(0.14, 0.001, 0.02), ""),
+    # a small bell for a price or a number on screen: E6 and two partials, the higher ones dying first
+    "ding": (1.0, "%s*0.177*(exp(-t/0.3)*sin(2*PI*1318.5*t)+0.45*exp(-t/0.18)*sin(2*PI*2637*t)"
+             "+0.18*exp(-t/0.1)*sin(2*PI*3955.5*t))" % _edge(1.0, 0.003, 0.05), ""),
+}
+RATE = 48000
+SOUND_LEVELS = (-20, 6)
+DUCK_DOWN, DUCK_UP, DUCK_BRIDGE = 0.25, 0.5, 1.5
+
+
+def sound(kind, at, level=0):
+    """The clip's sound with the sound `kind` (one of SOUNDS) added from `at`, level dB louder than it is made (below
+    0 is quieter): [in] and [out] are sound, 48 kHz stereo. Every other sample of the clip's sound is left as it was,
+    and a sound that runs past the clip's end is cut there."""
+    if kind not in SOUNDS:
+        raise ValueError("sound %r is not a sound: use one of %s." % (kind, ", ".join(SOUNDS)))
+    at, level = _number("at", at, 0), _number("level", level)
+    if not SOUND_LEVELS[0] <= level <= SOUND_LEVELS[1]:
+        raise ValueError("level %s is not a sound's level: use %d to %d dB, 0 for the sound as it is made."
+                         % (_f(level), SOUND_LEVELS[0], SOUND_LEVELS[1]))
+    seconds, expression, after = SOUNDS[kind]
+    return Fragment("aevalsrc=exprs='%s':s=%d:c=stereo:d=%s%s%s,adelay=delays=%dS:all=1[_s];"
+                    "[in][_s]amix=inputs=2:duration=first:normalize=0[out]"
+                    % (expression, RATE, _f(seconds), after, ",volume=%sdB" % _f(level) if level else "",
+                       round(at * RATE)), [])
+
+
+def duck(spans, db=-12):
+    """The sound lowered by db (below 0) while someone speaks, spans [(start, end)] in clip seconds: music under a
+    voice. It goes down along a half cosine over the 0.25 s before each span, so the first word is clear, and back
+    up over the 0.5 s after it; spans less than 1.5 s apart are one, so it does not rise for a breath. The level
+    follows t in steps of 1 ms, too small to click. No spans leaves the sound as it was."""
+    db = _number("db", db)
+    if not -40 <= db <= -1:
+        raise ValueError("db %s is not a duck: use -40 to -1 dB, such as -12." % _f(db))
+    if not isinstance(spans, (list, tuple)):
+        raise ValueError("spans %r is not a list: give [(start, end)] in seconds of the clip." % (spans,))
+    windows = []
+    for k, span in enumerate(spans):
+        if not isinstance(span, (list, tuple)) or len(span) != 2:
+            raise ValueError("span %d %r is not (start, end) in seconds of the clip." % (k, span))
+        windows.append(_window(*span))
+    merged = []
+    for start, end in sorted(windows):
+        if merged and start - merged[-1][1] < DUCK_BRIDGE:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    if not merged:
+        return Fragment("[in]anull[out]", [])
+    down = "+".join("if(between(t,%s,%s),if(lt(t,%s),(1-cos(PI*(t-%s)/%s))/2,if(gt(t,%s),(1+cos(PI*(t-%s)/%s))/2,1)),0)"
+                    % (_f(a - DUCK_DOWN), _f(b + DUCK_UP), _f(a), _f(a - DUCK_DOWN), _f(DUCK_DOWN), _f(b), _f(b),
+                       _f(DUCK_UP)) for a, b in merged)
+    return Fragment("[in]asetnsamples=n=%d:p=0,volume=volume='1-%s*(%s)':eval=frame[out]"
+                    % (RATE // 1000, _f(1 - 10 ** (db / 20)), down), [])

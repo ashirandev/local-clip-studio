@@ -473,3 +473,154 @@ class Stickers(unittest.TestCase):
             effects.sticker(self.png, 1, 1, (900, 760, 400, 400))
         with self.assertRaisesRegex(ValueError, "length 0.2 is not a sticker's length: use 0.4 to 60 seconds"):
             effects.sticker(self.png, 1, 0.2, self.box)
+
+
+def heard(fragments, seconds=3, base="0.1*sin(2*PI*220*t)"):
+    """The 48 kHz stereo samples of a steady tone (base, an expression in t) through the sound fragments, as an
+    (n, 2) array of floats."""
+    import numpy as np
+    graph, _ = effects.join(fragments, "src", "outa", 0) if fragments else ("[src]anull[outa]", [])
+    full = "aevalsrc=exprs='%s':s=48000:c=stereo:d=%s[src];%s" % (base, seconds, graph)
+    run = subprocess.run([FFMPEG, "-v", "error", "-filter_complex", full, "-map", "[outa]", "-f", "f32le", "-"],
+                         capture_output=True, timeout=60)
+    if run.returncode != 0:
+        raise AssertionError(run.stderr.decode("utf-8", "replace")[-2000:])
+    return np.frombuffer(run.stdout, "<f4").reshape(-1, 2)
+
+
+def centroid(x):
+    """The middle of a stretch of sound's spectrum, in Hz, weighted by its energy."""
+    import numpy as np
+    power = np.abs(np.fft.rfft(x * np.hanning(len(x)))) ** 2
+    return float(np.fft.rfftfreq(len(x), 1 / 48000) @ power / power.sum())
+
+
+def loudest(x):
+    """The loudest 400 ms of a sound, in LUFS, as FFmpeg's ebur128 meter reads it."""
+    import re
+    run = subprocess.run([FFMPEG, "-hide_banner", "-nostats", "-f", "f32le", "-ar", "48000", "-ac", "2", "-i", "-",
+                          "-af", "apad=pad_dur=1,ebur128", "-f", "null", "-"], input=x.astype("<f4").tobytes(),
+                         capture_output=True, timeout=60)
+    return max(float(m) for m in re.findall(r"M:\s*(-?[\d.]+)", run.stderr.decode("utf-8", "replace")))
+
+
+@unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")
+class Sounds(unittest.TestCase):
+    """Each sound added at 1 s to a quiet tone of 3 s, and alone on silence."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.plain = heard([])
+        cls.added = {kind: heard([effects.sound(kind, 1.0)]) for kind in effects.SOUNDS}
+        cls.alone = {kind: heard([effects.sound(kind, 1.0)], base="0")[48000:] for kind in effects.SOUNDS}
+
+    def test_a_sound_starts_at_its_time_and_every_other_sample_is_left_as_it_was(self):
+        import numpy as np
+        for kind, x in self.added.items():
+            seconds = effects.SOUNDS[kind][0]
+            self.assertEqual(x.shape, self.plain.shape, "%s: the clip's sound keeps its length" % kind)
+            gone = x - self.plain
+            self.assertEqual(np.abs(gone[:48000]).max(), 0, "%s: nothing before 1 s" % kind)
+            first = int(np.nonzero(gone[:, 0])[0][0])
+            self.assertTrue(48000 <= first <= 48002, "%s: it starts at 1 s, not at sample %d" % (kind, first))
+            self.assertEqual(np.abs(gone[48000 + round(seconds * 48000) + 1:]).max(), 0,
+                             "%s: nothing after its %s s" % (kind, seconds))
+            self.assertEqual(np.abs(gone[:, 0] - gone[:, 1]).max(), 0, "%s: the same in both ears" % kind)
+
+    def test_each_sound_starts_and_ends_at_silence_so_it_never_clicks(self):
+        import numpy as np
+        for kind, x in self.alone.items():
+            n = round(effects.SOUNDS[kind][0] * 48000)
+            peak = np.abs(x[:n, 0]).max()
+            self.assertLess(abs(x[0, 0]), 1e-6, kind)
+            self.assertLess(np.abs(x[:12, 0]).max(), peak / 3, "%s: it rises from silence, never jumps" % kind)
+            self.assertLess(np.abs(x[n - 12:n, 0]).max(), peak / 100, "%s: it has fallen to silence" % kind)
+
+    def test_each_sound_is_heard_and_sits_under_the_voice(self):
+        for kind, x in self.alone.items():
+            loud = loudest(x)
+            self.assertTrue(-23 < loud < -15, "%s: its loudest 400 ms are %.1f LUFS, the voice's are -14"
+                            % (kind, loud))
+
+    def test_each_sound_is_its_own_kind(self):
+        x = {kind: v[:, 0] for kind, v in self.alone.items()}
+        self.assertLess(centroid(x["thump"][:9600]), 150, "a thump is deep")
+        self.assertTrue(500 < centroid(x["pop"][:4800]) < 1200, "a pop is a small high bubble")
+        self.assertGreater(centroid(x["ding"][:24000]), 1200, "a ding is a bell")
+        self.assertGreater(abs(x["ding"][38400:40800]).max(), 0.01, "and it still rings at 0.8 s")
+        start, middle, end = (centroid(x["whoosh"][k:k + 4800]) for k in (0, 9600, 19200))
+        self.assertTrue(middle > 1.5 * start and middle > 1.5 * end,
+                        "a whoosh brightens to its middle, then fades: %d %d %d Hz" % (start, middle, end))
+
+    def test_level_makes_it_that_many_db_louder_or_quieter(self):
+        import numpy as np
+        quieter = heard([effects.sound("pop", 1.0, -6)], base="0")[48000:]
+        self.assertLess(abs(np.abs(quieter).max() / np.abs(self.alone["pop"]).max() - 10 ** (-6 / 20)), 0.005)
+
+    def test_a_sound_past_the_clips_end_is_cut_there(self):
+        self.assertEqual(heard([effects.sound("ding", 2.5)]).shape, self.plain.shape)
+
+    def test_wrong_input_says_what_to_send(self):
+        with self.assertRaisesRegex(ValueError, "sound 'bang' is not a sound: use one of thump, whoosh, pop, ding"):
+            effects.sound("bang", 1)
+        with self.assertRaisesRegex(ValueError, "level 9 is not a sound's level: use -20 to 6 dB"):
+            effects.sound("pop", 1, 9)
+        with self.assertRaisesRegex(ValueError, "level 'loud' is not a number: give it in dB"):
+            effects.sound("pop", 1, "loud")
+        with self.assertRaisesRegex(ValueError, "at -1 is below 0"):
+            effects.sound("pop", -1)
+
+
+def levels(x):
+    """The level of a 1 kHz tone in each millisecond (one whole wave), in dB."""
+    import numpy as np
+    rms = np.sqrt((x[:len(x) // 48 * 48, 0].astype(float) ** 2).reshape(-1, 48).mean(axis=1))
+    return 20 * np.log10(np.maximum(rms, 1e-9))
+
+
+@unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")
+class Duck(unittest.TestCase):
+    """A steady 1 kHz tone of 6 s ducked by 12 dB under three spans: two 0.4 s apart and one 2.1 s later."""
+
+    TONE = "0.5*sin(2*PI*1000*t)"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.full = levels(heard([], 6, cls.TONE))
+        cls.ducked = levels(heard([effects.duck([(4.5, 5.0), (1.0, 1.6), (2.0, 2.4)], -12)], 6, cls.TONE))
+
+    def under(self, a, b):
+        return self.ducked[round(a * 1000):round(b * 1000)] - self.full[round(a * 1000):round(b * 1000)]
+
+    def test_it_is_down_by_db_while_someone_speaks_and_as_it_was_between(self):
+        import numpy as np
+        for a, b in ((1.0, 2.4), (4.5, 5.0)):
+            self.assertLess(np.abs(self.under(a, b) + 12).max(), 0.05, "down 12 dB from %s to %s s" % (a, b))
+        for a, b in ((0, 0.75), (2.9, 4.25), (5.5, 6)):
+            self.assertLess(np.abs(self.under(a, b)).max(), 0.01, "as it was from %s to %s s" % (a, b))
+
+    def test_it_goes_down_before_the_first_word_and_comes_back_after_the_last(self):
+        self.assertLess(self.under(0.74, 0.75).max(), 0.01, "still up at 0.75 s")
+        self.assertLess(abs(self.under(1.0, 1.001)[0] + 12), 0.05, "fully down when the span starts")
+        self.assertLess(self.under(2.6, 2.601)[0], -3, "on its way back up at 2.6 s")
+
+    def test_spans_less_than_a_breath_apart_stay_down_between_them(self):
+        self.assertLess(abs(self.under(1.6, 2.0) + 12).max(), 0.05)
+
+    def test_it_never_steps_so_it_never_clicks(self):
+        import numpy as np
+        self.assertLess(np.abs(np.diff(self.ducked)).max(), 0.2, "no step bigger than 0.2 dB from one ms to the next")
+
+    def test_no_spans_leave_the_sound_as_it_was(self):
+        import numpy as np
+        self.assertEqual(np.abs(heard([effects.duck([])], 1, self.TONE) - heard([], 1, self.TONE)).max(), 0)
+
+    def test_wrong_input_says_what_to_send(self):
+        with self.assertRaisesRegex(ValueError, "db -50 is not a duck: use -40 to -1 dB"):
+            effects.duck([(1, 2)], -50)
+        with self.assertRaisesRegex(ValueError, "end 1 is not after start 2"):
+            effects.duck([(2, 1)])
+        with self.assertRaisesRegex(ValueError, r"span 0 \(1,\) is not \(start, end\)"):
+            effects.duck([(1,)])
+        with self.assertRaisesRegex(ValueError, "spans 3 is not a list"):
+            effects.duck(3)
