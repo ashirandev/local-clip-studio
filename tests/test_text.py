@@ -3,11 +3,13 @@ import importlib.util
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -431,6 +433,119 @@ class CaptionLines(unittest.TestCase):
             text.caption_lines([{"from": 2, "to": 1, "text": "x"}])
         with self.assertRaisesRegex(ValueError, "most 2 is not a line length: use a whole number of letters from 4"):
             text.caption_lines(SAID, most=2)
+
+
+@unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")
+class Looks(unittest.TestCase):
+    BOX = (90, 700, 900, 400)
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp(prefix="lcs looks ")
+        self.addCleanup(shutil.rmtree, self.folder, True)
+
+    def titled(self, st, words="ลดราคา"):
+        """The frame with words titled in st on the grey ground, as an int array."""
+        events = text.title(words, 0, 2, self.BOX, st)
+        return draw(doc(events, styles=[st]), [30], self.folder, folder_fonts=text.fonts_folder(st))[30].astype(int)
+
+    def near(self, frame, hexcolour, within=24):
+        """How many pixels are within `within` of the colour in every channel."""
+        import numpy as np
+        rgb = [int(hexcolour[i:i + 2], 16) for i in (1, 3, 5)]
+        return int((np.abs(frame - rgb) <= within).all(axis=2).sum())
+
+    def test_the_glow_is_a_layer_of_its_own_under_letters_that_keep_a_dark_outline(self):
+        st = text.STYLES["glow"]
+        events = text.title("ลดราคา", 0, 2, self.BOX, st)
+        self.assertEqual(len(events), 2, "the glow, then the letters")
+        self.assertIn(",glow_title_glow,", events[0])
+        self.assertIn("\\1a&HFF&", events[0], "the glow layer hides its fill")
+        self.assertIn("\\blur", events[0])
+        self.assertNotIn("\\blur", events[1], "the letters stay sharp")
+        self.assertGreaterEqual(text.ratio(st.colour, st.edge), 4.5, "and keep an outline that reads")
+        orange, cyan = self.titled(st), self.titled(text.style("glow", colours={"glow": "#22D3EE"}))
+        warm = lambda f: int(((f[..., 0] - f[..., 2]) > 60).sum())
+        cold = lambda f: int(((f[..., 2] - f[..., 0]) > 60).sum())
+        self.assertGreater(warm(orange), 500, "an orange glow round the letters")
+        self.assertLess(warm(cyan), 50)
+        self.assertGreater(cold(cyan), 500, "the glow is the colour chosen")
+
+    def test_3d_letters_cast_a_hard_deep_copy_in_the_shade_colour(self):
+        st = text.STYLES["3d"]
+        fields = text._ass_style(st, "title").split(",")
+        self.assertEqual(fields[6], text._colour(st.shade), "a solid shadow in the shade colour")
+        self.assertGreater(float(fields[17]), 4)
+        house = self.near(self.titled(st), st.shade)
+        self.assertGreater(house, 300)
+        blue = self.titled(text.style("3d", colours={"shade": "#0B1B4D"}))
+        self.assertGreater(self.near(blue, "#0B1B4D"), 300)
+        self.assertLess(self.near(blue, st.shade), house / 4, "only where the orange rim meets the blue")
+
+    def test_every_look_has_a_card_in_english_and_thai_with_a_sample(self):
+        import numpy as np
+        work, recording.WORK = recording.WORK, self.folder
+        self.addCleanup(setattr, recording, "WORK", work)
+        cards = text.cards()
+        self.assertEqual([c["name"] for c in cards], list(text.HOUSE_NAMES))
+        for c in cards:
+            self.assertTrue(c["en"].strip() and re.search("[\u0e00-\u0e7f]", c["th"]), c["name"])
+            self.assertEqual(set(c["colours"]), set(text.PAINTS))
+            with open(c["png"], "rb") as f:
+                head = f.read(24)
+            self.assertEqual(struct.unpack(">II", head[16:24]), (540, 200), c["name"])
+            grey = np.frombuffer(subprocess.run([FFMPEG, "-v", "error", "-i", c["png"], "-f", "rawvideo", "-pix_fmt",
+                                                 "gray", "-"], capture_output=True, check=True).stdout, np.uint8)
+            self.assertGreater(int((grey > 200).sum()), 400, "%s's sample shows its words" % c["name"])
+        self.assertEqual([c["png"] for c in text.cards()], [c["png"] for c in cards], "made once")
+        with mock.patch.object(text, "CARD_GROUND", "geq=lum=200:cb=128:cr=128"):
+            light = text._card_png(text.STYLES["clean"])
+        self.assertNotEqual(light, cards[0]["png"], "a card drawn another way is a new picture")
+
+
+class Colours(unittest.TestCase):
+    def test_every_colour_of_a_look_can_be_chosen_for_every_part_or_one_part(self):
+        st = text.style("3d", colours={"key": "#22D3EE", "edge": "#1E3A8A", "shade": "#0B1B4D"})
+        self.assertEqual((st.colour, st.key, st.edge, st.shade), ("#FFFFFF", "#22D3EE", "#1E3A8A", "#0B1B4D"))
+        fields = text._ass_style(st, "title").split(",")
+        self.assertEqual((fields[5], fields[6]), (text._colour("#1E3A8A"), text._colour("#0B1B4D")))
+        self.assertEqual(text.style("pop", colours={"text": "#FFE8D0"}).colour, "#FFE8D0")
+        names = {text.style("3d").name, st.name, text.style("3d", colours={"key": "#FF00FF"}).name}
+        self.assertEqual(len(names), 3, "every set of colours is an ASS style of its own")
+        parts = text.look("pop", colours={"key": "#00FF00"}, part_colours={"caption": {"key": "#FF00FF"}})
+        self.assertEqual([parts[k].key for k in text.KINDS], ["#00FF00", "#FF00FF", "#00FF00"])
+
+    def test_a_glow_can_be_given_to_any_look(self):
+        st = text.style("clean", colours={"glow": "#FF00FF"})
+        self.assertEqual(st.glow, "#FF00FF")
+        events = text.title("ลดราคา", 0, 2, (90, 700, 900, 400), st)
+        self.assertEqual(len(events), 2)
+        self.assertIn("Style: %s_title_glow," % st.name, text.document([st], events))
+
+    def test_a_colour_the_person_chose_is_kept_even_when_hard_to_read_and_the_note_says_so(self):
+        st = text.style("pop", colours={"edge": "#FFFFFF"})
+        self.assertEqual(st.edge, "#FFFFFF")
+        self.assertIn("text #FFFFFF on the outline #FFFFFF stands out only 1.0:1, below 4.5:1, so it may be hard to "
+                      "read: kept as asked.", st.note)
+        key = text.style("pop", colours={"key": "#F0F0F0", "edge": "#FFFFFF", "text": "#000000"})
+        self.assertEqual(key.key, "#F0F0F0")
+        self.assertIn("key colour #F0F0F0 on the outline #FFFFFF stands out only", key.note)
+        self.assertIn("the clean look has no shadow, so shade #000000 is not drawn",
+                      text.style("clean", colours={"shade": "#000000"}).note)
+
+    def test_colour_refusals(self):
+        with self.assertRaisesRegex(ValueError, r"colours \{'logo': '#FFFFFF'\} is not a colour for each part of a "
+                                                r"look: give \{name: #RRGGBB\} with the names text, key, edge, glow, "
+                                                r"shade\."):
+            text.style(colours={"logo": "#FFFFFF"})
+        with self.assertRaisesRegex(ValueError, "key 'red' is not a colour: give it as #RRGGBB"):
+            text.style(colours={"key": "red"})
+        for bad in ({"logo": {}}, {"title": "#FFFFFF"}):
+            with self.assertRaisesRegex(ValueError, r"part_colours %s is not the colours of each part: give "
+                                                    r"\{part: \{name: #RRGGBB\}\} with the parts title, caption, big"
+                                        % re.escape(repr(bad))):
+                text.look(part_colours=bad)
+        with self.assertRaisesRegex(ValueError, "colours '#FFFFFF' is not a colour for each part of a look"):
+            text.look(colours="#FFFFFF")
 
 
 @unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")

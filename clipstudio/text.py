@@ -17,6 +17,11 @@ can be told from one that is not. libass is given a folder holding only the chos
 the face that was measured is the face that is drawn: found through the computer's fonts instead, Sarabun Bold was
 drawn as another font (measured 10-27).
 
+The house styles are the looks people pick from (cards() names each in English and Thai, with a sample): clean, pop
+and sticker in Google Sans, glow (Pattaya, SIL OFL 1.1, fonts/Pattaya-OFL.txt: script letters lit by a soft glow,
+drawn as its own layer under letters that keep a dark outline, so they read on any picture), 3d (white letters with an
+orange rim and a hard deep-orange copy below them) and classic (Taviraj italic, SIL OFL 1.1, fonts/Taviraj-OFL.txt).
+
 Muse picks how big the words are from a scale of 1 to 5 (SIZES), for every part or for each part alone: 3 is the
 sizes tuned on phones and each step is SIZE_STEP times the one before, so a step stands the letters as tall in every
 font, and the lines and the outline grow with them.
@@ -54,13 +59,14 @@ PAIR_GAP = 1.0
 OPENERS, CLOSERS = "([{\"'“‘", ")]}\"'”’,.!?%:;…"
 
 Style = collections.namedtuple("Style", "name fontname file colour key edge box edge_ratio shadow_ratio sizes note "
-                                        "scale size", defaults=(1.0, 3))
+                                        "scale size shade glow", defaults=(1.0, 3, None, None))
 Style.__doc__ = """A way to draw words. colour is the text, key the key word (and the lit word in captions), edge
 the outline, or the box behind the text when box is True. sizes holds the title, caption and big-word sizes in
 pixels, and scale how much bigger they are than the size Kanit draws the same letters at: lines stand size / scale
 apart and the outline and shadow are edge_ratio and shadow_ratio of size / scale, so every font keeps the spacing
-and the outline the styles were tuned with. size is the step on the size scale (SIZES) the sizes were drawn at. note
-says what was changed from what was asked."""
+and the outline the styles were tuned with. size is the step on the size scale (SIZES) the sizes were drawn at.
+shade is the colour of a hard shadow (None: a soft black one), and glow the colour of a glow drawn under the letters
+(None: no glow). note says what was changed from what was asked."""
 Measure = collections.namedtuple("Measure", "lines w h")
 _Layout = collections.namedtuple("_Layout", "lines w h left top")
 _Face = collections.namedtuple("_Face", "path index names full sub family weight italic licence postscript")
@@ -72,7 +78,8 @@ FREE_LICENCES = (("SIL Open Font License", ("open font licen", "scripts.sil.org/
 
 # tuned: the sizes tuned on phones in Kanit (SemiBold, Black and Bold). Google Sans draws its Thai letters 1.477
 # (SemiBold), 1.500 and 1.488 (Bold) times smaller at the same size (measured 10-27): scale, so its sizes are the
-# tuned ones times that and the words stand as tall as they did.
+# tuned ones times that and the words stand as tall as they did. Pattaya draws them 1.21 times taller than Kanit Bold
+# and Taviraj SemiBold Italic 1.075 times smaller (measured 10-27, กขคบ at 200 px: 87, 67 and 72 px).
 _HOUSE = {
     "clean": dict(face="Google Sans SemiBold", colour="#FFFFFF", key="#FFD60A", edge="#141414", box=False,
                   edge_ratio=0.07, shadow_ratio=0.0, tuned=(84, 64, 180), scale=1.477),
@@ -80,7 +87,32 @@ _HOUSE = {
                 edge_ratio=0.10, shadow_ratio=0.04, tuned=(92, 68, 200), scale=1.500),
     "sticker": dict(face="Google Sans Bold", colour="#16161A", key="#C8102E", edge="#FFFFFF", box=True,
                     edge_ratio=0.20, shadow_ratio=0.0, tuned=(80, 60, 170), scale=1.488),
+    "glow": dict(face="Pattaya Regular", colour="#FFF4E8", key="#FFD27A", edge="#3B1600", box=False,
+                 edge_ratio=0.035, shadow_ratio=0.0, tuned=(96, 72, 210), scale=72 / 87, glow="#FF6A1A"),
+    "3d": dict(face="Google Sans Bold", colour="#FFFFFF", key="#FFF7C2", edge="#C2410C", box=False,
+               edge_ratio=0.035, shadow_ratio=0.075, tuned=(92, 68, 200), scale=1.500, shade="#7C2D12"),
+    "classic": dict(face="Taviraj SemiBold Italic", colour="#FFFFFF", key="#FFD60A", edge="#141414", box=False,
+                    edge_ratio=0.06, shadow_ratio=0.03, tuned=(88, 66, 190), scale=72 / 67),
 }
+# What each look is, for the people and for Muse choosing one: (English, Thai).
+CARDS = {
+    "clean": ("Clean and easy to read, with a thin dark outline.", "เรียบ อ่านง่าย ขอบเข้มบาง ๆ"),
+    "pop": ("Bold, with a black outline and a shadow: stands out on game footage.", "ตัวหนา ขอบดำ มีเงา เด่นบนคลิปเกม"),
+    "sticker": ("Words on a white box, like a sticker.", "ตัวหนังสือบนกล่องขาว แบบป้ายสติกเกอร์"),
+    "glow": ("Script letters with a warm orange glow: for the one word that matters.",
+             "ตัวเขียนเรืองแสงส้ม ใช้เน้นคำสำคัญคำเดียว"),
+    "3d": ("Heavy white letters with an orange edge that stands out like 3D.", "ตัวหนาสีขาว ขอบส้มนูนแบบสามมิติ"),
+    "classic": ("Elegant serif italic: for short linking words beside a bold one.",
+                "ตัวมีเชิงเอียง ดูหรู ใช้กับคำเชื่อมสั้น ๆ ข้างคำตัวหนา"),
+}
+SAMPLE = "ลดราคา 50%"
+CARD_GROUND = "geq=lum='42-14*Y/H':cb=132:cr=124"
+# The colours of a look a person can choose: the letters, the key word, the outline (or the box), the glow and the
+# hard shadow.
+PAINTS = ("text", "key", "edge", "glow", "shade")
+# The glow: a border GLOW_WIDTH of the letters' size wide in the glow colour at GLOW_ALPHA (ASS alpha, 0 is solid),
+# blurred by GLOW_BLUR of the size.
+GLOW_WIDTH, GLOW_BLUR, GLOW_ALPHA = 0.16, 0.12, 0x50
 TALL_THAI, TALL_LATIN = "กขคบ", "xnu"
 HOUSE_NAMES = tuple(_HOUSE)
 # The size scale: TUNED_SIZE is the sizes above, and each step is SIZE_STEP times the one before (from 1 to 5: 0.76,
@@ -407,11 +439,13 @@ def ratio(a, b):
     return (hi + 0.05) / (lo + 0.05)
 
 
-def style(name=None, font=None, colour=None, size=TUNED_SIZE):
-    """A house style (clean, pop or sticker; clean when name is None), with the person's font and text colour when
-    they asked for them, at size, a step on the size scale from 1 (smallest) to 5 (biggest). A colour that does not
-    stand out 4.5:1 against the outline (or the box) gets a black or white one that does: it is never refused, and
-    note says what was changed."""
+def style(name=None, font=None, colour=None, size=TUNED_SIZE, colours=None):
+    """A house style (one of HOUSE_NAMES; clean when name is None), with the person's font and text colour when they
+    asked for them, at size, a step on the size scale from 1 (smallest) to 5 (biggest), with colours ({name: #RRGGBB},
+    names from PAINTS) for any of its colours (text there is the same as colour; a glow given to a look without one
+    gives it one). A text or key colour that does not stand out 4.5:1 against the outline (or the box) the look chose
+    gets a black or white outline, or the text's colour, that does: it is never refused, and note says what was
+    changed. An outline or key the person chose is kept as asked, and note says it may be hard to read."""
     name = "clean" if name is None else name
     if name not in _HOUSE:
         raise ValueError("style %r is not a house style: use one of %s." % (name, ", ".join(HOUSE_NAMES)))
@@ -451,24 +485,44 @@ def style(name=None, font=None, colour=None, size=TUNED_SIZE):
         path, index, _face = found
     if size != TUNED_SIZE:
         sizes = tuple(max(8, round(s * SIZE_STEP ** (size - TUNED_SIZE))) for s in sizes)
-    text = house["colour"] if colour is None else _hex(colour, "colour")
-    key, edge = house["key"], house["edge"]
+    colours = {} if colours is None else colours
+    if not isinstance(colours, dict) or set(colours) - set(PAINTS):
+        raise ValueError("colours %r is not a colour for each part of a look: give {name: #RRGGBB} with the names %s."
+                         % (colours, ", ".join(PAINTS)))
+    picked = {k: _hex(v, k) for k, v in colours.items() if v is not None}
+    if colour is not None:
+        picked.setdefault("text", _hex(colour, "colour"))
+    text = picked.get("text", house["colour"])
+    key, edge = picked.get("key", house["key"]), picked.get("edge", house["edge"])
+    glow, shade = picked.get("glow", house.get("glow")), picked.get("shade", house.get("shade"))
     what = "box" if house["box"] else "outline"
-    if ratio(text, edge) < 4.5:
+    if ratio(text, edge) < 4.5 and "edge" in picked:
+        notes.append("text %s on the %s %s stands out only %.1f:1, below 4.5:1, so it may be hard to read: kept as "
+                     "asked." % (text, what, edge, ratio(text, edge)))
+    elif ratio(text, edge) < 4.5:
         better = max(("#000000", "#FFFFFF"), key=lambda e: ratio(text, e))
         notes.append("%s changed from %s to %s: %s on %s is %.1f:1, below 4.5:1." % (
             what, edge, better, text, edge, ratio(text, edge)))
         edge = better
-    if ratio(key, edge) < 4.5:
+    if ratio(key, edge) < 4.5 and "key" in picked:
+        notes.append("key colour %s on the %s %s stands out only %.1f:1, below 4.5:1, so it may be hard to read: kept "
+                     "as asked." % (key, what, edge, ratio(key, edge)))
+    elif ratio(key, edge) < 4.5:
         notes.append("key colour changed from %s to %s: it stood out only %.1f:1 on the %s %s." % (
             key, text, ratio(key, edge), what, edge))
         key = text
+    if "shade" in picked and not house["shadow_ratio"]:
+        notes.append("the %s look has no shadow, so shade %s is not drawn: use a look with a shadow, such as pop or "
+                     "3d." % (name, shade))
     label = name
-    if face != house["face"] or text != house["colour"] or size != TUNED_SIZE:
-        seed = "%s|%s|%s" % (face, path, text) + ("" if size == TUNED_SIZE else "|%d" % size)
+    painted = (text, key, edge, glow, shade)
+    if face != house["face"] or size != TUNED_SIZE or painted != (house["colour"], house["key"], house["edge"],
+                                                                     house.get("glow"), house.get("shade")):
+        seed = "%s|%s|%s" % (face, path, "|".join(str(p) for p in painted)) + (
+            "" if size == TUNED_SIZE else "|%d" % size)
         label = "%s~%s" % (name, hashlib.sha1(seed.encode("utf-8")).hexdigest()[:6])
     return Style(label, face, (path, index), text, key, edge, house["box"], house["edge_ratio"],
-                 house["shadow_ratio"], sizes, " ".join(notes), scale, size)
+                 house["shadow_ratio"], sizes, " ".join(notes), scale, size, shade, glow)
 
 
 @functools.lru_cache(maxsize=None)
@@ -482,10 +536,19 @@ def _tall(path, index, fontname, letters):
 STYLES = {n: style(n) for n in HOUSE_NAMES}
 
 
-def look(name=None, font=None, colour=None, fonts=None, size=None, sizes=None):
+def look(name=None, font=None, colour=None, fonts=None, size=None, sizes=None, colours=None, part_colours=None):
     """The style each part of the words is drawn in, {"title": Style, "caption": Style, "big": Style}: the house
-    style name with font and size for every part, and fonts ({part: font}) and sizes ({part: size}) for the parts
-    given one of their own, so the title, the captions and the big words can each be changed alone."""
+    style name with font, size and colours ({name: #RRGGBB}, see style()) for every part, and fonts ({part: font}),
+    sizes ({part: size}) and part_colours ({part: {name: #RRGGBB}}, over colours) for the parts given their own, so
+    the title, the captions and the big words can each be changed alone."""
+    part_colours = {} if part_colours is None else part_colours
+    if (not isinstance(part_colours, dict) or set(part_colours) - set(KINDS)
+            or not all(v is None or isinstance(v, dict) for v in part_colours.values())):
+        raise ValueError("part_colours %r is not the colours of each part: give {part: {name: #RRGGBB}} with the parts "
+                         "%s." % (part_colours, ", ".join(KINDS)))
+    if colours is not None and not isinstance(colours, dict):
+        raise ValueError("colours %r is not a colour for each part of a look: give {name: #RRGGBB} with the names %s."
+                         % (colours, ", ".join(PAINTS)))
     fonts = {} if fonts is None else fonts
     if not isinstance(fonts, dict) or set(fonts) - set(KINDS):
         raise ValueError("fonts %r is not a font for each part: give {part: font} with the parts %s."
@@ -495,7 +558,8 @@ def look(name=None, font=None, colour=None, fonts=None, size=None, sizes=None):
         raise ValueError("sizes %r is not a size for each part: give {part: size} with the parts %s and sizes from "
                          "%d to %d." % (sizes, ", ".join(KINDS), SIZES[0], SIZES[-1]))
     size = TUNED_SIZE if size is None else size
-    return {kind: style(name, fonts.get(kind) or font, colour, size if sizes.get(kind) is None else sizes[kind])
+    return {kind: style(name, fonts.get(kind) or font, colour, size if sizes.get(kind) is None else sizes[kind],
+                        dict(colours or {}, **(part_colours.get(kind) or {})))
             for kind in KINDS}
 
 
@@ -548,9 +612,24 @@ def _ass_style(st, kind, mask=False):
         first = _colour(st.key if kind == "caption" else st.colour)
         second = _colour(st.colour)
         outline = _colour(st.edge)
-        back = _colour("#000000", 0x80) if not st.box else _colour(st.edge)
+        back = _colour(st.edge) if st.box else _colour(st.shade) if st.shade else _colour("#000000", 0x80)
     return ("Style: %s_%s,%s,%d,%s,%s,%s,%s,0,0,0,0,100,100,0,0,%d,%s,%s,8,0,0,0,1"
             % (st.name, kind, st.fontname, size, first, second, outline, back, 3 if st.box else 1, edge, shadow))
+
+
+def _glow_style(st, kind):
+    """The ASS style of the glow under a glow look's letters: no fill, a wide border in the glow colour."""
+    size = _size(st, kind)
+    return ("Style: %s_%s_glow,%s,%d,&HFF000000,&HFF000000,%s,&HFF000000,0,0,0,0,100,100,0,0,1,%s,0,8,0,0,0,1"
+            % (st.name, kind, st.fontname, size, _colour(st.glow, GLOW_ALPHA), round(size / st.scale * GLOW_WIDTH, 1)))
+
+
+def _glow_tags(st, kind):
+    """The override tags that make a line of a glow look's letters its glow: fill hidden, border blurred; "" for a
+    look with no glow."""
+    if not st.glow:
+        return ""
+    return "\\1a&HFF&\\2a&HFF&\\blur%s" % round(_size(st, kind) / st.scale * GLOW_BLUR, 1)
 
 
 def _header(w, h):
@@ -842,14 +921,17 @@ def title(text, start, end, box, style, key=None):
     ax = x + w / 2 - (lay.left + lay.w / 2)
     ay = y + h / 2 - (lay.top + lay.h / 2)
     return _dialogues(2, _cs_clock(a), _cs_clock(b), "%s_title" % style.name, ax, ay, _line_height(style, "title"),
-                      _coloured_lines(text, lay.lines, span, style))
+                      _coloured_lines(text, lay.lines, span, style), _glow_tags(style, "title"))
 
 
-def _dialogues(layer, start, end, name, x, y, lh, lines):
+def _dialogues(layer, start, end, name, x, y, lh, lines, glow=""):
     """One Dialogue for each line, the first one's top centre at (x, y) and each next one lh lower (see
-    _line_height): what one Dialogue with the lines joined by \\N draws when lh is the font's size."""
-    return ["Dialogue: %d,%s,%s,%s,,0,0,0,,{\\an8\\pos(%.2f,%.2f)}%s" % (layer, start, end, name, x, y + k * lh, line)
-            for k, line in enumerate(lines)]
+    _line_height): what one Dialogue with the lines joined by \\N draws when lh is the font's size. With glow (the
+    tags from _glow_tags), each line's glow comes first, in the same layer, so the letters are drawn over it."""
+    return [event for k, line in enumerate(lines) for event in (
+        (["Dialogue: %d,%s,%s,%s_glow,,0,0,0,,{\\an8\\pos(%.2f,%.2f)%s}%s" % (layer, start, end, name, x, y + k * lh,
+                                                                            glow, line)] if glow else [])
+        + ["Dialogue: %d,%s,%s,%s,,0,0,0,,{\\an8\\pos(%.2f,%.2f)}%s" % (layer, start, end, name, x, y + k * lh, line)])]
 
 
 def _key_span(text, key):
@@ -921,8 +1003,10 @@ def big_word(word, at, length, centre, style):
     lead = int(round(at * 1000)) - a * 10
     pop = "\\fscx%d\\fscy%d" % (POP[0][1], POP[0][1]) + "".join(
         "\\t(%d,%d,\\fscx%d\\fscy%d)" % (lead + p[0], lead + q[0], q[1], q[1]) for p, q in zip(POP, POP[1:]))
-    return ["Dialogue: 3,%s,%s,%s_big,,0,0,0,,{\\an5\\pos(%.2f,%.2f)%s\\fad(0,%d)}%s" % (
-        _cs_clock(a), _cs_clock(b), style.name, ax, ay, pop, FADE_MS, word.strip())]
+    glow = _glow_tags(style, "big")
+    return [("Dialogue: 3,%s,%s,%s_big%s,,0,0,0,,{\\an5\\pos(%.2f,%.2f)%s\\fad(0,%d)%s}%s"
+             % (_cs_clock(a), _cs_clock(b), style.name, tail, ax, ay, pop, FADE_MS, tags, word.strip()))
+            for tail, tags in ((("_glow", glow),) if glow else ()) + (("", ""),)]
 
 
 # ---- captions ----------------------------------------------------------------------------------------------------
@@ -1073,7 +1157,8 @@ def captions(lines, style, band, lit=False):
             words = _karaoke(page, start)
         else:
             words = ["{\\1c%s&}%s" % (_colour(style.colour), line["text"].strip()) for line in page]
-        events += _dialogues(1, _cs_clock(start), _cs_clock(end), "%s_caption" % style.name, ax, ay, lh, words)
+        events += _dialogues(1, _cs_clock(start), _cs_clock(end), "%s_caption" % style.name, ax, ay, lh, words,
+                             _glow_tags(style, "caption"))
     return events
 
 
@@ -1107,7 +1192,8 @@ def document(styles, events):
     styles = list(styles)
     for st in styles:
         _check_style(st)
-    names = {"%s_%s" % (st.name, kind) for st in styles for kind in KINDS}
+    names = {"%s_%s%s" % (st.name, kind, tail) for st in styles for kind in KINDS
+             for tail in (("", "_glow") if st.glow else ("",))}
     lines = []
     for event in events:
         if not isinstance(event, str) or not event.startswith("Dialogue: "):
@@ -1119,7 +1205,54 @@ def document(styles, events):
         lines.append(event)
     unique = list(dict.fromkeys(st for st in styles))
     return (_header(FRAME_W, FRAME_H) + "".join(_ass_style(st, kind) + "\n" for st in unique for kind in KINDS)
+            + "".join(_glow_style(st, kind) + "\n" for st in unique if st.glow for kind in KINDS)
             + EVENTS + "".join(line + "\n" for line in lines))
+
+
+def cards():
+    """The looks people and Muse pick from: [{"name", "en", "th", "png", "colours"}], png a picture of SAMPLE drawn
+    in that look on a dark ground (540 x 200, made once in work/looks), colours the look's own {name: #RRGGBB or
+    None} for each name in PAINTS, the ones a person can change."""
+    return [{"name": name, "en": CARDS[name][0], "th": CARDS[name][1], "png": _card_png(STYLES[name]),
+             "colours": dict(zip(PAINTS, (STYLES[name].colour, STYLES[name].key, STYLES[name].edge, STYLES[name].glow,
+                                          STYLES[name].shade)))}
+            for name in HOUSE_NAMES]
+
+
+def _card_png(st):
+    """The path of SAMPLE drawn in st on a dark ground, 540 x 200, made once: the words and the drawing are the cache
+    key, so a card drawn another way is a new picture."""
+    folder = os.path.join(recording.WORK, "looks")
+    os.makedirs(folder, exist_ok=True)
+    body = document([st], title(SAMPLE, 0, 1, (40, 40, FRAME_W - 80, 320), st, key="50%"))
+    drawing = ("format=yuv420p,%s,pad=%d:%d,{words},crop=%d:400:0:0,scale=540:200"
+               % (CARD_GROUND, FRAME_W, FRAME_H, FRAME_W))
+    key = hashlib.sha1((body + drawing).encode("utf-8")).hexdigest()[:10]
+    path = os.path.join(folder, "%s_%s.png" % (st.name, key))
+    if os.path.isfile(path):
+        return path
+    fd, ass_path = tempfile.mkstemp(suffix=".ass", dir=folder)
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+        f.write(body)
+    fd, part = tempfile.mkstemp(prefix=os.path.basename(path) + ".", suffix=".part.png", dir=folder)
+    os.close(fd)
+    try:
+        subprocess.run([_ffmpeg(), "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=%dx400:d=1" % FRAME_W,
+                        "-vf", drawing.replace("{words}", _ass_filter(ass_path, fonts_folder(st))), "-frames:v", "1",
+                        "-update", "1", part], check=True, capture_output=True, timeout=RENDER_SECONDS)
+    except (subprocess.SubprocessError, OSError):
+        os.remove(part)
+        raise
+    finally:
+        os.remove(ass_path)
+    try:
+        os.replace(part, path)
+    except PermissionError:
+        # made by another request at the same moment and open now (Windows): the same picture, so keep it
+        os.remove(part)
+        if not os.path.isfile(path):
+            raise
+    return path
 
 
 def burn(ass_path, fonts_dir=FONTS):
