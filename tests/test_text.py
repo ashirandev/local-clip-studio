@@ -496,6 +496,10 @@ class Looks(unittest.TestCase):
             grey = np.frombuffer(subprocess.run([FFMPEG, "-v", "error", "-i", c["png"], "-f", "rawvideo", "-pix_fmt",
                                                  "gray", "-"], capture_output=True, check=True).stdout, np.uint8)
             self.assertGreater(int((grey > 200).sum()), 400, "%s's sample shows its words" % c["name"])
+            ys, xs = np.nonzero(grey.reshape(200, 540) > 110)
+            fill = (xs.max() + 1 - xs.min()) / 540
+            self.assertTrue(0.55 < fill < 0.9, "%s's words fill %.2f of the card's width" % (c["name"], fill))
+            self.assertTrue(ys.min() > 0 and ys.max() < 199, "%s's words are not cut" % c["name"])
         self.assertEqual([c["png"] for c in text.cards()], [c["png"] for c in cards], "made once")
         with mock.patch.object(text, "CARD_GROUND", "geq=lum=200:cb=128:cr=128"):
             light = text._card_png(text.STYLES["clean"])

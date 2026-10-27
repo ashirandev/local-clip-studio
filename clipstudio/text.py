@@ -107,6 +107,8 @@ CARDS = {
 }
 SAMPLE = "ลดราคา 50%"
 CARD_GROUND = "geq=lum='42-14*Y/H':cb=132:cr=124"
+CARD_SIZE = (540, 200)
+CARD_FILL, CARD_TALL = 0.7, 0.85
 # The colours of a look a person can choose: the letters, the key word, the outline (or the box), the glow and the
 # hard shadow.
 PAINTS = ("text", "key", "edge", "glow", "shade")
@@ -1220,13 +1222,18 @@ def cards():
 
 
 def _card_png(st):
-    """The path of SAMPLE drawn in st on a dark ground, 540 x 200, made once: the words and the drawing are the cache
-    key, so a card drawn another way is a new picture."""
+    """The path of SAMPLE drawn in st on a dark ground, CARD_SIZE, made once: cut around the words so they fill
+    CARD_FILL of its width (CARD_TALL of its height at most), as they are drawn on the frame, then shrunk. The words
+    and the drawing are the cache key, so a card drawn another way is a new picture."""
     folder = os.path.join(recording.WORK, "looks")
     os.makedirs(folder, exist_ok=True)
     body = document([st], title(SAMPLE, 0, 1, (40, 40, FRAME_W - 80, 320), st, key="50%"))
-    drawing = ("format=yuv420p,%s,pad=%d:%d,{words},crop=%d:400:0:0,scale=540:200"
-               % (CARD_GROUND, FRAME_W, FRAME_H, FRAME_W))
+    words = measure(SAMPLE, st, "title", FRAME_W - 80)
+    aspect = CARD_SIZE[0] / CARD_SIZE[1]
+    cut_w = min(FRAME_W, 2 * math.ceil(max(words.w / CARD_FILL, words.h / CARD_TALL * aspect) / 2))
+    cut_h = 2 * round(cut_w / aspect / 2)
+    drawing = ("format=yuv420p,%s,pad=%d:%d,{words},crop=%d:%d:%d:%d,scale=%d:%d"
+               % ((CARD_GROUND, FRAME_W, FRAME_H, cut_w, cut_h, (FRAME_W - cut_w) // 2, 200 - cut_h // 2) + CARD_SIZE))
     key = hashlib.sha1((body + drawing).encode("utf-8")).hexdigest()[:10]
     path = os.path.join(folder, "%s_%s.png" % (st.name, key))
     if os.path.isfile(path):

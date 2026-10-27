@@ -11,11 +11,15 @@ random(), and never a filter that remembers earlier frames, so a frame drawn on 
 at that frame's time) is the same frame a full render draws.
 """
 import collections
+import hashlib
 import json
 import math
 import os
 import re
+import shutil
 import struct
+import subprocess
+import tempfile
 
 Fragment = collections.namedtuple("Fragment", "graph files")
 
@@ -362,17 +366,21 @@ def sticker(png, at, length, box):
     x, y, w, h = _frame_box(box)
     fit = min(w / size[0], h / size[1])
     base_w, base_h = size[0] * fit, size[1] * fit
-    u = "(t-%s)" % _f(at)
-    (t0, s0), (t1, s1), (t2, s2) = POP
-    grow = "if(lt(%s,%s),%s,if(lt(%s,%s),%s+%s*(%s-%s)/%s,if(lt(%s,%s),%s+%s*(%s-%s)/%s,%s)))" % (
-        u, _f(t0), _f(s0), u, _f(t1), _f(s0), _f(s1 - s0), u, _f(t0), _f(t1 - t0),
-        u, _f(t2), _f(s1), _f(s2 - s1), u, _f(t1), _f(t2 - t1), _f(s2))
+    grow = _popping("(t-%s)" % _f(at))
     when = "gte(t,%s)*lt(t,%s)" % (_f(at), _f(at + length))
     return Fragment("[f0]format=rgba,scale=w='max(2,trunc(%s*%s))':h='max(2,trunc(%s*%s))':eval=frame,"
                     "fade=t=out:st=%s:d=%s:alpha=1[_s];"
                     "[in][_s]overlay=x='%s-w/2':y='%s-h/2':eval=frame:shortest=1:format=auto:enable='%s'[out]"
                     % (_f(base_w), grow, _f(base_h), grow, _f(at + length - FADE), _f(FADE),
                        _f(x + w / 2), _f(y + h / 2), when), [png])
+
+
+def _popping(u):
+    """The size, in times its own, of a picture u seconds after it appears: POP's steps joined by straight lines."""
+    (t0, s0), (t1, s1), (t2, s2) = POP
+    return "if(lt(%s,%s),%s,if(lt(%s,%s),%s+%s*(%s-%s)/%s,if(lt(%s,%s),%s+%s*(%s-%s)/%s,%s)))" % (
+        u, _f(t0), _f(s0), u, _f(t1), _f(s0), _f(s1 - s0), u, _f(t0), _f(t1 - t0),
+        u, _f(t2), _f(s1), _f(s2 - s1), u, _f(t1), _f(t2 - t1), _f(s2))
 
 
 def stickers():
@@ -422,6 +430,248 @@ def _frame_box(box):
         raise ValueError("box %r runs off the %dx%d frame: keep x + w at most %d and y + h at most %d."
                          % (tuple(box), FRAME_W, FRAME_H, FRAME_W, FRAME_H))
     return x, y, w, h
+
+
+# ---- flurries: many stickers moving together --------------------------------------------------------------------
+
+# {move: (English, Thai, its length in seconds when none is given)}: what Muse and the person pick a flurry's move from
+MOVES = {
+    "burst": ("Fly out from the middle of the box every way, spinning, then drop a little and fade.",
+              "พุ่งกระจายออกจากกลางกล่อง หมุนไปมา แล้วตกลงนิดหนึ่งก่อนจางหาย", 1.4),
+    "rain": ("Fall from the top of the box to its bottom one after another, swaying.",
+             "ร่วงจากด้านบนลงด้านล่างทีละชิ้น ส่ายไปมา", 2.4),
+    "fountain": ("Shoot up from the bottom of the box and fall back, one after another.",
+                 "พุ่งขึ้นจากด้านล่างแล้วตกกลับลงมาทีละชิ้น เหมือนน้ำพุ", 1.8),
+    "bounce": ("Drop from the top of the box, bounce twice on its bottom and lie there.",
+               "หล่นจากด้านบน เด้งบนพื้นสองครั้งแล้วนิ่งอยู่", 2.2),
+    "rise": ("Float up from the bottom of the box to its top, swaying, like balloons.",
+             "ลอยขึ้นจากด้านล่างถึงด้านบน ส่ายเบา ๆ เหมือนลูกโป่ง", 2.6),
+    "scatter": ("Pop up one by one at spots all over the box, stay, then fade together.",
+                "โผล่ขึ้นมาทีละชิ้นทั่วกล่อง ค้างไว้ แล้วจางหายพร้อมกัน", 2.0),
+    "popper": ("Shoot up and in from both bottom corners of the box, like a party popper, then drift down.",
+               "ยิงเฉียงขึ้นจากมุมล่างทั้งสองข้าง แบบพลุกระดาษ แล้วค่อย ๆ ร่วงลงมา", 2.2),
+}
+# {move: (share of the length the copies' starts are spread over, share of it each copy moves for, whether each
+# copy stays where it ended until the flurry's end)}
+TIMING = {"burst": (0.0, 1.0, False), "rain": (0.5, 0.5, False), "fountain": (0.4, 0.6, False),
+          "bounce": (0.35, 0.5, True), "rise": (0.4, 0.6, False), "scatter": (0.5, 0.5, True),
+          "popper": (0.12, 0.88, False)}
+# the pictures each move's sample in moves() is drawn with
+MOVE_SAMPLES = {"burst": ("money_with_wings", "coin", "dollar_banknote"), "rain": ("coin", "dollar_banknote"),
+                "fountain": ("coin", "gem_stone"), "bounce": ("coin",), "rise": ("red_heart", "sparkles"),
+                "scatter": ("fire", "star", "hundred_points"), "popper": ("confetti", "star")}
+FLURRY_COUNTS = (1, 40)
+FLURRY_LENGTHS = (0.8, 6.0)
+FLURRY_SIZES = (40, 400)
+FLURRY_PICTURES = 6
+GROW = (0.75, 1.2)
+APPEAR, LEAVE = 0.15, 0.3
+CONFETTI = "confetti"
+CONFETTI_COLOURS = ("#FFC83D", "#FF4F9A", "#3DA5FF", "#34D399", "#A78BFA", "#FF7A1A")
+CONFETTI_SIZE = (20, 50)
+SAMPLE_BOX = (60, 200, 960, 1520)
+SAMPLE_GROUND = "0x23262E"
+
+
+def _jitter(k, salt):
+    """A share from 0 to 1 that looks random but is the same for copy k every time (no random())."""
+    v = math.sin((k + 1) * 12.9898 + salt * 78.233) * 43758.5453
+    return v - math.floor(v)
+
+
+def _halton(k, base):
+    """The k-th number (from 1) of the Halton sequence in base: spots that spread evenly however many there are."""
+    share, step = 0.0, 1.0 / base
+    while k:
+        share += step * (k % base)
+        k //= base
+        step /= base
+    return share
+
+
+def confetti_png(colour):
+    """The path of a paper piece in colour (#RRGGBB), CONFETTI_SIZE px, made once in work/shapes."""
+    from . import layouts
+    r, g, b = (int(colour[i:i + 2], 16) for i in (1, 3, 5))
+    w, h = CONFETTI_SIZE
+    return layouts._shape("confetti_%s" % colour[1:].lower(), w, h,
+                          "format=rgba,geq=r=%d:g=%d:b=%d:a=255[o]" % (r, g, b))
+
+
+def _path(move, k, count, u, since, inner):
+    """(x, y, angle) expressions of copy k's centre on the frame and its turn in radians: u its share of the way
+    (0 to 1), since the seconds since it started, inner the box its centre stays in."""
+    x0, y0, x1, y1 = inner
+    w, h = x1 - x0, y1 - y0
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    j = [_jitter(k, salt) for salt in range(8)]
+    spin = (1 if j[3] > 0.5 else -1) * (0.6 + 0.8 * j[4])
+    lane = min(1.0, max(0.0, (k + 0.5 + 0.6 * (j[6] - 0.5)) / count))
+    if move == "burst":
+        a = 2 * math.pi * k / count + (j[1] - 0.5) * 0.9
+        far = 0.65 + 0.35 * j[2]
+        out = "(1-pow(1-%s,3))" % u
+        return ("%s+%s*%s" % (_f(cx), _f(w / 2 * far * math.cos(a)), out),
+                "%s+%s*%s+%s*%s*%s" % (_f(cy), _f(h / 2 * 0.75 * far * math.sin(a)), out, _f(h / 2 * 0.25), u, u),
+                "%s*%s" % (_f(spin * 2 * math.pi * 0.35), u))
+    if move == "rain":
+        sway = min(30.0, 0.06 * w)
+        return ("%s+%s*sin(2*PI*(0.8*%s+%s))" % (_f(x0 + sway + (w - 2 * sway) * lane), _f(sway), u, _f(j[5])),
+                "%s+%s*(0.35*%s+0.65*%s*%s)" % (_f(y0), _f(h), u, u, u), "%s*%s" % (_f(spin * 2 * math.pi * 0.25), u))
+    if move == "fountain":
+        return ("%s+%s*(1-pow(1-%s,2))" % (_f(cx), _f(w / 2 * (2 * lane - 1)), u),
+                "%s-%s*4*%s*(1-%s)" % (_f(y1), _f(h * (0.65 + 0.35 * j[1])), u, u),
+                "%s*%s" % (_f(spin * 2 * math.pi * 0.4), u))
+    if move == "bounce":
+        p = "(2.5*pow(%s,1.6))" % u
+        return (_f(x0 + w * lane), "%s-%s*abs(cos(PI*%s))*exp(-1.2*%s)" % (_f(y1), _f(h), p, p),
+                "%s*%s" % (_f((j[4] - 0.5) * 1.2), u))
+    if move == "rise":
+        sway = min(40.0, 0.08 * w)
+        wave = "sin(2*PI*(0.6*%s+%s))" % (u, _f(j[5]))
+        return ("%s+%s*%s" % (_f(x0 + sway + (w - 2 * sway) * lane), _f(sway), wave),
+                "%s-%s*%s" % (_f(y1), _f(h), u), "0.25*%s" % wave)
+    if move == "scatter":
+        return (_f(x0 + w * _halton(k + 1, 2)), _f(y0 + h * _halton(k + 1, 3)),
+                "0.15*sin(2*PI*(0.5*%s+%s))" % (since, _f(j[5])))
+    sway = min(30.0, 0.06 * w)
+    side = 1 if (k + k // 2) % 2 == 0 else -1
+    mates = [m for m in range(count) if (m + m // 2) % 2 == (0 if side == 1 else 1)]
+    aim = math.radians(15 + 65 * (mates.index(k) + 0.1 + 0.8 * j[2]) / len(mates))
+    far = min((w - 2 * sway) / math.cos(aim), h / math.sin(aim)) * (0.55 + 0.45 * j[1])
+    start = x0 + sway if side == 1 else x1 - sway
+    out = "(1-pow(1-min(1,%s/0.35),3))" % u
+    q = "clip((%s-0.35)/0.65,0,1)" % u
+    return ("%s+%s*%s+%s*sin(2*PI*(1.5*%s+%s))*%s" % (_f(start), _f(side * far * math.cos(aim)), out, _f(sway), q,
+                                                     _f(j[5]), q),
+            "%s-%s*(%s-0.45*%s*%s)" % (_f(y1), _f(far * math.sin(aim)), out, q, q),
+            "%s*%s" % (_f(spin * 2 * math.pi * 0.5), u))
+
+
+def flurry(pngs, at, box, move="burst", count=8, length=None, size=150):
+    """Copies of one to six pictures moving together inside box (x, y, w, h on the 1080x1920 frame) from `at`, by
+    one of the MOVES: each copy its own way (its own path, start and spin, and 0.75 to 1.2 times size px on its
+    longer side), the same every time, from t only. No copy ever reaches outside box, spinning included. pngs is a
+    PNG's path or a list of them; CONFETTI ("confetti") in it stands for paper pieces in six colours, CONFETTI_SIZE
+    px whatever size says, which flutter as they move. Copy k is picture k of the list, round and round. length is
+    the move's own when None. Outside at to at + length every frame is the input's own."""
+    items = [pngs] if isinstance(pngs, str) else pngs
+    if not isinstance(items, (list, tuple)) or not 1 <= len(items) <= FLURRY_PICTURES:
+        raise ValueError("pngs %r is not one to %d pictures: give a PNG's path or a list of them, %s for paper pieces."
+                         % (pngs, FLURRY_PICTURES, CONFETTI))
+    if move not in MOVES:
+        raise ValueError("move %r is not a flurry's move: use one of %s." % (move, ", ".join(MOVES)))
+    if isinstance(count, bool) or not isinstance(count, int) or not FLURRY_COUNTS[0] <= count <= FLURRY_COUNTS[1]:
+        raise ValueError("count %r is not a number of copies: use a whole number from %d to %d."
+                         % ((count,) + FLURRY_COUNTS))
+    at = _number("at", at, 0)
+    length = MOVES[move][2] if length is None else _number("length", length)
+    if not FLURRY_LENGTHS[0] <= length <= FLURRY_LENGTHS[1]:
+        raise ValueError("length %s is not a flurry's length: use %s to %s seconds, or leave it out for the %s move's "
+                         "%s s." % (_f(length), _f(FLURRY_LENGTHS[0]), _f(FLURRY_LENGTHS[1]), move, _f(MOVES[move][2])))
+    size = _number("size", size)
+    if not FLURRY_SIZES[0] <= size <= FLURRY_SIZES[1]:
+        raise ValueError("size %s is not a picture size: use %d to %d px for its longer side, such as 150."
+                         % ((_f(size),) + FLURRY_SIZES))
+    x, y, w, h = _frame_box(box)
+    copies = []
+    for k in range(count):
+        item = items[k % len(items)]
+        if item == CONFETTI:
+            png = confetti_png(CONFETTI_COLOURS[(k // len(items)) % len(CONFETTI_COLOURS)])
+            copies.append((png, CONFETTI_SIZE, True))
+        else:
+            pw, ph = _png_size(item)
+            fit = size / max(pw, ph)
+            copies.append((item, (max(2, round(pw * fit)), max(2, round(ph * fit))), False))
+    reach = max(math.ceil(math.hypot(*base) / 2 * GROW[1]) for _, base, _ in copies) + 2
+    if w < 2 * reach + 2 or h < 2 * reach + 2:
+        raise ValueError("box %r is too small for these pictures to move in: give it at least %d x %d px, or smaller "
+                         "pictures." % (tuple(box), 2 * reach + 2, 2 * reach + 2))
+    inner = (x + reach, y + reach, x + w - reach, y + h - reach)
+    files, uses = [], collections.OrderedDict()
+    for k, (png, base, _) in enumerate(copies):
+        uses.setdefault((png, base), []).append(k)
+        if png not in files:
+            files.append(png)
+    parts, picked = [], {}
+    for (png, base), ks in uses.items():
+        labels = ["_p%d" % k for k in ks]
+        for k, label in zip(ks, labels):
+            picked[k] = label
+        parts.append("[f%d]format=rgba,scale=%d:%d%s" % (files.index(png), base[0], base[1], ",split=%d%s" % (
+            len(ks), "".join("[%s]" % label for label in labels)) if len(ks) > 1 else "[%s]" % labels[0]))
+    share, moving, held = TIMING[move]
+    order = sorted(range(count), key=lambda k: _jitter(k, 11))
+    chain, last = [], "in"
+    for k, (png, base, flutter) in enumerate(copies):
+        start = at + share * length * (order.index(k) / (count - 1) if count > 1 else 0)
+        end = at + length if held else start + moving * length
+        seen = end - start
+        appear, leave = min(APPEAR, 0.3 * seen), min(LEAVE, 0.4 * seen)
+        u = "clip((t-%s)/%s,0,1)" % (_f(start), _f(moving * length))
+        since = "(t-%s)" % _f(start)
+        px, py, angle = _path(move, k, count, u, since, inner)
+        grow = _f(GROW[0] + (GROW[1] - GROW[0]) * _jitter(k, 5))
+        if move == "scatter":
+            grow = "%s*%s" % (grow, _popping(since))
+        elif move in ("burst", "fountain", "popper"):
+            grow = "%s*min(1,0.3+0.7*%s/%s)" % (grow, since, _f(appear))
+        wide = "%s*max(0.15,abs(cos(2*PI*(2.5*%s+%s))))" % (grow, since, _f(_jitter(k, 7))) if flutter else grow
+        fades = "fade=t=in:st=%s:d=%s:alpha=1," % (_f(start), _f(appear)) if move in ("rain", "bounce", "rise") else ""
+        chain.append("[%s]rotate=a='%s':c=none:ow='hypot(iw,ih)':oh=ow,"
+                     "scale=w='max(2,trunc(iw*%s))':h='max(2,trunc(ih*%s))':eval=frame,"
+                     "%sfade=t=out:st=%s:d=%s:alpha=1[_q%d]"
+                     % (picked[k], angle, wide, grow, fades, _f(end - leave), _f(leave), k))
+        after = "out" if k == count - 1 else "_o%d" % k
+        chain.append("[%s][_q%d]overlay=x='%s-w/2':y='%s-h/2':eval=frame:shortest=1:format=yuv420:"
+                     "enable='between(t,%s,%s)'[%s]" % (last, k, px, py, _f(start), _f(end), after))
+        last = after
+    return Fragment(";".join(parts + chain), files)
+
+
+def moves():
+    """The moves people and Muse pick a flurry's from: [{"name", "en", "th", "length", "clip"}], clip a 270 x 480
+    MP4 at 30 fps with no sound (play it looping) of that move drawn with MOVE_SAMPLES' stickers on a dark ground,
+    made once in work/moves."""
+    return [{"name": name, "en": en, "th": th, "length": length, "clip": _move_clip(name)}
+            for name, (en, th, length) in MOVES.items()]
+
+
+def _move_clip(name):
+    from . import recording
+    pictures = [CONFETTI if p == CONFETTI else sticker_png(p) for p in MOVE_SAMPLES[name]]
+    count = 24 if CONFETTI in pictures else 8 if name == "scatter" else 10
+    graph, files = join([flurry(pictures, 0.2, SAMPLE_BOX, name, count)], "src", "o", 1)
+    seconds = 0.2 + MOVES[name][2] + 0.3
+    drawing = "[0:v]format=yuv420p[src];%s;[o]scale=270:480,format=yuv420p[v]" % graph
+    key = hashlib.sha1(("%s|%s|%s" % (drawing, "|".join(files), _f(seconds))).encode("utf-8")).hexdigest()[:10]
+    folder = os.path.join(recording.WORK, "moves")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "%s_%s.mp4" % (name, key))
+    if os.path.isfile(path):
+        return path
+    cmd = [shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+           "color=c=%s:s=%dx%d:r=%d:d=%s" % (SAMPLE_GROUND, FRAME_W, FRAME_H, FPS, _f(seconds))]
+    for f in files:
+        cmd += ["-loop", "1", "-framerate", str(FPS), "-i", f]
+    fd, part = tempfile.mkstemp(prefix=os.path.basename(path) + ".", suffix=".part.mp4", dir=folder)
+    os.close(fd)
+    try:
+        subprocess.run(cmd + ["-filter_complex", drawing, "-map", "[v]", "-an", "-c:v", "libx264", "-preset",
+                              "veryfast", "-crf", "26", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-f", "mp4",
+                              part], check=True, capture_output=True, timeout=120)
+    except (subprocess.SubprocessError, OSError):
+        os.remove(part)
+        raise
+    try:
+        os.replace(part, path)
+    except PermissionError:
+        # made by another request at the same moment and open now (Windows): the same clip, so keep it
+        os.remove(part)
+        if not os.path.isfile(path):
+            raise
+    return path
 
 
 # ---- sound -------------------------------------------------------------------------------------------------------

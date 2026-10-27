@@ -12,7 +12,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import effects, layouts  # noqa: E402
+from clipstudio import effects, layouts, recording  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
 HAS_NUMPY = importlib.util.find_spec("numpy") is not None
@@ -397,11 +397,11 @@ class Speed(unittest.TestCase):
         self.assertLess(took, 1.0)
 
 
-def sticker_frames(fragment, numbers):
-    """{n: frame n (1080x1920, grey bytes) of a grey frame with the sticker fragment drawn on it}."""
+def sticker_frames(fragment, numbers, seconds=2):
+    """{n: frame n (1080x1920, grey bytes) of a grey frame of seconds with the fragment drawn on it}."""
     import numpy as np
     graph, files = effects.join([fragment], "src", "outv", 1)
-    cmd = [FFMPEG, "-v", "error", "-f", "lavfi", "-i", "color=0x808080:s=1080x1920:r=30:d=2"]
+    cmd = [FFMPEG, "-v", "error", "-f", "lavfi", "-i", "color=0x808080:s=1080x1920:r=30:d=%s" % seconds]
     for f in files:
         cmd += ["-loop", "1", "-framerate", "30", "-i", f]
     pick = "+".join("eq(n\\,%d)" % n for n in numbers)
@@ -582,6 +582,218 @@ class Glass(unittest.TestCase):
             layouts.glass((100, 100, 40, 300), 0, 1)
         with self.assertRaisesRegex(ValueError, r"box \(900, 100, 400, 300\) runs off the 1080x1920 frame"):
             layouts.glass((900, 100, 400, 300), 0, 1)
+
+
+def ground_stats(frame, ground):
+    """(box of the pixels that are not the ground or None, white pixels, black pixels, centre of the white ones or
+    None, the brightest pixel) of a grey frame."""
+    import numpy as np
+    a = frame.astype(int)
+    ys, xs = np.nonzero(a != ground)
+    box = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1) if len(xs) else None
+    wy, wx = np.nonzero(a > ground + 40)
+    centre = (float(wx.mean()), float(wy.mean())) if len(wx) > 200 else None
+    return box, int((a > 200).sum()), int((a < 60).sum()), centre, int(a.max())
+
+
+@unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")
+class Flurries(unittest.TestCase):
+    """A white disc and a black square, ten copies by each move in a 640 x 1000 box at (200, 400) from 0.5 s, and the
+    white disc alone by each move in an 800 x 1300 box at (140, 300), on a grey frame."""
+    BOX = (200, 400, 640, 1000)
+    ONE = (140, 300, 800, 1300)
+
+    @classmethod
+    def setUpClass(cls):
+        import numpy as np
+        cls.tmp = tempfile.mkdtemp()
+        cls.work, recording.WORK = recording.WORK, os.path.join(cls.tmp, "work")
+        cls.disc, cls.bar = os.path.join(cls.tmp, "disc.png"), os.path.join(cls.tmp, "square.png")
+        for path, size, paint in ((cls.disc, "120x120", "r=255:g=255:b=255:a='255*lt(hypot(X-59.5,Y-59.5),58)'"),
+                                  (cls.bar, "120x120", "r=0:g=0:b=0:a=255")):
+            subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=black@0:s=%s" % size, "-vf",
+                            "format=rgba,geq=%s" % paint, "-frames:v", "1", path], check=True)
+        cls.many, cls.alone = {}, {}
+        for move, (_, _, length) in effects.MOVES.items():
+            end = round((0.5 + length) * 30)
+            seconds = (end + 12) / 30
+            got = sticker_frames(effects.flurry([cls.disc, cls.bar], 0.5, cls.BOX, move, 10),
+                                 list(range(0, end + 12, 3)), seconds)
+            ground = int(got[0][0, 0])
+            cls.many[move] = {n: ground_stats(f, ground) for n, f in got.items()}
+            got = sticker_frames(effects.flurry(cls.disc, 0.5, cls.ONE, move, 1), list(range(15, end + 1)), seconds)
+            cls.alone[move] = {n: ground_stats(f, ground) for n, f in got.items()}
+            del got
+        cls.ground = ground
+        got = sticker_frames(effects.flurry(cls.disc, 0.5, cls.ONE, "popper", 2), list(range(15, 30)), 1.2)
+        x, y, w, h = cls.ONE
+        cls.pair = []
+        for f in got.values():
+            seen = (f[y + int(h * 0.8):y + h] != ground).any(axis=0).astype(int)
+            edges = list(np.nonzero(np.diff(np.concatenate(([0], seen, [0]))))[0])
+            cls.pair += list(zip(edges[::2], edges[1::2]))
+
+    @classmethod
+    def tearDownClass(cls):
+        recording.WORK = cls.work
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_every_copy_stays_inside_its_box_and_shows_only_in_its_time(self):
+        x, y, w, h = self.BOX
+        for move, got in self.many.items():
+            end = 0.5 + effects.MOVES[move][2]
+            both = 0
+            for n, (box, whites, blacks, _, _) in sorted(got.items()):
+                if n / 30 < 0.5 - 1e-6 or n / 30 > end + 1e-6:
+                    self.assertIsNone(box, "%s: nothing at %.2f s" % (move, n / 30))
+                elif box:
+                    self.assertTrue(x <= box[0] and y <= box[1] and box[2] <= x + w and box[3] <= y + h,
+                                    "%s at %.2f s draws %s, outside %s" % (move, n / 30, box, self.BOX))
+                    both += whites > 300 and blacks > 300
+            self.assertGreater(both, 3, "%s shows both pictures" % move)
+
+    def ways(self, move):
+        """[(x, y)] of the lone disc's centre while it shows, and the box its centre keeps to."""
+        shown = [self.alone[move][n][3] for n in sorted(self.alone[move]) if self.alone[move][n][3]]
+        self.assertGreater(len(shown), 15, move)
+        return shown, self.ONE
+
+    def test_burst_flies_out_from_the_middle(self):
+        shown, (x, y, w, h) = self.ways("burst")
+        far = [math.hypot(cx - (x + w / 2), cy - (y + h / 2)) for cx, cy in shown]
+        self.assertLess(far[0], 40, "it starts in the middle: %.0f" % far[0])
+        self.assertGreater(far[len(far) // 2], 150, "half way it is far out: %.0f" % far[len(far) // 2])
+        half = far[:len(far) // 2]
+        self.assertTrue(all(b >= a - 2 for a, b in zip(half, half[1:])), "always outwards: %s" % half)
+
+    def test_rain_falls_and_rise_floats_up_all_the_way(self):
+        for move, down in (("rain", True), ("rise", False)):
+            shown, (x, y, w, h) = self.ways(move)
+            ys = [cy if down else -cy for _, cy in shown]
+            self.assertTrue(all(b >= a - 1 for a, b in zip(ys, ys[1:])), "%s keeps going one way" % move)
+            self.assertGreater(ys[-1] - ys[0], 0.5 * h, "%s goes most of the box: %.0f" % (move, ys[-1] - ys[0]))
+
+    def test_fountain_shoots_up_from_the_bottom_and_falls_back(self):
+        shown, (x, y, w, h) = self.ways("fountain")
+        ys = [cy for _, cy in shown]
+        top = ys.index(min(ys))
+        self.assertTrue(len(ys) / 4 < top < len(ys) * 3 / 4, "highest in its middle: %d of %d" % (top, len(ys)))
+        self.assertGreater(ys[0], y + h * 0.75, "it starts at the bottom: %.0f" % ys[0])
+        self.assertGreater(ys[-1], min(ys) + 0.5 * (ys[0] - min(ys)), "it comes back down: %.0f" % ys[-1])
+        self.assertLess(min(ys), ys[0] - 0.4 * h, "it goes up high: %.0f" % min(ys))
+
+    def test_bounce_drops_bounces_lower_and_lies_on_the_bottom(self):
+        shown, (x, y, w, h) = self.ways("bounce")
+        ys = [cy for _, cy in shown]
+        floor = max(ys)
+        self.assertGreater(floor, y + h * 0.8, "it lands at the bottom of its box: %.0f" % floor)
+        landed = next(k for k, v in enumerate(ys) if v >= floor - 0.05 * h)
+        again = min(ys[landed:])
+        self.assertLess(again, floor - 0.1 * h, "it bounces up again: %.0f" % again)
+        self.assertGreater(again, ys[0] + 0.3 * (floor - ys[0]), "lower than it fell from: %.0f" % again)
+        self.assertTrue(all(abs(v - floor) < 2 for v in ys[-10:]), "it lies there: %s" % ys[-10:])
+
+    def test_scatter_pops_up_and_stays_put(self):
+        shown, _ = self.ways("scatter")
+        self.assertLess(max(abs(cx - shown[0][0]) + abs(cy - shown[0][1]) for cx, cy in shown), 3)
+        counts = [self.many["scatter"][n][1] for n in sorted(self.many["scatter"])]
+        start, length = 15, effects.MOVES["scatter"][2] * 30
+        early, late = (self.many["scatter"][3 * round((start + length * s) / 3)][1] for s in (0.12, 0.6))
+        self.assertGreater(late, early * 2, "one by one: %d then %d white pixels (%s)" % (early, late, counts))
+
+    def test_popper_shoots_up_and_in_from_a_bottom_corner_and_drifts_down(self):
+        shown, (x, y, w, h) = self.ways("popper")
+        xs, ys = [cx for cx, _ in shown], [cy for _, cy in shown]
+        self.assertLess(xs[0], x + w * 0.35, "from the left corner: %.0f" % xs[0])
+        self.assertGreater(ys[0], y + h * 0.7, "from the bottom: %.0f" % ys[0])
+        self.assertGreater(xs[len(xs) // 2], xs[0] + 50, "inwards: %.0f to %.0f" % (xs[0], xs[len(xs) // 2]))
+        top = min(ys)
+        self.assertLess(ys.index(top), len(ys) * 0.6, "up early")
+        self.assertGreater(ys[-1], top + 0.3 * (ys[0] - top), "then down: %.0f after %.0f" % (ys[-1], top))
+        new = [(a + b) / 2 for a, b in self.pair if b - a < 60]
+        self.assertTrue(any(c < x + w * 0.3 for c in new) and any(c > x + w * 0.7 for c in new),
+                        "a copy just shot shows near each bottom corner: %s" % new)
+
+    def test_copies_pop_or_fade_in_and_fade_out(self):
+        rain, burst = self.alone["rain"], self.alone["burst"]
+        self.assertLess(rain[16][4], rain[20][4] - 40, "rain fades in: %d then %d" % (rain[16][4], rain[20][4]))
+        self.assertLess(burst[15][1], burst[21][1] * 0.3, "burst pops in: %d then %d" % (burst[15][1], burst[21][1]))
+        held, fading = burst[45][4], burst[53][4]
+        self.assertTrue(held - 20 > fading > self.ground + 10, "it fades out: %d then %d" % (held, fading))
+
+    def test_a_frame_is_the_same_from_any_start(self):
+        for move in ("popper", "bounce", "scatter"):
+            fragment = effects.flurry([self.disc, self.bar], 0.3, (60, 40, 520, 300), move, 12, 1.2, size=60)
+            full = frames([fragment], 2)
+            for k in (17, 26):
+                late = frames([fragment], 2, first=k)[0]
+                for plane, (a, b) in enumerate(zip(full[k], late)):
+                    self.assertTrue((a == b).all(), "%s frame %d plane %d" % (move, k, plane))
+
+    def test_paper_pieces_come_in_six_colours_and_flutter(self):
+        fragment = effects.flurry(effects.CONFETTI, 0.5, self.ONE, "rise", 12)
+        self.assertEqual(fragment.files, [effects.confetti_png(c) for c in effects.CONFETTI_COLOURS])
+        for colour, png in zip(effects.CONFETTI_COLOURS, fragment.files):
+            rgba = subprocess.run([FFMPEG, "-v", "error", "-i", png, "-f", "rawvideo", "-pix_fmt", "rgba", "-"],
+                                  capture_output=True, check=True).stdout
+            self.assertEqual(rgba[:4], bytes.fromhex(colour[1:]) + b"\xff", colour)
+        import numpy as np
+        picks = list(range(24, 60))
+        got = sticker_frames(effects.flurry(effects.CONFETTI, 0.5, self.ONE, "rise", 1), picks, 2.2)
+        area = [int((np.abs(got[n].astype(int) - int(got[n][0, 0])) > 8).sum()) for n in picks]
+        self.assertLess(min(area), max(area) * 0.5, "it turns over as it goes: %s" % area)
+
+    def test_flurry_refusals(self):
+        with self.assertRaisesRegex(ValueError, "move 'spin' is not a flurry's move: use one of burst, rain, fountain, "
+                                                "bounce, rise, scatter, popper"):
+            effects.flurry(self.disc, 0, self.ONE, "spin")
+        for count in (0, 41, 2.5, True):
+            with self.assertRaisesRegex(ValueError, "count .* is not a number of copies: use a whole number from 1 to "
+                                                    "40"):
+                effects.flurry(self.disc, 0, self.ONE, count=count)
+        with self.assertRaisesRegex(ValueError, "length 7 is not a flurry's length: use 0.8 to 6 seconds, or leave it "
+                                                "out for the rain move's 2.4 s"):
+            effects.flurry(self.disc, 0, self.ONE, "rain", length=7)
+        with self.assertRaisesRegex(ValueError, "size 500 is not a picture size: use 40 to 400 px"):
+            effects.flurry(self.disc, 0, self.ONE, size=500)
+        for pngs in ([], [self.disc] * 7, 5):
+            with self.assertRaisesRegex(ValueError, "is not one to 6 pictures: give a PNG's path or a list of them, "
+                                                    "confetti for paper pieces"):
+                effects.flurry(pngs, 0, self.ONE)
+        with self.assertRaisesRegex(ValueError, "is not a PNG picture"):
+            effects.flurry([self.disc, os.path.join(self.tmp, "none.png")], 0, self.ONE)
+        with self.assertRaisesRegex(ValueError, r"box \(100, 100, 200, 900\) is too small for these pictures to move "
+                                                r"in: give it at least 262 x 262 px, or smaller pictures"):
+            effects.flurry(self.disc, 0, (100, 100, 200, 900))
+        with self.assertRaisesRegex(ValueError, r"box \(900, 100, 400, 900\) runs off the 1080x1920 frame"):
+            effects.flurry(self.disc, 0, (900, 100, 400, 900))
+
+
+@unittest.skipUnless(FFMPEG, "needs ffmpeg")
+class Moves(unittest.TestCase):
+    def test_every_move_is_listed_named_in_thai_and_english_with_a_moving_sample_made_once(self):
+        tmp = tempfile.mkdtemp()
+        work, recording.WORK = recording.WORK, os.path.join(tmp, "work")
+        try:
+            listed = effects.moves()
+            self.assertEqual([m["name"] for m in listed], list(effects.MOVES))
+            for m in listed:
+                self.assertTrue(re.search("[฀-๿]", m["th"]) and m["en"].strip(), m["name"])
+                self.assertEqual(m["length"], effects.MOVES[m["name"]][2])
+                with open(m["clip"], "rb") as f:
+                    self.assertEqual(f.read(8)[4:], b"ftyp", "%s is an MP4" % m["name"])
+                grey = subprocess.run([FFMPEG, "-v", "error", "-i", m["clip"], "-f", "rawvideo", "-pix_fmt", "gray",
+                                       "-"], capture_output=True, check=True).stdout
+                count = len(grey) // (270 * 480)
+                self.assertEqual(len(grey), count * 270 * 480, "%s is 270 x 480" % m["name"])
+                self.assertEqual(count, round((0.5 + m["length"]) * 30), "%s plays at 30 fps" % m["name"])
+                first, middle = grey[:270 * 480], grey[count // 2 * 270 * 480:(count // 2 + 1) * 270 * 480]
+                self.assertNotEqual(first, middle, "%s moves" % m["name"])
+            made = {m["clip"]: os.path.getmtime(m["clip"]) for m in listed}
+            self.assertEqual({m["clip"]: os.path.getmtime(m["clip"]) for m in effects.moves()}, made, "made once")
+        finally:
+            recording.WORK = work
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 class StudioStickers(unittest.TestCase):

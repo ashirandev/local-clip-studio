@@ -31,7 +31,7 @@ def state(kind="subject", **entries):
         for e in entries.get(do, []):
             p.add(dict(e, do=do))
     return dict(p.state(), stickers=entries.get("sticker", []), pushes=entries.get("push", []),
-                look=entries.get("look"), glass=entries.get("glass", []))
+                look=entries.get("look"), glass=entries.get("glass", []), flurries=entries.get("flurry", []))
 
 
 def drawn(st, t):
@@ -180,6 +180,20 @@ class Stages(unittest.TestCase):
             found = changed(drawn(state(), 1.5), drawn(st, 1.5))
             tall.append(found[3] - found[1])
         self.assertGreater(tall[1], tall[0] * 1.5, "size 5 is drawn bigger than size 1: %s" % tall)
+
+    def test_the_style_entry_gives_every_part_or_each_part_its_colours(self):
+        entry = {"do": "style", "name": "pop", "font": None, "colour": None, "colours": {"text": "#00FF66"},
+                 "part_colours": {"title": {"text": "#FF2D95"}}}
+        painted = dict(state(), style=entry)
+        self.assertEqual([render.style_of(painted, kind=k).colour for k in text.KINDS],
+                         ["#FF2D95", "#00FF66", "#00FF66"])
+        house = dict(state(), style=dict(entry, colours=None, part_colours=None))
+        self.assertEqual([render.style_of(house, kind=k).colour for k in text.KINDS], [text.STYLES["pop"].colour] * 3)
+        st = dict(state(title=[{"text": "SALE", "start": 0.5, "end": 3.0, "box": [140, 300, 800, 300]}]),
+                  style=entry)
+        frame = drawn(st, 1.5).astype(int)
+        pink = (abs(frame[..., 0] - 255) < 30) & (frame[..., 1] < 90) & (abs(frame[..., 2] - 149) < 40)
+        self.assertGreater(int(pink[300:600, 140:940].sum()), 500, "the title is drawn in the colour its part was given")
 
     def test_captions_light_their_words_only_when_the_entry_says_lit(self):
         lines = text.caption_lines([{"from": 1.0, "to": 2.0, "text": "watch this now"}])
@@ -345,6 +359,24 @@ class Preview(unittest.TestCase):
             x, y, w, h = box
             self.assertGreater(np.abs(b - a)[y + 60:y + h - 60, x + 60:x + w - 60].mean(), 40,
                                "the sticker at %.3f s" % t)
+
+    def test_a_preview_at_any_time_shows_the_flurry_where_its_move_has_it(self):
+        import numpy as np
+        box = [140, 300, 800, 1300]
+        plain = state("card")
+        for move, early, late in (("rain", 0, 1), ("rise", 1, 0)):
+            st = state("card", flurry=[{"pngs": [effects.sticker_png("coin")], "at": 0.5, "box": box, "move": move,
+                                        "count": 1, "length": 2.0, "size": 150}])
+            heights = []
+            for t in (0.62, 0.9 + 1 / 60, 1.05, 1.2):
+                a = np.frombuffer(self.grey(plain, t), np.uint8).reshape(1920, 1080).astype(int)
+                b = np.frombuffer(self.grey(st, t), np.uint8).reshape(1920, 1080).astype(int)
+                ys, xs = np.nonzero(np.abs(b - a) > 40)
+                self.assertTrue(len(xs) > 2000, "%s: the coin at %.3f s" % (move, t))
+                self.assertTrue(box[0] <= xs.min() and xs.max() < box[0] + box[2] and box[1] <= ys.min()
+                                and ys.max() < box[1] + box[3], "%s: inside its box at %.3f s" % (move, t))
+                heights.append(ys.mean())
+            self.assertEqual(sorted(heights, reverse=bool(early)), heights, "%s: %s" % (move, heights))
 
     def test_two_requests_for_the_same_frame_at_once_both_get_it(self):
         import threading

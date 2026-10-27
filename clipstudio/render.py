@@ -1,7 +1,7 @@
 """The clip drawn from its project list: one FFmpeg filter graph from the recording to the 1080x1920 frame.
 
     recording piece(s)  ->  [src] at clip time t  ->  source stage (blurs, look)  ->  layout (layouts.py, pushes)
-                        ->  frame stage (camera hits, stickers, then the words, then flashes)
+                        ->  frame stage (camera hits, glass, stickers, flurries, then the words, then flashes)
 
 The preview frame is the same graph started at the frame's time: the piece is opened at the matching recording
 second and its timestamps are set so t is still clip time, so a title from 2 s to 5 s shows in the preview at 3 s
@@ -56,14 +56,15 @@ def folder(name):
 
 def style_of(state, default="clean", kind="title"):
     """The text style the clip draws one part of its words in (kind: title, caption or big): the last style entry,
-    with the font and the size (1 to 5) given that part ("fonts": {part: font}, "sizes": {part: size}) or every part
-    ("font", "size"), else the house style the recipe guessed."""
+    with the font, the size (1 to 5) and the colours given that part ("fonts": {part: font}, "sizes": {part: size},
+    "part_colours": {part: {name: #RRGGBB}}) or every part ("font", "size", "colours"), else the house style the
+    recipe guessed."""
     if kind not in text.KINDS:
         raise ValueError("kind %r is not a part of the words: use one of %s." % (kind, ", ".join(text.KINDS)))
     e = state["style"]
     if e:
         return text.look(e["name"], e.get("font"), e.get("colour"), e.get("fonts"), e.get("size"),
-                         e.get("sizes"))[kind]
+                         e.get("sizes"), e.get("colours"), e.get("part_colours"))[kind]
     return text.STYLES.get(default) or text.STYLES["clean"]
 
 
@@ -134,9 +135,10 @@ def after_source(state, src, out, first_input, default="clean"):
       and never the frame's design, the stickers or the words;
     - the layout, to the 1080x1920 frame, with the slow pushes inside its main part, so the frame's design holds
       still while the footage pushes in;
-    - frame stage: the camera hits (punch-in, shake), the glass boxes, the stickers, then the words (titles, captions
-      and big words, one ASS file), so the words hold still while the picture moves and stay on top of a sticker or a
-      glass box, then the flashes last, so a flash lights the words too.
+    - frame stage: the camera hits (punch-in, shake), the glass boxes, the stickers, the flurries (state['flurries']:
+      {"pngs", "at", "box", "move", "count", "length", "size"}, see effects.flurry), then the words (titles, captions
+      and big words, one ASS file), so the words hold still while the picture moves and stay on top of a sticker, a
+      flurry or a glass box, then the flashes last, so a flash lights the words too.
     A drawing that cannot be made raises ValueError with the sentence for Muse."""
     blurs = [effects.blur_track(b["track"]) if b.get("track") else effects.blur_box(b["box"], b["start"], b["end"])
              for b in state.get("blurs") or []]
@@ -153,6 +155,8 @@ def after_source(state, src, out, first_input, default="clean"):
     fragments += [layouts.glass(g["box"], g["start"], g["end"], g.get("tint", "light"), g.get("shine", True))
                   for g in state.get("glass") or []]
     fragments += [effects.sticker(k["png"], k["at"], k["length"], k["box"]) for k in state.get("stickers") or []]
+    fragments += [effects.flurry(f["pngs"], f["at"], f["box"], f.get("move", "burst"), f.get("count", 8),
+                                 f.get("length"), f.get("size", 150)) for f in state.get("flurries") or []]
     words = ass(state, default)
     if words:
         fragments.append(text.burn(words, text.fonts_folder(*_styles(state, default).values())))
