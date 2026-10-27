@@ -653,6 +653,36 @@ class Tools(unittest.TestCase):
         self.assertNotIn("mumble", shown)
         self.assertIn("fall", shown)
 
+    def test_a_spot_the_person_asked_for_is_used_and_what_covers_it_is_said(self):
+        brain, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("add_title", words="Boss down", start=0, end=4, box=[50, 900, 950, 1000], why="low")],
+            [call("add_title", words="Boss down", start=0, end=4, box=[50, 900, 950, 1000], asked=True,
+                  why="the person wants it at the bottom")],
+            [call("add_title", words="Up top", start=5, end=9, box=[60, 150, 940, 270], why="over the face")],
+            [call("add_title", words="Up top", start=5, end=9, box=[60, 150, 940, 270], asked=True,
+                  why="the person asked")],
+            [call("add_title", words="Up top", start=5, end=9, why="no place")],
+            [call("blur_box", box=[400, 600, 600, 900], asked=True, why="the person wants their face hidden")],
+            "Done.")
+        low, low_asked, face, face_asked, nowhere, blurred = steps[-6:]
+        self.assertTrue(low["refused"])
+        self.assertIn("On a phone, the name and the caption cover everything below y 1520", low["result"])
+        self.assertIn("give asked true only when the person asked for this spot", low["result"])
+        self.assertFalse(low_asked["refused"], low_asked["result"])
+        self.assertIn("Placed where the person asked. On a phone, the name and the caption cover everything below y "
+                      "1520", low_asked["result"])
+        self.assertTrue(face["refused"])
+        self.assertIn("the title would cover a face at", face["result"])
+        self.assertFalse(face_asked["refused"], face_asked["result"])
+        self.assertIn("It covers a face at", face_asked["result"])
+        self.assertNotIn("clear of every face", face_asked["result"])
+        self.assertTrue(nowhere["refused"])
+        self.assertIn("Give one of the layout's places for words (top, middle), or a box.", nowhere["result"])
+        self.assertFalse(blurred["refused"], blurred["result"])
+        titles = self.chat.project.state()["titles"]
+        self.assertEqual([(x["text"], x["box"][1]) for x in titles], [("Boss down", 1728), ("Up top", 288)])
+
     def test_a_number_on_screen_must_be_one_that_was_said(self):
         said = ["สินค้าราคา เจ็ดสิบห้า บาท", "ใช้ได้ 50 ตารางเมตร"]
         self.assertEqual(tools._not_said("ลด 75 บาท ห้อง 50-75 m²", said), [])

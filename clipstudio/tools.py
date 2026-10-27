@@ -662,7 +662,26 @@ def set_style(job, why, style, font=None, colour=None):
     return "\n".join(lines)
 
 
-def add_title(job, why, words, start, end, place, key=None):
+def _frame_box(name, grid):
+    """[x, y, w, h] on the 1080x1920 frame from [x1, y1, x2, y2] on Muse's 0-1000 grid of the clip's frame."""
+    x1, y1, x2, y2 = grid
+    if x2 <= x1 or y2 <= y1:
+        raise Refused("%s %s is not a box: give [x1, y1, x2, y2] with x2 right of x1 and y2 below y1." % (name, grid))
+    return [round(x1 * 1080 / 1000), round(y1 * 1920 / 1000), round((x2 - x1) * 1080 / 1000),
+            round((y2 - y1) * 1920 / 1000)]
+
+
+def _covers(drawn, lay, state):
+    """What lies over drawn on a phone, or under it in the clip, as short reasons: what the apps draw on top, and
+    the captions band when the clip has captions."""
+    out = layouts.unsafe(drawn)
+    y, h = lay["captions"][1], lay["captions"][3]
+    if state["captions"] and drawn[1] < y + h and y < drawn[1] + drawn[3]:
+        out.append("the captions run from y %d to %d" % (y, y + h))
+    return out
+
+
+def add_title(job, why, words, start, end, place=None, key=None, box=None, asked=False):
     rec = _open(job, "put words on")
     state = _clip_state(job)
     length, lay = state["length"], state["clip"]["layout"]
@@ -672,11 +691,17 @@ def add_title(job, why, words, start, end, place, key=None):
     end = min(end, length)
     if end - start < SHORTEST_WORDS:
         raise Refused("The title must stay on screen at least %g s; %g-%g s is shorter." % (SHORTEST_WORDS, start, end))
-    if place not in lay["places"]:
-        raise Refused("The %s layout has no place called %s; its places are: %s." % (
+    if box is None and place is None:
+        raise Refused("Give one of the layout's places for words (%s), or a box." % ", ".join(lay["places"]))
+    if box is not None:
+        band = _frame_box("box", box)
+        place = "box at %d, %d" % (band[0], band[1])
+    elif place not in lay["places"]:
+        raise Refused("The %s layout has no place called %s; its places are: %s. Or give a box." % (
             lay["kind"], place, ", ".join(lay["places"])))
+    else:
+        band = lay["places"][place]
     st = render.style_of(state, job.chat.clip["style"] if job.chat.clip else "clean")
-    band = lay["places"][place]
     try:
         size = text.measure(words, st, "title", band[2])
     except ValueError as e:
@@ -695,9 +720,21 @@ def add_title(job, why, words, start, end, place, key=None):
         key, fixed = holding[0], 'The key "%s" is part of the word "%s", so that word is the key.' % (key, holding[0])
         text.title(words, start, end, band, st, key)
     drawn = [band[0] + (band[2] - size.w) / 2, band[1] + (band[3] - size.h) / 2, size.w, size.h]
+    notes = []
+    covers = _covers([round(v) for v in drawn], lay, state)
+    if covers and not asked:
+        raise Refused("On a phone, %s. Pick one of the layout's places, or a box inside x %d-%d, y %d-%d; give "
+                      "asked true only when the person asked for this spot." % (
+                          "; ".join(covers), layouts.SAFE[0], layouts.SAFE[0] + layouts.SAFE[2], layouts.SAFE[1],
+                          layouts.SAFE_BOTTOM))
+    if covers:
+        notes.append("Placed where the person asked. On a phone, %s; tell the person." % "; ".join(covers))
     times, every = _face_times(state, rec)
     hit = _covered(drawn, times, every, start, end)
-    if hit:
+    if hit and asked:
+        notes.append("It covers a face%s at %s, where the person asked for it; tell the person." % (
+            " or the product" if state["clip"].get("product") else "", _spans(hit)))
+    elif hit:
         others = []
         for name, box in lay["places"].items():
             clear = _clear(_covered(box, times, every, 0, length), 0, length)
@@ -707,9 +744,10 @@ def add_title(job, why, words, start, end, place, key=None):
                          "; ".join(others)))
     state = job.edit({"do": "title", "text": words, "start": round(start, 2), "end": round(end, 2), "place": place,
                       "box": band, "key": key})
-    lines = ['The title "%s" is on screen at the %s from %g to %g s: %d line%s, %d x %d px, clear of every face the '
-             "program found%s." % (words, place, start, end, len(size.lines), "" if len(size.lines) == 1 else "s",
-                                   size.w, size.h, " and the product" if state["clip"].get("product") else "")]
+    lines = ['The title "%s" is on screen at the %s from %g to %g s: %d line%s, %d x %d px%s.' % (
+        words, place, start, end, len(size.lines), "" if len(size.lines) == 1 else "s", size.w, size.h,
+        "" if hit else ", clear of every face the program found%s" % (
+            " and the product" if state["clip"].get("product") else ""))] + notes
     if fixed:
         lines.append(fixed)
     lines.append(_show_frame(job, state, rec, (start + end) / 2, 'The clip with the title "%s":' % words))
@@ -980,13 +1018,13 @@ def _where(lay, box):
     return out
 
 
-def blur_box(job, why, box, start=None, end=None):
+def blur_box(job, why, box, start=None, end=None, asked=False):
     rec = _open(job, "blur")
     state = _clip_state(job)
     length, lay = state["length"], state["clip"]["layout"]
     px = _pixels("box", box, rec)
     face = lay.get("face")
-    if face and _share(face, px) > BLUR_FACE_SHARE:
+    if face and _share(face, px) > BLUR_FACE_SHARE and not asked:
         raise Refused("That box covers the face at %s on your grid, the face the clip shows, and the face is the point "
                       "of the clip. Give a box around the chat or the names only, leaving the face out." %
                       _grid(face, rec))
@@ -1442,9 +1480,10 @@ TOOLS = {t.name: t for t in [
                                     "the style's own."}},
          ["style"], set_style, changes=True),
     Tool("add_title", "Put a title on",
-         "Put words on screen from start to end, in one of the layout's places for words. The program measures the "
-         "words as they will be drawn and refuses any time or place where they would cover a face, with the times "
-         "and places that are clear. A title in the same place at the same time replaces the earlier one.",
+         "Put words on screen from start to end, in one of the layout's places for words, or in a box the person "
+         "asked for. The program measures the words as they will be drawn and refuses any time or place you choose "
+         "where they would cover a face or sit where a phone covers the clip, with the times and places that are "
+         "clear. A title in the same place at the same time replaces the earlier one.",
          {"words": {"type": "string", "maxLength": 80,
                     "description": "The words, in the clip's language. Say what happens without giving the ending away. "
                                    "A number or a claim must be one that was said."},
@@ -1452,10 +1491,19 @@ TOOLS = {t.name: t for t in [
                                                                    "its first frame)."},
           "end": {"type": "number", "minimum": 0, "description": "When they go, in seconds of the clip."},
           "place": {"type": "string", "maxLength": 20,
-                    "description": "One of the layout's places for words, as make_clip listed them, such as top."},
+                    "description": "One of the layout's places for words, as make_clip listed them, such as top. "
+                                   "Leave it out when you give a box."},
+          "box": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0,
+                                                                              "maximum": 1000},
+                  "description": "[x1, y1, x2, y2] on a 0-1000 grid of the clip's vertical frame (not the "
+                                 "recording), for a spot the person asked for that the places do not have."},
+          "asked": {"type": "boolean",
+                    "description": "true only when the person asked for this exact spot or time. Then the title "
+                                   "goes there even over a face or where a phone covers it, and the result says "
+                                   "so; when you choose, those are refused."},
           "key": {"type": "string", "maxLength": 40,
                   "description": "One word of the title to draw in the style's key colour. Leave it out for none."}},
-         ["words", "start", "end", "place"], add_title, changes=True),
+         ["words", "start", "end"], add_title, changes=True),
     Tool("add_captions", "Put the captions on",
          "Put captions of what was said in the moment on the clip: the words as heard and fixed from the context, "
          "numbers exactly as said, a few words a line. The program places them in the layout's caption band. They "
@@ -1478,7 +1526,9 @@ TOOLS = {t.name: t for t in [
           "start": {"type": "number", "minimum": 0, "description": "From when, in seconds of the clip. Leave it out "
                                                                    "for the start."},
           "end": {"type": "number", "minimum": 0, "description": "Until when, in seconds of the clip. Leave it out for "
-                                                                 "the end."}},
+                                                                 "the end."},
+          "asked": {"type": "boolean",
+                    "description": "true only when the person asked to blur this, even the face the clip shows."}},
          ["box"], blur_box, changes=True),
     Tool("decide_people", "Decided about people",
          "Decide who of the other people make_clip listed is blurred and who is kept. A blurred face is followed as "
