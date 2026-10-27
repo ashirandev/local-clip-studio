@@ -15,7 +15,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, effects, faces, hearing, layouts, mind, project, recording, render, text, tools, words  # noqa: E402,E501
+from clipstudio import agent, effects, faces, hearing, layouts, mind, project, recording, render, talk, text, tools, words  # noqa: E402,E501
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_hearing import Worker  # noqa: E402
 from test_map import make_moment  # noqa: E402
@@ -792,6 +792,51 @@ class Tools(unittest.TestCase):
         self.assertEqual([c["look"] for c in looks if c["now"]], ["pop"])
         self.assertEqual(set(tools.STYLES), set(text.HOUSE_NAMES))
         self.assertIn("(tapped) Use the glow style.", [c["say"] for c in looks])
+
+    def test_a_talk_clip_follows_whoever_speaks_and_its_shots_can_be_changed(self):
+        self.faces = found([(30 + i * 0.5, [[60, 40, 40, 40], [220, 40, 40, 40]]) for i in range(40)], size=(320, 180))
+        self.worker.phrases = [{"from": 1, "to": 9, "text": "hello there", "sure": 0.99},
+                               {"from": 10.2, "to": 19, "text": "and you", "sure": 0.99}]
+        moving = lambda rec, a, b, persons, fps=10: [[9.0] * 100 + [1.0] * 100, [1.0] * 100 + [9.0] * 100]
+        real, talk.motion = talk.motion, moving
+        try:
+            brain, steps = self.run_job(
+                *self.to_moment(), '{"lines": ["hello there", "and you"]}',
+                [call("make_clip", moment=1, layout="talk", why="two people talking")],
+                [call("change_shot", start=3, end=5, show=2, why="her reaction")],
+                [call("change_shot", start=15, end=17, show=0, why="they laugh")],
+                [call("change_shot", start=1, end=2, show=3, why="nobody")],
+                [call("slow_push", start=1, end=4, why="build-up")],
+                [call("move_part", part="circle", box=[600, 700, 900, 900], why="move it")],
+                "Done.")
+        finally:
+            talk.motion = real
+        made, reaction, together, nobody, push, move = steps[-6:]
+        self.assertFalse(made["refused"], made["result"])
+        self.assertIn("in the talk layout. It follows 2 people, numbered from the left", made["result"])
+        self.assertIn("Shots: 0-10.2 s person 1; 10.2-20 s person 2.", made["result"])
+        self.assertIn("comes next as a picture", made["result"])
+        self.assertIn("Shots now: 0-3 s person 1; 3-5 s person 2; 5-10.2 s person 1; 10.2-20 s person 2.",
+                      reaction["result"])
+        self.assertIn("Everyone is shown from 15 to 17 s.", together["result"])
+        self.assertIn("comes next as a picture", together["result"])
+        self.assertTrue(nobody["refused"])
+        self.assertIn("show 3 is not one of the people: use 1 to 2", nobody["result"])
+        self.assertTrue(push["refused"])
+        self.assertIn("no slow push", push["result"])
+        self.assertTrue(move["refused"])
+        self.assertIn("change_shot", move["result"])
+        lay = self.chat.project.state()["clip"]["layout"]
+        self.assertEqual([p["name"] for p in lay["parts"]], ["person 1", "person 2", "everyone"])
+        times, _ = tools._face_times(self.chat.project.state(), self.chat.recording)
+        on = dict(times)
+        self.assertEqual((len(on[1.0]), len(on[16.0])), (1, 2),
+                         "words keep clear of the face on screen: one person at 1 s, both on the card at 16 s")
+        self.assertEqual(tools.describe(self.chat.project.entries[-1]), "changing the shots")
+        self.faces = found([(30 + i * 0.5, [[140, 40, 40, 40]]) for i in range(40)], size=(320, 180))
+        brain, steps = self.run_job([call("make_clip", moment=1, layout="talk", why="one person")], "Done.")
+        self.assertTrue(steps[-1]["refused"])
+        self.assertIn("found 1 sitting still", steps[-1]["result"])
 
     def test_muse_is_offered_every_studio_sticker(self):
         offered = tools.TOOLS["add_sticker"].params["sticker"]["enum"]

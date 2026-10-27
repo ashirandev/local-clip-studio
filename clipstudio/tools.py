@@ -16,8 +16,8 @@ import shutil
 import subprocess
 import time
 
-from . import (effects, faces, hearing, layouts, maps, mind, previews, project, recording, render, spoken, text,
-               thai, tracks, words)
+from . import (effects, faces, hearing, layouts, maps, mind, previews, project, recording, render, spoken, talk,
+               text, thai, tracks, words)
 from .recipes import RECIPES, SIGNALS
 
 WHY = {"type": "string",
@@ -520,7 +520,12 @@ def _face_times(state, rec):
     """[(clip second, [boxes in the frame to keep words off])] for every picture the face finder took of the clip,
     and the seconds between two pictures. The product Muse named is in every picture."""
     clip, out, every = state["clip"], [], faces.EVERY
-    product = layouts.to_frame(clip["layout"], clip["product"]) if clip.get("product") else []
+    lay = clip["layout"]
+
+    def on_frame(at, box):
+        return layouts.to_frame(dict(lay, parts=talk.parts_at(lay, at)) if lay["kind"] == "talk" else lay, box)
+
+    product = layouts.to_frame(lay, clip["product"]) if clip.get("product") else []
     if product:
         out = [(round(k * every, 2), list(product)) for k in range(int(state["length"] / every) + 1)]
     for a, b in clip["pieces"]:
@@ -530,7 +535,7 @@ def _face_times(state, rec):
         every = found["every"]
         for t, boxes in faces.between(found, a, b):
             at = project.from_recording(clip["pieces"], t)
-            out.append((at, [f for box in boxes for f in layouts.to_frame(clip["layout"], box)] + product))
+            out.append((at, [f for box in boxes for f in on_frame(at, box)] + product))
     return sorted(out, key=lambda x: x[0]), every
 
 
@@ -615,6 +620,8 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
                                                           recording.clock(m["end"])) for m in moments)))
     m = moments[moment - 1]
     a, b = m["start"], m["end"]
+    if layout == "talk":
+        return _make_talk(job, rec, moment, m)
     try:
         box, face_line = _the_face(job, rec, a, b, face)
     except faces.Stopped:
@@ -657,6 +664,76 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
     lines += _people_lines(job, people, rec)
     lines.append("Look at it: if a face or the action is cut badly, make the clip again with another layout or crop. "
                  "Then put the title on.")
+    job.show(clip=job.chat.clip_view())
+    return "\n".join(lines)
+
+
+def _make_talk(job, rec, moment, m):
+    """make_clip in the talk layout: the people found, who speaks when, and the shots that follow them."""
+    a, b = m["start"], m["end"]
+    try:
+        found = job.find_faces(rec, a, b)
+    except faces.NoFaces as e:
+        raise Refused("The talk layout needs the people's faces, and they could not be looked for: %s" % e)
+    except faces.Stopped:
+        return "Not made: the person pressed Stop."
+    persons = talk.people(found)
+    if len(persons) < 2:
+        raise Refused("The talk layout follows two or more people talking, and the program found %d sitting still in "
+                      "the moment's %d pictures. Choose the face or the subject layout." % (len(persons),
+                                                                                         len(found["samples"])))
+    heard = job.chat.looks[m["look"] - 1].get("said")
+    job.working("Watching who speaks")
+    shots, _ = talk.plan(rec, [[a, b]], heard, persons)
+    lay = talk.make((rec["width"], rec["height"]), persons, shots)
+    people = _people(rec, [[a, b]], None)
+    state = job.edit({"do": "clip", "moment": moment, "pieces": [[a, b]], "layout": lay, "product": None,
+                      "people": [{k: v for k, v in p.items() if k != "crop"} for p in people or []],
+                      "speech": _speech(rec, job.chat.looks[m["look"] - 1], [[a, b]])})
+    lines = ["Made the clip from moment %d (%s-%s, %g s) in the talk layout. It follows %d people, numbered from the "
+             "left: %s." % (moment, recording.clock(a), recording.clock(b), state["length"], len(persons), "; ".join(
+                 "person %d at %s on your grid" % (p["n"], _grid(p["box"], rec)) for p in persons)),
+             "Who speaks was measured: whose mouth moves clearly more %s." % (
+                 "while words are heard" if heard is not None else "(the moment was never heard, so from movement "
+                                                                    "alone)"),
+             "Shots: %s." % talk.said(lay["shots"]),
+             "If a shot shows the wrong person, or a reaction should be seen, change it with change_shot."]
+    lines += lay["notes"] + [lay["safe"]["said"]]
+    lines.append("Places for words on screen, kept clear of every person's head (the band from y %d to %d is kept for "
+                 "the captions):" % (lay["captions"][1], lay["captions"][1] + lay["captions"][3]))
+    lines += _place_lines(state, rec)
+    peak = m.get("t") if m.get("t") is not None else (a + b) / 2
+    at = min(max(0.0, peak - a), state["length"] - 0.1)
+    lines.append(_show_frame(job, state, rec, at, "The clip at %g s (moment %d, talk layout):" % (round(at, 2),
+                                                                                                    moment)))
+    lines += _people_lines(job, people, rec)
+    job.show(clip=job.chat.clip_view())
+    return "\n".join(lines)
+
+
+def change_shot(job, why, start, end, show):
+    rec = _open(job, "change a shot of")
+    state = _clip_state(job)
+    lay = state["clip"]["layout"]
+    if lay["kind"] != "talk":
+        raise Refused("Only a clip in the talk layout has shots; this one is in the %s layout." % lay["kind"])
+    length, count = state["length"], len(lay["people"])
+    end = min(end, length)
+    if not 0 <= start < length:
+        raise Refused("start %g s is outside the clip, which is %g s long: use seconds of the clip." % (start, length))
+    if end - start < talk.SHORTEST_TURN / 2:
+        raise Refused("A shot of %g-%g s is too short to see; give it at least %g s." % (start, end,
+                                                                                       talk.SHORTEST_TURN / 2))
+    if not 0 <= show <= count:
+        raise Refused("show %d is not one of the people: use 1 to %d (numbered from the left), or 0 for everyone."
+                      % (show, count))
+    shots = talk.with_shot(lay["shots"], round(start, 2), round(end, 2), show)
+    new = talk.make(tuple(lay["size"]), lay["people"], shots)
+    state = job.edit({"do": "layout", "part": "shots", "box": None, "layout": new})
+    lines = ["%s from %g to %g s. Shots now: %s." % ("Everyone is shown" if show == 0 else "Person %d is shown" % show,
+                                                     start, end, talk.said(shots)),
+             "Places for words now:"] + _place_lines(state, rec)
+    lines.append(_show_frame(job, state, rec, (start + end) / 2, "The clip at the changed shot:"))
     job.show(clip=job.chat.clip_view())
     return "\n".join(lines)
 
@@ -939,7 +1016,7 @@ HITS = {"flash": "a short white flash", "shake": "the picture shakes and settles
 def _main_part(layout):
     """The middle of the part that shows the action: the card, the picture below the face, or the whole frame."""
     parts = {p["name"]: p["dst"] for p in layout["parts"]}
-    x, y, w, h = parts.get("card") or parts.get("bottom") or parts.get("whole")
+    x, y, w, h = parts.get("card") or parts.get("bottom") or parts.get("whole") or [0, 0, layouts.W, layouts.H]
     return [round(x + w / 2), round(y + h / 2)]
 
 
@@ -949,6 +1026,9 @@ PARTS = ("card", "circle", "top", "bottom", "whole")
 def move_part(job, why, part, box):
     rec = _open(job, "move a part of")
     state = _clip_state(job)
+    if state["clip"]["layout"]["kind"] == "talk":
+        raise Refused("A talk clip has no parts to move: it cuts between the people. Change who is shown when with "
+                      "change_shot.")
     band = _frame_box("box", box)
     try:
         lay = layouts.moved(state["clip"]["layout"], part, band)
@@ -992,6 +1072,8 @@ def set_look(job, why, look):
 def slow_push(job, why, start, end, zoom=PUSH_ZOOM):
     rec = _open(job, "push in on")
     state = _clip_state(job)
+    if state["clip"]["layout"]["kind"] == "talk":
+        raise Refused("A talk clip cuts between the people, so it has no slow push: the cuts carry the pace.")
     length = state["length"]
     if not 0 <= start < length:
         raise Refused("start %g s is outside the clip, which is %g s long: use seconds of the clip." % (start, length))
@@ -1724,7 +1806,7 @@ def describe(entry):
     if entry["do"] == "glass":
         return "the %s glass box at %g-%g s" % (entry["tint"], entry["start"], entry["end"])
     if entry["do"] == "layout":
-        return "moving the %s" % entry["part"]
+        return "changing the shots" if entry["part"] == "shots" else "moving the %s" % entry["part"]
     if entry["do"] == "untitle":
         return 'taking the title "%s" off' % entry["text"]
     if entry["do"] == "look":
@@ -1875,14 +1957,15 @@ TOOLS = {t.name: t for t in [
                                 "required": ["look", "reason"]}}},
          ["moments"], propose_moments, changes=True),
     Tool("make_clip", "Made the clip",
-         "Make the vertical clip from one of the moments you proposed, in one of four layouts that the program "
-         "draws: " + "; ".join("%s: %s" % kv for kv in layouts.SAID.items()) + ". The program finds the face itself "
+         "Make the vertical clip from one of the moments you proposed, in one of the layouts that the program "
+         "draws: " + "; ".join("%s: %s" % kv for kv in dict(layouts.SAID, talk=talk.SAID).items()) + ". The program "
+         "finds the face itself "
          "in the moment's pictures and fixes what it safely can, and says what it did. The clip's frame comes back "
          "to you as a picture. Call it again to remake the clip from another moment, layout or crop; the words on "
          "screen stay.",
          {"moment": {"type": "integer", "minimum": 1, "maximum": MOST_MOMENTS,
                      "description": "The number of the moment you proposed."},
-          "layout": {"type": "string", "enum": list(layouts.KINDS), "description": "Which layout."},
+          "layout": {"type": "string", "enum": list(layouts.KINDS) + ["talk"], "description": "Which layout."},
           "crop": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0,
                                                                               "maximum": 1000},
                    "description": "[x1, y1, x2, y2] on your 0-1000 grid of the recording's picture: the part to show "
@@ -2014,6 +2097,15 @@ TOOLS = {t.name: t for t in [
                   "description": "[x1, y1, x2, y2] on a 0-1000 grid of the clip's vertical frame, where the part "
                                  "goes. A circle stays round, in the middle of the box."}},
          ["part", "box"], move_part, changes=True),
+    Tool("change_shot", "Changed a shot",
+         "In a talk clip, show one person, or everyone, from start to end: when the program cut to the wrong person, "
+         "when a reaction should be seen, or when the person asks. The shots around it are cut to make room.",
+         {"start": {"type": "number", "minimum": 0, "description": "From when, in seconds of the clip."},
+          "end": {"type": "number", "minimum": 0, "description": "Until when, in seconds of the clip."},
+          "show": {"type": "integer", "minimum": 0, "maximum": talk.MOST_PEOPLE,
+                   "description": "The person to show, numbered from the left as make_clip listed them, or 0 for "
+                                  "everyone together."}},
+         ["start", "end", "show"], change_shot, changes=True),
     Tool("set_look", "Chose a colour look",
          "Grade the footage with one colour look: " + "; ".join("%s: %s" % kv for kv in LOOKS.items()) + ". It "
          "colours the footage only; titles, captions and the frame's design keep their colours.",

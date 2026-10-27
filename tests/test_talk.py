@@ -46,6 +46,19 @@ class Turns(unittest.TestCase):
                          "nobody clearly ahead")
         self.assertEqual([w["who"] for w in talk.windows([left[:5]], 10, 0.0, None)], [1], "one person always speaks")
 
+    def test_each_person_is_counted_against_their_own_stillness(self):
+        noisy, speaking = [8.0] * 20, [1.0] * 10 + [9.0] * 10
+        self.assertEqual(talk.windows([noisy, speaking], 10, 0.0, None)[-1]["who"], 2,
+                         "a mouth area that always flickers (light, a beard) does not win over the one speaking")
+
+    def test_a_changed_shot_cuts_into_its_neighbours_and_joins_the_same_one(self):
+        shots = [{"from": 0, "to": 10.2, "show": 1}, {"from": 10.2, "to": 20, "show": 2}]
+        self.assertEqual(talk.with_shot(shots, 9, 10.2, 2), [{"from": 0, "to": 9, "show": 1},
+                                                             {"from": 9, "to": 20, "show": 2}])
+        self.assertEqual(talk.with_shot(shots, 9, 12, 0), [{"from": 0, "to": 9, "show": 1},
+                                                           {"from": 9, "to": 12, "show": 0},
+                                                           {"from": 12, "to": 20, "show": 2}])
+
     def test_short_turns_join_the_one_before_and_cuts_move_to_where_words_begin(self):
         wins = self.wins([(1, [5, 1])] * 6 + [(2, [1, 5])] + [(1, [5, 1])] * 2 + [(2, [1, 5])] * 6 + [(None, [1, 1])])
         got = talk.turns(wins, starts=[0.1, 4.3])

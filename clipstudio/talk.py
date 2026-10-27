@@ -24,6 +24,8 @@ import subprocess
 from . import faces, layouts
 
 W, H = layouts.W, layouts.H
+SAID = ("two or more people talking, such as a podcast or an interview: the clip cuts to whoever speaks, to the one "
+        "listening for a short reaction, and to everyone when they laugh or talk together")
 MOTION_FPS = 10
 TILE = (48, 32)
 WINDOW = 0.5
@@ -173,10 +175,11 @@ def shots(wins, turns_, people_count):
     return [s for s in out if s["to"] - s["from"] > 0.01]
 
 
-def plan(rec, pieces, said, persons, read=motion):
+def plan(rec, pieces, said, persons, read=None):
     """The shots of a clip made of pieces ([[recording a, recording b]]) of rec, with what the hearing heard (said:
     [{"from", "to"}] in recording seconds, or None when nobody listened) and the people found: clip seconds from 0 to
     the clip's end, and the windows they were decided from."""
+    read = read or motion
     wins, starts, joins, at = [], [], [], 0.0
     for a, b in pieces:
         values = read(rec, a, b, persons)
@@ -235,6 +238,35 @@ def make(size, persons, shots_):
             "background": False, "notes": notes, "people": [{"n": p["n"], "box": p["box"]} for p in persons],
             "shots": [dict(s) for s in shots_],
             "safe": {"box": layouts.SAFE, "buttons": layouts.BUTTONS, "said": layouts.SAFE_SAID}}
+
+
+def with_shot(shots_, start, end, show):
+    """The shots with show from start to end (clip seconds), cutting into the ones it overlaps; neighbours that show
+    the same are joined."""
+    out = []
+    for s in shots_:
+        if s["to"] <= start or s["from"] >= end:
+            out.append(dict(s))
+            continue
+        if s["from"] < start:
+            out.append(dict(s, to=start))
+        if s["to"] > end:
+            out.append(dict(s, **{"from": end}))
+    out.append({"from": start, "to": end, "show": show})
+    out.sort(key=lambda s: s["from"])
+    joined = []
+    for s in out:
+        if joined and joined[-1]["show"] == s["show"] and abs(joined[-1]["to"] - s["from"]) < 1e-6:
+            joined[-1]["to"] = s["to"]
+        else:
+            joined.append(s)
+    return joined
+
+
+def said(shots_):
+    """The shots as a short line: "0-3.2 s person 1; 3.2-4.7 s everyone"."""
+    return "; ".join("%g-%g s %s" % (round(s["from"], 1), round(s["to"], 1),
+                                     "everyone" if s["show"] == 0 else "person %d" % s["show"]) for s in shots_)
 
 
 def parts_at(layout, t):
