@@ -16,10 +16,16 @@ pixels of the 1080x1920 clip. Everything drawn around the parts (background, sha
 outside them, so to_frame() stays true: a part's picture is shown whole at its frame box, only the card's rounded
 corners (CARD_RADIUS px) are cut.
 
-Words go only where a phone leaves them readable: Meta's published Reels numbers leave about 270 px free at the
-top, 670 px at the bottom and 65 px at each side, with about 120 px more on the right for the buttons in the lower
-half. Each layout names its places for words inside that, and keeps a band for the captions. A place is never on
-the face: the stack has no place at the top, because its top panel is the face; its words go on the seam.
+What a phone covers was measured on Tarm's iPhone (Instagram and Facebook Reels, 10-27, in clip pixels): both apps
+fill the screen and cut about 51 px off each side; the status bar and the app's header cover the top 236 px; the
+name, a friend's avatar and the caption cover everything below y 1552; the like, comment and share buttons cover
+x 917 to 1001 from y 1098 to 1855. SAFE and BUTTONS keep a margin around that, and layout['safe'] says it for Muse.
+Words, the card, the stack's game and a subject stay inside SAFE, and words stay clear of BUTTONS too (the card's
+lower right edge sits under the buttons, as a full-width picture must). An ad is stricter: Meta's ad numbers keep
+the bottom 670 px free for the ad's button, so a clip that will be boosted keeps its words above y 1250.
+
+A place is never on the face: the stack has no place at the top, because its top panel is the face; its words go
+on the seam.
 """
 import math
 import os
@@ -44,10 +50,10 @@ CAPTIONS = [65, 1090, 830, 160]
 CIRCLE, RING = 400, 8
 CIRCLE_Y = 540
 CARD_Y = 890
-CARD_X = 28
+CARD_X = 60
 CARD_W = W - 2 * CARD_X
 CARD_RADIUS = 30
-CARD_LOWEST, CARD_TALLEST = 480, 760
+CARD_LOWEST, CARD_TALLEST = 480, 630
 STACK_TOP = 760
 SEAM = 8
 GROUND = "0x101014"
@@ -55,7 +61,15 @@ FACE_SHARE = {"circle": 1.5, "stack": 2.0, "face": 4.0}
 HEAD_UP, HEAD_SIDE = 0.4, 0.15
 GAP = 24
 UNDER = 200
-SAFE_BOTTOM = 1500
+SAFE_BOTTOM = 1520
+SAFE = [56, 250, 968, SAFE_BOTTOM - 250]
+BUTTONS = [900, 1080, 180, 780]
+SAFE_SAID = ("Phones cover the clip's top 250 px (the status bar and the app's header), everything below y %d (the "
+             "name and the caption), the right side from x %d between y %d and %d (like, comment, share), and cut "
+             "51 px off each side. Keep words, stickers and faces inside x %d to %d, y %d to %d, and left of x %d "
+             "below y %d." % (SAFE_BOTTOM, BUTTONS[0], BUTTONS[1], BUTTONS[1] + BUTTONS[3], SAFE[0],
+                              SAFE[0] + SAFE[2], SAFE[1], SAFE_BOTTOM, BUTTONS[0], BUTTONS[1]))
+BAND = {"saturation": 1.1, "brightness": -0.12, "sigma": 14}
 LEAVE_OUT = 3.0
 SMALLEST_CARD = 0.4
 SHARPEN_FROM = 1.5
@@ -95,11 +109,12 @@ def make(kind, size, face=None, crop=None):
                              "box on your 0-1000 grid, or choose the subject layout.")
         top_h = STACK_TOP - SEAM // 2
         bottom_y = STACK_TOP + SEAM // 2
+        bottom_h = SAFE_BOTTOM - SEAM // 2 - bottom_y
         top = _around(face, FACE_SHARE["stack"], W / top_h, room)
-        game = _fit(crop, W / (H - bottom_y), [0, 0, w, h])
+        game = _fit(crop, W / bottom_h, [0, 0, w, h])
         game = _leave_out(game, away, notes, size=(w, h))
         parts += [{"name": "top", "src": top, "dst": [0, 0, W, top_h]},
-                  {"name": "bottom", "src": game, "dst": [0, bottom_y, W, H - bottom_y]}]
+                  {"name": "bottom", "src": game, "dst": [0, bottom_y, W, bottom_h]}]
         places = {"middle": [65, STACK_TOP - 120, 950, 240]}
     elif kind == "face":
         if not face:
@@ -109,11 +124,49 @@ def make(kind, size, face=None, crop=None):
         parts.append({"name": "whole", "src": part, "dst": [0, 0, W, H]})
         places, captions = _around_the_head(_head(face, part), notes)
     else:
-        part = _fit(crop, W / H, [0, 0, w, h], grow=1.2)
+        part = _in_safe(crop, [0, 0, w, h])
         parts.append({"name": "whole", "src": part, "dst": [0, 0, W, H]})
         places = {"top": TOP, "middle": MIDDLE}
+        k = W / part[2]
+        shown = [(crop[0] - part[0]) * k, (crop[1] - part[1]) * k, crop[2] * k, crop[3] * k]
+        if crop != [0, 0, w, h] and [why for why in unsafe(shown) if "buttons" not in why]:
+            notes.append("The subject is too big to show whole between the phone's header and the name and caption "
+                         "at the bottom; choose the card layout to show all of it.")
     return {"kind": kind, "size": [w, h], "face": face, "parts": parts, "places": places,
-            "captions": captions if kind == "face" else CAPTIONS, "background": kind == "card", "notes": notes}
+            "captions": captions if kind == "face" else CAPTIONS, "background": kind == "card", "notes": notes,
+            "safe": {"box": SAFE, "buttons": BUTTONS, "said": SAFE_SAID}}
+
+
+def unsafe(box):
+    """What a phone covers of box (x, y, w, h on the 1080x1920 frame): a list of short reasons, empty when every
+    pixel of it shows in both apps."""
+    x, y, w, h = box
+    out = []
+    if x < SAFE[0] or x + w > SAFE[0] + SAFE[2]:
+        out.append("the phone cuts the clip's sides off (keep x from %d to %d)" % (SAFE[0], SAFE[0] + SAFE[2]))
+    if y < SAFE[1]:
+        out.append("the status bar and the app's header cover the top (keep y from %d)" % SAFE[1])
+    if y + h > SAFE_BOTTOM:
+        out.append("the name and the caption cover everything below y %d" % SAFE_BOTTOM)
+    if _overlap(box, BUTTONS):
+        out.append("the like, comment and share buttons cover x %d and right of it from y %d to %d"
+                   % (BUTTONS[0], BUTTONS[1], BUTTONS[1] + BUTTONS[3]))
+    return out
+
+
+def _in_safe(crop, room, grow=1.1):
+    """The 9:16 part of room that shows crop, grown by grow, as big as fits inside SAFE and centred in it, so no
+    part of the subject is under what a phone draws on top."""
+    x, y, cw, ch = crop
+    k = min(SAFE[2] / (cw * grow), SAFE[3] / (ch * grow))
+    bw, bh = W / k, H / k
+    if bw > room[2]:
+        bw, bh = room[2], room[2] * H / W
+    if bh > room[3]:
+        bw, bh = room[3] * W / H, room[3]
+    k = W / bw
+    middle = SAFE[1] + SAFE[3] / 2
+    return _place(x + cw / 2, y + ch / 2 + (H / 2 - middle) / k, bw, bh, room)
 
 
 def _head(face, part):
@@ -134,7 +187,8 @@ def _around_the_head(head, notes):
     if top - GAP >= TOP[1] + TOP[3]:
         places, below = {"top": TOP}, chin + GAP
     else:
-        places = {"middle": [65, _even(chin + GAP), 950, UNDER]}
+        y = _even(chin + GAP)
+        places = {"middle": [65, y, 950 if y + UNDER <= BUTTONS[1] else BUTTONS[0] - 65 - 5, UNDER]}
         below = chin + GAP + UNDER + GAP
     y = max(CAPTIONS[1], _even(below))
     if y + tall > SAFE_BOTTOM:
@@ -291,10 +345,17 @@ def graph(layout, src, out, first_input, pushes=()):
         return "[%s]%s,%s" % (src, _pushed(parts["whole"], pushes), tail), files
     if layout["kind"] == "stack":
         top, bottom = parts["top"], parts["bottom"]
-        bx, by = bottom["dst"][:2]
-        text = ("[%s]split=2[lay_a][lay_b];[lay_a]%s,pad=%d:%d:0:0:color=%s[lay_t];[lay_b]%s[lay_g];"
-                "[lay_t][lay_g]overlay=%d:%d[lay_1];[lay_1]%soverlay=0:%d:shortest=1,%s"
-                % (src, _scaled(top), W, H, GROUND, _pushed(bottom, pushes), bx, by, shape(seam_shade()), by, tail))
+        bx, by, _, bh = bottom["dst"]
+        under = by + bh + SEAM
+        sx, sy, sw, sh = bottom["src"]
+        text = ("[%s]split=3[lay_a][lay_b][lay_c];[lay_a]%s,pad=%d:%d:0:0:color=%s[lay_t];[lay_b]%s[lay_g];"
+                "[lay_c]crop=%d:%d:%d:%d,scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,gblur=sigma=%s,"
+                "eq=saturation=%s:brightness=%s[lay_u];"
+                "[lay_t][lay_g]overlay=%d:%d[lay_1];[lay_1][lay_u]overlay=0:%d[lay_2];"
+                "[lay_2]%soverlay=0:%d:shortest=1[lay_3];[lay_3]%soverlay=0:%d:shortest=1,%s"
+                % (src, _scaled(top), W, H, GROUND, _pushed(bottom, pushes),
+                   sw, sh, sx, sy, W, H - under, W, H - under, BAND["sigma"], BAND["saturation"], BAND["brightness"],
+                   bx, by, under, shape(seam_shade()), by, shape(seam_shade()), under, tail))
         return text, files
     card = parts["card"]
     cx, cy, cw, ch = card["dst"]

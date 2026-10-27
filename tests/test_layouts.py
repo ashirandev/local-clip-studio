@@ -183,7 +183,8 @@ class Pushed(unittest.TestCase):
             w, h = part["dst"][2:]
             grown = (w + 2 * round(w / 2 * 0.075)) / w * (h + 2 * round(h / 2 * 0.075)) / h
             for k in (0, 1):
-                self.assertLess(abs(pushed[k] - plain[k]), 1, "%s: the marker under the centre stays put: %s vs %s"
+                self.assertLess(abs(pushed[k] - plain[k]), 1.5, "%s: the marker under the centre stays put, give or "
+                                "take the push's half pixel and the half-size colour planes it is found by: %s vs %s"
                                 % (kind, pushed, plain))
             self.assertLess(abs(pushed[2] / plain[2] - grown), 0.02, "%s: halfway it is %.3f times the area, not "
                             "%.3f" % (kind, pushed[2] / plain[2], grown))
@@ -219,6 +220,100 @@ class Places(unittest.TestCase):
             (_, title), (_, captions) = boxes
             self.assertFalse(overlap(title, captions), what)
             self.assertGreaterEqual(title[3], 192, "%s: the title place holds two lines of the tallest style" % what)
+
+
+# What Instagram and Facebook Reels draw over a 1080x1920 clip, measured on Tarm's iPhone screenshots (10-27,
+# 1179x2556): both apps fill the screen to their own bottom bar and cut the sides; boxes in clip pixels.
+COVERED = {
+    "the status bar": [151, 56, 756, 34],
+    "Instagram's back and + icons": [130, 186, 868, 48],
+    "Facebook's Reels header": [117, 187, 254, 49],
+    "Instagram's buttons": [923, 1098, 64, 752],
+    "Facebook's buttons": [917, 1103, 84, 742],
+    "Facebook's friend avatar": [94, 1552, 111, 95],
+    "Facebook's page name and Follow": [84, 1683, 597, 108],
+    "Instagram's name": [88, 1668, 270, 89],
+    "the caption": [85, 1784, 735, 71],
+}
+SEEN_X = (52, 1028)
+RECORDINGS = ((SIZE, FACE, "a face camera in a wide recording"),
+              ((1080, 1920), [474.7, 292.3, 345.1, 454.4], "a vertical recording, the face high"),
+              ((1080, 1920), [400, 450, 280, 360], "a vertical recording, the title under the chin"),
+              ((1080, 1920), [380, 900, 300, 380], "a vertical recording, the face low"))
+
+
+def shows(test, box, what, below=236, above=1552):
+    """box is drawn whole on the phone: inside the sides it keeps, between the header and the avatar."""
+    test.assertTrue(SEEN_X[0] <= box[0] and box[0] + box[2] <= SEEN_X[1], "%s %s: the phone cuts the sides at x %s"
+                    % (what, [round(v) for v in box], SEEN_X))
+    test.assertTrue(below <= box[1] and box[1] + box[3] <= above, "%s %s: covered at the top or the bottom"
+                    % (what, [round(v) for v in box]))
+
+
+class Phones(unittest.TestCase):
+    def test_no_words_go_under_what_instagram_or_facebook_draw(self):
+        for size, face, what in RECORDINGS:
+            for kind in layouts.KINDS:
+                lay = layouts.make(kind, size, face)
+                for name, box in list(lay["places"].items()) + [("captions", lay["captions"])]:
+                    shows(self, box, "%s, %s, the %s place" % (what, lay["kind"], name))
+                    for ui, cover in COVERED.items():
+                        self.assertFalse(overlap(box, cover), "%s, %s: the %s place %s is under %s %s"
+                                         % (what, lay["kind"], name, box, ui, cover))
+                    self.assertEqual(layouts.unsafe(box), [], (what, lay["kind"], name))
+                self.assertIn("250", lay["safe"]["said"], "Muse is told where the phone covers the clip")
+
+    def test_the_card_and_the_stacks_game_show_whole_on_the_phone(self):
+        for crop in (None, [600, 0, 700, 1080], [0, 300, 1920, 500]):
+            lay = layouts.make("card", SIZE, FACE, crop)
+            (card,) = [p["dst"] for p in lay["parts"] if p["name"] == "card"]
+            shows(self, card, "the card for crop %s, its round corners included" % (crop,))
+        lay = layouts.make("stack", SIZE, FACE)
+        (game,) = [p["dst"] for p in lay["parts"] if p["name"] == "bottom"]
+        self.assertLessEqual(game[1] + game[3], 1552, "the game ends above the apps' name and caption: %s" % game)
+
+    def test_a_subject_shows_whole_between_the_header_and_the_name(self):
+        for crop in ([800, 300, 400, 500], [300, 400, 300, 300], [1400, 100, 350, 400]):
+            lay = layouts.make("subject", SIZE, None, crop)
+            (shown,) = layouts.to_frame(lay, crop)
+            shows(self, shown, "the subject %s" % (crop,))
+            self.assertEqual(lay["notes"], [], crop)
+        for crop in ([100, 100, 1700, 300], [900, 0, 120, 1080]):
+            lay = layouts.make("subject", SIZE, None, crop)
+            self.assertIn("too big to show whole", " ".join(lay["notes"]), "a subject no 9:16 part of the recording "
+                          "can hold says so: %s" % (crop,))
+
+    def test_unsafe_says_what_covers_a_box(self):
+        said = " ".join(layouts.unsafe([65, 1450, 950, 200]))
+        self.assertIn("caption", said)
+        self.assertIn("buttons", said)
+        self.assertIn("sides", " ".join(layouts.unsafe([20, 600, 300, 100])))
+        self.assertIn("top", " ".join(layouts.unsafe([65, 150, 300, 100])))
+        self.assertEqual(layouts.unsafe(layouts.TOP), [])
+
+
+@unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg, and numpy for the pixel checks")
+class Band(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.work, recording.WORK = recording.WORK, os.path.join(cls.tmp, "work")
+
+    @classmethod
+    def tearDownClass(cls):
+        recording.WORK = cls.work
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_under_the_stacks_game_the_same_moment_shows_blurred_and_darker(self):
+        lay = layouts.make("stack", SIZE, FACE)
+        (game,) = [p["dst"] for p in lay["parts"] if p["name"] == "bottom"]
+        frame = moving(lay, 1.0).astype(int)
+        band = frame[game[1] + game[3] + 40:1900, 40:1040]
+        above = frame[game[1] + 100:game[1] + game[3] - 40, 40:1040]
+        self.assertGreater(band.std(), 8, "the band is a picture, not a flat colour")
+        self.assertLess(band.mean(), above.mean(), "the band is darker than the game, so the apps' words read on it")
+        sharp = lambda a: abs(a[:, 1:] - a[:, :-1]).mean()
+        self.assertLess(sharp(band), sharp(above) / 3, "and blurred, so it does not pull the eye")
 
 
 if __name__ == "__main__":
