@@ -86,6 +86,17 @@ class Stages(unittest.TestCase):
         recording.WORK = cls.work
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
+    def test_the_words_are_drawn_with_the_chosen_fonts_own_file(self):
+        found = [f for f in text.fonts("กขค") if f["where"] == "computer" and f["free"]]
+        if not found:
+            self.skipTest("this computer has no free Thai font besides the studio's")
+        st = dict(state("card", title=[TITLE]), style={"do": "style", "name": "clean", "font": found[0]["family"],
+                                                       "colour": None})
+        graph, _ = render.after_source(st, "src", "whole", 1)
+        folder = text.fonts_folder(render.style_of(st))
+        self.assertNotEqual(folder, text.FONTS)
+        self.assertIn("fontsdir=%s:" % text._filter_value(folder), graph)
+
     def test_a_blur_is_drawn_where_the_layout_shows_its_box_and_only_while_it_runs(self):
         box = [300, 100, 60, 60]
         plain = state()

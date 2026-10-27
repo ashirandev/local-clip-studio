@@ -8,9 +8,11 @@ One FFmpeg run draws every candidate line at once, and every box is kept, so a c
 Text wraps at word breaks only: Thai through pythainlp's newmm, a number (1,990, เจ็ดสิบห้า) is never split, and a
 particle (ครับ, นะ...) stays with the word before it.
 
-The fonts are Kanit (SIL OFL 1.1, fonts/OFL.txt) in four weights, shipped in fonts/. Every house style names a face
-that is in fonts/, and burn() passes fonts/ to libass, so a font installed on the computer never stands in for it.
-A person's own font may also be one installed on the computer.
+The house fonts are Kanit (SIL OFL 1.1, fonts/OFL.txt) in four weights, shipped in fonts/. A person may choose any
+other font installed on the computer: fonts() lists them with the licence each font's own file names, so a free font
+can be told from one that is not. libass is given a folder holding only the chosen fonts' files (fonts_folder()), so
+the face that was measured is the face that is drawn: found through the computer's fonts instead, Sarabun Bold was
+drawn as another font (measured 10-27).
 
 Times are seconds of the clip. A start or end is written between two frames (30 a second), so the first frame at
 or after start shows the words and the frame before it does not, whatever rounding libass does on its milliseconds.
@@ -28,7 +30,7 @@ import sys
 import tempfile
 import unicodedata
 
-from . import thai
+from . import recording, thai
 from .effects import Fragment
 
 FRAME_W, FRAME_H, FPS = 1080, 1920, 30
@@ -50,6 +52,12 @@ the outline, or the box behind the text when box is True. edge_ratio and shadow_
 sizes holds the title, caption and big-word sizes in pixels. note says what was changed from what was asked."""
 Measure = collections.namedtuple("Measure", "lines w h")
 _Layout = collections.namedtuple("_Layout", "lines w h left top")
+_Face = collections.namedtuple("_Face", "path index names full sub family weight italic licence postscript")
+# (licence, what its text says) for the licences that let anyone use a font, in a video for sale too
+FREE_LICENCES = (("SIL Open Font License", ("open font licen", "scripts.sil.org/ofl", "openfontlicense.org")),
+                 ("Apache License", ("apache licen", "apache.org/licenses")),
+                 ("Ubuntu Font Licence", ("ubuntu font licen",)),
+                 ("GPL with the font exception", ("font exception",)))
 
 _HOUSE = {
     "clean": dict(face="Kanit SemiBold", colour="#FFFFFF", key="#FFD60A", edge="#141414", box=False,
@@ -65,8 +73,9 @@ HOUSE_NAMES = tuple(_HOUSE)
 # ---- fonts -------------------------------------------------------------------------------------------------------
 
 def _faces(path):
-    """[(index, names, full, sub)] for each face in a font file; names holds the lower-case family, full and
-    PostScript names. A file that is not a font gives []."""
+    """[(index, names, full, sub, family, weight, italic, licence, postscript)] for each face in a font file: names
+    holds the lower-case family, full and PostScript names, weight is the OS/2 weight (400 regular, 700 bold) and
+    licence is (licence, free) from _licence(). A file that is not a font gives []."""
     try:
         with open(path, "rb") as f:
             head = f.read(12)
@@ -81,10 +90,38 @@ def _faces(path):
                 names = _names(f, tables.get(b"name"))
                 full = names.get(4) or names.get(1) or os.path.splitext(os.path.basename(path))[0]
                 every = {n.lower() for i, n in names.items() if i in (1, 4, 6, 16)}
-                faces.append((k, every, full, (names.get(17) or names.get(2) or "").lower()))
+                sub = (names.get(17) or names.get(2) or "").lower()
+                weight, italic = _weight(f, tables.get(b"OS/2"), sub)
+                faces.append((k, every, full, sub, names.get(16) or names.get(1) or full, weight, italic,
+                              _licence(names), names.get(6, "")))
             return faces
     except (OSError, struct.error, ValueError):
         return []
+
+
+def _weight(f, where, sub):
+    """(weight, italic) from the OS/2 table, or from the subfamily name when the font has none."""
+    if where and where[1] >= 64:
+        f.seek(where[0])
+        data = f.read(64)
+        weight = struct.unpack(">H", data[4:6])[0]
+        return (weight * 100 if 0 < weight < 10 else weight or 400), bool(struct.unpack(">H", data[62:64])[0] & 1)
+    return (700 if "bold" in sub else 400), ("italic" in sub or "oblique" in sub)
+
+
+def _licence(names):
+    """(licence, free): the free licence the font's file names (name records 13 and 14), free True; else what the
+    file says instead, cut short, or that it says nothing, free False."""
+    said = " ".join(" ".join(names.get(i, "").split()) for i in (13, 14)).strip()
+    low = said.lower()
+    for licence, marks in FREE_LICENCES:
+        if any(mark in low for mark in marks):
+            return licence, True
+    if not said:
+        return "its file names no licence", False
+    if len(said) > 120:
+        said = said[:120].rsplit(" ", 1)[0] + "..."
+    return "its file says \"%s\"" % said, False
 
 
 def _tables(f, offset):
@@ -107,7 +144,7 @@ def _names(f, where):
     records = [struct.unpack(">HHHHHH", f.read(12)) for _ in range(count)]
     found = {}
     for platform, encoding, language, name_id, length, offset in records:
-        if name_id not in (1, 2, 4, 6, 16, 17):
+        if name_id not in (1, 2, 4, 6, 13, 14, 16, 17):
             continue
         f.seek(at + strings + offset)
         data = f.read(length)
@@ -173,6 +210,11 @@ def _glyph(data, at, kind, code):
     return False
 
 
+@functools.lru_cache(maxsize=None)
+def _has_all(path, index, chars):
+    return _has(path, index, chars)
+
+
 def _font_files(folder, deep=False):
     found = []
     if not os.path.isdir(folder):
@@ -186,37 +228,141 @@ def _font_files(folder, deep=False):
 
 @functools.lru_cache(maxsize=None)
 def _shipped():
-    return [(path, k, names, full, sub) for path in _font_files(FONTS) for k, names, full, sub in _faces(path)]
+    return [_Face(path, *face) for path in _font_files(FONTS) for face in _faces(path)]
 
 
-@functools.lru_cache(maxsize=None)
 def _installed():
+    """The faces installed on this computer, read again when a fonts folder has changed, so a font installed while
+    the studio runs is found."""
     home = os.path.expanduser("~")
     folders = [os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts"),
                os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Windows", "Fonts"),
                "/System/Library/Fonts", "/Library/Fonts", os.path.join(home, "Library", "Fonts"),
                "/usr/share/fonts", "/usr/local/share/fonts", os.path.join(home, ".fonts"),
                os.path.join(home, ".local", "share", "fonts")]
-    return [(path, k, names, full, sub) for folder in folders if folder and os.path.isdir(folder)
-            for path in _font_files(folder, deep=True) for k, names, full, sub in _faces(path)]
+    return _installed_in(tuple((f, os.stat(f).st_mtime_ns) for f in folders if f and os.path.isdir(f)))
+
+
+@functools.lru_cache(maxsize=4)
+def _installed_in(folders):
+    return [_Face(path, *face) for folder, _changed in folders for path in _font_files(folder, deep=True)
+            for face in _faces(path)]
 
 
 def shipped_fonts():
     """The full names of the faces in fonts/, such as "Kanit Bold"."""
-    return [full for _path, _k, _names, full, _sub in _shipped()]
+    return [f.full for f in _shipped()]
 
 
-def _find_font(name):
+def _find_font(name, weight=400):
     """(path, index, full name) of the face called name, in fonts/ first, then on this computer; None if neither.
-    A family name with several faces gives its regular one."""
+    A face's full or PostScript name (or its file's name) gives that face; a family name gives the family's upright
+    face nearest weight, so "Mitr" in the pop style (Kanit Black, 900) is Mitr Bold, Mitr's heaviest."""
     want = name.strip().lower()
     for faces in (_shipped(), _installed()):
-        hits = [f for f in faces if want in f[2] or want == os.path.splitext(os.path.basename(f[0]))[0].lower()]
+        stem = (lambda f: os.path.splitext(os.path.basename(f.path))[0].lower())
+        hits = [f for f in faces if want in f.names or want == stem(f)]
         if hits:
-            hits.sort(key=lambda f: (f[3].lower() != want, f[4] not in ("regular", "normal", "book", "roman", "")))
-            path, k, _names, full, _sub = hits[0]
-            return path, k, full
+            hits.sort(key=lambda f: (want not in (f.full.lower(), stem(f)), f.italic, abs(f.weight - weight), f.full))
+            return hits[0].path, hits[0].index, hits[0].full
     return None
+
+
+def _face_at(path, index):
+    return next(f for f in _shipped() + _installed() if (f.path, f.index) == (path, index))
+
+
+def fonts(letters=None):
+    """The fonts a style can use, one entry per family, the studio's own first, then this computer's by name:
+    [{"family", "faces": [full names, upright first, lightest first], "free": True when the font's file names a free
+    licence (FREE_LICENCES), "licence": that licence, or what the file says instead, "where": "studio" or
+    "computer"}]. With letters (such as "กขค"), only the faces that have every one of them."""
+    if letters is not None and (not isinstance(letters, str) or not letters):
+        raise ValueError("letters %r is not text: give the letters every face must have, such as 'กขค'." % (letters,))
+    families, found = {}, []
+    for where, faces in (("studio", _shipped()), ("computer", sorted(_installed(), key=lambda f: f.family.lower()))):
+        for f in faces:
+            entry = families.get(f.family.lower())
+            if entry and entry["where"] != where or letters and not _has_all(f.path, f.index, letters):
+                continue
+            if not entry:
+                entry = families[f.family.lower()] = {"family": f.family, "faces": set(), "free": f.licence[1],
+                                                      "licence": f.licence[0], "where": where}
+                found.append(entry)
+            entry["faces"].add((f.italic, f.weight, f.full))
+    return [dict(e, faces=[full for _italic, _weight, full in sorted(e["faces"])]) for e in found]
+
+
+def fonts_folder(*styles):
+    """The folder libass is given for the styles of one ASS file: fonts/ when they all use the studio's own faces,
+    else a folder in work/fonts holding a copy of each style's font file and nothing else, made once, so libass
+    draws exactly the faces that were chosen and measured, never another standing in for one."""
+    if not styles:
+        raise ValueError("fonts_folder needs a style: pass every style the ASS file uses.")
+    for st in styles:
+        _check_style(st)
+    return _folder_for(*sorted({os.path.abspath(st.file[0]) for st in styles}))
+
+
+def _folder_for(*paths):
+    if all(os.path.dirname(path) == os.path.abspath(FONTS) for path in map(os.path.abspath, paths)):
+        return FONTS
+    key = hashlib.sha1()
+    for path in paths:
+        seen = os.stat(path)
+        key.update(("%s|%d|%d\n" % (os.path.abspath(path), seen.st_size, seen.st_mtime_ns)).encode("utf-8"))
+    folder = os.path.join(recording.WORK, "fonts", key.hexdigest()[:12])
+    if not os.path.isdir(folder):
+        os.makedirs(os.path.dirname(folder), exist_ok=True)
+        part = tempfile.mkdtemp(prefix=os.path.basename(folder) + ".", suffix=".part", dir=os.path.dirname(folder))
+        try:
+            for k, path in enumerate(paths):
+                name = os.path.basename(path)
+                if os.path.exists(os.path.join(part, name)):
+                    name = "%d-%s" % (k, name)
+                shutil.copyfile(path, os.path.join(part, name))
+            os.replace(part, folder)
+        except OSError:
+            if not os.path.isdir(folder):
+                raise
+        finally:
+            shutil.rmtree(part, ignore_errors=True)
+    return folder
+
+
+def _drawn_name(path, index):
+    """The name to write in the ASS file so libass draws this very face from its folder: the first of its full,
+    PostScript and family names that libass itself says it drew from this face, or None when none does. No one name
+    works for every font: libass found Sao Chingcha Regular (an OpenType CFF font) by its PostScript and family
+    names only, and Sarabun SemiBold by its full name only (measured 10-27)."""
+    seen = os.stat(path)
+    return _drawn_name_of(path, index, seen.st_size, seen.st_mtime_ns)
+
+
+@functools.lru_cache(maxsize=None)
+def _drawn_name_of(path, index, _size, _changed):
+    face = _face_at(path, index)
+    for name in dict.fromkeys(n for n in (face.full, face.postscript, face.family) if n):
+        if _drawn_from(name, _folder_for(path)) == face.postscript.lower():
+            return name
+    return None
+
+
+def _drawn_from(name, folder):
+    """The PostScript name of the face libass draws for the font name, given the folder, read from libass's own
+    report (FFmpeg's debug log); None when it does not say."""
+    probe = os.path.join(tempfile.mkdtemp(prefix="lcs-font-"), "f.ass")
+    try:
+        with open(probe, "w", encoding="utf-8", newline="\n") as f:
+            f.write(_header(320, 240) + _ass_style(STYLES["clean"]._replace(name="probe", fontname=name), "title")
+                    + "\n" + EVENTS + "Dialogue: 0,0:00:00.00,0:00:01.00,probe_title,,0,0,0,,a\n")
+        run = subprocess.run([_ffmpeg(), "-v", "debug", "-f", "lavfi", "-i", "color=black:s=320x240:r=1", "-vf",
+                              _ass_filter(probe, folder), "-frames:v", "1", "-f", "null", "-"], capture_output=True,
+                             timeout=RENDER_SECONDS)
+    finally:
+        shutil.rmtree(os.path.dirname(probe), ignore_errors=True)
+    found = re.search(r"fontselect: \(.*?, \d+, \d+\) -> ([^,\r\n]+),", run.stderr.decode("utf-8", "replace"))
+    return found.group(1).strip().lower() if found else None
 
 
 # ---- styles ------------------------------------------------------------------------------------------------------
@@ -250,15 +396,24 @@ def style(name=None, font=None, colour=None):
         raise ValueError("style %r is not a house style: use one of %s." % (name, ", ".join(HOUSE_NAMES)))
     house = _HOUSE[name]
     face = house["face"]
+    notes = []
     if font is not None:
         if not isinstance(font, str) or not font.strip():
             raise ValueError("font %r is not a font name: use one of %s, or a font installed on this computer."
                              % (font, ", ".join(shipped_fonts())))
-        found = _find_font(font)
+        found = _find_font(font, next((f.weight for f in _shipped() if f.full == face), 400))
         if not found:
             raise ValueError("font %r is neither in the studio's fonts (%s) nor on this computer: use one of those."
                              % (font, ", ".join(shipped_fonts())))
-        path, index, face = found
+        path, index, full = found
+        face = _drawn_name(path, index)
+        if not face:
+            raise ValueError("font %r cannot be drawn: libass draws another font for every one of %s's names, so "
+                             "choose another font." % (font, full))
+        licence, free = _face_at(path, index).licence
+        if not free:
+            notes.append("%s is not known to be free: %s. Use it only when its licence lets you show it in a video "
+                         "you post." % (full, licence))
     else:
         found = _find_font(face)
         if not found:
@@ -266,7 +421,7 @@ def style(name=None, font=None, colour=None):
                                % (face, name, FONTS))
         path, index, _face = found
     text = house["colour"] if colour is None else _hex(colour, "colour")
-    key, edge, notes = house["key"], house["edge"], []
+    key, edge = house["key"], house["edge"]
     what = "box" if house["box"] else "outline"
     if ratio(text, edge) < 4.5:
         better = max(("#000000", "#FFFFFF"), key=lambda e: ratio(text, e))
@@ -408,7 +563,7 @@ def _render_and_read(st, kind, width, rows, count, events, bands):
         with open(path, "w", encoding="utf-8") as f:
             f.write(_header(width, rows) + _ass_style(st, kind, mask=True) + "\n" + EVENTS + "\n".join(events) + "\n")
         run = subprocess.run([_ffmpeg(), "-v", "error", "-f", "lavfi", "-i", "color=black:s=%dx%d:r=1" % (width, rows),
-                              "-vf", "format=gray," + _ass_filter(path, FONTS), "-frames:v", str(count),
+                              "-vf", "format=gray," + _ass_filter(path, fonts_folder(st)), "-frames:v", str(count),
                               "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True, timeout=RENDER_SECONDS)
     finally:
         shutil.rmtree(folder, ignore_errors=True)

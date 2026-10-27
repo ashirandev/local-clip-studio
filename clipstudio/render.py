@@ -131,7 +131,7 @@ def after_source(state, src, out, first_input, default="clean"):
     fragments += [effects.sticker(k["png"], k["at"], k["length"], k["box"]) for k in state.get("stickers") or []]
     words = ass(state, default)
     if words:
-        fragments.append(text.burn(words))
+        fragments.append(text.burn(words, text.fonts_folder(style_of(state, default))))
     fragments += [effects.flash(h["at"]) for h in hits if h["kind"] == "flash"]
     stage, more = effects.join(fragments, "drawn", out, first_input + len(files))
     return ";".join((seen, lay, stage)), files + more

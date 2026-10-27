@@ -10,7 +10,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import effects, text  # noqa: E402
+from clipstudio import effects, recording, text  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
 HAS_NUMPY = importlib.util.find_spec("numpy") is not None
@@ -18,14 +18,15 @@ GREY = 128
 SEEN = 12
 
 
-def draw(ass_text, picks, folder, first=None):
-    """{frame number: the 1920x1080x3 frame} of the ASS text burned on a grey 30 fps clip. The clip starts at frame
-    first (the smallest pick when None), with its own timestamps, as the preview draws a frame."""
+def draw(ass_text, picks, folder, first=None, folder_fonts=text.FONTS):
+    """{frame number: the 1920x1080x3 frame} of the ASS text burned on a grey 30 fps clip, with libass given the
+    fonts in folder_fonts. The clip starts at frame first (the smallest pick when None), with its own timestamps, as
+    the preview draws a frame."""
     import numpy as np
     path = os.path.join(folder, "words.ass")
     with open(path, "w", encoding="utf-8") as f:
         f.write(ass_text)
-    graph, files = effects.join([text.burn(path)], "src", "outv", 1)
+    graph, files = effects.join([text.burn(path, folder_fonts)], "src", "outv", 1)
     lo = min(picks) if first is None else first
     hi = max(picks) + 1
     full = "[0:v]trim=start_frame=%d:end_frame=%d,format=rgb24[src];%s" % (lo, hi, graph)
@@ -98,6 +99,136 @@ class Styles(unittest.TestCase):
     def test_a_shipped_face_is_found_by_any_of_its_names(self):
         for name in ("Kanit Bold", "Kanit-Bold", "kanit bold"):
             self.assertEqual(text.style(font=name).fontname, "Kanit Bold")
+
+
+def drawn_title(st, folder, work):
+    """A hash of the 1080x1920 grey frame with a Thai title in style st, burned with libass given folder."""
+    import hashlib
+    path = os.path.join(work, "%s.ass" % st.name.replace("~", "_"))
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text.document([st], ["Dialogue: 0,0:00:00.00,0:00:02.00,%s_title,,0,0,0,,{\\an8\\pos(540,300)}"
+                                     "ลดราคา 75 บาท" % st.name]))
+    graph, _ = effects.join([text.burn(path, folder)], "src", "o", 1)
+    run = subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "color=c=0x808080:s=1080x1920:r=30:d=1",
+                          "-filter_complex", "[0:v]format=yuv420p[src];" + graph, "-map", "[o]", "-frames:v", "1",
+                          "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True, timeout=60)
+    if run.returncode != 0:
+        raise AssertionError(run.stderr.decode("utf-8", "replace")[-1000:])
+    return hashlib.sha1(run.stdout).hexdigest()
+
+
+@unittest.skipUnless(FFMPEG, "needs ffmpeg")
+class Fonts(unittest.TestCase):
+    """Any font on the computer can be chosen, it is drawn as itself, and its licence is read from its own file."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.work, recording.WORK = recording.WORK, os.path.join(self.tmp, "work")
+
+    def tearDown(self):
+        recording.WORK = self.work
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def computer(self, free=True):
+        """The families on this computer with Thai letters, free or not, else skip."""
+        found = [f for f in text.fonts("กขค") if f["where"] == "computer" and f["free"] == free]
+        if not found:
+            self.skipTest("this computer has no %s Thai font besides the studio's" % ("free" if free else "unfree"))
+        return found
+
+    def test_a_family_gives_its_face_nearest_the_styles_own_weight(self):
+        self.assertEqual(text.style("clean", "Kanit").fontname, "Kanit SemiBold")
+        self.assertEqual(text.style("pop", "Kanit").fontname, "Kanit Black")
+        self.assertEqual(text.style("sticker", "Kanit").fontname, "Kanit Bold")
+        self.assertEqual(text.style("pop", "Kanit Regular").fontname, "Kanit Regular", "a face's own name wins")
+
+    def test_the_studios_fonts_come_first_and_are_free_by_their_own_file(self):
+        kanit = text.fonts()[0]
+        self.assertEqual((kanit["family"], kanit["where"], kanit["free"], kanit["licence"]),
+                         ("Kanit", "studio", True, "SIL Open Font License"))
+        self.assertEqual(kanit["faces"], ["Kanit Regular", "Kanit SemiBold", "Kanit Bold", "Kanit Black"],
+                         "lightest first")
+        self.assertTrue(all(f["family"] != "Kanit" for f in text.fonts()[1:]), "listed once, as the studio's")
+
+    def test_only_the_faces_with_the_letters_are_listed(self):
+        for family in text.fonts("กขค"):
+            for full in family["faces"]:
+                path, index, _ = text._find_font(full)
+                self.assertTrue(text._has(path, index, "กขค"), full)
+        with self.assertRaisesRegex(ValueError, "letters '' is not text"):
+            text.fonts("")
+
+    def test_a_licence_is_what_the_fonts_file_says(self):
+        self.assertEqual(text._licence({13: "This Font Software is licensed under the SIL Open Font License, "
+                                            "Version 1.1.", 14: "https://openfontlicense.org"}),
+                         ("SIL Open Font License", True))
+        self.assertEqual(text._licence({14: "http://www.apache.org/licenses/LICENSE-2.0"}), ("Apache License", True))
+        self.assertEqual(text._licence({}), ("its file names no licence", False))
+        said, free = text._licence({13: "Microsoft supplied font. You may use this font to create, display, and print "
+                                        "content as permitted by the license terms or terms of use, of the Microsoft "
+                                        "product, service, or content in which this font was included."})
+        self.assertFalse(free)
+        self.assertTrue(said.startswith('its file says "Microsoft supplied font.') and said.endswith('..."'), said)
+        self.assertLess(len(said), 140)
+
+    def test_a_font_that_is_not_free_is_drawn_and_the_note_says_so(self):
+        family = self.computer(free=False)[0]
+        st = text.style("clean", family["family"])
+        self.assertIn("is not known to be free: %s" % family["licence"], st.note)
+        self.assertEqual(text.style("clean", "Kanit").note, "")
+
+    def test_a_font_from_the_computer_is_given_to_libass_alone(self):
+        st = text.style("clean", self.computer()[0]["family"])
+        folder = text.fonts_folder(st)
+        self.assertEqual(os.listdir(folder), [os.path.basename(st.file[0])])
+        with open(st.file[0], "rb") as a, open(os.path.join(folder, os.listdir(folder)[0]), "rb") as b:
+            self.assertEqual(a.read(), b.read(), "a copy of the very file")
+        self.assertEqual(text.fonts_folder(st), folder, "made once")
+        self.assertEqual(text.fonts_folder(text.STYLES["pop"]), text.FONTS)
+
+    def test_every_free_thai_font_on_this_computer_is_drawn_as_itself(self):
+        fake = text.STYLES["clean"]._replace(name="fake", fontname="No Such Font Anywhere")
+        stand_in = drawn_title(fake, text.FONTS, self.tmp)
+        for family in self.computer():
+            seen = set()
+            for weight in (400, 700):
+                path, index, full = text._find_font(family["family"], weight)
+                self.assertFalse(text._face_at(path, index).italic and not all(
+                    text._face_at(*text._find_font(f)[:2]).italic for f in family["faces"]), "%s is upright" % full)
+                st = text.style("clean", full)
+                picture = drawn_title(st, text.fonts_folder(st), self.tmp)
+                self.assertNotEqual(picture, stand_in, "%s is drawn as itself, not as libass's stand-in" % full)
+                seen.add((full, picture))
+            self.assertEqual(len({p for _f, p in seen}), len({f for f, _p in seen}),
+                             "%s: each weight is drawn as its own face" % family["family"])
+
+    @unittest.skipUnless(HAS_NUMPY, "needs numpy for the pixel checks")
+    def test_a_font_from_the_computer_is_measured_as_it_is_drawn(self):
+        st = text.style("clean", self.computer()[0]["family"])
+        said = "ลดราคา 75 บาท"
+        events = text.title(said, 0, 2, (90, 300, 900, 400), st)
+        frame = draw(text.document([st], events), [15], self.tmp, folder_fonts=text.fonts_folder(st))[15]
+        box = drawn(frame)
+        self.assertIsNotNone(box, "the title is drawn")
+        self.assertLess(abs((box[2] - box[0]) - text.measure(said, st, "title", 900).w), 3,
+                        "%s: drawn %d px wide, measured %d" % (st.fontname, box[2] - box[0],
+                                                               text.measure(said, st, "title", 900).w))
+
+    def test_the_name_written_is_one_libass_draws_the_face_by(self):
+        real = text._drawn_from
+        text._drawn_name_of.cache_clear()
+        self.addCleanup(text._drawn_name_of.cache_clear)
+        try:
+            text._drawn_from = lambda name, folder: "kanit-bold" if name == "Kanit-Bold" else "arialmt"
+            self.assertEqual(text.style("clean", "Kanit Bold").fontname, "Kanit-Bold",
+                             "the PostScript name, when only that one draws the face")
+            text._drawn_name_of.cache_clear()
+            text._drawn_from = lambda name, folder: "arialmt"
+            with self.assertRaisesRegex(ValueError, "font 'Kanit Bold' cannot be drawn: libass draws another font "
+                                                    "for every one of Kanit Bold's names"):
+                text.style("clean", "Kanit Bold")
+        finally:
+            text._drawn_from = real
 
 
 class Wrapping(unittest.TestCase):
