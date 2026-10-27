@@ -619,7 +619,8 @@ def flurry(pngs, at, box, move="burst", count=8, length=None, size=150):
             grow = "%s*min(1,0.3+0.7*%s/%s)" % (grow, since, _f(appear))
         wide = "%s*max(0.15,abs(cos(2*PI*(2.5*%s+%s))))" % (grow, since, _f(_jitter(k, 7))) if flutter else grow
         fades = "fade=t=in:st=%s:d=%s:alpha=1," % (_f(start), _f(appear)) if move in ("rain", "bounce", "rise") else ""
-        chain.append("[%s]rotate=a='%s':c=none:ow='hypot(iw,ih)':oh=ow,"
+        # c=black@0, not none: none leaves the corners as the last frame drew them, so a spinning copy smears
+        chain.append("[%s]rotate=a='%s':c=black@0:ow='hypot(iw,ih)':oh=ow,"
                      "scale=w='max(2,trunc(iw*%s))':h='max(2,trunc(ih*%s))':eval=frame,"
                      "%sfade=t=out:st=%s:d=%s:alpha=1[_q%d]"
                      % (picked[k], angle, wide, grow, fades, _f(end - leave), _f(leave), k))

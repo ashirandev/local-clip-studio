@@ -652,6 +652,23 @@ class Flurries(unittest.TestCase):
                     both += whites > 300 and blacks > 300
             self.assertGreater(both, 3, "%s shows both pictures" % move)
 
+    def test_a_spinning_picture_covers_only_itself_and_leaves_no_trail(self):
+        import numpy as np
+        thin = os.path.join(self.tmp, "thin.png")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=black:s=12x120", "-vf", "format=rgba",
+                        "-frames:v", "1", thin], check=True)
+        most = 12 * 120 * effects.GROW[1] ** 2 + 2 * (12 + 120) * effects.GROW[1] * 2
+        for move in ("burst", "popper"):
+            got = sticker_frames(effects.flurry(thin, 0.2, self.ONE, move, 1, size=120), list(range(12, 40, 2)), 1.4)
+            covered = [int((f.astype(int) < 60).sum()) for f in got.values()]
+            self.assertGreater(max(covered), 600, "%s: the bar is drawn" % move)
+            self.assertLess(max(covered), most, "%s: a 12 x 120 bar covers at most %d px in a frame, not the circle "
+                                                "it sweeps as it spins: %s" % (move, most, covered))
+        got = sticker_frames(effects.flurry(effects.CONFETTI, 0.2, self.ONE, "popper", 6), list(range(20, 40, 4)), 1.4)
+        for n, f in got.items():
+            self.assertLess(int((np.abs(f.astype(int) - self.ground) > 12).sum()), 6 * 20 * 50 * effects.GROW[1] ** 2,
+                            "paper pieces stay paper-sized at frame %d" % n)
+
     def ways(self, move):
         """[(x, y)] of the lone disc's centre while it shows, and the box its centre keeps to."""
         shown = [self.alone[move][n][3] for n in sorted(self.alone[move]) if self.alone[move][n][3]]
