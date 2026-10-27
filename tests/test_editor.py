@@ -1398,7 +1398,7 @@ class Tools(unittest.TestCase):
         self.assertEqual(mend("มมุมกว้างพรมแดงและรถ Mercedes"), "มุมกว้างพรมแดงและรถ Mercedes")
         self.assertEqual(mend("ให้ผู้ใช้เลื่ือก"), "ให้ผู้ใช้เลือก")
         for right in ("คนนั้นบอกว่าจนนานแล้วกันนะ", "เล็กกว่าแบบบนจอออก", "ไม่เคยมีเทสสักตัว บอทที่เปิดแอปปิด",
-                      "ถูกกดด้วยมือ ไม่มีสเปรด", "ลงช่องมิลลิวินาที"):
+                      "ถูกกดด้วยมือ ไม่มีสเปรด", "ลงช่องมิลลิวินาที", "ออปชันรองมีเดดไลน์ อ่านบรรทัดในบรีฟ"):
             self.assertEqual(mend(right), right)
         self.assertEqual(mend("H:\\Phone\\ชั้่น"), "H:\\Phone\\ชั้่น", "a path is never changed")
         self.assertEqual(tools.words.tidy("สร้างคลิปแนวคคุยจากชั้่นสสสส่วน"), "สร้างคลิปแนวคุยจากชั้นส่วน",
