@@ -1012,7 +1012,9 @@ class Tools(unittest.TestCase):
                 "Done.")
         finally:
             render.export = had
-        checked, handed = steps[-2:]
+        made, checked, handed = steps[-6], steps[-2], steps[-1]
+        self.assertIn("This is a seller clip and no product box was named, so nothing keeps words off the product.",
+                      made["result"])
         self.assertFalse(checked["refused"], checked["result"])
         self.assertIn("- for you to check: Numbers on screen were said (the clip is said in Chinese, and the studio "
                       "reads number words only in Thai and English", checked["result"])

@@ -624,6 +624,10 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
     item = [round(v) for v in _pixels("product", product, rec)] if product else None
     if item and not layouts.to_frame(lay, item):
         lay["notes"].append("The product you named is not in the clip's picture: choose a crop that holds it.")
+    if not item and (job.chat.clip or {}).get("recipe") == "seller":
+        lay["notes"].append("This is a seller clip and no product box was named, so nothing keeps words off the "
+                            "product. Make the clip again with product: [x1, y1, x2, y2] on your grid around the product "
+                            "in the picture.")
     people = _people(rec, [[a, b]], box)
     state = job.edit({"do": "clip", "moment": moment, "pieces": [[a, b]], "layout": lay, "product": item,
                       "people": [{k: v for k, v in p.items() if k != "crop"} for p in people or []],

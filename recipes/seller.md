@@ -26,7 +26,8 @@ the seller said one.
 - Every price or number on screen is one the seller said, written exactly as it was said. Never round, convert or
   guess a number.
 - The product stays in the frame. Keep the seller's face too when it is in view.
-- No text covers the product or the price.
+- No text covers the product or the price. When you make the clip, name the product box around the product in the
+  picture, so the program keeps words off it and checks it stays in the frame.
 - Captions are the seller's own words.
 
 ## The clip
