@@ -240,8 +240,8 @@ class Chat:
         st = state["style"]["name"] if state["style"] else (self.clip or {}).get("style", "clean")
         words = "; ".join('"%s" %g-%g s at the %s' % (t["text"], t["start"], t["end"], t["place"])
                           for t in state["titles"])
-        extras = [("lit captions on" if state["captions"].get("lit") else "captions on") if state["captions"]
-                  else "no captions"]
+        extras = [("lit captions on" if state["captions"].get("lit") else "popped captions on"
+                   if state["captions"].get("pop") else "captions on") if state["captions"] else "no captions"]
         if state["blurs"]:
             extras.append("%d blur%s" % (len(state["blurs"]), "" if len(state["blurs"]) == 1 else "s"))
         if state["people"]:

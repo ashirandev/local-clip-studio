@@ -1075,6 +1075,24 @@ class Tools(unittest.TestCase):
         self.assertEqual([c["ok"] for c in shown["checks"]], [None, None, True, None, True, True])
         self.assertEqual(agent.Chat.load(self.chat.id).checks, self.chat.checks)
 
+    def test_captions_can_pop_in_word_by_word_but_not_lit_as_well(self):
+        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "this is the moment", "sure": 0.95}]
+        script = self.to_moment()
+        _, steps = self.run_job(
+            *script[:2], [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "he falls"}])],
+            '{"lines": ["this is the moment"]}', [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("add_captions", pop=True, why="the person wants words that pop")],
+            [call("add_captions", lit=True, pop=True, why="both")], "Done.")
+        popped, both = steps[-2], steps[-1]
+        self.assertFalse(popped["refused"], popped["result"])
+        self.assertIn("each word pops in at its place as it is said and stays", popped["result"])
+        captions = self.chat.project.state()["captions"]
+        self.assertEqual((captions["pop"], captions["lit"]), (True, False))
+        self.assertTrue(both["refused"])
+        self.assertIn("Captions are lit or popped, not both", both["result"])
+        self.assertEqual(tools.describe(self.chat.project.entries[-1]), "the popped captions")
+        self.assertIn("popped captions on", self.chat.clip_line())
+
     def test_a_line_the_hearing_was_not_sure_of_is_marked_for_muse_and_left_out_of_the_captions(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "this is the moment", "sure": 0.95},
                                {"from": 5.0, "to": 8.0, "text": "bxo noqa mumble", "sure": 0.61},

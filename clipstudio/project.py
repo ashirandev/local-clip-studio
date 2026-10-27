@@ -10,7 +10,7 @@ the recording, and boxes on the frame are pixels of the 1080x1920 clip.
   nobody does, None when the moment was never heard}
 - style: {"name", "font", "colour"}
 - title: {"text", "start", "end", "place", "box": the place's frame box, "key"}
-- captions: {"lines": text.caption_lines() lines in clip seconds, "band": [y, h], "lit": each word lit as it is
+- captions: {"lines": text.caption_lines() lines in clip seconds, "band": [y, h], "pop": each word popped in as it is said, "lit": each word lit as it is
   said}, or {"lines": []} for none
 - blur: {"box": recording box, "start", "end"}: a fixed box, such as a stream's chat, with "private": which private
   line it hides when the program found that line on the screen (such a blur belongs to its clip, and a new clip entry

@@ -1297,9 +1297,11 @@ def _unsure(phrase):
     return phrase.get("sure", 1.0) < UNSURE and not phrase.get("named")
 
 
-def add_captions(job, why, on=True, lit=False):
+def add_captions(job, why, on=True, lit=False, pop=False):
     rec = _open(job, "caption")
     state = _clip_state(job)
+    if lit and pop:
+        raise Refused("Captions are lit or popped, not both: a popped word already moves as it is said. Choose one.")
     clip, length = state["clip"], state["length"]
     if not on:
         if not state["captions"]:
@@ -1324,10 +1326,13 @@ def add_captions(job, why, on=True, lit=False):
                       "off, and say so in your answer.")
     lines = text.caption_lines(phrases, CAPTION_LETTERS)
     band = clip["layout"]["captions"]
-    state = job.edit({"do": "captions", "lines": lines, "band": [band[1], band[3]], "lit": bool(lit)})
+    state = job.edit({"do": "captions", "lines": lines, "band": [band[1], band[3]], "lit": bool(lit),
+                      "pop": bool(pop)})
     out = ["Captions on: %d lines of what was said, numbers exactly as heard, in the band from y %d to %d; %s."
            % (len(lines), band[1], band[1] + band[3],
-              "each word lights up as it is said" if lit else "plain words, none lit, so the eye stays on the picture")]
+              "each word lights up as it is said" if lit else
+              "each word pops in at its place as it is said and stays, so once said the line looks plain" if pop else
+              "plain words, none lit, so the eye stays on the picture")]
     if unsure:
         out.append("Left out %d line%s the hearing was not sure of, because a wrong caption is worse than none: %s."
                    % (len(unsure), "" if len(unsure) == 1 else "s",
@@ -1919,7 +1924,8 @@ def describe(entry):
             (", %s" % _paints(entry["colours"]) if entry.get("colours") else "") + \
             "".join(", %s for %s" % (_paints(c), WORD_PARTS[k]) for k, c in (entry.get("part_colours") or {}).items())
     if entry["do"] == "captions":
-        return ("the lit captions" if entry.get("lit") else "the captions") if entry["lines"] else \
+        return ("the lit captions" if entry.get("lit") else "the popped captions" if entry.get("pop") else
+                "the captions") if entry["lines"] else \
             "turning the captions off"
     if entry["do"] == "blur":
         return "the blur at %g-%g s" % (entry["start"], entry["end"])
@@ -2175,13 +2181,17 @@ TOOLS = {t.name: t for t in [
     Tool("add_captions", "Put the captions on",
          "Put captions of what was said in the moment on the clip: the words as heard and fixed from the context, "
          "numbers exactly as said, a few words a line. The program places them in the layout's caption band. They "
-         "are plain words unless you set lit. Set on to false to take them off.",
+         "are plain words unless you set lit or pop. Set on to false to take them off.",
          {"on": {"type": "boolean", "description": "true to put captions on (the default), false to take them off."},
           "lit": {"type": "boolean",
                   "description": "true lights up each word as it is said, like karaoke. Use it only when nobody on "
                                  "screen is talking: a voice-over or the words of a song over the picture. When a "
                                  "person on camera explains something, the lit word pulls the eye away from them, "
-                                 "so leave it out, unless the person asked for lit words."}},
+                                 "so leave it out, unless the person asked for lit words."},
+          "pop": {"type": "boolean",
+                  "description": "true pops each word in at its own place as it is said, and the line stays once "
+                                 "said, so nothing is lit and the eye can go back to the person. Use it when the "
+                                 "person asks for words that pop or appear as they are said. Not with lit."}},
          [], add_captions, changes=True),
     Tool("blur_box", "Blurred a box",
          "Blur one box of the recording's picture so nothing in it can be read, such as a stream's chat with "
