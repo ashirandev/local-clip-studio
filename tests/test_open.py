@@ -1,4 +1,5 @@
 """Opening a recording where it is, on small videos made by ffmpeg: python -m unittest discover -s tests"""
+import http.client
 import json
 import os
 import shutil
@@ -186,6 +187,37 @@ class Follow(unittest.TestCase):
                 if time.time() - start > 1.2 or len(lines) > 50:
                     break
         self.assertLessEqual(len(lines), 8)
+
+    def ask(self, method, path, body=None, headers=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.http.server_port, timeout=10)
+        try:
+            conn.request(method, path, body, headers or {})
+            resp = conn.getresponse()
+            return resp.status, json.loads(resp.read().decode("utf-8"))
+        finally:
+            conn.close()
+
+    def test_the_page_knows_it_is_on_this_computer(self):
+        status, health = self.ask("GET", "/api/health")
+        self.assertEqual((status, health["here"]), (200, True))
+
+    def test_another_web_page_cannot_start_anything(self):
+        before = len(agent.CHATS)
+        status, answer = self.ask("POST", "/api/chat/new", "{}", {"Content-Type": "text/plain"})
+        self.assertEqual((status, answer["ok"]), (415, False))
+        self.assertEqual(len(agent.CHATS), before)
+        status, answer = self.ask("POST", "/api/chat/new", "{}", {"Content-Type": "application/json; charset=utf-8"})
+        self.assertEqual((status, answer["ok"]), (200, True))
+
+    def test_only_an_address_or_localhost_may_name_the_studio(self):
+        for host in ("127.0.0.1:8899", "localhost:8899", "LOCALHOST", "[::1]:8899", "192.168.1.20:8899"):
+            self.assertEqual(self.ask("GET", "/api/health", headers={"Host": host})[0], 200, host)
+        for host in ("evil.example:8899", "evil.example", "127.0.0.1.evil.example", ""):
+            status, answer = self.ask("GET", "/api/health", headers={"Host": host})
+            self.assertEqual(status, 403, host)
+            self.assertIn("Open the studio by this computer's address", answer["error"])
+        status, _ = self.ask("POST", "/api/chat/new", "{}", {"Host": "evil.example", "Content-Type": "application/json"})
+        self.assertEqual(status, 403)
 
     def test_the_page_never_reads_its_own_address(self):
         with open(os.path.join(server.WEB, "app.js"), encoding="utf-8") as f:

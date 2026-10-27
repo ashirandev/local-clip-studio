@@ -3,55 +3,75 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Local Chat Studio</title>
+<title>Local Chat Studio · long videos into short clips</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="app">
   <section class="chat" aria-label="Chat">
     <header class="top">
-      <div class="mark" aria-hidden="true"></div>
-      <div>
+      <svg class="mark" viewBox="0 0 36 36" aria-hidden="true"><rect class="bg" width="36" height="36" rx="10"/><rect class="line" x="11" y="6" width="14" height="24" rx="3"/><path class="fill" d="M16 13.5v9l7-4.5z"/></svg>
+      <div class="name">
         <h1>Local Chat Studio</h1>
-        <p class="sub">Turn a long recording into a clip by talking · powered by Meta's Muse models</p>
+        <p class="sub">Long videos into short clips, on your own computer</p>
       </div>
       <div class="actions">
         <button type="button" class="ghost" id="new">New chat</button>
-        <details class="earlier" id="earlier">
-          <summary class="ghost">Earlier chats</summary>
-          <div class="earlier-list" id="earlierList"></div>
+        <details class="menu" id="earlier">
+          <summary class="ghost"><span class="word">Earlier c</span><span class="short">C</span>hats</summary>
+          <div class="pop earlier-list" id="earlierList"></div>
+        </details>
+        <details class="menu" id="settings">
+          <summary class="ghost settings-button" aria-label="Settings"><svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14"/><circle cx="7" cy="5" r="2"/><circle cx="13" cy="10" r="2"/><circle cx="8" cy="15" r="2"/></svg><span class="word">Settings</span></summary>
+          <div class="pop settings-box">
+            <p class="pop-head">Which Muse does the work</p>
+            <div class="minds" id="minds" role="radiogroup" aria-label="Which Muse does the work"></div>
+            <label class="switch"><input type="checkbox" id="details"><span><b>Show how Muse works</b><small>Each step's inputs and results, the files it opens, its thinking, and its speed.</small></span></label>
+            <p class="pop-head">Details for this computer</p>
+            <div class="machine" id="machine"></div>
+          </div>
         </details>
       </div>
     </header>
-    <div class="minds" id="minds" role="radiogroup" aria-label="Which Muse answers"></div>
     <div class="log" id="log" aria-live="polite">
       <div class="welcome" id="welcome">
-        <p class="lead">Drop in a long recording. Get a vertical clip ready to post.</p>
-        <p>Muse watches it, picks the best moment, tells you why, and makes the clip by itself. Say what you want changed at any time, in your own words.</p>
-        <p class="pick-row"><button type="button" class="ghost pick">Choose a file…</button> Anything you type in the box below goes with it.</p>
-        <p class="newest-head">Or open one of your newest recordings:</p>
+        <p class="lead">Turn a long video into a short vertical clip.</p>
+        <p>For TikTok, Reels and Shorts. Muse, an AI video editor that runs on your own computer, watches your video, picks the best moment, tells you why, and cuts the clip for you.</p>
+        <ol class="how">
+          <li><b>Pick a video</b> from your videos below.</li>
+          <li><b>Say what you want</b> in the box at the bottom, if you like: "a funny 20-second clip".</li>
+          <li><b>Get your clip</b>, ready to post.</li>
+        </ol>
+        <p class="pick-row"><button type="button" class="pick">Choose a video…</button> <span>or drag a video file onto this page</span></p>
+        <p class="newest-head">Your newest videos</p>
         <div class="newest"></div>
       </div>
     </div>
     <form class="composer" id="composer">
-      <textarea id="text" rows="2" placeholder="Say what you want, in any language" aria-label="Your message"></textarea>
+      <textarea id="text" rows="2" placeholder="Tell Muse what you want, like: a funny 20-second clip" aria-label="Your message"></textarea>
       <button type="submit" id="send">Send</button>
       <button type="button" class="stop" id="stop" hidden>Stop</button>
     </form>
     <p class="status" id="status" role="status">Connecting…</p>
   </section>
-  <section class="clip" aria-label="Your clip">
-    <h2 id="clipTitle">Your clip</h2>
+  <section class="clip" id="clip" data-view="none" aria-label="Your clip">
+    <div class="clip-head">
+      <h2 id="clipTitle">Your clip</h2>
+      <button type="button" class="ghost clip-back" id="clipBack">Back to the chat</button>
+    </div>
     <div class="stage">
       <div class="frame" id="frame">
         <p class="hint">Your clip shows here while Muse makes it.</p>
       </div>
     </div>
     <p class="clip-line" id="clipLine"></p>
+    <button type="button" class="clip-open" id="clipOpen" aria-label="Open the preview"></button>
+    <button type="button" class="clip-hide" id="clipHide" aria-label="Hide the preview">×</button>
   </section>
+  <button type="button" class="clip-pill" id="clipPill" hidden>Show the preview</button>
 </div>
 <input type="file" id="file" accept="video/*,.mkv,.mov,.ts,.flv" hidden>
-<div class="drop-cover" id="dropCover" hidden><p>Drop the recording to open it where it is. Nothing is copied.</p></div>
+<div class="drop-cover" id="dropCover" hidden><p>Drop the video to open it where it is. Nothing is copied.</p></div>
 <script src="app.js"></script>
 </body>
 </html>

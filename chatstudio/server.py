@@ -1,7 +1,10 @@
 """The web server: the page, and the small JSON API the page talks to.
 
-Standard library only. It listens on 127.0.0.1, so the recordings it opens never leave this computer.
-- GET /api/health: the two minds and whether each can answer
+Standard library only. It listens on 127.0.0.1, so the recordings it opens never leave this computer. LCS_HOST=0.0.0.0
+lets a phone on the same Wi-Fi use it too; then anyone on that network can open the videos in the folders.
+Two guards hold either way: a request must name the studio by an address or "localhost" (a web page cannot reach it
+through a name it owns), and a POST must be JSON (another web page cannot send JSON here without asking first).
+- GET /api/health: the two minds and whether each can answer, and whether the page is on this computer
 - GET /api/chat[?id=<chat>]: the chat the page shows (or an earlier one, opened again), and whether Muse is working
 - POST /api/chat/new: a new, empty chat
 - GET /api/chats: the earlier chats, newest first
@@ -16,6 +19,7 @@ Standard library only. It listens on 127.0.0.1, so the recordings it opens never
   Every page shows the chat the server has open: when another chat opens, the stream says "moved" and the page
   follows, so neither an address nor a second tab can leave a page working on another chat.
 """
+import ipaddress
 import json
 import os
 import re
@@ -28,7 +32,7 @@ from . import __version__, agent, mind, recording
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
-HOST = "127.0.0.1"
+HOST = os.environ.get("LCS_HOST", "127.0.0.1")
 PORT = int(os.environ.get("LCS_PORT", "8899"))
 # Windows can map .js to text/plain from the registry, so the types the page needs are fixed here.
 TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -45,10 +49,12 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "local-chat-studio/" + __version__
 
     def do_GET(self):
+        if not self.named_well():
+            return
         path, _, query = self.path.partition("?")
         query = dict(parse_qsl(query))
         if path == "/api/health":
-            self.send_json({"ok": True, "version": __version__, "default": mind.DEFAULT,
+            self.send_json({"ok": True, "version": __version__, "default": mind.DEFAULT, "here": self.here(),
                             "minds": [m.status() for m in mind.MINDS.values()]})
         elif path == "/api/chat":
             chat = agent.open_chat(query["id"]) if query.get("id") else agent.current()
@@ -70,6 +76,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_file(path)
 
     def do_POST(self):
+        if not self.named_well():
+            return
         path = self.path.split("?", 1)[0]
         if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/open"):
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
@@ -159,8 +167,32 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             return
 
+    def named_well(self):
+        """False after answering, when the request names the studio by a web name such as evil.example."""
+        name = (self.headers.get("Host") or "").strip().lower()
+        if name.startswith("["):
+            name = name[1:].split("]", 1)[0]
+        elif name.count(":") == 1:
+            name = name.split(":", 1)[0]
+        if name == "localhost":
+            return True
+        try:
+            ipaddress.ip_address(name)
+            return True
+        except ValueError:
+            self.send_json({"ok": False, "error": "Open the studio by this computer's address, not by the name %s."
+                                                  % (name or "(none)")}, HTTPStatus.FORBIDDEN)
+            return False
+
+    def here(self):
+        """True when the page is on this computer, so a file dropped on it is on this computer too."""
+        return ipaddress.ip_address(self.client_address[0].split("%", 1)[0]).is_loopback
+
     def read_json(self):
         """The request body as a dict, or None after answering with a sentence."""
+        if (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower() != "application/json":
+            self.send_json({"ok": False, "error": "Send the request as JSON."}, HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+            return None
         try:
             size = int(self.headers.get("Content-Length") or 0)
         except ValueError:
@@ -229,7 +261,9 @@ def main():
     except OSError as e:
         sys.exit("Port %d on this computer is taken (%s). Set LCS_PORT to a free port and start again."
                  % (PORT, e.strerror))
-    print("Local Chat Studio %s: http://%s:%d/" % (__version__, HOST, PORT), flush=True)
+    print("Local Chat Studio %s: http://127.0.0.1:%d/" % (__version__, PORT), flush=True)
+    if not ipaddress.ip_address(HOST).is_loopback:
+        print("On a phone on the same Wi-Fi, open http://<this computer's address>:%d/" % PORT, flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -128,7 +128,7 @@ class Mind:
 
     def status(self):
         """{ok, key, label, where, name} or {ok: False, ..., why} with a sentence. Never sends a question."""
-        out = {"key": self.key, "label": self.label, "where": self.where}
+        out = {"key": self.key, "label": self.label, "where": self.where, "url": self.url}
         if self.key_env and not self.secret():
             return dict(out, ok=False, why="Set %s to your own Meta API key, then start the studio again."
                                            % self.key_env)
@@ -237,9 +237,9 @@ def _reason(e):
 
 
 MINDS = {
-    "local": Mind("local", "Muse Glimmer (local)", os.environ.get("LCS_MIND_URL", "http://127.0.0.1:8863/v1"),
-                  reasoning_line="Reasoning strength: low", where="on this computer's graphics card"),
-    "spark": Mind("spark", "Muse Spark (Meta API)", os.environ.get("LCS_SPARK_URL", "https://api.meta.ai/v1"),
+    "local": Mind("local", "Muse Glimmer", os.environ.get("LCS_MIND_URL", "http://127.0.0.1:8863/v1"),
+                  reasoning_line="Reasoning strength: low", where="on this computer"),
+    "spark": Mind("spark", "Muse Spark", os.environ.get("LCS_SPARK_URL", "https://api.meta.ai/v1"),
                   model=os.environ.get("LCS_SPARK_MODEL", "muse-spark-1.3"), key_env="META_API_KEY",
                   where="on Meta's servers, with your own key"),
 }

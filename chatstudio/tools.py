@@ -209,7 +209,7 @@ TOOLS = {t.name: t for t in [
          {"steps": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 12,
                     "description": "The steps in order, each a few words."}},
          ["steps"], set_plan),
-    Tool("find_recordings", "Looked for recordings",
+    Tool("find_recordings", "Looked for your videos",
          "List the recordings on this computer, newest first, with their size, time and full path. Words narrow the "
          "list to files whose name or folder holds every word, in upper or lower case. It only reads the folder "
          "lists, never the files.",
@@ -219,7 +219,7 @@ TOOLS = {t.name: t for t in [
           "newest": {"type": "integer", "minimum": 1, "maximum": 20,
                      "description": "How many to list, newest first (1 to 20, default 5)."}},
          [], find_recordings),
-    Tool("open_recording", "Opened the recording",
+    Tool("open_recording", "Opened the video",
          "Open one recording to make the clip from: its full path, as the list of recordings gives it. It reads "
          "the length, picture size and sound tracks, and the page shows the recording. One recording is open at a "
          "time; opening another replaces it.",

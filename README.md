@@ -26,10 +26,21 @@ Drop a recording on the page, or tap one of your newest. It is opened where it i
 path of a dropped file, so the studio finds it in those folders by its name, size and time. Nothing is copied or
 uploaded, and the recording is only ever read.
 
+The screen stays simple: what Muse plans, what it does and why. **Settings** has the switch between the two Muses,
+the details of this computer's setup, and **Show how Muse works**, which adds each step's input and result, the files
+it opens, its thinking as it is written, and its engine numbers.
+
+**On a phone.** Start the studio with `LCS_HOST=0.0.0.0` and open `http://<this computer's address>:8899/` on a phone
+on the same Wi-Fi. The phone picks from the recordings on the computer, and the clip shows as a small preview at the
+top right that opens full screen with a tap. Do this only on a network you trust: anyone on it can open the
+recordings in your folders. Two guards hold either way: the studio answers only to an address or `localhost`, never
+to a web name (so a web page cannot reach it through a name it owns), and it takes only JSON posts (so another web
+page cannot send it anything without asking first).
+
 ## The mind: two ways to run Muse
 
-The page has a switch for the two. Every answer shows which one answered, with its engine numbers: tokens read
-new, tokens reused from the question before, reading and writing speed, and seconds.
+Settings has a switch for the two. With Show how Muse works on, every answer shows which one answered, with its
+engine numbers: tokens read new, tokens reused from the question before, reading and writing speed, and seconds.
 
 **1. Muse Glimmer on your own graphics card (the default).** This is Meta's open-weight model, run by llama.cpp's
 own server. This is the exact setup the demo runs on:
@@ -56,7 +67,8 @@ environment and is never written anywhere.
 ## How the agent works
 
 Each message starts a job. Muse makes a plan, then calls one tool at a time, and the page shows every step as it
-happens: its number, what it did, why (one line in your language), the input, the result, and the engine numbers.
+happens: its number, what it did and why (one line in your language), and with Show how Muse works on, the input,
+the result and the engine numbers.
 
 - **The loop keeps the rules, not Muse.** Wrong input is refused with a sentence that says what to send instead. A
   call that already got the same result twice is refused until something changes, so a fixed retry always runs.

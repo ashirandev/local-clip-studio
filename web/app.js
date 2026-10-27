@@ -10,6 +10,14 @@ const newButton = document.getElementById("new");
 const earlier = document.getElementById("earlier");
 const earlierList = document.getElementById("earlierList");
 const mindsBox = document.getElementById("minds");
+const machineBox = document.getElementById("machine");
+const settings = document.getElementById("settings");
+const detailsBox = document.getElementById("details");
+const clipBox = document.getElementById("clip");
+const clipOpen = document.getElementById("clipOpen");
+const clipHide = document.getElementById("clipHide");
+const clipBack = document.getElementById("clipBack");
+const clipPill = document.getElementById("clipPill");
 const welcome = document.getElementById("welcome").cloneNode(true);
 const frameBox = document.getElementById("frame");
 const emptyFrame = frameBox.cloneNode(true).childNodes;
@@ -69,7 +77,7 @@ function engineLine(e, label) {
 }
 
 function fold(summary, body, cls) {
-  const d = el("details");
+  const d = el("details", "detail");
   d.append(el("summary", null, summary), el("p", cls, body));
   return d;
 }
@@ -103,7 +111,7 @@ function job(n) {
     const live = el("div", "live");
     live.hidden = true;
     const liveLine = el("p", "live-line");
-    const liveThinking = el("p", "live-thinking");
+    const liveThinking = el("p", "live-thinking detail");
     live.append(liveLine, liveThinking);
     const foot = el("p", "foot");
     foot.hidden = true;
@@ -137,15 +145,16 @@ function drawStep(j, e) {
   head.append(el("span", "n", String(e.step)), el("span", "label", e.label || e.tool));
   div.appendChild(head);
   if (e.said) div.appendChild(el("p", "said", e.said));
-  div.appendChild(el("p", "why", e.why || "Muse gave no reason for this call."));
+  div.appendChild(el("p", "why", e.why || "Muse gave no reason for this step."));
+  if (e.refused) div.appendChild(el("p", "result simple", "That did not work, so Muse tried again."));
   const input = inputLine(e.input);
-  if (input) div.appendChild(el("p", "input", input));
+  if (input) div.appendChild(el("p", "input detail", input));
   const lines = String(e.result || "").split("\n");
   const first = e.refused ? (e.guard ? "Refused, already answered: " : "Refused: ") + lines[0] : lines[0];
-  div.appendChild(el("p", "result", first));
+  div.appendChild(el("p", "result detail", first));
   if (lines.length > 1) div.appendChild(fold("Full result", lines.slice(1).join("\n"), "more"));
   if (e.thinking) div.appendChild(fold("How Muse decided", e.thinking, "thinking"));
-  if (e.engine) div.appendChild(el("p", "engine", engineLine(e.engine, j.mind)));
+  if (e.engine) div.appendChild(el("p", "engine detail", engineLine(e.engine, j.mind)));
   j.flow.appendChild(div);
 }
 
@@ -153,7 +162,7 @@ function drawAnswer(j, e) {
   const div = bubble("muse", null, j.flow);
   div.appendChild(el("p", "words", e.text));
   if (e.thinking) div.appendChild(fold("How Muse decided", e.thinking, "thinking"));
-  if (e.engine) div.appendChild(el("p", "engine", engineLine(e.engine, e.mind)));
+  if (e.engine) div.appendChild(el("p", "engine detail", engineLine(e.engine, e.mind)));
 }
 
 function drawGuesses(j, e) {
@@ -195,7 +204,7 @@ function setBusy() {
   const busy = room.open.size > 0;
   stopButton.hidden = !busy;
   stopButton.disabled = false;
-  text.placeholder = busy ? "Type to steer Muse while it works" : idle;
+  text.placeholder = busy ? "Type here to change what Muse is doing" : idle;
   showStatus();
 }
 
@@ -212,10 +221,24 @@ function personWords(text) {
   return ["you", text];
 }
 
+function clipView(view) {
+  clipBox.dataset.view = view;
+  clipPill.hidden = view !== "tucked";
+}
+
+function popClip() {
+  if (clipBox.dataset.view === "full") return;
+  clipView("pip");
+  clipBox.classList.remove("popping");
+  void clipBox.offsetWidth;
+  clipBox.classList.add("popping");
+}
+
 function clearClip() {
   frameBox.replaceChildren(...[...emptyFrame].map((n) => n.cloneNode(true)));
   clipLine.textContent = "";
   clipTitle.textContent = "Your clip";
+  clipView("none");
 }
 
 function showRecording(e) {
@@ -228,8 +251,10 @@ function showRecording(e) {
   } else {
     frameBox.replaceChildren(el("p", "hint", "Opened " + r.name));
   }
-  clipTitle.textContent = "Your recording";
-  clipLine.textContent = r.name + " · " + clock(r.seconds) + " long. This is the recording you opened; your clip will show here instead once Muse makes it.";
+  clipTitle.textContent = "Your video";
+  clipPill.textContent = "Show your video";
+  clipLine.textContent = r.name + " · " + clock(r.seconds) + " long. This is the video you opened. Your clip shows here instead once Muse makes it.";
+  popClip();
 }
 
 const ENDS = {
@@ -287,7 +312,8 @@ function on(e) {
     const parts = [ENDS[e.why] || null, plural(e.steps, "step")].filter(Boolean);
     if (e.refused) parts.push(e.refused + " refused" + (e.fixed ? ", " + e.fixed + " fixed by Muse" : ""));
     if (e.seconds) parts.push(e.seconds + " s");
-    j.foot.textContent = parts.join(" · ");
+    const plain = (ENDS[e.why] || "Muse finished") + (e.seconds ? " in " + Math.max(1, Math.round(e.seconds)) + " s" : "") + ".";
+    j.foot.replaceChildren(el("span", "simple", plain), el("span", "detail", parts.join(" · ")));
     j.foot.hidden = false;
     room.open.delete(e.job);
     setBusy();
@@ -311,14 +337,15 @@ function current() {
 function showStatus() {
   const m = current();
   if (room.open.size) {
-    statusLine.textContent = "Muse is working on it" + (m ? " · " + m.label : "") + " · type to steer it, or Stop";
+    statusLine.textContent = "Muse is working on it. Type to change what it does, or press Stop.";
   } else if (m) {
-    statusLine.textContent = m.ok ? "Ready · " + m.name + " " + m.where : m.why;
+    statusLine.textContent = m.ok ? m.label + " is ready, " + m.where + "." : m.label + " is not ready yet. Open Settings to see why.";
   }
 }
 
 function drawMinds() {
   mindsBox.textContent = "";
+  machineBox.textContent = "";
   room.minds.forEach((m) => {
     const b = el("button", "mind");
     b.type = "button";
@@ -326,17 +353,38 @@ function drawMinds() {
     b.setAttribute("aria-checked", String(m.key === room.mind));
     const dot = el("span", "dot " + (m.ok ? "ok" : "off"));
     dot.setAttribute("aria-hidden", "true");
-    b.append(dot, document.createTextNode(m.label));
-    b.title = m.ok ? m.name + " " + m.where : m.why;
+    b.append(dot, el("span", null, m.label), el("small", null, m.where.charAt(0).toUpperCase() + m.where.slice(1) + (m.ok ? "" : " · not ready")));
     b.addEventListener("click", () => {
       room.mind = m.key;
       localStore("mind", m.key);
       drawMinds();
     });
     mindsBox.appendChild(b);
+    machineBox.appendChild(el("p", null, m.label + ": " + (m.ok ? m.name + " at " + m.url : m.why)));
   });
   showStatus();
 }
+
+function showDetails(on) {
+  document.body.classList.toggle("details", on);
+  detailsBox.checked = on;
+}
+
+detailsBox.addEventListener("change", () => {
+  localStore("details", detailsBox.checked ? "1" : "0");
+  showDetails(detailsBox.checked);
+});
+
+document.addEventListener("click", (e) => {
+  [settings, earlier].forEach((menu) => {
+    if (menu.open && !menu.contains(e.target)) menu.open = false;
+  });
+});
+
+clipOpen.addEventListener("click", () => clipView("full"));
+clipHide.addEventListener("click", () => clipView("tucked"));
+clipBack.addEventListener("click", () => clipView("pip"));
+clipPill.addEventListener("click", () => clipView("pip"));
 
 async function health() {
   try {
@@ -344,6 +392,7 @@ async function health() {
     const d = await r.json();
     room.minds = d.minds || [];
     if (!room.minds.some((m) => m.key === room.mind)) room.mind = d.default;
+    document.body.classList.toggle("away", d.here === false);
     drawMinds();
   } catch (e) {
     statusLine.textContent = "The studio is not answering. Start it again with: python app.py";
@@ -465,7 +514,7 @@ async function fillNewest() {
     const r = await fetch("/api/recordings", { cache: "no-store" });
     const d = await r.json();
     box.textContent = "";
-    if (!d.recordings.length) box.appendChild(el("p", "earlier-empty", "No recordings found in " + (d.folders.join(", ") || "any folder") + "."));
+    if (!d.recordings.length) box.appendChild(el("p", "earlier-empty", "No videos found in " + (d.folders.join(", ") || "any folder") + "."));
     d.recordings.forEach((rec) => {
       const b = el("button", "recording");
       b.type = "button";
@@ -533,5 +582,6 @@ text.addEventListener("keydown", (e) => {
   }
 });
 
+showDetails(localStore("details") === "1");
 health();
 connect();
