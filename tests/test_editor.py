@@ -731,6 +731,8 @@ class Tools(unittest.TestCase):
         self.assertEqual(tools._odd_thai("ดูรายละเอียดเพื่มเติมได้ในลิงก์"), ["เพื่มเติม"])
         self.assertEqual(tools._odd_thai("เครื่องลดความชื้น ใช้งานง่าย แค่เสียบปลั๊กแล้วกดเปิดเลย"), [])
         self.assertEqual(tools._odd_thai("He falls. Twice."), [])
+        self.assertEqual(tools._odd_thai("ไตเติลสั้นๆ กับแฮชแท็ก ช่วงที่สวย ๆ"), [])
+        self.assertEqual(tools._odd_thai("ต้วเลขสวยๆ"), ["ต้วเลข"])
 
         def export(rec, state, out, on_progress=None, on_start=None, *, default):
             make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))

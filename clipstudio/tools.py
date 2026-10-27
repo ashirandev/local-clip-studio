@@ -1290,22 +1290,30 @@ def check_clip(job, why):
 
 THAI = re.compile("[\u0e01-\u0e5b]")
 _WORDS = []
+CREATOR_WORDS = {"\u0e44\u0e15\u0e40\u0e15\u0e34\u0e25", "\u0e41\u0e04\u0e1b\u0e0a\u0e31\u0e19", "\u0e41\u0e04\u0e1b\u0e0a\u0e31\u0e48\u0e19", "\u0e41\u0e2e\u0e0a\u0e41\u0e17\u0e47\u0e01", "\u0e04\u0e2d\u0e21\u0e42\u0e1a", "\u0e23\u0e35\u0e25", "\u0e23\u0e35\u0e25\u0e2a\u0e4c", "\u0e0a\u0e47\u0e2d\u0e15", "\u0e17\u0e23\u0e32\u0e19\u0e0b\u0e34\u0e0a\u0e31\u0e19"}
 
 
 def _odd_thai(words):
     """Bits of Thai in words that no dictionary word makes up, each with the words on either side: the place a tone
     mark or a vowel may be wrong (Glimmer writes ที้ for ที่, เพื่ม for เพิ่ม). PyThaiNLP's own corrections were
-    wrong on these (10-27), so Muse is shown where to look and fixes the spelling itself."""
+    wrong on these (10-27), so Muse is shown where to look and fixes the spelling itself.
+
+    The repeat mark ๆ is not a word (สวยๆ is สวย said twice), and CREATOR_WORDS are loanwords for making clips that the
+    dictionary does not have (ไตเติล, แฮชแท็ก). Measured 10-27: in 32 answers Glimmer wrote with a short context, every
+    bit pointed at was one of these, so each one cost Muse a refused hand_over for nothing."""
     if not THAI.search(words or ""):
         return []
     from pythainlp.corpus import thai_words
     from pythainlp.tokenize import word_tokenize
+    from pythainlp.util import dict_trie
     if not _WORDS:
-        _WORDS.append(thai_words())
-    toks = word_tokenize(words, engine="newmm", keep_whitespace=True)
+        _WORDS.append(thai_words() | CREATOR_WORDS)
+        _WORDS.append(dict_trie(_WORDS[0]))
+    toks = word_tokenize(words, engine="newmm", keep_whitespace=True, custom_dict=_WORDS[1])
     out = []
     for i, w in enumerate(toks):
-        if THAI.search(w) and w.strip() and w not in _WORDS[0]:
+        base = w.strip().rstrip("ๆ").strip()
+        if THAI.search(base) and base not in _WORDS[0]:
             near = [x for x in (toks[i - 1] if i else "", w, toks[i + 1] if i + 1 < len(toks) else "") if x.strip()]
             out.append("".join(near))
     return out
