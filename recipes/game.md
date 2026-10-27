@@ -24,6 +24,8 @@ After the clip, the viewer has felt the moment: what led up to it, the peak, and
 - Never a cutscene alone: the clip needs the player playing or reacting.
 - Blur the stream's chat box, so viewers' names are not shown.
 - Captions are the streamer's own words.
+- Name the game only when its name is on the screen or the streamer says it. A name you only guess stays out of
+  the title, the post and the hashtags.
 
 ## The clip
 

@@ -316,6 +316,7 @@ class Job:
         self.chat, self.brain, self.n = chat, brain, chat.jobs
         self.inbox = [content]
         self.pictures = []
+        self.proofread = {}
         self.asking = None
         self.stopped = self.done = False
         self.plan, self.plan_shown = [], "[]"
@@ -499,6 +500,8 @@ class Job:
                     call.setdefault("id", "call_%d_%d" % (self.steps + 1, i))
                     if isinstance(call.get("function"), dict):
                         call["function"]["arguments"] = words.tidy_arguments(call["function"].get("arguments"))
+                if calls:
+                    got["message"]["tool_calls"] = [_sendable(call) for call in calls]
                 chat.add(got["message"])
                 if not calls:
                     left = self.finish_plan()
@@ -730,6 +733,20 @@ class Job:
                 for m in self.chat.moments))
         parts.append(self.chat.clip_line())
         return " · ".join(parts)
+
+
+def _sendable(call):
+    """The call as it goes back into the conversation: arguments that are not readable JSON become {}, as
+    llama-server reads every earlier call again and answers 500 to one it cannot read. The call itself is still
+    refused with what was wrong."""
+    fn = call.get("function")
+    if not isinstance(fn, dict):
+        return call
+    try:
+        json.loads(fn.get("arguments") or "{}")
+        return call
+    except (TypeError, ValueError):
+        return dict(call, function=dict(fn, arguments="{}"))
 
 
 def _arguments(raw):

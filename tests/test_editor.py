@@ -1459,6 +1459,27 @@ class Tools(unittest.TestCase):
         kept = "ต้วเลข 75 ถูกต้องครบถ้วนทุกอย่างแล้ว"
         self.assertEqual(words.spelled(answer(kept + "นะ")[0], [kept]), ([kept], []), "the misspelling is still there")
 
+    def test_what_the_viewer_reads_is_proofread_even_where_every_bit_is_a_word(self):
+        asked = []
+
+        def ask(messages, schema):
+            texts = json.loads(messages[-1]["content"].rsplit("\n\n", 1)[1])
+            asked.append(texts)
+            fixes = {"ต้อสู้หลายคนแล้วตาย": "ต่อสู้หลายคนแล้วตาย", "อายุเพิ่มที่ไม่คาดคิด": "อายุเพิ่มที่ไม่ได้คาดคิด",
+                     "เลือกโมเดลและคาความเร็ว": "เลือกโมเดลและความเร็ว"}
+            return json.dumps({"texts": [fixes.get(x, x) for x in texts]}, ensure_ascii=False)
+
+        texts = ["ต้อสู้หลายคนแล้วตาย", "อายุเพิ่มที่ไม่คาดคิด", "เลือกโมเดลและคาความเร็ว", "ok"]
+        self.assertEqual(words.spelled(ask, texts), (texts, []), "the dictionary flags none of these")
+        self.assertEqual(asked, [])
+        kept = {}
+        self.assertEqual(words.spelled(ask, texts, every=True, kept=kept),
+                         (["ต่อสู้หลายคนแล้วตาย"] + texts[1:], [("ต้อสู้หลายคนแล้วตาย", "ต่อสู้หลายคนแล้วตาย")]),
+                         "a tone mark fixed is kept; a reworded line and a dropped word are not")
+        self.assertEqual(asked, [texts[:3]], "every Thai text is asked about")
+        self.assertEqual(words.spelled(ask, texts[:1], every=True, kept=kept)[0], ["ต่อสู้หลายคนแล้วตาย"])
+        self.assertEqual(len(asked), 1, "a text asked about once is not asked again")
+
     def test_thai_spelling_is_fixed_before_it_is_burned_in_or_handed_over(self):
         def export(rec, state, out, on_progress=None, on_start=None, *, default):
             make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
@@ -1473,9 +1494,9 @@ class Tools(unittest.TestCase):
                 '{"texts": ["ไม่ได้ล้ม"]}',
                 [call("decide_people", keep=[1], why="it is him")],
                 [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
-                [call("hand_over", title="สู้จบ", caption="ดูรายละเอียดเพื่มเติมได้ในลิงก์", hashtags=["#เกม"],
+                [call("hand_over", title="สู้จบ", caption="ดูรายละเอียดเพื่มเติมได้ในลิงก์", hashtags=["#ต้อสู้"],
                       why="post")],
-                '{"texts": ["ดูรายละเอียดเพิ่มเติมได้ในลิงก์"]}',
+                '{"texts": ["สู้จบ", "ดูรายละเอียดเพิ่มเติมได้ในลิงก์", "#ต่อสู้"]}',
                 "Done.")
         finally:
             render.export = had
@@ -1486,7 +1507,8 @@ class Tools(unittest.TestCase):
         self.assertFalse(handed["refused"], handed["result"])
         self.assertIn('"ดูรายละเอียดเพื่มเติมได้ในลิงก์" is now "ดูรายละเอียดเพิ่มเติมได้ในลิงก์"', handed["result"])
         ready = [e for e in self.chat.events if e["kind"] == "ready"][-1]
-        self.assertEqual((ready["title"], ready["caption"]), ("สู้จบ", "ดูรายละเอียดเพิ่มเติมได้ในลิงก์"))
+        self.assertEqual((ready["title"], ready["caption"], ready["hashtags"]),
+                         ("สู้จบ", "ดูรายละเอียดเพิ่มเติมได้ในลิงก์", ["#ต่อสู้"]), "the hashtags are proofread too")
         aside = [m for m in brain.sent if len(m) == 1]
         self.assertEqual(len(aside), 2, "each fix is asked apart from the job's conversation")
 

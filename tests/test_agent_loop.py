@@ -8,7 +8,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, mind, recipes, tools  # noqa: E402
+from clipstudio import agent, mind, recipes, tools, words  # noqa: E402
 
 
 def call(name, **args):
@@ -19,7 +19,8 @@ class ScriptedMind:
     """Answers with the next item of its script and keeps a copy of every conversation it was sent.
 
     An item is the words of an answer, a list of tool calls, or a function(asking) that acts while the question is
-    in flight (the person types, or presses Stop) and then raises or returns one of the other two.
+    in flight (the person types, or presses Stop) and then raises or returns one of the other two. A spelling question
+    is answered with its texts unchanged, unless the next item is a scripted spelling answer or a function.
     """
     label = "scripted"
 
@@ -28,6 +29,12 @@ class ScriptedMind:
 
     def ask(self, messages, tools=None, temperature=None, max_tokens=None, on_delta=None, asking=None, schema=None):
         self.sent.append(json.loads(json.dumps(messages)))
+        if schema is words.SPELL_SCHEMA and not (self.script and (callable(self.script[0]) or (
+                isinstance(self.script[0], str) and self.script[0].startswith('{"texts"')))):
+            asked = json.loads(messages[-1]["content"].rsplit("\n\n", 1)[1])
+            text = json.dumps({"texts": asked}, ensure_ascii=False)
+            return {"text": text, "thinking": "", "tool_calls": [], "message": {"role": "assistant", "content": text},
+                    "engine": {"read_new": 10, "reused": 0, "seconds": 0.1}}
         item = self.script.pop(0)
         if callable(item):
             item = item(asking)
@@ -133,6 +140,18 @@ class Loop(unittest.TestCase):
         self.assertIn("The tools are: set_plan, find_recordings", results[1])
         self.assertIn("not readable JSON", results[2])
         self.assertIn("no field named folder", results[3])
+        sent = [c for m in brain.sent[-1] for c in m.get("tool_calls") or []]
+        self.assertEqual([json.loads(c["function"]["arguments"]) for c in sent][2], {},
+                         "unreadable arguments never go back to llama-server, which answers 500 to them")
+
+    def test_arguments_cut_off_before_their_last_brackets_are_read(self):
+        cut = '{"newest": 2, "why": "look'
+        brain = ScriptedMind([{"type": "function", "function": {"name": "find_recordings", "arguments": cut}}],
+                             "Done.")
+        _, events = self.run_job(brain)
+        step = [e for e in events if e["kind"] == "step"][0]
+        self.assertFalse(step["refused"], step["result"])
+        self.assertEqual(step["why"], "look")
 
     def test_plan_steps_left_open_get_one_reminder(self):
         brain = ScriptedMind([call("set_plan", steps=["a", "b", "c"], why="plan")],

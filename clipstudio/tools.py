@@ -2457,7 +2457,8 @@ def _spell(job, texts):
     """(texts with the Thai spelling fixed in a short conversation of Muse's own, a sentence naming each fix or "").
     When Muse cannot be asked, the texts stay as written. Stop raises hearing.Stopped."""
     try:
-        fixed, changed = words.spelled(lambda m, s: job.ask_aside(m, s, "Checking the Thai spelling"), texts)
+        fixed, changed = words.spelled(lambda m, s: job.ask_aside(m, s, "Checking the Thai spelling"), texts,
+                                       every=True, kept=job.proofread)
     except mind.MindError:
         return list(texts), ""
     return fixed, " ".join('The program fixed the Thai spelling: "%s" is now "%s".' % (" ".join(a.split()),
@@ -2498,11 +2499,12 @@ def hand_over(job, why, title, caption, hashtags, english=""):
                           % ", ".join(wrong))
     caption, more = _without_tags(caption)
     english, also = _without_tags(english)
+    tags = list(dict.fromkeys(t for t in (_tag(w) for w in list(hashtags) + more + also) if t))
     try:
-        (title, caption), spelling = _spell(job, [title, caption])
+        (title, caption, *tags), spelling = _spell(job, [title, caption] + tags)
     except hearing.Stopped:
         return "Not handed over: the person pressed Stop."
-    tags = list(dict.fromkeys(t for t in (_tag(w) for w in list(hashtags) + more + also) if t))
+    tags = list(dict.fromkeys(t for t in (_tag(w) for w in tags) if t))
     if not tags:
         raise Refused("Give at least one hashtag, such as #gaming.")
     ready = {"file": done["name"], "length": done["length"], "title": title, "caption": caption, "hashtags": tags,

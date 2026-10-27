@@ -156,30 +156,51 @@ def _odd(text):
     return odd + lone, len(toks)
 
 
-def spelled(ask, texts):
-    """(texts with their Thai spelling fixed, [(before, after)] for each one fixed). Only texts odd_thai flags are
-    asked about, all in one question to Muse in a conversation of their own: ask(messages, schema) returns the
-    answer's words. A fix is kept only when it leaves fewer flagged bits, keeps every number, and changes at most a
-    fifth of the text; otherwise the text stays as it was written."""
-    texts = list(texts)
-    todo = [i for i, t in enumerate(texts) if isinstance(t, str) and odd_thai(t)]
-    if not todo:
-        return texts, []
-    answer = ask([{"role": "user", "content": SPELL_ASK % json.dumps([texts[i] for i in todo], ensure_ascii=False)}],
-                 SPELL_SCHEMA)
-    try:
-        back = json.loads(answer)["texts"]
-    except (ValueError, KeyError, TypeError):
-        return texts, []
+def spelled(ask, texts, every=False, kept=None):
+    """(texts with their Thai spelling fixed, [(before, after)] for each one fixed). The texts odd_thai flags, or with
+    every all Thai texts, are asked about in one question to Muse in a conversation of their own: ask(messages, schema)
+    returns the answer's words. A fix is kept when it keeps every number and either leaves fewer flagged bits and
+    changes at most a fifth of the text, or changes only tone marks and vowels and flags no more bits; otherwise the
+    text stays as it was written. kept, a dict, keeps each answer, so a text asked about once is not asked again.
+
+    every is for what the viewer reads. Glimmer's slips there are often real words, so the dictionary flags nothing:
+    ต้อสู้ for ต่อสู้, ตังค่า for ตั้งค่า, ต้อวัน for ต่อวัน (10-27 and 10-28, in titles and post text). Measured 10-28 on the
+    111 Thai titles, captions and hashtags Muse had written, all asked: Muse changed 11, these rules kept the 9 right
+    fixes and refused the 2 wrong ones (a reworded line, a word dropped), and none of the 100 right texts changed."""
+    texts, kept = list(texts), {} if kept is None else kept
+    todo = [i for i, t in enumerate(texts) if isinstance(t, str) and (THAI.search(t) if every else odd_thai(t))]
+    todo = [i for i in todo if texts[i] not in kept]
+    if todo:
+        answer = ask([{"role": "user", "content": SPELL_ASK % json.dumps([texts[i] for i in todo],
+                                                                          ensure_ascii=False)}], SPELL_SCHEMA)
+        try:
+            back = json.loads(answer)["texts"]
+        except (ValueError, KeyError, TypeError):
+            back = []
+        for i, after in zip(todo, back if isinstance(back, list) else []):
+            before = texts[i]
+            if isinstance(after, str) and after != before and thai.values(after) == thai.values(before) and (
+                    (len(odd_thai(after)) < len(odd_thai(before))
+                     and difflib.SequenceMatcher(None, before, after).ratio() >= 1 - MOST_CHANGED)
+                    or (_skeleton(after) == _skeleton(before) and len(odd_thai(after)) <= len(odd_thai(before)))):
+                kept[before] = after
+            elif isinstance(after, str):
+                kept[before] = before
     changed = []
-    for i, after in zip(todo, back if isinstance(back, list) else []):
-        before = texts[i]
-        if (isinstance(after, str) and after != before and len(odd_thai(after)) < len(odd_thai(before))
-                and thai.values(after) == thai.values(before)
-                and difflib.SequenceMatcher(None, before, after).ratio() >= 1 - MOST_CHANGED):
+    for i, before in enumerate(texts):
+        after = kept.get(before, before) if isinstance(before, str) else before
+        if after != before:
             texts[i] = after
             changed.append((before, after))
     return texts, changed
+
+
+VOWELS_AND_MARKS = set("ัิีึืุู็่้๊๋์ํ")
+
+
+def _skeleton(text):
+    """text without its tone marks and the vowels written above and below the letters."""
+    return "".join(ch for ch in text if ch not in VOWELS_AND_MARKS)
 
 
 def tidy_all(value):
@@ -194,12 +215,46 @@ def tidy_all(value):
 
 
 def tidy_arguments(raw):
-    """Tool call arguments (a JSON string) with every string tidied; unreadable JSON is left as it came."""
+    """Tool call arguments (a JSON string) with every string tidied, and the brackets and the text closed when Glimmer
+    stopped before them; JSON that closing does not make readable is left as it came."""
     if not isinstance(raw, str):
         return tidy_all(raw)
     try:
         value = json.loads(raw)
     except ValueError:
-        return raw
+        whole = closed(raw)
+        if whole is None:
+            return raw
+        value = json.loads(whole)
+        return json.dumps(tidy_all(value), ensure_ascii=False)
     fixed = tidy_all(value)
     return raw if fixed == value else json.dumps(fixed, ensure_ascii=False)
+
+
+def closed(raw):
+    """raw with the text and the brackets it left open closed, or None when that does not make it JSON. Seen 10-28:
+    Glimmer ended a hand-over's arguments after the hashtags, without the last "}", and the job ended there, as
+    llama-server could not read that call in the conversation on the next question."""
+    shut, inside, escaped = [], False, False
+    for ch in raw:
+        if inside:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                inside = False
+        elif ch == '"':
+            inside = True
+        elif ch in "{[":
+            shut.append("}" if ch == "{" else "]")
+        elif ch in "}]" and (not shut or shut.pop() != ch):
+            return None
+    tail = ('"' if inside else "") + "".join(reversed(shut))
+    if not tail:
+        return None
+    try:
+        json.loads(raw + tail)
+    except ValueError:
+        return None
+    return raw + tail
