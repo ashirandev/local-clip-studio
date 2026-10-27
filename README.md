@@ -1,4 +1,4 @@
-# Local Chat Studio
+# Local Clip Studio
 
 People who cannot edit video can still edit video. You drop in a long recording, and Meta's Muse model edits it as
 an **agent**: it makes its own plan, runs it step by step, gives a reason for every choice, checks its own clip,

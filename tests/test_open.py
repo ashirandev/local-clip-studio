@@ -14,7 +14,7 @@ from http.server import ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from chatstudio import agent, mind, recording, server  # noqa: E402
+from clipstudio import agent, mind, recording, server  # noqa: E402
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")

@@ -8,7 +8,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from chatstudio import agent, mind, recipes, tools  # noqa: E402
+from clipstudio import agent, mind, recipes, tools  # noqa: E402
 
 
 def call(name, **args):

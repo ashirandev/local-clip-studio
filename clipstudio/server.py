@@ -46,7 +46,7 @@ FRAME = re.compile(r"^/api/frame/([0-9a-f]{16}\.jpg)$")
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "local-chat-studio/" + __version__
+    server_version = "local-clip-studio/" + __version__
 
     def do_GET(self):
         if not self.named_well():
@@ -261,7 +261,7 @@ def main():
     except OSError as e:
         sys.exit("Port %d on this computer is taken (%s). Set LCS_PORT to a free port and start again."
                  % (PORT, e.strerror))
-    print("Local Chat Studio %s: http://127.0.0.1:%d/" % (__version__, PORT), flush=True)
+    print("Local Clip Studio %s: http://127.0.0.1:%d/" % (__version__, PORT), flush=True)
     if not ipaddress.ip_address(HOST).is_loopback:
         print("On a phone on the same Wi-Fi, open http://<this computer's address>:%d/" % PORT, flush=True)
     try:

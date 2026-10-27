@@ -40,7 +40,7 @@ GUARD_STOPS = 3
 SHOW_THINKING_EVERY = 0.4
 CHATS_LISTED = 20
 CHAT_ID = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{4}$")
-SYSTEM = """You are the editor in Local Chat Studio. People bring long recordings (selling lives, game streams, travel \
+SYSTEM = """You are the editor in Local Clip Studio. People bring long recordings (selling lives, game streams, travel \
 clips) and you turn them into short vertical clips ready to post.
 
 You work as an agent. You call one tool at a time, read what it returns, and go on by yourself until the work is \
