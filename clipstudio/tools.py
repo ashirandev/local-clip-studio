@@ -413,6 +413,22 @@ def _fixed_said(job, rec, look, a, b):
             for p, text, why in zip(said, fixed, kept)]
 
 
+LATER = "fixed when a clip is made from this moment"
+
+
+def _heard_said(look, a, b):
+    """The lines heard from a to b as heard, to be fixed when a clip is made from them: Muse serves one question at a
+    time, so fixing the other moments' lines first would keep the first clip waiting (measured 10-27: three moments
+    took 195 s to propose)."""
+    return [dict(p, heard=p["text"], kept=LATER, named=[]) for p in look.get("said") or [] if a <= p["from"] < b]
+
+
+def _fix_moment(job, rec, m):
+    """Fixes the moment's lines when they were kept as heard for later. Stop raises hearing.Stopped."""
+    if any(s.get("kept") == LATER for s in m.get("said") or []):
+        m["said"] = _fixed_said(job, rec, job.chat.looks[m["look"] - 1], m["start"], m["end"])
+
+
 def propose_moments(job, why, moments):
     rec = _open(job, "propose")
     clock, looks = recording.clock, job.chat.looks
@@ -454,8 +470,10 @@ def propose_moments(job, why, moments):
             screen.ahead(rec, p["start"], p["end"])
     started = time.time()
     try:
-        for p in picked:
-            p["said"] = _fixed_said(job, rec, looks[p["look"] - 1], p["start"], p["end"])
+        for k, p in enumerate(picked):
+            look = looks[p["look"] - 1]
+            p["said"] = (_fixed_said(job, rec, look, p["start"], p["end"]) if k == 0 else
+                         _heard_said(look, p["start"], p["end"]))
     except hearing.Stopped:
         return "Not proposed: the person pressed Stop."
     fixing = round(time.time() - started, 1)
@@ -470,6 +488,9 @@ def propose_moments(job, why, moments):
         lines.append("%d. %s-%s (%d s, from look %d): %s" % (p["n"], clock(p["start"]), clock(p["end"]),
                                                            round(p["end"] - p["start"]), p["look"], p["reason"]))
         lines += ["   %s %s%s" % (clock(s["from"]), s["text"], " (as heard)" if s["kept"] else "") for s in p["said"]]
+    if len(picked) > 1:
+        lines.append("Misheard words are fixed in moment 1's lines; the other moments show theirs as heard until a "
+                     "clip is made from one of them.")
     lines.append("Go on with moment 1 by yourself and make the clip from it: do not ask the person to choose, and do not "
                  "list the moments again in words. They can tap another card to switch. Nothing is cut, laid out, captioned or blurred until a "
                  "tool's result says it is: never tell the person a clip is ready when no tool made it.")
@@ -631,6 +652,10 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
                                                           recording.clock(m["end"])) for m in moments)))
     m = moments[moment - 1]
     a, b = m["start"], m["end"]
+    try:
+        _fix_moment(job, rec, m)
+    except hearing.Stopped:
+        return "Not made: the person pressed Stop."
     if layout == "talk":
         return _make_talk(job, rec, moment, m)
     try:

@@ -1109,6 +1109,27 @@ class Tools(unittest.TestCase):
         self.assertEqual([c["ok"] for c in shown["checks"]], [None, None, True, None, True, True])
         self.assertEqual(agent.Chat.load(self.chat.id).checks, self.chat.checks)
 
+    def test_only_the_first_moment_is_fixed_before_the_cards_and_another_when_its_clip_is_made(self):
+        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "first heard", "sure": 0.95},
+                               {"from": 12.0, "to": 14.0, "text": "second heard", "sure": 0.95}]
+        script = self.to_moment()
+        brain, steps = self.run_job(
+            *script[:2], [call("propose_moments", why="two", moments=[
+                {"look": 1, "start": "0:30", "end": "0:40", "reason": "one"},
+                {"look": 1, "start": "0:40", "end": "0:50", "reason": "two"}])],
+            '{"lines": ["first fixed"]}',
+            [call("make_clip", moment=2, layout="subject", why="the second")],
+            '{"lines": ["second fixed"]}', "Done.")
+        proposed, made = steps[-2], steps[-1]
+        self.assertIn("Misheard words are fixed in moment 1's lines; the other moments show theirs as heard",
+                      proposed["result"])
+        self.assertIn("0:42 second heard (as heard)", proposed["result"])
+        self.assertFalse(made["refused"], made["result"])
+        first, second = self.chat.moments
+        self.assertEqual([(s["text"], s["kept"]) for s in first["said"]], [("first fixed", None)])
+        self.assertEqual([(s["text"], s["heard"], s["kept"]) for s in second["said"]],
+                         [("second fixed", "second heard", None)], "fixed when its clip was made")
+
     def test_captions_can_pop_in_word_by_word_but_not_lit_as_well(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "this is the moment", "sure": 0.95}]
         script = self.to_moment()
