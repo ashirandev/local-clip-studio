@@ -15,7 +15,7 @@ import sys
 import threading
 import time
 
-from . import recording
+from . import recording, render
 
 SHORT_SIDE = 480
 MOST_FPS = 30
@@ -68,7 +68,7 @@ def _cut(rec, start, end, target):
     if not tool:
         return "FFmpeg is not installed, so no preview could be cut."
     os.makedirs(folder(), exist_ok=True)
-    part = target[:-4] + ".part.mp4"
+    part = "%s.%d-%d.part.mp4" % (target[:-4], os.getpid(), threading.get_ident())
     try:
         subprocess.run([tool, "-v", "error", "-y", "-ss", "%.2f" % start, "-i", rec["path"], "-t", "%.2f" % (end - start),
                         "-map", "0:v:0", "-map", "0:a:0?",
@@ -78,7 +78,7 @@ def _cut(rec, start, end, target):
                         part], capture_output=True, timeout=CUT_SECONDS, check=True)
         if os.path.getsize(part) == 0:
             return "ffmpeg wrote an empty preview of %s-%s." % (recording.clock(start), recording.clock(end))
-        os.replace(part, target)
+        render.settle(part, target)
         return None
     except subprocess.TimeoutExpired:
         return "Cutting the preview of %s-%s took over %d s, so it was stopped." % (

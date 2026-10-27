@@ -607,7 +607,11 @@ class Tools(unittest.TestCase):
                 [call("set_style", style="clean", font="Comic Sans", why="no such font")],
                 [call("set_style", style="clean", font="Thin Latin", why="it cannot write Thai")],
                 [call("set_style", style="pop", font="kanit black", why="the person asked")],
+                [call("set_style", style="pop", part="caption", why="a part needs its font")],
+                [call("set_style", style="pop", font="Kanit Regular", part="caption", why="lighter captions")],
+                [call("set_style", style="sticker", why="another style")],
                 "Done.")
+            parts = self.chat.project.state()["style"]
             listed["free"] = False
             brain, later = self.run_job(
                 [call("set_style", style="clean", font="Kanit", why="not free now")],
@@ -615,7 +619,7 @@ class Tools(unittest.TestCase):
                 "Done.")
         finally:
             tools.text.fonts = real
-        title, listing, none, latin, black = steps[-5:]
+        title, listing, none, latin, black, bare, caption, sticker = steps[-8:]
         self.assertFalse(title["refused"], title["result"])
         self.assertIn("บ", asked[0], "the fonts asked for must write the title's letters")
         self.assertIn("1 free to use in a video, 0 not known to be free.", listing["result"])
@@ -628,11 +632,21 @@ class Tools(unittest.TestCase):
         self.assertIn("Thin Latin cannot write every letter of the clip's words.", latin["result"])
         self.assertFalse(black["refused"], black["result"])
         self.assertIn("The words on screen now use the pop style with the font Kanit.", black["result"])
+        self.assertTrue(bare["refused"])
+        self.assertIn("A part takes a font of its own: give the font for the captions", bare["result"])
+        self.assertIn("with the font Kanit for the captions only.", caption["result"])
+        self.assertIn("Fonts of their own kept: Kanit Regular for the captions.", sticker["result"])
+        self.assertEqual((parts["name"], parts["font"], parts["fonts"]), ("sticker", "kanit black",
+                                                                          {"caption": "Kanit Regular"}))
+        self.assertEqual(tools.describe(self.chat.project.entries[-1]), "the clean style with the font Kanit")
         not_free, named = later
         self.assertTrue(not_free["refused"])
         self.assertIn("Kanit is not known to be free (its file names no licence)", not_free["result"])
         self.assertFalse(named["refused"], named["result"])
         self.assertEqual(self.chat.project.state()["style"]["font"], "Kanit")
+        self.assertNotIn("fonts", self.chat.project.state()["style"], "a font for every part starts the parts over")
+        drawn = render.style_of(parts and {"style": dict(parts, do="style")}, "clean", kind="caption")
+        self.assertEqual(drawn.fontname, "Kanit Regular", "the export draws the part in its own font")
 
     def test_muse_is_offered_the_sounds_the_renderer_makes(self):
         self.assertEqual(set(tools.SOUNDS), set(effects.SOUNDS))

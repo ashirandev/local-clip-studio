@@ -60,6 +60,24 @@ class Open(unittest.TestCase):
         self.assertAlmostEqual(rec["seconds"], 3, delta=0.1)
         self.assertEqual((rec["width"], rec["height"], rec["sound_tracks"], rec["fps"]), (320, 180, 1, 30))
 
+    def test_a_frame_another_request_is_showing_is_kept_and_no_part_is_left(self):
+        rec = recording.probe(self.clip)
+        name = recording.frame(rec, at=1)
+        target = os.path.join(recording.WORK, "frames", name)
+        os.remove(target)
+        real = os.replace
+
+        def refused(a, b):
+            shutil.copy(a, b)
+            raise PermissionError(13, "The process cannot access the file because it is being used", b)
+
+        os.replace = refused
+        try:
+            self.assertEqual(recording.frame(rec, at=1), name, "the file the other request wrote is the same frame")
+        finally:
+            os.replace = real
+        self.assertEqual(os.listdir(os.path.dirname(target)), [name], "no part file is left behind")
+
     def test_a_turned_phone_video_is_as_tall_as_it_looks(self):
         phone = os.path.join(self.videos, "phone.mov")
         make_video(phone, rotate=90)

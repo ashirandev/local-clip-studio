@@ -694,9 +694,14 @@ def list_fonts(job, why):
     return "\n".join(lines)
 
 
-def set_style(job, why, style, font=None, colour=None, person_said=None):
+WORD_PARTS = {"title": "the title", "caption": "the captions", "big": "the big words of a hit"}
+
+
+def set_style(job, why, style, font=None, colour=None, part=None, person_said=None):
     state = _clip_state(job)
     shown = None
+    if part and not font:
+        raise Refused("A part takes a font of its own: give the font for %s, or leave part out." % WORD_PARTS[part])
     if font:
         letters = _letters(job, state)
         every = text.fonts(letters or None)
@@ -712,14 +717,23 @@ def set_style(job, why, style, font=None, colour=None, person_said=None):
                           "a free font: %s. Use it only if the person named it themselves; then give person_said, "
                           "their own words." % (entry["family"], entry["licence"], _free_fonts(every)))
         shown = entry["family"]
+    before = state["style"] or {}
+    every, fonts = (before.get("font"), dict(before.get("fonts") or {})) if part or not font else (font, {})
+    if part:
+        fonts[part] = font
     try:
-        st = text.style(style, font, colour)
+        drawn = text.look(style, every, colour, fonts or None)
     except ValueError as e:
         raise Refused(str(e))
-    state = job.edit({"do": "style", "name": style, "font": font, "colour": colour})
-    lines = ["The words on screen now use the %s style%s." % (style, " with the font %s" % shown if shown else "")]
-    if st.note:
-        lines.append(st.note)
+    entry = {"do": "style", "name": style, "font": every, "colour": colour}
+    if fonts:
+        entry["fonts"] = fonts
+    state = job.edit(entry)
+    lines = ["The words on screen now use the %s style%s." % (style, " with the font %s%s" % (
+        shown, " for %s only" % WORD_PARTS[part] if part else "") if shown else "")]
+    if fonts and not part:
+        lines.append("Fonts of their own kept: %s." % ", ".join("%s for %s" % (f, WORD_PARTS[k]) for k, f in fonts.items()))
+    lines += list(dict.fromkeys(st.note for st in drawn.values() if st.note))
     if state["titles"]:
         t = state["titles"][0]
         rec = _open(job, "show")
@@ -1256,7 +1270,7 @@ def add_hit(job, why, at, kind, word=None):
             raise Refused("A word hit needs its word, such as POW, in the clip's language.")
         try:
             text.big_word(word, at, 0.8, _main_part(state["clip"]["layout"]),
-                          render.style_of(state, job.chat.clip["style"] if job.chat.clip else "clean"))
+                          render.style_of(state, job.chat.clip["style"] if job.chat.clip else "clean", kind="big"))
         except ValueError as e:
             raise Refused(str(e))
     job.edit({"do": "hit", "kind": kind, "at": round(at, 2), "word": word if kind == "word" else None,
@@ -1510,7 +1524,8 @@ def describe(entry):
     if entry["do"] == "clip":
         return "the clip from moment %d in the %s layout" % (entry["moment"], entry["layout"]["kind"])
     if entry["do"] == "style":
-        return "the %s style" % entry["name"] + (" with the font %s" % entry["font"] if entry.get("font") else "")
+        return "the %s style" % entry["name"] + (" with the font %s" % entry["font"] if entry.get("font") else "") + \
+            "".join(", %s in %s" % (WORD_PARTS[k], f) for k, f in (entry.get("fonts") or {}).items())
     if entry["do"] == "captions":
         return ("the lit captions" if entry.get("lit") else "the captions") if entry["lines"] else \
             "turning the captions off"
@@ -1706,6 +1721,9 @@ TOOLS = {t.name: t for t in [
           "colour": {"type": "string", "maxLength": 9,
                      "description": "The colour of the words the person asked for, like #FFD400. Leave it out for "
                                     "the style's own."},
+          "part": {"type": "string", "enum": list(WORD_PARTS),
+                   "description": "Give the font to one part only: " + "; ".join("%s: %s" % kv for kv in WORD_PARTS.items())
+                                  + ". Leave it out for every part."},
           "person_said": {"type": "string", "maxLength": 200,
                           "description": "Only for a font not known to be free that the person named: their own "
                                          "words asking for it, quoted. Leave it out otherwise."}},

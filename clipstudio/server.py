@@ -29,6 +29,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl
@@ -165,11 +166,11 @@ class Handler(BaseHTTPRequestHandler):
         folder = render.folder("clips")
         video, full = os.path.join(folder, sign + ".mp4"), os.path.join(folder, sign + ".jpg")
         if not os.path.isfile(full) and os.path.isfile(video):
-            part = full + ".part.jpg"
+            part = "%s.%d.part.jpg" % (full, threading.get_ident())
             subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y", "-ss", "%g" % POSTER_AT, "-i",
                             video, "-frames:v", "1", "-vf", "scale=540:-2", "-q:v", "3", part], capture_output=True)
             if os.path.isfile(part):
-                os.replace(part, full)
+                render.settle(part, full)
         if not os.path.isfile(full):
             self.send_json({"ok": False, "error": "There is no finished clip %s." % sign}, HTTPStatus.NOT_FOUND)
             return

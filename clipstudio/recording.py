@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -199,14 +200,21 @@ def frame(rec, at=None):
     name = key + ".jpg"
     target = os.path.join(folder, name)
     if not os.path.isfile(target):
-        temp = os.path.join(folder, key + ".part.jpg")
+        temp = os.path.join(folder, "%s.%d.part.jpg" % (key, threading.get_ident()))
         try:
             subprocess.run([tool, "-v", "error", "-y", "-ss", "%.2f" % at, "-i", rec["path"],
                             "-frames:v", "1", "-vf", "scale='if(gt(iw,ih),540,-2)':'if(gt(iw,ih),-2,540)'",
                             temp], capture_output=True, timeout=PROBE_SECONDS, check=True)
-            os.replace(temp, target)
+            try:
+                os.replace(temp, target)
+            except PermissionError:
+                if not os.path.isfile(target):
+                    raise
         except (subprocess.SubprocessError, OSError):
             return None
+        finally:
+            if os.path.exists(temp):
+                os.remove(temp)
     return name
 
 
