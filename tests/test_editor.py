@@ -654,21 +654,28 @@ class Tools(unittest.TestCase):
         self.assertIn("fall", shown)
 
     def test_a_spot_the_person_asked_for_is_used_and_what_covers_it_is_said(self):
+        self.chat.emit("person", job=None, text="Put the title at the bottom. Up top over my face is fine too, and "
+                                                "blur my face please")
         brain, steps = self.run_job(
             *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
             [call("add_title", words="Boss down", start=0, end=4, box=[50, 900, 950, 1000], why="low")],
-            [call("add_title", words="Boss down", start=0, end=4, box=[50, 900, 950, 1000], asked=True,
-                  why="the person wants it at the bottom")],
+            [call("add_title", words="Boss down", start=0, end=4, box=[50, 900, 950, 1000],
+                  person_said="I want it at the very bottom", why="claims a request")],
+            [call("add_title", words="Boss down", start=0, end=4, box=[50, 900, 950, 1000],
+                  person_said="put the title at the bottom", why="the person wants it at the bottom")],
             [call("add_title", words="Up top", start=5, end=9, box=[60, 150, 940, 270], why="over the face")],
-            [call("add_title", words="Up top", start=5, end=9, box=[60, 150, 940, 270], asked=True,
-                  why="the person asked")],
+            [call("add_title", words="Up top", start=5, end=9, box=[60, 150, 940, 270],
+                  person_said="Up top over my face is fine too", why="the person asked")],
             [call("add_title", words="Up top", start=5, end=9, why="no place")],
-            [call("blur_box", box=[400, 600, 600, 900], asked=True, why="the person wants their face hidden")],
+            [call("blur_box", box=[400, 600, 600, 900], person_said="blur my face please",
+                  why="the person wants their face hidden")],
             "Done.")
-        low, low_asked, face, face_asked, nowhere, blurred = steps[-6:]
+        low, claimed, low_asked, face, face_asked, nowhere, blurred = steps[-7:]
+        self.assertTrue(claimed["refused"])
+        self.assertIn('The person did not say "I want it at the very bottom" in this chat.', claimed["result"])
         self.assertTrue(low["refused"])
         self.assertIn("On a phone, the name and the caption cover everything below y 1520", low["result"])
-        self.assertIn("give asked true only when the person asked for this spot", low["result"])
+        self.assertIn("give person_said only when the person asked for this spot", low["result"])
         self.assertFalse(low_asked["refused"], low_asked["result"])
         self.assertIn("Placed where the person asked. On a phone, the name and the caption cover everything below y "
                       "1520", low_asked["result"])
@@ -682,6 +689,71 @@ class Tools(unittest.TestCase):
         self.assertFalse(blurred["refused"], blurred["result"])
         titles = self.chat.project.state()["titles"]
         self.assertEqual([(x["text"], x["box"][1]) for x in titles], [("Boss down", 1728), ("Up top", 288)])
+
+    def test_the_face_circle_goes_where_the_person_asks_and_undo_brings_it_back(self):
+        brain, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("decide_people", keep=[1], why="it is him")],
+            [call("move_part", part="circle", box=[650, 800, 950, 980], why="the person wants the face bottom right")],
+            [call("move_part", part="circle", box=[0, 0, 50, 20], why="too small")],
+            "Done.")
+        moved, small = steps[-2:]
+        self.assertFalse(moved["refused"], moved["result"])
+        self.assertIn("As asked, the circle is at", moved["result"])
+        self.assertIn("On a phone", moved["result"])
+        self.assertIn("comes next as a picture", moved["result"])
+        self.assertTrue(small["refused"])
+        state = self.chat.project.state()
+        self.assertIn("circle", [part["name"] for part in state["clip"]["layout"]["parts"]])
+        self.assertEqual(tools._undecided(state), [], "moving a part keeps the decisions about people")
+        self.assertEqual(tools.describe(self.chat.project.entries[-1]), "moving the circle")
+        self.chat.project.undo()
+        self.assertNotIn("circle", [part["name"] for part in self.chat.project.state()["clip"]["layout"]["parts"]])
+
+    def test_a_title_kept_from_the_clip_before_is_named_and_can_be_taken_off(self):
+        brain, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("add_title", words="Boss down", start=0, end=4, place="top", why="the hook")],
+            [call("make_clip", moment=1, layout="subject", product=[400, 0, 600, 300], why="again with the product")],
+            [call("remove_title", words="Boss up", why="wrong words")],
+            [call("remove_title", words="Boss down", why="it covers the product now")],
+            "Done.")
+        again, wrong, removed = steps[-3:]
+        self.assertIn('Kept from before: the title "Boss down" at the top, 0-4 s; it now covers a face or the product at',
+                      again["result"])
+        self.assertTrue(wrong["refused"])
+        self.assertIn('The clip has no title "Boss up"; its titles are: "Boss down".', wrong["result"])
+        self.assertFalse(removed["refused"], removed["result"])
+        self.assertEqual(self.chat.project.state()["titles"], [])
+        self.assertEqual(tools.describe(self.chat.project.entries[-1]), 'taking the title "Boss down" off')
+
+    def test_muse_is_shown_thai_words_no_dictionary_has_and_fixes_or_keeps_them(self):
+        self.assertEqual(tools._odd_thai("ดูรายละเอียดเพื่มเติมได้ในลิงก์"), ["เพื่มเติม"])
+        self.assertEqual(tools._odd_thai("เครื่องลดความชื้น ใช้งานง่าย แค่เสียบปลั๊กแล้วกดเปิดเลย"), [])
+        self.assertEqual(tools._odd_thai("He falls. Twice."), [])
+
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            brain, steps = self.run_job(
+                *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("decide_people", keep=[1], why="it is him")],
+                [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
+                [call("hand_over", title="สู้จบ", caption="ดูรายละเอียดเพื่มเติมได้ในลิงก์", hashtags=["#เกม"],
+                      why="post")],
+                [call("hand_over", title="สู้จบ", caption="ดูรายละเอียดเพิ่มเติมได้ในลิงก์", hashtags=["#เกม"],
+                      why="fixed")],
+                "Done.")
+        finally:
+            render.export = had
+        odd, fixed = steps[-2:]
+        self.assertTrue(odd["refused"])
+        self.assertIn('Check the Thai spelling here: "เพื่มเติม".', odd["result"])
+        self.assertFalse(fixed["refused"], fixed["result"])
 
     def test_a_number_on_screen_must_be_one_that_was_said(self):
         said = ["สินค้าราคา เจ็ดสิบห้า บาท", "ใช้ได้ 50 ตารางเมตร"]

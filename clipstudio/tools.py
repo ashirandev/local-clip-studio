@@ -634,6 +634,14 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
                  "is kept for the captions):" % (" and the product you named" if item else "", lay["captions"][1],
                                                  lay["captions"][1] + lay["captions"][3]))
     lines += _place_lines(state, rec)
+    if state["titles"]:
+        times, every = _face_times(state, rec)
+        for t in state["titles"]:
+            hit = _covered(t["box"], times, every, t["start"], t["end"])
+            lines.append('Kept from before: the title "%s" at the %s, %g-%g s%s.' % (
+                t["text"], t["place"], t["start"], t["end"],
+                "; it now covers a face%s at %s: take it off with remove_title, then put it again" % (
+                    " or the product" if state["clip"].get("product") else "", _spans(hit)) if hit else ""))
     peak = m.get("t") if m.get("t") is not None else (a + b) / 2
     at = min(max(0.0, peak - a), state["length"] - 0.1)
     lines.append(_show_frame(job, state, rec, at, "The clip at %g s (moment %d, %s layout):" % (
@@ -681,7 +689,21 @@ def _covers(drawn, lay, state):
     return out
 
 
-def add_title(job, why, words, start, end, place=None, key=None, box=None, asked=False):
+def _asked(job, person_said):
+    """True when person_said quotes words the person typed in this chat, False when it is empty; Refused when the
+    person never said it, so Muse cannot claim a request nobody made."""
+    if not person_said:
+        return False
+    quote = " ".join(person_said.split()).lower()
+    said = [" ".join(e["text"].split()).lower() for e in job.chat.events if e["kind"] == "person"]
+    if len(quote) < 3 or not any(quote in s for s in said):
+        raise Refused("The person did not say \"%s\" in this chat. person_said must quote their own words asking for "
+                      "this; when nobody asked, choose yourself and leave person_said out." % person_said)
+    return True
+
+
+def add_title(job, why, words, start, end, place=None, key=None, box=None, person_said=None):
+    asked = _asked(job, person_said)
     rec = _open(job, "put words on")
     state = _clip_state(job)
     length, lay = state["length"], state["clip"]["layout"]
@@ -724,7 +746,7 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, asked
     covers = _covers([round(v) for v in drawn], lay, state)
     if covers and not asked:
         raise Refused("On a phone, %s. Pick one of the layout's places, or a box inside x %d-%d, y %d-%d; give "
-                      "asked true only when the person asked for this spot." % (
+                      "person_said only when the person asked for this spot." % (
                           "; ".join(covers), layouts.SAFE[0], layouts.SAFE[0] + layouts.SAFE[2], layouts.SAFE[1],
                           layouts.SAFE_BOTTOM))
     if covers:
@@ -739,9 +761,14 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, asked
         for name, box in lay["places"].items():
             clear = _clear(_covered(box, times, every, 0, length), 0, length)
             others.append("%s: %s" % (name, _spans(clear, inward=True) if clear else "never clear"))
-        raise Refused("At the %s, the title would cover a face%s at %s. Clear: %s. Pick a time or a place from these."
+        stuck = "" if any(not o.endswith("never clear") for o in others) else (
+            " No place is clear for %g s or more: the faces%s fill the picture. %sor leave the title off." % (
+                LISTED, " and the product" if state["clip"].get("product") else "",
+                "Make the clip again with a product box around the product only, " if state["clip"].get("product")
+                else ""))
+        raise Refused("At the %s, the title would cover a face%s at %s. Clear: %s. Pick a time or a place from these.%s"
                       % (place, " or the product" if state["clip"].get("product") else "", _spans(hit),
-                         "; ".join(others)))
+                         "; ".join(others), stuck))
     state = job.edit({"do": "title", "text": words, "start": round(start, 2), "end": round(end, 2), "place": place,
                       "box": band, "key": key})
     lines = ['The title "%s" is on screen at the %s from %g to %g s: %d line%s, %d x %d px%s.' % (
@@ -765,6 +792,25 @@ def _main_part(layout):
     parts = {p["name"]: p["dst"] for p in layout["parts"]}
     x, y, w, h = parts.get("card") or parts.get("bottom") or parts.get("whole")
     return [round(x + w / 2), round(y + h / 2)]
+
+
+PARTS = ("card", "circle", "top", "bottom", "whole")
+
+
+def move_part(job, why, part, box):
+    rec = _open(job, "move a part of")
+    state = _clip_state(job)
+    band = _frame_box("box", box)
+    try:
+        lay = layouts.moved(state["clip"]["layout"], part, band)
+    except ValueError as e:
+        raise Refused(str(e))
+    state = job.edit({"do": "layout", "part": part, "box": band, "layout": lay})
+    lines = [lay["notes"][-1] if lay["notes"] else "The %s is at %s." % (part, band),
+             "Places for words now:"] + _place_lines(state, rec)
+    lines.append(_show_frame(job, state, rec, state["length"] / 2, "The clip with the %s moved:" % part))
+    job.show(clip=job.chat.clip_view())
+    return "\n".join(lines)
 
 
 LOOKS = {"vivid": "more contrast and richer greens and blues, skin and reds kept: for games and flat footage",
@@ -1018,7 +1064,19 @@ def _where(lay, box):
     return out
 
 
-def blur_box(job, why, box, start=None, end=None, asked=False):
+def remove_title(job, why, words):
+    rec = _open(job, "take words off")
+    state = _clip_state(job)
+    if not any(t["text"] == words for t in state["titles"]):
+        raise Refused("The clip has no title \"%s\"; its titles are: %s." % (
+            words, "; ".join('"%s"' % t["text"] for t in state["titles"]) or "none"))
+    state = job.edit({"do": "untitle", "text": words})
+    return '\n'.join(['The title "%s" is off the clip.' % words,
+                      _show_frame(job, state, rec, state["length"] / 2, "The clip without it:")])
+
+
+def blur_box(job, why, box, start=None, end=None, person_said=None):
+    asked = _asked(job, person_said)
     rec = _open(job, "blur")
     state = _clip_state(job)
     length, lay = state["length"], state["clip"]["layout"]
@@ -1192,9 +1250,10 @@ def check_clip(job, why):
     if kind == "seller":
         product = state["clip"].get("product")
         inside = bool(product) and bool(layouts.to_frame(state["clip"]["layout"], product))
-        check("The product is in the frame", inside,
+        check("The product is in the frame", inside if product else None,
               "the product box is inside the clip's picture" if inside else
-              "no product named for the clip" if not product else "the product box is outside the clip's picture")
+              "no product box was named, so it was not checked" if not product else
+              "the product box is outside the clip's picture")
     else:
         check("The product is in the frame", None, "not a seller's clip")
     check("The length fits a Reel", made["seconds"] <= REEL_LONGEST,
@@ -1229,6 +1288,29 @@ def check_clip(job, why):
     return "\n".join(out)
 
 
+THAI = re.compile("[\u0e01-\u0e5b]")
+_WORDS = []
+
+
+def _odd_thai(words):
+    """Bits of Thai in words that no dictionary word makes up, each with the words on either side: the place a tone
+    mark or a vowel may be wrong (Glimmer writes ที้ for ที่, เพื่ม for เพิ่ม). PyThaiNLP's own corrections were
+    wrong on these (10-27), so Muse is shown where to look and fixes the spelling itself."""
+    if not THAI.search(words or ""):
+        return []
+    from pythainlp.corpus import thai_words
+    from pythainlp.tokenize import word_tokenize
+    if not _WORDS:
+        _WORDS.append(thai_words())
+    toks = word_tokenize(words, engine="newmm", keep_whitespace=True)
+    out = []
+    for i, w in enumerate(toks):
+        if THAI.search(w) and w.strip() and w not in _WORDS[0]:
+            near = [x for x in (toks[i - 1] if i else "", w, toks[i + 1] if i + 1 < len(toks) else "") if x.strip()]
+            out.append("".join(near))
+    return out
+
+
 def _tag(word):
     word = "".join(word.split()).lstrip("#")
     return "#" + word if word else ""
@@ -1255,6 +1337,12 @@ def hand_over(job, why, title, caption, hashtags, english=""):
                           % ", ".join(wrong))
     caption, more = _without_tags(caption)
     english, also = _without_tags(english)
+    odd = _odd_thai(title + "\n" + caption)
+    if odd and getattr(job, "spelled", None) != odd:
+        job.spelled = odd
+        raise Refused("Check the Thai spelling here: %s. A tone mark or a vowel is often wrong (ที้ for ที่, เพื่ม for "
+                      "เพิ่ม). Fix what is wrong and hand over again; if every word is right, hand over the same "
+                      "text again." % "; ".join('"%s"' % o for o in odd))
     tags = list(dict.fromkeys(t for t in (_tag(w) for w in list(hashtags) + more + also) if t))
     if not tags:
         raise Refused("Give at least one hashtag, such as #gaming.")
@@ -1300,6 +1388,10 @@ def describe(entry):
         return "the %s at %g s" % (entry["kind"], entry["at"])
     if entry["do"] == "sticker":
         return "the sticker at %g s" % entry["at"]
+    if entry["do"] == "layout":
+        return "moving the %s" % entry["part"]
+    if entry["do"] == "untitle":
+        return 'taking the title "%s" off' % entry["text"]
     if entry["do"] == "look":
         return "the %s look" % entry["name"] if entry["name"] else "taking the look off"
     if entry["do"] == "push":
@@ -1497,13 +1589,18 @@ TOOLS = {t.name: t for t in [
                                                                               "maximum": 1000},
                   "description": "[x1, y1, x2, y2] on a 0-1000 grid of the clip's vertical frame (not the "
                                  "recording), for a spot the person asked for that the places do not have."},
-          "asked": {"type": "boolean",
-                    "description": "true only when the person asked for this exact spot or time. Then the title "
-                                   "goes there even over a face or where a phone covers it, and the result says "
-                                   "so; when you choose, those are refused."},
+          "person_said": {"type": "string", "maxLength": 200,
+                          "description": "Only when the person asked for this exact spot or time: their own words "
+                                         "from the chat that ask for it, quoted. The program checks they said "
+                                         "them. Then the title goes there even over a face or where a phone covers "
+                                         "it, and the result says so; when you choose, those are refused."},
           "key": {"type": "string", "maxLength": 40,
                   "description": "One word of the title to draw in the style's key colour. Leave it out for none."}},
          ["words", "start", "end"], add_title, changes=True),
+    Tool("remove_title", "Took a title off",
+         "Take a title off the clip, by its words.",
+         {"words": {"type": "string", "maxLength": 80, "description": "The title's words, as on the clip."}},
+         ["words"], remove_title, changes=True),
     Tool("add_captions", "Put the captions on",
          "Put captions of what was said in the moment on the clip: the words as heard and fixed from the context, "
          "numbers exactly as said, a few words a line. The program places them in the layout's caption band. They "
@@ -1527,8 +1624,9 @@ TOOLS = {t.name: t for t in [
                                                                    "for the start."},
           "end": {"type": "number", "minimum": 0, "description": "Until when, in seconds of the clip. Leave it out for "
                                                                  "the end."},
-          "asked": {"type": "boolean",
-                    "description": "true only when the person asked to blur this, even the face the clip shows."}},
+          "person_said": {"type": "string", "maxLength": 200,
+                          "description": "Only when the person asked to blur this, even the face the clip shows: "
+                                         "their own words from the chat, quoted. The program checks them."}},
          ["box"], blur_box, changes=True),
     Tool("decide_people", "Decided about people",
          "Decide who of the other people make_clip listed is blurred and who is kept. A blurred face is followed as "
@@ -1540,6 +1638,18 @@ TOOLS = {t.name: t for t in [
           "keep": {"type": "array", "items": {"type": "integer", "minimum": 1},
                    "description": "The numbers of the people to keep as they are."}},
          [], decide_people, changes=True),
+    Tool("move_part", "Moved a part of the frame",
+         "Only when the person asks: put one part of the frame where they want it, anywhere on the clip, such as "
+         "their face circle bottom right, a bigger circle, or the card higher. circle also adds the face circle to "
+         "a full-screen layout. The result says where it went and what a phone covers there; tell the person.",
+         {"part": {"type": "string", "enum": list(PARTS),
+                   "description": "card: the game card; circle: the face circle; top and bottom: the two halves of "
+                                  "the stack; whole: the full-screen picture."},
+          "box": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0,
+                                                                              "maximum": 1000},
+                  "description": "[x1, y1, x2, y2] on a 0-1000 grid of the clip's vertical frame, where the part "
+                                 "goes. A circle stays round, in the middle of the box."}},
+         ["part", "box"], move_part, changes=True),
     Tool("set_look", "Chose a colour look",
          "Grade the footage with one colour look: " + "; ".join("%s: %s" % kv for kv in LOOKS.items()) + ". It "
          "colours the footage only; titles, captions and the frame's design keep their colours.",
@@ -1589,8 +1699,8 @@ TOOLS = {t.name: t for t in [
                       "description": "The post text in English, when the clip's language is not English."}},
          ["title", "caption", "hashtags"], hand_over, changes=True),
     Tool("undo", "Took back the last change",
-         "Take back the last change to the clip: a layout, a style, a title, the captions, a blur, a hit, a look, a "
-         "push or a decision about people. The "
+         "Take back the last change to the clip: a layout, a moved part, a style, a title, the captions, a blur, a hit, a "
+         "look, a push or a decision about people. The "
          "person can also do this on the page.",
          {}, [], undo, changes=True),
 ]}

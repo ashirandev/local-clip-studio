@@ -15,6 +15,8 @@ the recording, and boxes on the frame are pixels of the 1080x1920 clip.
   y, w, h], ...] in recording pixels, "start", "end"}: a box that moves with a face
 - hit: {"kind": flash, shake, punch or word, "at", "word", "centre": [x, y] on the frame}
 - sticker: {"png": path of a PNG, "at", "length", "box": frame box the picture is fitted in}
+- untitle: {"text"}: takes the titles with these words off
+- layout: {"part", "box": frame box, "layout": the clip's layout with that part moved where the person asked}
 - look: {"name": one of effects.LOOKS, or None for the footage as it was shot}
 - push: {"start", "end", "zoom", "centre": [x, y] on the frame}: a slow push-in on the main picture; a push over
   the time of an earlier one replaces it
@@ -25,7 +27,7 @@ the recording, and boxes on the frame are pixels of the 1080x1920 clip.
 import hashlib
 import json
 
-DOES = ("clip", "style", "title", "captions", "blur", "hit", "sticker", "people", "look", "push")
+DOES = ("clip", "style", "title", "captions", "blur", "hit", "sticker", "people", "look", "push", "layout", "untitle")
 
 
 class Project:
@@ -69,6 +71,10 @@ class Project:
                 hits = [h for h in hits if not (h["kind"] == e["kind"] and abs(h["at"] - e["at"]) < 0.5)] + [e]
             elif e["do"] == "sticker":
                 stickers.append(e)
+            elif e["do"] == "untitle":
+                titles = [t for t in titles if t["text"] != e["text"]]
+            elif e["do"] == "layout":
+                clip = dict(clip, layout=e["layout"]) if clip else None
             elif e["do"] == "look":
                 look = e["name"]
             elif e["do"] == "push":
