@@ -150,6 +150,24 @@ class Blur(unittest.TestCase):
             inside = (slice(y0, y1), slice(x0, x1))
             self.assertLess(detail(got[k][0][inside]), 0.1 * detail(self.plain[k][0][inside]), k)
 
+    def test_faces_that_never_show_together_share_one_blur_and_look_the_same(self):
+        def track(t0, x, y, size):
+            return [(t0 + 0.1 * k, x + 4 * k, y, size, size) for k in range(5)]
+
+        first, later, beside = track(0.2, 40, 40, 60), track(1.0, 300, 100, 60), track(0.3, 500, 200, 60)
+        big = track(2.0, 100, 150, 160)
+        shared = effects.blur_tracks([later, first, beside, big])
+        self.assertEqual(len(shared), 3, "first and later share; beside shows with first; big is another size")
+        got = frames(shared)
+        each = frames([effects.blur_track(t) for t in (first, later, beside, big)])
+        for k in (8, 12, 18, 25, 33, 40, 50, 63, 70):
+            self.assertEqual(got[k][0].tobytes() + got[k][1].tobytes() + got[k][2].tobytes(),
+                             each[k][0].tobytes() + each[k][1].tobytes() + each[k][2].tobytes(), k)
+        for k in (25, 50):
+            self.assertIsNone(changed(got[k], self.plain[k]), "nothing is blurred between the tracks")
+        for k in (12, 33, 63):
+            self.assertIsNotNone(changed(got[k], self.plain[k]), k)
+
     def test_a_track_stays_inside_the_picture(self):
         got = frames([effects.blur_track([(0, 590, 300, 80, 80), (0.3, 600, 330, 80, 80)])], seconds=0.4)
         x0, y0, x1, y1 = changed(got[6], self.plain[6])

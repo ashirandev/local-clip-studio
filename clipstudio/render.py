@@ -150,8 +150,9 @@ def after_source(state, src, out, first_input, default="clean"):
       and big words, one ASS file), so the words hold still while the picture moves and stay on top of a sticker, a
       flurry or a glass box, then the flashes last, so a flash lights the words too.
     A drawing that cannot be made raises ValueError with the sentence for Muse."""
-    blurs = [effects.blur_track(b["track"]) if b.get("track") else effects.blur_box(b["box"], b["start"], b["end"])
-             for b in state.get("blurs") or []]
+    blurs = state.get("blurs") or []
+    blurs = (effects.blur_tracks([b["track"] for b in blurs if b.get("track")]) +
+             [effects.blur_box(b["box"], b["start"], b["end"]) for b in blurs if not b.get("track")])
     if state.get("look"):
         blurs.append(effects.look(state["look"]))
     seen, files = effects.join(blurs, src, "seen", first_input)

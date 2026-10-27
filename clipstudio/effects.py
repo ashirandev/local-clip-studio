@@ -26,6 +26,8 @@ Fragment = collections.namedtuple("Fragment", "graph files")
 LABEL = re.compile(r"\[(in|out|_[a-z0-9]+|f[0-9]+)\]")
 FRAME_W, FRAME_H, FPS = 1080, 1920, 30
 MOST_GAP = 0.5
+LANE_GAP = 0.1
+SAME_SIZE = 1.5
 STILL = 0.5
 POP = ((0.0, 0.6), (0.15, 1.1), (0.25, 1.0))
 FADE = 0.15
@@ -153,9 +155,39 @@ def blur_track(points, margin=0.15):
     the clip). Between two points the box moves in a straight line. Its size is the track's largest w and h plus
     margin, centred on the moving centre and kept inside the picture. Nothing is blurred before the first point or
     after the last one. Points more than 0.5 s apart are refused: split the track at its gaps."""
+    return blur_tracks([points], margin)[0]
+
+
+def blur_tracks(tracks, margin=0.15):
+    """[Fragment]: the tracks blurred as blur_track blurs each, with tracks that never show at the same time sharing
+    one fragment, so a crowd costs as many blurs as faces are on screen at once, not one for each face.
+
+    Measured 10-28 on a 47 s montage of a trip where 69 faces were blurred one after another: FFmpeg drew 42 s in 37 s
+    and then stood still at the end of the recording for over an hour, with every blur its own split and overlay;
+    with 35 it stood still too, with 20 it finished in 22 s. The 69 faces were never more than 5 at once. A track
+    joins a fragment whose last track ends LANE_GAP s before it starts and whose box is within SAME_SIZE of its own,
+    as the fragment's box is its largest track's: a small face is not hidden under a big face's box."""
     margin = _number("margin", margin, 0)
     if margin > 1:
         raise ValueError("margin %s is more than 1: use a share of the box from 0 to 1, such as 0.15." % margin)
+    lanes = []
+    for track, w, h in sorted((_track(points, margin) for points in tracks), key=lambda m: m[0][0][0]):
+        free = [lane for lane in lanes if lane["end"] + LANE_GAP < track[0][0] and
+                max(lane["w"], w) <= SAME_SIZE * min(lane["w"], w) and
+                max(lane["h"], h) <= SAME_SIZE * min(lane["h"], h)]
+        if free:
+            lane = min(free, key=lambda lane: abs(lane["w"] - w) + abs(lane["h"] - h))
+        else:
+            lane = {"tracks": [], "w": w, "h": h}
+            lanes.append(lane)
+        lane["tracks"].append(track)
+        lane["w"], lane["h"], lane["end"] = max(lane["w"], w), max(lane["h"], h), track[-1][0]
+    return [_lane(lane["tracks"], lane["w"], lane["h"]) for lane in lanes]
+
+
+def _track(points, margin):
+    """(track [(t, centre x, centre y, w, h)], box w, box h) for blur_track's points, or ValueError saying what to
+    change."""
     if not isinstance(points, (list, tuple)) or not points:
         raise ValueError("points %r is not a track: give [(t, x, y, w, h)], one or more." % (points,))
     track = []
@@ -176,12 +208,25 @@ def blur_track(points, margin=0.15):
         track.append((t, x + w / 2, y + h / 2, w, h))
     w = 2 * math.ceil(max(p[3] for p in track) * (1 + margin) / 2)
     h = 2 * math.ceil(max(p[4] for p in track) * (1 + margin) / 2)
-    path = _simplify([(t, cx, cy) for t, cx, cy, _w, _h in track])
-    cx, cy = _along(path, 1), _along(path, 2)
+    return track, w, h
+
+
+def _lane(tracks, w, h):
+    """One fragment blurring a w x h box along each track in turn; the tracks never show at the same time."""
+    spans, xs, ys = [], [], []
+    for track in tracks:
+        path = _simplify([(t, cx, cy) for t, cx, cy, _w, _h in track])
+        spans.append("gte(t,%s)*lte(t,%s)" % (_f(track[0][0]), _f(track[-1][0])))
+        xs.append(_along(path, 1))
+        ys.append(_along(path, 2))
+    if len(tracks) == 1:
+        cx, cy = xs[0], ys[0]
+    else:
+        cx = "(%s)" % "+".join("%s*%s" % (s, x) for s, x in zip(spans, xs))
+        cy = "(%s)" % "+".join("%s*%s" % (s, y) for s, y in zip(spans, ys))
     left = "clip(2*floor((%s-%s)/2),0,%s)" % (cx, _f(w / 2), "%s")
     top = "clip(2*floor((%s-%s)/2),0,%s)" % (cy, _f(h / 2), "%s")
-    when = "gte(t,%s)*lte(t,%s)" % (_f(track[0][0]), _f(track[-1][0]))
-    return Fragment(_blurred(w, h, left % "iw-ow", top % "ih-oh", left % "W-w", top % "H-h", when), [])
+    return Fragment(_blurred(w, h, left % "iw-ow", top % "ih-oh", left % "W-w", top % "H-h", "+".join(spans)), [])
 
 
 def _along(path, k):

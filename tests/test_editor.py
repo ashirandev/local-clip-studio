@@ -1107,7 +1107,7 @@ class Tools(unittest.TestCase):
         self.assertNotIn("follows the action", cropped["result"])
         self.assertFalse(any(p.get("follow") for p in self.chat.project.state()["clip"]["layout"]["parts"]))
 
-    def several(self, *clips_calls, black=False):
+    def several(self, *clips_calls, black=False, recipe="explain"):
         """A tutorial with two moments proposed, then the given calls; screen and render are faked, the render black
         and silent at its start when black."""
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "one heard", "sure": 0.95}]
@@ -1123,7 +1123,7 @@ class Tools(unittest.TestCase):
         try:
             return self.run_job(
                 [call("open_recording", path=self.clip, why="open it")],
-                [call("load_recipe", type="explain", why="a tutorial")],
+                [call("load_recipe", type=recipe, why="its kind")],
                 [call("look_at_piece", start="0:30", end="0:50", why="the top stretch")],
                 [call("propose_moments", why="two", moments=[
                     {"look": 1, "start": "0:30", "end": "0:40", "reason": "one"},
@@ -1149,6 +1149,22 @@ class Tools(unittest.TestCase):
         self.assertEqual(self.chat.project.state()["clip"]["moment"], 1, "the page shows the first clip")
         self.assertEqual(self.chat.finished()["name"], ready[0]["file"])
         self.assertNotIn("The clip at", str(brain.sent[-1]), "no picture of each clip is sent to Muse")
+
+    def test_a_game_streams_clips_each_hide_the_chat_box_muse_gives_once(self):
+        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        _, steps = self.several([call("make_clips", clips=clips, why="both")],
+                                [call("make_clips", clips=clips, blur=[[600, 0, 1000, 300]], why="both")], "Done.",
+                                recipe="game")
+        bare, made = steps[-2], steps[-1]
+        self.assertTrue(bare["refused"])
+        self.assertIn("Nothing was made. A game stream's clips show its chat box", bare["result"])
+        self.assertFalse(made["refused"], made["result"])
+        self.assertIn("Made 2 clips, 2 handed over", made["result"])
+        ready = [e for e in self.chat.events if e["kind"] == "ready"]
+        self.assertEqual(len(ready), 2)
+        for e in ready:
+            self.assertIn(("No viewer's name can be read", True), [(c["name"], c["ok"]) for c in e["checks"]])
 
     def test_a_clip_that_fails_a_check_is_not_handed_over(self):
         clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},

@@ -123,6 +123,18 @@ def _value(name, value, spec):
         if not isinstance(value, list) or len(value) != n:
             raise Refused("%s must be a list of %d numbers: %s" % (name, n, spec.get("description", "")))
         return [_value("%s's number %d" % (name, i), v, spec["items"]) for i, v in enumerate(value, 1)]
+    if kind == "array" and (spec.get("items") or {}).get("type") == "array":
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except ValueError:
+                pass
+        if isinstance(value, list) and value and not isinstance(value[0], (list, str)):
+            value = [value]
+        if not isinstance(value, list) or len(value) > spec.get("maxItems", 100):
+            raise Refused("%s must be a list of at most %d lists of numbers, such as [[600, 0, 1000, 300]]."
+                          % (name, spec.get("maxItems", 100)))
+        return [_value("%s %d" % (name, i), v, spec["items"]) for i, v in enumerate(value, 1)]
     if kind == "string":
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             value = str(value)
@@ -2506,7 +2518,7 @@ LAYOUT_OF = {"explain": "card", "game": "card", "talk": "talk", "seller": "subje
 BATCH_WHY = "one of the clips the person asked for"
 
 
-def make_clips(job, why, clips):
+def make_clips(job, why, clips, blur=None):
     rec = _open(job, "make clips from")
     moments = job.chat.moments or []
     if not moments:
@@ -2530,6 +2542,10 @@ def make_clips(job, why, clips):
     if spelled:
         raise Refused("Nothing was made. " + " ".join(spelled) + " Fix the words and make the clips again.")
     recipe = (job.chat.clip or {}).get("recipe")
+    if recipe == "game" and not blur:
+        raise Refused("Nothing was made. A game stream's clips show its chat box with the viewers' names: give the "
+                      "chat box in blur, on your 0-1000 grid of the pictures from your looks, and every clip hides it. "
+                      "Leave the face camera out of the box.")
     pictures, lines, first = len(job.pictures), [], None
     for k, c in enumerate(clips, 1):
         if job.stopped:
@@ -2537,7 +2553,7 @@ def make_clips(job, why, clips):
             break
         job.working("Making clip %d of %d, from moment %d" % (k, len(clips), c["moment"]))
         job.chat.project = project.Project()
-        lines.append(_one_clip(job, rec, k, c, c.get("layout") or LAYOUT_OF.get(recipe, "subject")))
+        lines.append(_one_clip(job, rec, k, c, c.get("layout") or LAYOUT_OF.get(recipe, "subject"), blur or []))
         del job.pictures[pictures:]
         if first is None and job.chat.project.entries:
             first = list(job.chat.project.entries)
@@ -2552,8 +2568,10 @@ def make_clips(job, why, clips):
         "others."])
 
 
-def _one_clip(job, rec, k, c, layout):
-    """One clip of make_clips, from its moment to the hand-over: the sentence reporting on it."""
+def _one_clip(job, rec, k, c, layout, blur):
+    """One clip of make_clips, from its moment to the hand-over: the sentence reporting on it. Each box in blur is
+    blurred for the whole clip. Seen 10-27 on a 4-hour game stream: six clips were made without the chat box blurred,
+    none passed the check for viewers' names, and Muse ran out of room fixing the first one by hand."""
     n, head = c["moment"], "Clip %d (moment %d)" % (k, c["moment"])
     try:
         made = make_clip(job, BATCH_WHY, n, layout)
@@ -2564,6 +2582,11 @@ def _one_clip(job, rec, k, c, layout):
                                                                recording.clock(state["clip"]["pieces"][-1][1]),
                                                                state["length"], state["clip"]["layout"]["kind"])
         notes, others = [], _undecided(state)
+        for box in blur:
+            try:
+                blur_box(job, BATCH_WHY, box)
+            except Refused as e:
+                notes.append("the box %s was not blurred: %s" % (box, e))
         if others:
             decide_people(job, BATCH_WHY, keep=others)
             notes.append("kept %d other face%s as %s" % (len(others), "" if len(others) == 1 else "s",
@@ -3133,7 +3156,12 @@ TOOLS = {t.name: t for t in [
                  "hashtags": {"type": "array", "minItems": 1, "maxItems": MOST_TAGS, "items": {"type": "string"}},
                  "english": {"type": "string", "maxLength": 600,
                              "description": "The post text in English, when the clip's language is not English."}}},
-                   "description": "2 to %d clips, one for each moment." % MOST_MOMENTS}},
+                   "description": "2 to %d clips, one for each moment." % MOST_MOMENTS},
+          "blur": {"type": "array", "maxItems": 4, "items": {
+              "type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0, "maximum": 1000}},
+                   "description": "Boxes [x1, y1, x2, y2] on your 0-1000 grid of the recording's picture to blur in "
+                                  "every clip for its whole length, such as a stream's chat box, which stays in one "
+                                  "place. A game stream must give its chat box here."}},
          ["clips"], make_clips, changes=True),
     Tool("undo", "Took back the last change",
          "Take back the last change to the clip: a layout, a moved part, a style, a title, the captions, a blur, a hit, a "
