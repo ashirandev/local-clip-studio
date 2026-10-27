@@ -35,6 +35,7 @@ the seller said one.
 - The title names the product or its one best point, in the clip's language.
 - A spec card may show one number the seller said.
 - Look: warm, so faces look natural and a white product stays white. One slow push while the product is shown.
+- Sounds: a ding when a price or a number title comes on, and nothing more: the voice sells.
 
 ## Checked at the end
 

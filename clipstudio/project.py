@@ -6,7 +6,8 @@ An entry is a plain dict with "do" saying what it is. Times are clip seconds, bo
 the recording, and boxes on the frame are pixels of the 1080x1920 clip.
 - clip: {"moment", "pieces": [[recording a, recording b], ...], "layout": a layouts.make() dict, "product":
   recording box or None, "people": [{"n", "seen", "of", "from", "to", "box", "points": [[clip second, x, y, w, h]]}]:
-  the other people's faces, followed through the clip}
+  the other people's faces, followed through the clip, "speech": [[clip a, clip b]] when someone speaks, [] when
+  nobody does, None when the moment was never heard}
 - style: {"name", "font", "colour"}
 - title: {"text", "start", "end", "place", "box": the place's frame box, "key"}
 - captions: {"lines": text.caption_lines() lines in clip seconds, "band": [y, h], "lit": each word lit as it is
@@ -20,6 +21,10 @@ the recording, and boxes on the frame are pixels of the 1080x1920 clip.
 - look: {"name": one of effects.LOOKS, or None for the footage as it was shot}
 - push: {"start", "end", "zoom", "centre": [x, y] on the frame}: a slow push-in on the main picture; a push over
   the time of an earlier one replaces it
+- sound: {"kind": one of effects.SOUNDS, "at", "level": dB against the sound as it is made}; a sound of the same kind
+  within 0.5 s of an earlier one replaces it
+- music: {"path": the person's music file, "from": its second the clip starts at, "level": dB under the voice,
+  "duck": dB lower while someone speaks}, or {"path": None} to take it off
 - people: {"blur": [person numbers], "keep": [person numbers]}: who of the clip's people is blurred; a later
   decision about the same person wins, and a new clip entry starts with nobody decided
 """
@@ -27,7 +32,8 @@ the recording, and boxes on the frame are pixels of the 1080x1920 clip.
 import hashlib
 import json
 
-DOES = ("clip", "style", "title", "captions", "blur", "hit", "sticker", "people", "look", "push", "layout", "untitle")
+DOES = ("clip", "style", "title", "captions", "blur", "hit", "sticker", "people", "look", "push", "layout", "untitle",
+        "sound", "music")
 
 
 class Project:
@@ -48,12 +54,14 @@ class Project:
         """What the entries add up to: {"clip": the last clip entry or None, "length": clip seconds, "style": the
         last style entry or None, "titles": [title entries inside the clip], "captions": the last captions entry or
         None, "blurs": [blur entries], "hits": [hit entries inside the clip], "stickers": [sticker entries inside the
-        clip], "look": the colour look's name or None, "pushes": [push entries inside the clip], "people": the clip's people, each with "blur" True, False or None when not decided}. A blurred
+        clip], "look": the colour look's name or None, "pushes": [push entries inside the clip], "people": the clip's
+        people, each with "blur" True, False or None when not decided, "sounds": [sound entries inside the clip],
+        "music": the last music entry with a path or None, "speech": the clip's speech spans or None}. A blurred
         person's track is one of the blurs. A new clip entry keeps the words and effects; what starts after its end
         is not drawn."""
         clip = style = captions = None
-        titles, blurs, hits, stickers, pushes = [], [], [], [], []
-        look = None
+        titles, blurs, hits, stickers, pushes, sounds = [], [], [], [], [], []
+        look = music = None
         decided = {}
         for e in self.entries:
             if e["do"] == "clip":
@@ -79,6 +87,10 @@ class Project:
                 look = e["name"]
             elif e["do"] == "push":
                 pushes = [p for p in pushes if not (p["start"] < e["end"] and e["start"] < p["end"])] + [e]
+            elif e["do"] == "sound":
+                sounds = [s for s in sounds if not (s["kind"] == e["kind"] and abs(s["at"] - e["at"]) < 0.5)] + [e]
+            elif e["do"] == "music":
+                music = e if e.get("path") else None
             elif e["do"] == "people":
                 decided.update({n: True for n in e["blur"]})
                 decided.update({n: False for n in e["keep"]})
@@ -95,7 +107,10 @@ class Project:
                 "stickers": sorted([k for k in stickers if inside(k["at"])], key=lambda k: k["at"]),
                 "look": look if clip else None,
                 "pushes": sorted([p for p in pushes if inside(p["start"])], key=lambda p: p["start"]),
-                "people": people}
+                "people": people,
+                "sounds": sorted([s for s in sounds if inside(s["at"])], key=lambda s: s["at"]),
+                "music": music if clip else None,
+                "speech": clip.get("speech") if clip else None}
 
 
 def signature(entries):

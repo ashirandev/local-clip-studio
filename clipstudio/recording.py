@@ -60,6 +60,76 @@ def walk(words=""):
     return found
 
 
+MUSIC_TYPES = (".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus", ".wma") + VIDEO_TYPES
+MOST_MUSIC_SHOWN = 8
+
+
+def music_folders():
+    """The folders the person's music may come from: LCS_MUSIC (separated like LCS_VIDEOS), else ~/Music, and the
+    folders recordings are kept in. FFmpeg opens whatever path it is given, so no other file can be named."""
+    named = os.environ.get("LCS_MUSIC", "")
+    found = [f.strip() for f in named.split(os.pathsep) if f.strip()] or [os.path.expanduser("~/Music")]
+    tops = [os.path.realpath(f) for f in found if os.path.isdir(f)] + folders()
+    return list(dict.fromkeys(tops))
+
+
+def music_files(words=""):
+    """The music and sound files in the music folders whose path holds all the words: [path], newest first."""
+    wanted = words.lower().split()
+    found, looked = [], 0
+    for top in music_folders():
+        for here, dirs, files in os.walk(top):
+            dirs[:] = [d for d in dirs if not d.startswith(("_", "."))]
+            for name in files:
+                looked += 1
+                path = os.path.join(here, name)
+                if name.lower().endswith(MUSIC_TYPES) and all(w in os.path.relpath(path, top).lower() for w in wanted):
+                    try:
+                        found.append((os.stat(path).st_mtime, path))
+                    except OSError:
+                        pass
+            if looked > MOST_FILES_LOOKED_AT:
+                break
+    return [p for _, p in sorted(set(found), reverse=True)]
+
+
+def find_music(name):
+    """The real path of the person's music: name is its path, or words from its name that fit exactly one file.
+    Otherwise NotOpened, naming the files that fit, or the newest ones."""
+    tops = music_folders()
+    where = ", ".join(tops) or "none"
+    if os.path.isabs(name) or os.sep in name or "/" in name:
+        real = os.path.realpath(name)
+        if not any(real == top or real.startswith(top + os.sep) for top in tops):
+            raise NotOpened("%s is not inside the folders music may come from (%s). Ask the person to put it in one "
+                            "of them." % (name, where))
+        if not real.lower().endswith(MUSIC_TYPES) or not os.path.isfile(real):
+            raise NotOpened("%s is not a music or sound file on this computer." % name)
+        return real
+    hits = music_files(name)
+    if len(hits) == 1:
+        return hits[0]
+    shown = hits or music_files()
+    listed = "".join("\n- %s" % p for p in shown[:MOST_MUSIC_SHOWN])
+    if hits:
+        raise NotOpened('%d files fit "%s"; name one by its path:%s' % (len(hits), name, listed))
+    if shown:
+        raise NotOpened('No music file fits "%s" in %s. The newest there:%s' % (name, where, listed))
+    raise NotOpened("There is no music or sound file in %s. The studio has no music of its own: ask the person for "
+                    "theirs." % where)
+
+
+def sound_seconds(path):
+    """How long a music or sound file plays, in seconds, or None when ffprobe cannot tell."""
+    tool = shutil.which("ffprobe")
+    try:
+        out = subprocess.run([tool, "-v", "error", "-show_entries", "format=duration", "-of", "json", path],
+                             capture_output=True, timeout=PROBE_SECONDS, check=True).stdout
+        return float(json.loads(out.decode("utf-8", "replace"))["format"]["duration"])
+    except (subprocess.SubprocessError, ValueError, KeyError, OSError, TypeError):
+        return None
+
+
 def locate(name, size, mtime=None):
     """The path of a dropped file, found by its name and size (and its time, when two files share both)."""
     hits = [(abs((m - mtime) if mtime else 0), p) for m, s, p in walk()

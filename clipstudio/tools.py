@@ -625,7 +625,8 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
         lay["notes"].append("The product you named is not in the clip's picture: choose a crop that holds it.")
     people = _people(rec, [[a, b]], box)
     state = job.edit({"do": "clip", "moment": moment, "pieces": [[a, b]], "layout": lay, "product": item,
-                      "people": [{k: v for k, v in p.items() if k != "crop"} for p in people or []]})
+                      "people": [{k: v for k, v in p.items() if k != "crop"} for p in people or []],
+                      "speech": _speech(rec, job.chat.looks[m["look"] - 1], [[a, b]])})
     lines = ["Made the clip from moment %d (%s-%s, %g s) in the %s layout." % (
         moment, recording.clock(a), recording.clock(b), state["length"], lay["kind"]), face_line] + lay["notes"]
     if lay.get("safe"):
@@ -859,6 +860,85 @@ def slow_push(job, why, start, end, zoom=PUSH_ZOOM):
     if replaced:
         lines.append("It replaces the push at %s." % ", ".join("%g-%g s" % (p["start"], p["end"]) for p in replaced))
     lines.append(_show_frame(job, state, rec, max(start, end - 0.1), "The clip at the end of the push:"))
+    return "\n".join(lines)
+
+
+def _speech(rec, look, pieces):
+    """[[clip a, clip b]] while someone speaks in the clip, from every phrase heard in the look (the ones the hearing
+    was not sure of too: they are still someone speaking); [] when the recording has no sound; None when the look
+    was never heard, so nobody knows."""
+    if not rec["sound_tracks"]:
+        return []
+    if look.get("said") is None:
+        return None
+    spans, at = [], 0.0
+    for a, b in pieces:
+        for p in look["said"]:
+            start, end = max(a, p["from"]), min(b, p["to"])
+            if start < end:
+                spans.append([round(at + start - a, 2), round(at + end - a, 2)])
+        at += b - a
+    return sorted(spans)
+
+
+SOUNDS = {"thump": "a deep hit, for a punch-in or a shake", "whoosh": "air rushing past, for a flash or a fast move",
+          "pop": "a bubble, for a sticker or a big word", "ding": "a small bell, for a price or a number on screen"}
+
+
+def add_sound(job, why, kind, at, level=0):
+    _open(job, "add a sound to")
+    state = _clip_state(job)
+    length = state["length"]
+    if not 0 <= at < length:
+        raise Refused("at %g s is outside the clip, which is %g s long: use seconds of the clip." % (at, length))
+    try:
+        effects.sound(kind, at, level)
+    except ValueError as e:
+        raise Refused(str(e))
+    replaced = [s for s in state["sounds"] if s["kind"] == kind and abs(s["at"] - at) < 0.5]
+    job.edit({"do": "sound", "kind": kind, "at": round(at, 2), "level": level})
+    line = "A %s at %g s%s: %s. It is heard in the finished file, not in the frames you see." % (
+        kind, at, " (%+g dB)" % level if level else "", SOUNDS[kind])
+    if replaced:
+        line += " It replaces the %s at %g s." % (kind, replaced[0]["at"])
+    return line
+
+
+def set_music(job, why, music=None, start=0, level=render.MUSIC_LEVEL, duck=render.MUSIC_DUCK):
+    _open(job, "put music under")
+    state = _clip_state(job)
+    if not music:
+        if not state["music"]:
+            raise Refused("The clip has no music to take off.")
+        job.edit({"do": "music", "path": None})
+        return "The music is off: the clip has its own sound only."
+    if state["speech"] is None:
+        raise Refused("The program does not know when someone speaks in this clip, because its moment was never "
+                      "heard, so the music could not go down under the voice. Make the clip again from a moment you "
+                      "looked at.")
+    try:
+        path = recording.find_music(music)
+    except recording.NotOpened as e:
+        raise Refused(str(e))
+    entry = {"do": "music", "path": path, "from": round(start, 2), "level": level, "duck": duck}
+    try:
+        measured = render.music_loudness(entry, state["length"])
+    except (ValueError, render.NotDrawn) as e:
+        raise Refused(str(e))
+    if not measured:
+        raise Refused("%s is silent from its second %g for the clip's %g s: choose another file or another start."
+                      % (os.path.basename(path), start, state["length"]))
+    state = job.edit(entry)
+    lines = ["Music: %s from its second %g, %g dB under the voice, and %g dB lower while someone speaks (%d times in "
+             "this clip). It fades in over its first %g s and out over the clip's last %g s." % (
+                 os.path.basename(path), start, -level, -duck, len(state["speech"]), render.MUSIC_IN,
+                 render.MUSIC_OUT)]
+    seconds = recording.sound_seconds(path)
+    if seconds is not None and seconds - start < state["length"]:
+        lines.append("It is %g s long from there, shorter than the clip, so it plays again from its start."
+                     % round(seconds - start, 1))
+    lines.append("It is heard in the finished file, not in the frames you see. It is the person's own music: "
+                 "music they have no rights to may be muted where they post.")
     return "\n".join(lines)
 
 
@@ -1404,6 +1484,10 @@ def describe(entry):
         return "the %s look" % entry["name"] if entry["name"] else "taking the look off"
     if entry["do"] == "push":
         return "the slow push at %g-%g s" % (entry["start"], entry["end"])
+    if entry["do"] == "sound":
+        return "the %s at %g s" % (entry["kind"], entry["at"])
+    if entry["do"] == "music":
+        return "the music %s" % os.path.basename(entry["path"]) if entry["path"] else "taking the music off"
     if entry["do"] == "people":
         return "the decision on people (%s)" % "; ".join(
             "%s person %s" % (k, _numbers(entry[k])) for k in ("blur", "keep") if entry[k])
@@ -1663,6 +1747,28 @@ TOOLS = {t.name: t for t in [
          "colours the footage only; titles, captions and the frame's design keep their colours.",
          {"look": {"type": "string", "enum": list(LOOKS), "description": "Which look."}},
          ["look"], set_look, changes=True),
+    Tool("add_sound", "Added a sound",
+         "Add a short sound at a moment of the clip: " + "; ".join("%s: %s" % kv for kv in SOUNDS.items()) + ". "
+         "Use them sparingly, on the hits that matter, and never over every word. A sound of the same kind within "
+         "0.5 s of an earlier one replaces it.",
+         {"kind": {"type": "string", "enum": list(SOUNDS), "description": "Which sound."},
+          "at": {"type": "number", "minimum": 0, "description": "When it starts, in seconds of the clip: on the hit."},
+          "level": {"type": "number", "minimum": effects.SOUND_LEVELS[0], "maximum": effects.SOUND_LEVELS[1],
+                    "description": "dB louder (or quieter, below 0) than it is made. Leave it out for 0."}},
+         ["kind", "at"], add_sound, changes=True),
+    Tool("set_music", "Put music under the clip",
+         "Put the person's own music under the clip, or take it off. The studio has no music of its own: use it "
+         "only when the person asks for music or gives a file. The music goes down while someone speaks, loops when "
+         "shorter than the clip, and fades in and out.",
+         {"music": {"type": "string", "maxLength": 300,
+                    "description": "The path of the person's music file, or words from its name. Leave it out to "
+                                   "take the music off."},
+          "start": {"type": "number", "minimum": 0, "description": "The second of the music the clip starts at."},
+          "level": {"type": "number", "minimum": render.MUSIC_LEVELS[0], "maximum": render.MUSIC_LEVELS[1],
+                    "description": "dB under the voice, such as -6. Leave it out for -6."},
+          "duck": {"type": "number", "minimum": -40, "maximum": -1,
+                   "description": "dB lower while someone speaks, such as -12. Leave it out for -12."}},
+         [], set_music, changes=True),
     Tool("slow_push", "Pushed in slowly",
          "A slow push in on the clip's main picture, like a camera moving closer, for the build-up into the peak. "
          "It eases in and out, then cuts back at the end. One per moment; a zoom of 1.05 to 1.12 reads as a "

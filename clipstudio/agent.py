@@ -253,6 +253,10 @@ class Chat:
             extras.append("slow push " + ", ".join("%g-%g s" % (p["start"], p["end"]) for p in state["pushes"]))
         if state["hits"]:
             extras.append("hits: " + ", ".join("%s at %g s" % (h["kind"], h["at"]) for h in state["hits"]))
+        if state["sounds"]:
+            extras.append("sounds: " + ", ".join("%s at %g s" % (s["kind"], s["at"]) for s in state["sounds"]))
+        if state["music"]:
+            extras.append("music %s" % os.path.basename(state["music"]["path"]))
         done = self.finished()
         if done:
             made = "finished file %s, made from the clip as it is now" % done["name"]

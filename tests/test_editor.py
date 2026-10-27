@@ -581,6 +581,74 @@ class Tools(unittest.TestCase):
     def test_muse_is_offered_the_looks_the_renderer_draws(self):
         self.assertEqual(set(tools.LOOKS) - {"none"}, set(effects.LOOKS))
 
+    def test_muse_is_offered_the_sounds_the_renderer_makes(self):
+        self.assertEqual(set(tools.SOUNDS), set(effects.SOUNDS))
+
+    def test_the_clip_knows_when_someone_speaks_in_clip_seconds(self):
+        said = {"said": [{"from": 29, "to": 31}, {"from": 39, "to": 46}, {"from": 60, "to": 61}]}
+        self.assertEqual(tools._speech({"sound_tracks": 1}, said, [[30, 40], [45, 50]]), [[0, 1], [9, 10], [10, 11]])
+        self.assertEqual(tools._speech({"sound_tracks": 0}, {}, [[30, 40]]), [], "no sound: nobody speaks")
+        self.assertIsNone(tools._speech({"sound_tracks": 1}, {}, [[30, 40]]), "never heard: nobody knows")
+
+    def test_muse_adds_sounds_and_the_persons_music_goes_down_while_someone_speaks(self):
+        music = os.path.join(self.tmp, "music")
+        os.makedirs(music)
+        for name, source in (("summer beat.wav", "sine=frequency=440:duration=3"),
+                             ("silence.wav", "anullsrc=r=48000:cl=stereo:d=3")):
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", source, os.path.join(music, name)],
+                           check=True)
+        outside = os.path.join(self.tmp, "other.wav")
+        shutil.copy(os.path.join(music, "summer beat.wav"), outside)
+        os.environ["LCS_MUSIC"] = music
+        self.worker.phrases = [{"from": 2, "to": 4.5, "text": "hello there", "sure": 0.99}]
+        try:
+            brain, steps = self.run_job(
+                *self.to_moment(), '{"lines": ["hello there"]}',
+                [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("add_sound", kind="pop", at=3, why="the word")],
+                [call("add_sound", kind="pop", at=3.3, why="a bit later")],
+                [call("add_sound", kind="boom", at=1, why="no such sound")],
+                [call("add_sound", kind="ding", at=25, why="after the end")],
+                [call("set_music", music="summer", why="the person's song")],
+                [call("set_music", music=outside, why="not in the folders")],
+                [call("set_music", music="silence", why="a silent file")],
+                [call("set_music", music="polka", why="no such file")],
+                "Done.")
+            state = self.chat.project.state()
+            line = self.chat.clip_line()
+            brain, off = self.run_job([call("set_music", why="the person wants it off")], "Done.")
+        finally:
+            del os.environ["LCS_MUSIC"]
+        pop, later, boom, past, song, outside_, silent, none = steps[-8:]
+        self.assertEqual(state["speech"], [[2, 4.5]])
+        self.assertFalse(pop["refused"], pop["result"])
+        self.assertIn("A pop at 3 s: a bubble", pop["result"])
+        self.assertIn("It replaces the pop at 3 s.", later["result"])
+        self.assertTrue(boom["refused"])
+        self.assertIn("kind must be one of: thump, whoosh, pop, ding.", boom["result"])
+        self.assertTrue(past["refused"])
+        self.assertIn("outside the clip", past["result"])
+        self.assertEqual([(s["kind"], s["at"]) for s in state["sounds"]], [("pop", 3.3)])
+        self.assertFalse(song["refused"], song["result"])
+        self.assertIn("Music: summer beat.wav from its second 0, 6 dB under the voice, and 12 dB lower while someone "
+                      "speaks (1 times in this clip).", song["result"])
+        self.assertIn("It is 3 s long from there, shorter than the clip, so it plays again from its start.",
+                      song["result"])
+        self.assertTrue(outside_["refused"])
+        self.assertIn("is not inside the folders music may come from", outside_["result"])
+        self.assertTrue(silent["refused"])
+        self.assertIn("silence.wav is silent", silent["result"])
+        self.assertTrue(none["refused"])
+        self.assertIn('No music file fits "polka"', none["result"])
+        self.assertIn("summer beat.wav", none["result"])
+        self.assertEqual(os.path.basename(state["music"]["path"]), "summer beat.wav")
+        self.assertEqual((state["music"]["level"], state["music"]["duck"]), (-6, -12))
+        self.assertEqual(render._music(state)["path"], state["music"]["path"], "the export takes the state as it is")
+        self.assertIn("sounds: pop at 3.3 s, music summer beat.wav", line)
+        self.assertFalse(off[-1]["refused"], off[-1]["result"])
+        self.assertIsNone(self.chat.project.state()["music"])
+        self.assertEqual(tools.describe(self.chat.project.entries[-1]), "taking the music off")
+
     def test_the_finished_file_is_checked_before_it_is_handed_over_and_a_failure_is_fixed(self):
         renders = []
 
