@@ -31,6 +31,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl
@@ -55,6 +56,7 @@ CLIP = re.compile(r"^/api/clip/([0-9a-f]{16}\.mp4)$")
 POSTER = re.compile(r"^/api/clip/([0-9a-f]{16})\.jpg$")
 LOOK = re.compile(r"^/api/look/([0-9a-z]+)\.png$")
 POSTER_AT = 1.0
+READ_TRIES, READ_WAIT = 10, 0.05
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 
@@ -219,8 +221,7 @@ class Handler(BaseHTTPRequestHandler):
         except render.NotDrawn as e:
             self.send_json({"ok": False, "error": str(e)}, HTTPStatus.NOT_FOUND)
             return
-        with open(path, "rb") as f:
-            body = f.read()
+        body = read_settled(path)
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "image/jpeg")
         self.send_header("Content-Length", str(len(body)))
@@ -368,6 +369,20 @@ class Handler(BaseHTTPRequestHandler):
     def log_request(self, code="-", size="-"):
         if str(int(code) if isinstance(code, HTTPStatus) else code)[:1] in ("4", "5"):
             super().log_request(code, size)
+
+
+def read_settled(path, tries=READ_TRIES):
+    """The file's bytes. On Windows a file that another request is moving into place refuses to open for a moment
+    (seen 10-28: PermissionError on clip frames while the page and Muse asked for the same frame), so it is tried
+    again a few times before the error stands."""
+    for k in range(tries):
+        try:
+            with open(path, "rb") as f:
+                return f.read()
+        except PermissionError:
+            if k == tries - 1:
+                raise
+            time.sleep(READ_WAIT)
 
 
 def newest():

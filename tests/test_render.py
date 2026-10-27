@@ -746,5 +746,31 @@ class ExportSound(unittest.TestCase):
         self.assertFalse(os.path.exists(out))
 
 
+
+class SettledRead(unittest.TestCase):
+    def test_a_file_being_moved_into_place_is_read_once_it_opens(self):
+        import builtins
+        from clipstudio import server
+        path = os.path.join(tempfile.mkdtemp(), "frame.jpg")
+        with open(path, "wb") as f:
+            f.write(b"jpg")
+        real, refused = builtins.open, []
+
+        def busy(name, *a, **k):
+            if name == path and len(refused) < 2:
+                refused.append(1)
+                raise PermissionError(13, "in use", name)
+            return real(name, *a, **k)
+
+        builtins.open = busy
+        try:
+            self.assertEqual(server.read_settled(path), b"jpg")
+            refused.clear()
+            with self.assertRaises(PermissionError):
+                server.read_settled(path, tries=2)
+        finally:
+            builtins.open = real
+
+
 if __name__ == "__main__":
     unittest.main()
