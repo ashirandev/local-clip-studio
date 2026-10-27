@@ -1908,7 +1908,7 @@ def add_captions(job, why, on=True, lit=False, pop=False):
         return "Captions are off."
     moments = job.chat.moments or []
     said = moments[clip["moment"] - 1].get("said") or [] if clip["moment"] <= len(moments) else []
-    phrases, unsure = [], []
+    phrases, unsure, heard = [], [], []
     for p in said:
         if _unsure(p):
             unsure.append(p)
@@ -1916,9 +1916,16 @@ def add_captions(job, why, on=True, lit=False, pop=False):
         at = _in_clip(clip["pieces"], p, length)
         if at:
             phrases.append({"from": at[0], "to": at[1], "text": p["text"]})
+            heard.append(p)
     if not phrases:
         raise Refused("Nothing was heard clearly in this moment, so there are no words to caption. Leave the captions "
                       "off, and say so in your answer.")
+    try:
+        texts, spelling = _spell(job, [p["text"] for p in phrases])
+    except hearing.Stopped:
+        return "No captions: the person pressed Stop."
+    for phrase, p, words_ in zip(phrases, heard, texts):
+        phrase["text"] = p["text"] = words_
     lines = text.caption_lines(phrases, CAPTION_LETTERS)
     band = clip["layout"]["captions"]
     entry = {"do": "captions", "lines": lines, "band": [band[1], band[3]], "lit": bool(lit), "pop": bool(pop)}
@@ -1938,6 +1945,8 @@ def add_captions(job, why, on=True, lit=False, pop=False):
               "each word lights up as it is said" if lit else
               "each word pops in at its place as it is said and stays, so once said the line looks plain" if pop else
               "plain words, none lit, so the eye stays on the picture")]
+    if spelling:
+        out.append(spelling)
     if unsure:
         out.append("Left out %d line%s the hearing was not sure of, because a wrong caption is worse than none: %s."
                    % (len(unsure), "" if len(unsure) == 1 else "s",

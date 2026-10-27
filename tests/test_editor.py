@@ -427,6 +427,26 @@ class Tools(unittest.TestCase):
         self.chat.edit({"do": "style", "name": "pop", "font": None, "colour": None})
         self.assertEqual(agent.Chat.load(self.chat.id).project.entries, self.chat.project.entries)
 
+    def test_captions_are_proofread_and_the_line_said_is_spelled_as_the_caption(self):
+        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "ตังค่าเครื่องง่ายมาก"},
+                               {"from": 5.0, "to": 8.0, "text": "ราคาถูกมาก"}]
+        script = self.to_moment()
+        _, steps = self.run_job(
+            *script[:2], [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the setup"}])],
+            '{"lines": ["ตังค่าเครื่องง่ายมาก", "ราคาถูกมาก"]}',
+            [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("add_captions", why="say what he says")],
+            '{"texts": ["ตั้งค่าเครื่องง่ายมาก", "ราคาแพงมาก"]}', "Done.")
+        caps = steps[-1]
+        self.assertFalse(caps["refused"], caps["result"])
+        self.assertIn('The program fixed the Thai spelling: "ตังค่าเครื่องง่ายมาก" is now "ตั้งค่าเครื่องง่ายมาก".',
+                      caps["result"])
+        shown = "".join(line["text"] for line in self.chat.project.state()["captions"]["lines"])
+        self.assertIn("ตั้งค่า", shown)
+        self.assertIn("ราคาถูกมาก", shown, "a change of words, not of spelling, is refused")
+        self.assertEqual([p["text"] for p in self.chat.moments[0]["said"]],
+                         ["ตั้งค่าเครื่องง่ายมาก", "ราคาถูกมาก"], "the check reads the line as the caption shows it")
+
     def test_captions_blurs_and_hits_go_on_the_clip_and_muse_is_told_what_they_cover(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "this is the moment"},
                                {"from": 5.0, "to": 8.0, "text": "watch him fall down now"}]
