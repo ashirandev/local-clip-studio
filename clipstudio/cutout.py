@@ -22,7 +22,7 @@ import tempfile
 from . import effects, layouts, recording
 
 W, H, FPS = effects.FRAME_W, effects.FRAME_H, effects.FPS
-FRAME_MASKS = 1
+FRAME_MASKS = 2
 PUSHED = ("card", "whole", "bottom")
 SHAPED = {"card": lambda w, h: layouts.rounded(w, h, layouts.CARD_RADIUS),
           "circle": lambda w, h: layouts.rounded(w, h, w / 2)}
@@ -61,12 +61,14 @@ def frame_mask(mask, pieces, layout, length, pushes=()):
     """The path of the person's mask on the clip, made once in work/masks: an FFV1 file of grey 1080x1920 frames at
     30 fps, frame n at clip second n / 30, length seconds long, white where the clip shows the person. Each part of
     the layout maps its piece of the recording to its place on the frame as the picture does (the card's corners and
-    the face circle cut the same way, the main part pushed in by the same slow pushes); the frame's design shows no
-    person. Where the clip shows a moment the mask holds no frame for, it is black."""
+    the face circle cut the same way, the main part pushed in by the same slow pushes, a talk layout's shots cut
+    between its people as the picture's are); the frame's design shows no person. Where the clip shows a moment the
+    mask holds no frame for, it is black."""
     path, fps, start, end = _checked(mask, layout["size"])
     seen = os.stat(path)
     key = hashlib.sha1(json.dumps([FRAME_MASKS, os.path.abspath(path), seen.st_size, seen.st_mtime_ns, fps, start, end,
-                                   pieces, layout["kind"], layout["parts"], list(pushes), round(length, 3)],
+                                   pieces, layout["kind"], layout["parts"], layout.get("shots"), list(pushes),
+                                   round(length, 3)],
                                   sort_keys=True).encode("utf-8")).hexdigest()[:16]
     folder = os.path.join(recording.WORK, "masks")
     os.makedirs(folder, exist_ok=True)
@@ -118,6 +120,9 @@ def _graph(pieces, layout, length, pushes, start, end):
         else:
             chains.append("color=c=black:s=%dx%d:r=%d:d=%s,format=gray[p%d]" % (w, h, FPS, _f(b - a), k))
     chains.append("%sconcat=n=%d:v=1:a=0[cat]" % ("".join("[p%d]" % k for k in range(len(spans))), len(spans)))
+    if layout["kind"] == "talk":
+        talked, files = _talk(layout)
+        return ";".join(chains + talked), files
     parts = layout["parts"]
     chains.append("[cat]%s" % ("split=%d%s" % (len(parts), "".join("[c%d]" % j for j in range(len(parts))))
                               if len(parts) > 1 else "null[c0]"))
@@ -141,6 +146,34 @@ def _graph(pieces, layout, length, pushes, start, end):
         last = "l%d" % j
     chains.append("[%s]format=gray[o]" % last)
     return ";".join(chains), files
+
+
+def _talk(layout):
+    """(the chains from [cat] to [o] for a talk layout, the shape pictures they open from input 1 on), cut as
+    talk.graph cuts the picture: in a person's shot their crop fills the frame (a shot of everyone holds the crop
+    before it), and in a shot of everyone the frame shows no person but the card, its corners rounded, shows them
+    all. The cuts switch on t alone, as the picture's do."""
+    from . import talk
+    parts = {p["name"]: p for p in layout["parts"]}
+    shots = layout["shots"]
+    held, filled = parts["person 1"]["src"], []
+    for s in shots:
+        held = parts["person %d" % s["show"]]["src"] if s["show"] else held
+        filled.append(held)
+    one = "crop=w=%d:h=%d:x='%s':y='%s',scale=%d:%d,format=gray" % (
+        filled[0][2], filled[0][3], talk._switch(shots, [c[0] for c in filled], filled[-1][0]),
+        talk._switch(shots, [c[1] for c in filled], filled[-1][1]), W, H)
+    together = [s for s in shots if s["show"] == 0]
+    if not together:
+        return ["[cat]%s[o]" % one], []
+    (sx, sy, sw, sh), (cx, cy, cw, ch) = parts["everyone"]["src"], parts["everyone"]["dst"]
+    when = "+".join("between(T,%s,%s)" % (_f(s["from"]), _f(s["to"] - 0.001)) for s in together)
+    return (["[cat]split[t_a][t_c]", "[t_a]%s[t_one]" % one,
+             "[t_c]crop=%d:%d:%d:%d,scale=%d:%d,format=gray[t_s];[1:v]format=gray[t_r];"
+             "[t_s][t_r]blend=all_mode=multiply:shortest=1,pad=%d:%d:%d:%d:color=black,format=gray[t_all]"
+             % (sw, sh, sx, sy, cw, ch, W, H, cx, cy),
+             "[t_one][t_all]blend=all_expr='if(%s,B,A)':shortest=1,format=gray[o]" % when],
+            [layouts.rounded(cw, ch, layouts.CARD_RADIUS)])
 
 
 def _window(start, end):

@@ -202,6 +202,13 @@ class Stages(unittest.TestCase):
             with open(render.ass(state(captions=[dict(entry, lines=lines, band=band)])), encoding="utf-8") as f:
                 self.assertEqual("\\kf" in f.read(), karaoke, entry)
 
+    def test_captions_pop_their_words_in_only_when_the_entry_says_pop(self):
+        lines = text.caption_lines([{"from": 1.0, "to": 2.0, "text": "watch this now"}])
+        band = [layouts.CAPTIONS[1], layouts.CAPTIONS[3]]
+        for entry, popped in (({}, False), ({"pop": False}, False), ({"pop": True}, True)):
+            with open(render.ass(state(captions=[dict(entry, lines=lines, band=band)])), encoding="utf-8") as f:
+                self.assertEqual(f.read().count("\\fscx60"), 3 if popped else 0, entry)
+
     def test_a_word_hit_pops_on_its_centre_for_its_length(self):
         plain, hit = state(), state(hit=[{"kind": "word", "at": 1.0, "word": "POW", "centre": [540, 960]}])
         found = changed(drawn(plain, 1.4), drawn(hit, 1.4))

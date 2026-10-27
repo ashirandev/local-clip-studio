@@ -91,6 +91,36 @@ class FrameMask(unittest.TestCase):
         self.assertEqual(int(frame[dy + 4, dx + 4]), 0, "but not outside its round")
         self.assertEqual(int(frame[10, 10]), 0, "the frame's design shows no person")
 
+    def test_a_talk_clip_shows_the_person_in_their_shots_and_on_the_card_of_everyone(self):
+        from clipstudio import talk
+        persons = [{"n": 1, "box": [120, 120, 80, 80]}, {"n": 2, "box": [440, 120, 80, 80]}]
+        shots = [{"from": 0, "to": 1.0, "show": 1}, {"from": 1.0, "to": 2.0, "show": 0},
+                 {"from": 2.0, "to": 3.0, "show": 2}]
+        layout = talk.make((640, 360), persons, shots)
+        # person 1, and a patch top left where the card of everyone has its corner
+        one = make_mask(self.tmp, "one.mkv", 3.0, 0, expr="(lt(hypot(X-160,Y-200),60)+lt(X,100)*lt(Y,100))")
+        mask = dict(self.mask, path=one, **{"from": 0.0, "to": 3.0})
+        made = cutout.frame_mask(mask, [[0, 3]], layout, 3.0)
+        _, got = grey_frames(made, [15, 45, 75])
+        parts = {p["name"]: p for p in layout["parts"]}
+
+        def at(part, x, y):
+            (sx, sy, sw, sh), (dx, dy, dw, dh) = part["src"], part["dst"]
+            return int(dy + (y - sy) * dh / sh), int(dx + (x - sx) * dw / sw)
+        self.assertEqual(int(got[15][at(parts["person 1"], 160, 200)]), 255, "person 1's shot shows them")
+        self.assertEqual(int(got[15][at(parts["person 1"], 160, 270)]), 0, "and only them")
+        cx, cy, cw, ch = parts["everyone"]["dst"]
+        self.assertEqual(int(got[45][at(parts["everyone"], 160, 200)]), 255, "the card of everyone shows them")
+        self.assertEqual(int(got[45][cy + 12, cx + 12]), 255, "the patch reaches the card's corner")
+        self.assertEqual(int(got[45][cy + 2, cx + 2]), 0, "but the corner is rounded off")
+        outside = got[45].copy()
+        outside[cy:cy + ch, cx:cx + cw] = 0
+        self.assertEqual(int(outside.max()), 0, "around the card the frame shows no person")
+        self.assertEqual(int(got[75].max()), 0, "person 2's shot does not show person 1")
+        moved = talk.with_shot(shots, 2.0, 3.0, 1)
+        self.assertNotEqual(cutout.frame_mask(mask, [[0, 3]], dict(layout, shots=moved), 3.0), made,
+                            "new shots, a new frame mask")
+
     def test_a_slow_push_pushes_the_mask_with_the_picture(self):
         import numpy as np
         layout = layouts.make("subject", (640, 360))

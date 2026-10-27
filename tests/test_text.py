@@ -399,6 +399,7 @@ class Drawn(unittest.TestCase):
         self.assertIsNotNone(drawn(draw(doc(events), [0], odd)[0]))
 
 
+POPPED = [{"from": 0.5, "to": 3.5, "text": "วันนี้ลดราคาทั้งร้าน ซื้อหนึ่งแถมหนึ่ง"}]
 SAID = [{"from": 0.5, "to": 4.0, "text": "วันนี้ลดราคาเหลือเจ็ดสิบห้าบาทนะครับ ส่งฟรีทั่วประเทศเลยค่ะ"},
         {"from": 4.3, "to": 6.0, "text": "ONE TWO three 1,990 baht"},
         {"from": 6.5, "to": 9.0, "text": "ราคา 1,250 บาทจ้า ซื้อสองชิ้นลดอีกห้าสิบครับ"}]
@@ -744,8 +745,49 @@ class Captions(unittest.TestCase):
                          text.captions(lines, text.STYLES["pop"], (1350, 400), lit=False))
         self.assertNotIn("\\k", "".join(text.captions(lines, text.STYLES["pop"], (1350, 400))))
 
+    def test_once_all_its_words_are_said_a_popped_page_is_the_plain_page(self):
+        import numpy as np
+        lines = text.caption_lines(POPPED)
+        for name in ("pop", "sticker", "glow", "3d"):
+            st = text.STYLES[name]
+            plain, popped = (draw(doc(text.captions(lines, st, (1300, 400), pop=p)), [103], self.folder, first=0)[103]
+                             for p in (False, True))
+            self.assertEqual(int(np.abs(plain.astype(int) - popped.astype(int)).max()), 0, name)
+
+    def test_each_word_pops_in_at_its_place_as_it_is_said_and_stays(self):
+        import numpy as np
+        lines = text.caption_lines(POPPED)
+        one, two, three = lines[0]["words"][:3]
+        before, alone, growing, said = (text._frame(one["from"]) - 2, text._frame(two["from"]) - 1,
+                                        text._frame(two["from"] + 0.1), text._frame(three["from"]) - 1)
+        for name in ("pop", "3d"):
+            st = text.STYLES[name]
+            got = draw(doc(text.captions(lines, st, (1300, 400), pop=True)), [before, alone, growing, said],
+                       self.folder, first=0)
+            plain = draw(doc(text.captions(lines, st, (1300, 400))), [103], self.folder, first=0)[103]
+            whole = drawn(plain)
+            self.assertIsNone(drawn(got[before]), "%s: nothing before the first word is said" % name)
+            x0, y0, x1, y1 = drawn(got[said])
+            self.assertEqual(x0, whole[0], "%s: the first word starts where the line does" % name)
+            self.assertLess(x1, whole[2] - 100, "%s: the words not yet said are not drawn" % name)
+            self.assertLess(y1, (whole[1] + whole[3]) // 2, "%s: nor the second line" % name)
+            near = np.abs(got[said][y0:y1, x0:x1 - 30].astype(int) - plain[y0:y1, x0:x1 - 30].astype(int)).max()
+            self.assertEqual(int(near), 0, "%s: the words said so far are the plain page's, one outline and one "
+                                           "shadow" % name)
+            r1 = drawn(got[alone])[2]
+            settled, grown = (drawn(got[k][:, r1 + 10:]) for k in (said, growing))
+            self.assertIsNotNone(grown, "%s: the second word is drawn while it pops in" % name)
+            self.assertLess(abs((grown[2] - settled[2]) - 0.25 * (settled[2] + 10) / 2), 8,
+                            "%s: the second word grows around its own centre: %s %s" % (name, settled, grown))
+            self.assertLess(abs((grown[1] + grown[3]) - (settled[1] + settled[3])) / 2, 3,
+                            "%s: at its own height: %s %s" % (name, settled, grown))
+
     def test_caption_refusals(self):
         lines = text.caption_lines(SAID)
+        with self.assertRaisesRegex(ValueError, "pop 1 is not True or False"):
+            text.captions(lines, text.STYLES["clean"], (1500, 300), pop=1)
+        with self.assertRaisesRegex(ValueError, "lit and pop are both True: .* so set one of them"):
+            text.captions(lines, text.STYLES["clean"], (1500, 300), lit=True, pop=True)
         with self.assertRaisesRegex(ValueError, r"band \(1800, 300\) is off the frame"):
             text.captions(lines, text.STYLES["clean"], (1800, 300))
         with self.assertRaisesRegex(ValueError, r"the captions need \d+ x \d+ px but band \(1500, 40\) is 40 high"):

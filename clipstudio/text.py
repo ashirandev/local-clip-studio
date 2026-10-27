@@ -1001,13 +1001,17 @@ def big_word(word, at, length, centre, style):
                          % (tuple(centre), word, math.ceil(half_w), FRAME_W - math.ceil(half_w), math.ceil(half_h),
                             FRAME_H - math.ceil(half_h)))
     ax, ay = cx - (left + right) / 2, cy - (top + bottom) / 2
-    lead = int(round(at * 1000)) - a * 10
-    pop = "\\fscx%d\\fscy%d" % (POP[0][1], POP[0][1]) + "".join(
-        "\\t(%d,%d,\\fscx%d\\fscy%d)" % (lead + p[0], lead + q[0], q[1], q[1]) for p, q in zip(POP, POP[1:]))
+    pop = _pop(int(round(at * 1000)) - a * 10)
     glow = _glow_tags(style, "big")
     return [("Dialogue: 3,%s,%s,%s_big%s,,0,0,0,,{\\an5\\pos(%.2f,%.2f)%s\\fad(0,%d)%s}%s"
              % (_cs_clock(a), _cs_clock(b), style.name, tail, ax, ay, pop, FADE_MS, tags, word.strip()))
             for tail, tags in ((("_glow", glow),) if glow else ()) + (("", ""),)]
+
+
+def _pop(lead):
+    """The tags that grow an event's letters through POP around their anchor, starting lead ms into the event."""
+    return "\\fscx%d\\fscy%d" % (POP[0][1], POP[0][1]) + "".join(
+        "\\t(%d,%d,\\fscx%d\\fscy%d)" % (lead + p[0], lead + q[0], q[1], q[1]) for p, q in zip(POP, POP[1:]))
 
 
 # ---- captions ----------------------------------------------------------------------------------------------------
@@ -1106,15 +1110,23 @@ def _check_line(k, line):
         raise ValueError("line %d is not a caption line: pass what caption_lines() returned." % k)
 
 
-def captions(lines, style, band, lit=False):
+def captions(lines, style, band, lit=False, pop=False):
     """ASS events for caption lines (from caption_lines) inside band (y, h) of the 1080x1920 frame, two lines at a
     time when two fit the band and one at a time when they do not, in the style's colour. With lit=True each word lights up in the style's key colour as it is said
     (libass \\kf): for words over the picture that nobody on screen is saying, such as a voice-over or a song, since
-    a lit word pulls the eye away from a person explaining on camera."""
+    a lit word pulls the eye away from a person explaining on camera. With pop=True each word grows in at its own
+    place in the line as it is said and stays to the page's end, so the page builds up word by word and, once its
+    last word is said, looks as the plain page does."""
     _check_style(style)
     if not isinstance(lit, bool):
         raise ValueError("lit %r is not True or False: use True to light each word as it is said, False for plain "
                          "words." % (lit,))
+    if not isinstance(pop, bool):
+        raise ValueError("pop %r is not True or False: use True to pop each word in as it is said, False for plain "
+                         "words." % (pop,))
+    if lit and pop:
+        raise ValueError("lit and pop are both True: a word either lights up or pops in as it is said, so set one "
+                         "of them.")
     if (not isinstance(band, (tuple, list)) or len(band) != 2
             or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in band)):
         raise ValueError("band %r is not a band: give (y, h) in pixels of the 1920 high frame." % (band,))
@@ -1154,6 +1166,9 @@ def captions(lines, style, band, lit=False):
                              % (lay.w, lay.h, tuple(band), h, lay.h, _smaller(style)))
         ax = FRAME_W / 2 - (lay.left + lay.w / 2)
         ay = y + h / 2 - (lay.top + lay.h / 2)
+        if pop:
+            events += _popping(page, style, start, end, ax, ay, lh, boxes)
+            continue
         if lit:
             words = _karaoke(page, start)
         else:
@@ -1161,6 +1176,44 @@ def captions(lines, style, band, lit=False):
         events += _dialogues(1, _cs_clock(start), _cs_clock(end), "%s_caption" % style.name, ax, ay, lh, words,
                              _glow_tags(style, "caption"))
     return events
+
+
+def _popping(page, st, start, end, ax, ay, lh, boxes):
+    """The page's words, each popping in when it is said (from the page's start at the earliest) and staying to
+    `end`. While a word pops (POP) it is an event of its own in layer 2, growing around its centre at the place it
+    has when its line is drawn whole with \\an8 at (ax, ay + k * lh): its right edge where the line drawn up to it
+    ends. Once it has popped it joins the rest in layer 1: the plain page's line with the words not yet said
+    invisible, so the words said so far share one outline and one shadow (a solid one, not a ring per word, and no
+    two shadows over each other where Thai words touch), and a page whose words are all said is the plain page."""
+    name, glow = "%s_caption" % st.name, _glow_tags(st, "caption")
+    colour = "\\1c%s&" % _colour(st.colour)
+    rest, popping = [], []
+    for k, line in enumerate(page):
+        said = [w["text"] for w in line["words"]]
+        said[0], said[-1] = said[0].lstrip(), said[-1].rstrip()
+        shown = "".join(said)
+        upto = ["".join(said[:i + 1]) for i in range(len(said))]
+        left = _draw_boxes(st, "caption", [shown] + upto, align=7)
+        mid = _draw_boxes(st, "caption", [shown] + said, align=5)
+        x0 = ax + boxes[shown][0] - left[shown][0]
+        y = ay + k * lh + boxes[shown][1] - mid[shown][1]
+        begins = [max(start, _edge(w["from"])) for w in line["words"]]
+        settled = [max(start, _edge(w["from"] + POP[-1][0] / 1000)) for w in line["words"]] + [end]
+        for i, (word, piece, ends) in enumerate(zip(line["words"], said, upto)):
+            a, b = begins[i], min(end, settled[i])
+            if a < b and mid[piece] and left[ends]:
+                when = "%s,%s" % (_cs_clock(a), _cs_clock(b))
+                tags = "{\\an5\\pos(%.2f,%.2f)%s" % (x0 + left[ends][2] - mid[piece][2], y,
+                                                     _pop(int(round(word["from"] * 1000)) - a * 10))
+                if glow:
+                    popping.append("Dialogue: 2,%s,%s_glow,,0,0,0,,%s%s}%s" % (when, name, tags, glow, piece))
+                popping.append("Dialogue: 2,%s,%s,,0,0,0,,%s%s}%s" % (when, name, tags, colour, piece))
+            a, b = settled[i], min(end, settled[i + 1])
+            if a < b:
+                unsaid = "".join(said[i + 1:])
+                rest += _dialogues(1, _cs_clock(a), _cs_clock(b), name, ax, ay + k * lh, lh,
+                                   ["{%s}%s%s" % (colour, ends, "{\\alpha&HFF&}" + unsaid if unsaid else "")], glow)
+    return rest + popping
 
 
 def _karaoke(page, start):
