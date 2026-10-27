@@ -12,7 +12,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, faces, hearing, layouts, project, recording, render  # noqa: E402
+from clipstudio import agent, faces, hearing, layouts, project, recording, render, tools  # noqa: E402
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_hearing import Worker  # noqa: E402
 from test_map import make_moment  # noqa: E402
@@ -141,6 +141,18 @@ class Projects(unittest.TestCase):
         self.assertEqual(p.state()["length"], 2)
         with self.assertRaises(ValueError):
             p.add({"do": "nothing"})
+
+    def test_stickers_are_drawn_in_time_order_and_only_inside_the_clip(self):
+        p = project.Project()
+        p.add({"do": "clip", "moment": 1, "pieces": [[30, 40]], "layout": {"kind": "card"}})
+        for at in (6, 2, 12):
+            p.add({"do": "sticker", "png": "s%d.png" % at, "at": at, "length": 1, "box": [0, 0, 100, 100]})
+        self.assertEqual([k["png"] for k in p.state()["stickers"]], ["s2.png", "s6.png"])
+        p.undo()
+        p.undo()
+        self.assertEqual([k["png"] for k in p.state()["stickers"]], ["s6.png"])
+        self.assertEqual(tools.describe(p.entries[-1]), "the sticker at 6 s")
+        self.assertEqual(project.Project().state()["stickers"], [], "no clip, nothing drawn")
 
     def test_clip_seconds_and_recording_seconds(self):
         pieces = [[100, 110], [200, 205]]

@@ -1,7 +1,7 @@
 """The clip drawn from its project list: one FFmpeg filter graph from the recording to the 1080x1920 frame.
 
     recording piece(s)  ->  [src] at clip time t  ->  source stage (blurs)  ->  layout (layouts.py)
-                        ->  frame stage (camera hits, then the words, then flashes)
+                        ->  frame stage (camera hits, stickers, then the words, then flashes)
 
 The preview frame is the same graph started at the frame's time: the piece is opened at the matching recording
 second and its timestamps are set so t is still clip time, so a title from 2 s to 5 s shows in the preview at 3 s
@@ -93,8 +93,9 @@ def after_source(state, src, out, first_input, default="clean"):
       clip seconds), so a blurred box stays blurred wherever the layout shows it, the card's blurred background
       included;
     - the layout, to the 1080x1920 frame;
-    - frame stage: the camera hits (shake, punch-in), then the words (titles, captions and big words, one ASS file),
-      so the words hold still while the picture moves, then the flashes last, so a flash lights the words too.
+    - frame stage: the camera hits (shake, punch-in), the stickers, then the words (titles, captions and big words,
+      one ASS file), so the words hold still while the picture moves and stay on top of a sticker, then the flashes
+      last, so a flash lights the words too.
     A drawing that cannot be made raises ValueError with the sentence for Muse."""
     blurs = [effects.blur_track(b["track"]) if b.get("track") else effects.blur_box(b["box"], b["start"], b["end"])
              for b in state.get("blurs") or []]
@@ -105,6 +106,7 @@ def after_source(state, src, out, first_input, default="clean"):
     camera = {"shake": lambda h: effects.shake(h["at"]),
               "punch": lambda h: effects.punch_in(h["at"], centre=h["centre"])}
     fragments = [camera[h["kind"]](h) for h in hits if h["kind"] in camera]
+    fragments += [effects.sticker(k["png"], k["at"], k["length"], k["box"]) for k in state.get("stickers") or []]
     words = ass(state, default)
     if words:
         fragments.append(text.burn(words))
@@ -114,7 +116,9 @@ def after_source(state, src, out, first_input, default="clean"):
 
 
 def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH):
-    """The clip's frame at clip second t, width pixels wide: the jpg's path in work/clipframes, made once."""
+    """The clip's frame at clip second t, width pixels wide: the jpg's path in work/clipframes, made once. The
+    extra pictures (masks, shadows, stickers) are opened from second t, so FFmpeg does not read every picture frame
+    before it: a frame late in a long clip draws as fast as the first."""
     clip = state["clip"]
     if not clip:
         raise NotDrawn("There is no clip yet, so there is no frame to draw.")

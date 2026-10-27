@@ -29,7 +29,7 @@ def state(kind="subject", **entries):
     for do in ("title", "captions", "blur", "hit"):
         for e in entries.get(do, []):
             p.add(dict(e, do=do))
-    return p.state()
+    return dict(p.state(), stickers=entries.get("sticker", []))
 
 
 def drawn(st, t):
@@ -168,6 +168,20 @@ class Stages(unittest.TestCase):
             self.assertGreater(int(white_a.sum()), 2000, "the title's letters are there")
             self.assertLess(int((white_a != white_b).sum()), white_a.sum() * 0.02, "the title held still at %s s" % t)
 
+    def test_a_sticker_is_drawn_in_its_box_under_the_words(self):
+        png = os.path.join(self.tmp, "sticker.png")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=0x2040ff:s=300x300", "-frames:v",
+                        "1", png], check=True)
+        box = [65, 285, 950, 235]
+        stuck = {"png": png, "at": 0.5, "length": 3.0, "box": box}
+        plain, with_sticker = state("card"), state("card", sticker=[stuck])
+        found = changed(drawn(plain, 1.5), drawn(with_sticker, 1.5))
+        self.assertTrue(inside(found, box, slack=2), "the sticker is inside its box: %s" % (found,))
+        titled = drawn(state("card", title=[TITLE], sticker=[stuck]), 1.5)
+        x, y, w, h = box
+        letters = (titled[y:y + h, x:x + w].min(axis=2) > 240).sum()
+        self.assertGreater(int(letters), 2000, "the title's white letters are on top of the blue sticker")
+
     def test_a_drawing_that_cannot_be_made_is_refused_with_its_sentence(self):
         lines = text.caption_lines([{"from": 1.0, "to": 2.0, "text": "watch this now"}])
         st = state(captions=[{"lines": lines, "band": [1090, 10]}])
@@ -257,7 +271,7 @@ def apart(a, b):
 @unittest.skipUnless(FFMPEG and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class Export(unittest.TestCase):
     """A 3 s card clip of two pieces from a recording of moving stripes, a bar that moves down without ever coming
-    back, and a quiet tone, exported once."""
+    back, and a quiet tone, with a title and a sticker that pops in across the join, exported once."""
 
     @classmethod
     def setUpClass(cls):
@@ -273,7 +287,10 @@ class Export(unittest.TestCase):
                               "layout": layouts.make("card", (640, 360), [560, 280, 60, 60])},
                              {"do": "title", "text": "Boss down", "start": 0.5, "end": 2.5, "place": "top",
                               "box": layouts.TOP, "key": None}])
-        cls.state = p.state()
+        png = os.path.join(cls.tmp, "sticker.png")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=0x2040ff:s=300x200", "-frames:v",
+                        "1", png], check=True)
+        cls.state = dict(p.state(), stickers=[{"png": png, "at": 1.2, "length": 1.0, "box": [240, 1300, 600, 400]}])
         cls.out = os.path.join(cls.tmp, "clip.mp4")
         cls.progress = []
         cls.made = render.export(cls.rec, cls.state, cls.out, on_progress=cls.progress.append)

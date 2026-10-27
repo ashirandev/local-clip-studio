@@ -891,6 +891,8 @@ def describe(entry):
         return "the blur at %g-%g s" % (entry["start"], entry["end"])
     if entry["do"] == "hit":
         return "the %s at %g s" % (entry["kind"], entry["at"])
+    if entry["do"] == "sticker":
+        return "the sticker at %g s" % entry["at"]
     return 'the title "%s" at %g-%g s' % (entry["text"], entry["start"], entry["end"])
 
 

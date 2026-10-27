@@ -250,3 +250,82 @@ class Speed(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr[-500:])
         self.assertEqual(len(run.stdout), 1080 * 1920 * 3 // 2)
         self.assertLess(took, 1.0)
+
+
+def sticker_frames(fragment, numbers):
+    """{n: frame n (1080x1920, grey bytes) of a grey frame with the sticker fragment drawn on it}."""
+    import numpy as np
+    graph, files = effects.join([fragment], "src", "outv", 1)
+    cmd = [FFMPEG, "-v", "error", "-f", "lavfi", "-i", "color=0x808080:s=1080x1920:r=30:d=2"]
+    for f in files:
+        cmd += ["-loop", "1", "-framerate", "30", "-i", f]
+    pick = "+".join("eq(n\\,%d)" % n for n in numbers)
+    cmd += ["-filter_complex", "[0:v]format=yuv420p[src];%s;[outv]select='%s'[o]" % (graph, pick), "-map", "[o]",
+            "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "gray", "-"]
+    run = subprocess.run(cmd, capture_output=True, timeout=120)
+    if run.returncode != 0:
+        raise AssertionError(run.stderr.decode("utf-8", "replace")[-2000:])
+    raw = np.frombuffer(run.stdout, np.uint8).reshape(-1, 1920, 1080)
+    return dict(zip(sorted(numbers), raw))
+
+
+def drawn_box(frame):
+    """(x0, y0, x1, y1) of the pixels that are not the grey ground, or None."""
+    import numpy as np
+    ys, xs = np.nonzero(np.abs(frame.astype(int) - 128) > 12)
+    if not len(xs):
+        return None
+    return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+
+
+@unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")
+class Stickers(unittest.TestCase):
+    """An orange 200x100 picture with a see-through round hole in its middle, in a 400x400 box at (340, 760)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.png = os.path.join(cls.tmp, "it's a sticker.png")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=black@0:s=200x100", "-vf",
+                        "format=rgba,geq=r=255:g=140:b=0:a='255*gt(hypot(X-100,Y-50),30)'", "-frames:v", "1",
+                        cls.png], check=True)
+        cls.box = (340, 760, 400, 400)
+        cls.frames = sticker_frames(effects.sticker(cls.png, 0.5, 1.0, cls.box),
+                                    [14, 15, 18, 20, 23, 30, 40, 43, 44, 45])
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def size(self, n):
+        x0, y0, x1, y1 = drawn_box(self.frames[n])
+        self.assertLess(abs((x0 + x1) / 2 - 540), 3, "centred across the box")
+        self.assertLess(abs((y0 + y1) / 2 - 960), 3, "centred down the box")
+        return x1 - x0, y1 - y0
+
+    def test_it_fits_the_box_keeping_its_shape_and_pops_in_then_settles(self):
+        self.assertEqual(self.size(30), (400, 200), "settled: 200x100 fitted into 400x400")
+        w, h = self.size(15)
+        self.assertLess(abs(w - 0.6 * 400), 4, "it starts at 0.6 times its size: %d" % w)
+        biggest = max(self.size(n)[0] for n in (18, 20, 23))
+        self.assertGreater(biggest, 1.05 * 400, "it grows past its size: %d" % biggest)
+        self.assertEqual(self.size(23), (400, 200), "settled within 0.25 s")
+
+    def test_its_see_through_hole_shows_the_frame_and_nothing_shows_outside_its_time(self):
+        self.assertEqual(int(self.frames[30][960, 540]), 128, "the hole shows the grey frame")
+        self.assertIsNone(drawn_box(self.frames[14]), "nothing before at")
+        self.assertIsNone(drawn_box(self.frames[45]), "nothing after its length")
+
+    def test_it_fades_out_over_its_last_moment(self):
+        edge = (int(self.frames[n][880, 360]) for n in (40, 43, 44))
+        held, fading, last = [abs(v - 128) for v in edge]
+        self.assertGreater(held, 20, "held at full strength")
+        self.assertTrue(held > fading > last > 0, (held, fading, last))
+
+    def test_wrong_input_says_what_to_send(self):
+        with self.assertRaisesRegex(ValueError, "is not a PNG picture: give the path of a .png file that exists"):
+            effects.sticker(os.path.join(self.tmp, "none.png"), 1, 1, self.box)
+        with self.assertRaisesRegex(ValueError, r"box \(900, 760, 400, 400\) runs off the 1080x1920 frame"):
+            effects.sticker(self.png, 1, 1, (900, 760, 400, 400))
+        with self.assertRaisesRegex(ValueError, "length 0.2 is not a sticker's length: use 0.4 to 60 seconds"):
+            effects.sticker(self.png, 1, 0.2, self.box)

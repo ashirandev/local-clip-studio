@@ -10,7 +10,9 @@ at that frame's time) is the same frame a full render draws.
 """
 import collections
 import math
+import os
 import re
+import struct
 
 Fragment = collections.namedtuple("Fragment", "graph files")
 
@@ -18,6 +20,9 @@ LABEL = re.compile(r"\[(in|out|_[a-z0-9]+|f[0-9]+)\]")
 FRAME_W, FRAME_H, FPS = 1080, 1920, 30
 MOST_GAP = 0.5
 STILL = 0.5
+POP = ((0.0, 0.6), (0.15, 1.1), (0.25, 1.0))
+FADE = 0.15
+PNG_SIGNATURE = bytes((137, 80, 78, 71, 13, 10, 26, 10))
 BLUR = "boxblur=luma_radius='max(1,min(w,h)/6)':luma_power=3:chroma_radius='max(1,min(cw,ch)/6)':chroma_power=3"
 
 
@@ -265,3 +270,62 @@ def _centre(centre):
         raise ValueError("centre %r is off the %dx%d frame: use x from 0 to %d and y from 0 to %d."
                          % (tuple(centre), FRAME_W, FRAME_H, FRAME_W, FRAME_H))
     return cx, cy
+
+
+# ---- stickers ----------------------------------------------------------------------------------------------------
+
+def sticker(png, at, length, box):
+    """A picture (a PNG, its see-through parts left see-through) fitted inside box (x, y, w, h on the 1080x1920
+    frame), keeping its shape, centred: from `at` it pops in at 0.6 times that size, grows to 1.1 and settles at 1.0
+    within 0.25 s, holds, and fades out over its last 0.15 s. Outside its time every frame is the input's own. The
+    picture is an extra file, so its stream's time is clip time: the renderer opens it from clip second 0 (from the
+    preview frame's second for a preview)."""
+    size = _png_size(png)
+    at, length = _number("at", at, 0), _number("length", length)
+    shortest = POP[-1][0] + FADE
+    if not shortest <= length <= 60:
+        raise ValueError("length %s is not a sticker's length: use %s to 60 seconds, so it can pop and fade."
+                         % (_f(length), _f(shortest)))
+    x, y, w, h = _frame_box(box)
+    fit = min(w / size[0], h / size[1])
+    base_w, base_h = size[0] * fit, size[1] * fit
+    u = "(t-%s)" % _f(at)
+    (t0, s0), (t1, s1), (t2, s2) = POP
+    grow = "if(lt(%s,%s),%s,if(lt(%s,%s),%s+%s*(%s-%s)/%s,if(lt(%s,%s),%s+%s*(%s-%s)/%s,%s)))" % (
+        u, _f(t0), _f(s0), u, _f(t1), _f(s0), _f(s1 - s0), u, _f(t0), _f(t1 - t0),
+        u, _f(t2), _f(s1), _f(s2 - s1), u, _f(t1), _f(t2 - t1), _f(s2))
+    when = "gte(t,%s)*lt(t,%s)" % (_f(at), _f(at + length))
+    return Fragment("[f0]format=rgba,scale=w='max(2,trunc(%s*%s))':h='max(2,trunc(%s*%s))':eval=frame,"
+                    "fade=t=out:st=%s:d=%s:alpha=1[_s];"
+                    "[in][_s]overlay=x='%s-w/2':y='%s-h/2':eval=frame:shortest=1:format=auto:enable='%s'[out]"
+                    % (_f(base_w), grow, _f(base_h), grow, _f(at + length - FADE), _f(FADE),
+                       _f(x + w / 2), _f(y + h / 2), when), [png])
+
+
+def _png_size(png):
+    """(w, h) of a PNG file, read from its header."""
+    try:
+        with open(png, "rb") as f:
+            head = f.read(24)
+    except (OSError, TypeError, ValueError):
+        head = b""
+    if len(head) < 24 or head[:8] != PNG_SIGNATURE or head[12:16] != b"IHDR":
+        raise ValueError("png %r is not a PNG picture: give the path of a .png file%s."
+                         % (png, "" if isinstance(png, str) and os.path.isfile(png) else " that exists"))
+    w, h = struct.unpack(">II", head[16:24])
+    if not w or not h:
+        raise ValueError("png %r has no size: give a picture at least 1 x 1 pixel." % (png,))
+    return w, h
+
+
+def _frame_box(box):
+    if (not isinstance(box, (tuple, list)) or len(box) != 4
+            or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in box)):
+        raise ValueError("box %r is not a box: give (x, y, w, h) on the %dx%d frame." % (box, FRAME_W, FRAME_H))
+    x, y, w, h = box
+    if w <= 0 or h <= 0:
+        raise ValueError("box %r has no size: w and h must be above 0." % (tuple(box),))
+    if x < 0 or y < 0 or x + w > FRAME_W or y + h > FRAME_H:
+        raise ValueError("box %r runs off the %dx%d frame: keep x + w at most %d and y + h at most %d."
+                         % (tuple(box), FRAME_W, FRAME_H, FRAME_W, FRAME_H))
+    return x, y, w, h
