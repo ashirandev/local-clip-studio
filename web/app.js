@@ -305,13 +305,25 @@ function drawGuesses(j, e) {
   div.appendChild(el("p", "facts", facts.join(" · ")));
   if (c.brief) div.appendChild(el("p", "brief", "What you asked for: " + c.brief));
   const row = el("div", "chips");
+  const looks = el("div", "look-cards");
   e.chips.forEach((chip) => {
-    const b = el("button", "chip", chip.label);
+    const b = el("button", chip.look ? "chip look-card" : "chip", chip.look ? null : chip.label);
     b.type = "button";
-    b.addEventListener("click", () => say(chip.say));
-    row.appendChild(b);
+    if (chip.look) {
+      const pic = el("img", "look-pic");
+      pic.src = "/api/look/" + chip.look + ".png";
+      pic.alt = "";
+      b.append(pic, el("span", "look-name", chip.now ? chip.label + " · now" : chip.label));
+      if (chip.now) b.setAttribute("aria-current", "true");
+    }
+    if (!chip.now) b.addEventListener("click", () => say(chip.say));
+    (chip.look ? looks : row).appendChild(b);
   });
   div.appendChild(row);
+  if (looks.children.length) {
+    div.appendChild(el("p", "looks-head", "Looks for the words"));
+    div.appendChild(looks);
+  }
   j.flow.appendChild(div);
 }
 

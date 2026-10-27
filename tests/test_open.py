@@ -216,6 +216,19 @@ class Follow(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_each_look_has_a_picture_and_no_other_name_does(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.http.server_port, timeout=60)
+        try:
+            conn.request("GET", "/api/look/glow.png")
+            resp = conn.getresponse()
+            body = resp.read()
+        finally:
+            conn.close()
+        self.assertEqual((resp.status, resp.getheader("Content-Type")), (200, "image/png"))
+        self.assertTrue(body.startswith(b"\x89PNG"))
+        for name in ("nope", "..", "GLOW"):
+            self.assertEqual(self.ask("GET", "/api/look/%s.png" % name)[0], 404, name)
+
     def test_the_page_knows_it_is_on_this_computer(self):
         status, health = self.ask("GET", "/api/health")
         self.assertEqual((status, health["here"]), (200, True))

@@ -15,7 +15,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, effects, faces, hearing, layouts, mind, project, recording, render, tools, words  # noqa: E402
+from clipstudio import agent, effects, faces, hearing, layouts, mind, project, recording, render, text, tools, words  # noqa: E402,E501
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_hearing import Worker  # noqa: E402
 from test_map import make_moment  # noqa: E402
@@ -655,7 +655,7 @@ class Tools(unittest.TestCase):
         self.assertFalse(black["refused"], black["result"])
         self.assertIn("The words on screen now use the pop style with the font Kanit.", black["result"])
         self.assertTrue(bare["refused"])
-        self.assertIn("A part takes a font or a size of its own: give it for the captions", bare["result"])
+        self.assertIn("A part takes a font, a size or colours of its own: give them for the captions", bare["result"])
         self.assertIn("with the font Kanit for the captions only.", caption["result"])
         self.assertIn("Kept from before: the font Kanit Regular for the captions.", sticker["result"])
         self.assertIn("The words on screen now use the sticker style at size 4 for the captions only.", bigger["result"])
@@ -743,6 +743,55 @@ class Tools(unittest.TestCase):
                          [([108, 845, 756, 221], 1, 5, "dark", True), ([108, 845, 756, 221], 10, 14, "light", True),
                           ([108, 845, 756, 221], 15, 18, "light", True)])
         self.assertIn("glass boxes: dark 1-5 s, light 10-14 s, light 15-18 s, stickers: fire at 1 s, star at 2.5 s", self.chat.clip_line())
+
+    def test_the_person_chooses_the_colours_of_a_look_for_every_part_or_for_one(self):
+        brain, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("set_style", style="pop", colours={"key": "#E11D48", "text": "#FFFFFF"}, why="their brand")],
+            [call("set_style", style="pop", colours={"text": "#FFE600"}, part="title", why="a yellow title")],
+            [call("set_style", style="glow", colours={"edge": "#FFFFFF"}, why="a white outline they asked for")],
+            [call("set_style", style="glow", colours={"logo": "#FFFFFF"}, why="no such colour")],
+            [call("set_style", style="glow", colours={"key": "red"}, why="not a colour")],
+            [call("set_style", style="3d", colours={"key": "#2563EB"}, why="blue everywhere")],
+            "Done.")
+        red, yellow, white, logo, word, blue = steps[-6:]
+        self.assertFalse(red["refused"], red["result"])
+        self.assertIn("The words on screen now use the pop style with the letters in #FFFFFF, the key word in #E11D48.", red["result"])
+        self.assertIn("now use the pop style with the letters in #FFE600 for the title only.", yellow["result"])
+        self.assertIn("Kept from before: the letters in #FFFFFF, the key word in #E11D48.", yellow["result"])
+        self.assertIn("Kept from before: the letters in #FFFFFF, the key word in #E11D48, the letters in #FFE600 for the "
+                      "title.", white["result"])
+        self.assertIn("stands out only", white["result"])
+        self.assertIn("kept as asked", white["result"])
+        self.assertTrue(logo["refused"])
+        self.assertIn("has no field named logo", logo["result"])
+        self.assertTrue(word["refused"])
+        self.assertIn("is not a colour: give it as #RRGGBB", word["result"])
+        style = self.chat.project.state()["style"]
+        self.assertEqual((style["name"], style["colours"], style["part_colours"]),
+                         ("3d", {"key": "#2563EB", "text": "#FFFFFF", "edge": "#FFFFFF"}, {"title": {"text": "#FFE600"}}),
+                         "a colour for every part replaces that colour only")
+        self.assertEqual(tools.describe(self.chat.project.entries[-1]),
+                         "the 3d style, the letters in #FFFFFF, the key word in #2563EB, the outline in #FFFFFF, the "
+                         "letters in #FFE600 for the title")
+        self.assertIn("Kept from before: the letters in #FFFFFF, the outline in #FFFFFF, the letters in #FFE600 for the "
+                      "title.", blue["result"])
+        brain, steps = self.run_job([call("set_style", style="3d", colours={"text": "#FFFFFF"}, why="white again")],
+                                    "Done.")
+        self.assertNotIn("part_colours", self.chat.project.state()["style"],
+                         "the letters' colour for every part takes the title's own colour back")
+        self.chat.edit({"do": "style", "name": "pop", "font": None, "colour": "#FFE600"})
+        brain, steps = self.run_job([call("set_style", style="pop", colours={"key": "#E11D48"}, why="red key")],
+                                    "Done.")
+        self.assertEqual(self.chat.project.state()["style"]["colours"], {"text": "#FFE600", "key": "#E11D48"},
+                         "a colour from before colours were named is kept as the letters' colour")
+
+    def test_every_look_is_a_picture_the_person_can_tap(self):
+        looks = [c for c in tools.chips({"recipe": "game", "length_s": 30, "style": "pop"}) if c.get("look")]
+        self.assertEqual([c["look"] for c in looks], list(text.HOUSE_NAMES))
+        self.assertEqual([c["look"] for c in looks if c["now"]], ["pop"])
+        self.assertEqual(set(tools.STYLES), set(text.HOUSE_NAMES))
+        self.assertIn("(tapped) Use the glow style.", [c["say"] for c in looks])
 
     def test_muse_is_offered_every_studio_sticker(self):
         offered = tools.TOOLS["add_sticker"].params["sticker"]["enum"]

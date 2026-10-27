@@ -15,6 +15,7 @@ through a name it owns), and a POST must be JSON (another web page cannot send J
 - POST /api/open {chat, path} or {chat, name, size, mtime}: opens a recording where it is (a dropped file is found
   by its name, size and time) and tells Muse, with any words typed with it
 - GET /api/frame/<name>.jpg: a picture from an open recording
+- GET /api/look/<name>.png: the picture of one look of the words, for the person to pick from
 - GET /api/preview/<name>.mp4: the rough video of a proposed moment, in the byte range the browser asks for, so it
   can play from any second
 - GET /api/events?chat=<id>: every event of the chat from the start, then each new one as it happens, and Muse's
@@ -34,7 +35,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl
 
-from . import __version__, agent, hearing, mind, previews, recording, render
+from . import __version__, agent, hearing, mind, previews, recording, render, text
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
@@ -52,6 +53,7 @@ FRAME = re.compile(r"^/api/frame/([0-9a-f]{16}\.jpg)$")
 PREVIEW = re.compile(r"^/api/preview/([0-9a-f]{16}\.mp4)$")
 CLIP = re.compile(r"^/api/clip/([0-9a-f]{16}\.mp4)$")
 POSTER = re.compile(r"^/api/clip/([0-9a-f]{16})\.jpg$")
+LOOK = re.compile(r"^/api/look/([0-9a-z]+)\.png$")
 POSTER_AT = 1.0
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 
@@ -90,6 +92,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_poster(POSTER.match(path).group(1))
         elif path == "/api/clipframe":
             self.send_clip_frame(query)
+        elif LOOK.match(path):
+            self.send_look(LOOK.match(path).group(1))
         elif path.startswith("/api/"):
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
         else:
@@ -155,6 +159,21 @@ class Handler(BaseHTTPRequestHandler):
             body = f.read()
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "max-age=3600")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_look(self, name):
+        """The picture of the look called name, made the first time any look's picture is asked for."""
+        card = next((c for c in text.cards() if c["name"] == name), None)
+        if card is None:
+            self.send_json({"ok": False, "error": "There is no look %s." % name}, HTTPStatus.NOT_FOUND)
+            return
+        with open(card["png"], "rb") as f:
+            body = f.read()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "image/png")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "max-age=3600")
         self.end_headers()

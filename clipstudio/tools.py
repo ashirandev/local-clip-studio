@@ -130,6 +130,8 @@ def _value(name, value, spec):
         if len(value) > spec.get("maxLength", 2000):
             raise Refused("%s is too long; keep it under %d characters." % (name, spec.get("maxLength", 2000)))
         return value.strip()
+    if kind == "object":
+        return _fields(name, value, spec)
     if kind == "array" and (spec.get("items") or {}).get("type") == "object":
         if not isinstance(value, list):
             raise Refused("%s must be a list." % name)
@@ -701,11 +703,20 @@ def list_fonts(job, why):
 WORD_PARTS = {"title": "the title", "caption": "the captions", "big": "the big words of a hit"}
 
 
-def set_style(job, why, style, font=None, colour=None, size=None, part=None, person_said=None):
+PAINT_WORDS = {"text": "the letters", "key": "the key word", "edge": "the outline", "glow": "the glow",
+               "shade": "the shadow"}
+
+
+def _paints(colours):
+    return ", ".join("%s in %s" % (PAINT_WORDS[n], colours[n]) for n in text.PAINTS if n in colours)
+
+
+def set_style(job, why, style, font=None, size=None, colours=None, part=None, person_said=None):
     state = _clip_state(job)
     shown = None
-    if part and not font and not size:
-        raise Refused("A part takes a font or a size of its own: give it for %s, or leave part out."
+    colours = colours or {}
+    if part and not font and not size and not colours:
+        raise Refused("A part takes a font, a size or colours of its own: give them for %s, or leave part out."
                       % WORD_PARTS[part])
     if font:
         letters = _letters(job, state)
@@ -725,26 +736,41 @@ def set_style(job, why, style, font=None, colour=None, size=None, part=None, per
     before = state["style"] or {}
     every, fonts = before.get("font"), dict(before.get("fonts") or {})
     whole, sizes = before.get("size"), dict(before.get("sizes") or {})
+    paints = dict({"text": before["colour"]} if before.get("colour") else {}, **(before.get("colours") or {}))
+    part_paints = {k: dict(v) for k, v in (before.get("part_colours") or {}).items()}
     if part:
         fonts.update({part: font} if font else {})
         sizes.update({part: size} if size else {})
+        part_paints[part] = dict(part_paints.get(part) or {}, **colours)
     else:
         every, fonts = (font, {}) if font else (every, fonts)
         whole, sizes = (size, {}) if size else (whole, sizes)
+        paints.update(colours)
+        part_paints = {k: {n: c for n, c in v.items() if n not in colours} for k, v in part_paints.items()}
+    part_paints = {k: v for k, v in part_paints.items() if v}
     try:
-        drawn = text.look(style, every, colour, fonts or None, size=whole, sizes=sizes or None)
+        drawn = text.look(style, every, None, fonts or None, size=whole, sizes=sizes or None, colours=paints or None,
+                          part_colours=part_paints or None)
     except ValueError as e:
         raise Refused(str(e))
-    entry = {"do": "style", "name": style, "font": every, "colour": colour}
+    entry = {"do": "style", "name": style, "font": every}
     entry.update({"fonts": fonts} if fonts else {})
     entry.update({"size": whole} if whole else {})
     entry.update({"sizes": sizes} if sizes else {})
+    entry.update({"colours": paints} if paints else {})
+    entry.update({"part_colours": part_paints} if part_paints else {})
     state = job.edit(entry)
-    said = [" with the font %s" % shown if shown else "", " at size %d" % size if size else ""]
-    lines = ["The words on screen now use the %s style%s%s." % (style, "".join(said), " for %s only"
-                                                                % WORD_PARTS[part] if part and (shown or size) else "")]
+    said = [" with the font %s" % shown if shown else "", " at size %d" % size if size else "",
+            " with %s" % _paints(colours) if colours else ""]
+    lines = ["The words on screen now use the %s style%s%s." % (style, "".join(said), " for %s only" % WORD_PARTS[part]
+                                                                if part and (shown or size or colours) else "")]
     kept = ["the font %s for %s" % (f, WORD_PARTS[k]) for k, f in fonts.items() if not (part and k == part)] + \
            ["size %d for %s" % (n, WORD_PARTS[k]) for k, n in sizes.items() if not (part and k == part)]
+    whole_kept = {n: c for n, c in paints.items() if part or n not in colours}
+    kept += [_paints(whole_kept)] if whole_kept else []
+    for k, v in part_paints.items():
+        left = {n: c for n, c in v.items() if not (part == k and n in colours)}
+        kept += ["%s for %s" % (_paints(left), WORD_PARTS[k])] if left else []
     if kept:
         lines.append("Kept from before: %s." % ", ".join(kept))
     lines += list(dict.fromkeys(st.note for st in drawn.values() if st.note))
@@ -1404,14 +1430,15 @@ def add_glass(job, why, box, start, end, tint=None, shine=True, person_said=None
         tint, _on_grid(box), start, end, GLASS_TINTS[tint], ", with a sweep of light as it appears" if shine else "", band[2],
         band[3], "" if hit else ", clear of every face the program found"),
         "Words and stickers stand on it: give add_title the same box to put a title on it."]
+    look = words.name.split("~")[0]
     if words.box:
-        lines.append("The %s style draws its own box behind the words, so they read on any glass." % words.name)
+        lines.append("The %s style draws its own box behind the words, so they read on any glass." % look)
     elif chosen:
         lines.append("%s glass, because the %s style's words are %s." % (
-            tint.capitalize(), words.name, "light" if fits == "dark" else "dark"))
+            tint.capitalize(), look, "light" if fits == "dark" else "dark"))
     elif tint != fits:
         lines.append("The %s style's words are %s, so they stand on their outline here; %s glass would read better "
-                     "under them." % (words.name, "light" if fits == "dark" else "dark", fits))
+                     "under them." % (look, "light" if fits == "dark" else "dark", fits))
     lines += notes + more
     if replaced:
         lines.append("It replaces the glass box at %s." % ", ".join("%g-%g s" % (g["start"], g["end"])
@@ -1682,7 +1709,9 @@ def describe(entry):
         return "the %s style" % entry["name"] + (" with the font %s" % entry["font"] if entry.get("font") else "") + \
             (" at size %d" % entry["size"] if entry.get("size") else "") + \
             "".join(", %s in %s" % (WORD_PARTS[k], f) for k, f in (entry.get("fonts") or {}).items()) + \
-            "".join(", %s at size %d" % (WORD_PARTS[k], n) for k, n in (entry.get("sizes") or {}).items())
+            "".join(", %s at size %d" % (WORD_PARTS[k], n) for k, n in (entry.get("sizes") or {}).items()) + \
+            (", %s" % _paints(entry["colours"]) if entry.get("colours") else "") + \
+            "".join(", %s for %s" % (_paints(c), WORD_PARTS[k]) for k, c in (entry.get("part_colours") or {}).items())
     if entry["do"] == "captions":
         return ("the lit captions" if entry.get("lit") else "the captions") if entry["lines"] else \
             "turning the captions off"
@@ -1712,9 +1741,8 @@ def describe(entry):
     return 'the title "%s" at %g-%g s' % (entry["text"], entry["start"], entry["end"])
 
 
-STYLES = {"clean": "white words with a dark outline, quiet and clear",
-          "pop": "heavy words, the key word in yellow, for quick hits",
-          "sticker": "dark words on a light box, like a label"}
+STYLES = {n: text.CARDS[n][0][0].lower() + text.CARDS[n][0][1:].rstrip(".") for n in text.HOUSE_NAMES}
+LOOK_LABELS = {"3d": "3D"}
 SHORTEST, LONGEST = 10, 90
 
 
@@ -1750,7 +1778,8 @@ def chips(clip):
     if length < LONGEST:
         longer = min(LONGEST, round(length * 3 / 2))
         out.append({"label": "Longer", "say": "(tapped) Make it longer, about %d s." % longer})
-    out += [{"label": s.capitalize(), "say": "(tapped) Use the %s style." % s} for s in STYLES if s != clip["style"]]
+    out += [{"label": LOOK_LABELS.get(s, s.capitalize()), "say": "(tapped) Use the %s style." % s, "look": s,
+             "now": s == clip["style"]} for s in STYLES]
     return out
 
 
@@ -1870,22 +1899,32 @@ TOOLS = {t.name: t for t in [
                                      "is one, so no words cover it. Leave it out otherwise."}},
          ["moment", "layout"], make_clip, changes=True),
     Tool("set_style", "Chose the look of the words",
-         "Choose how the words on screen look: one of the house styles (" +
-         "; ".join("%s: %s" % kv for kv in STYLES.items()) + "), or the font and colour the person asked for. "
-         "A colour that would be hard to read gets an outline that makes it readable, and the result says so.",
+         "Choose how the words on screen look: one of the looks (" + "; ".join("%s: %s" % kv for kv in STYLES.items())
+         + "), with the font, the size and the colours the person asked for. The person sees every look as a "
+         "picture on the page and can tap one. A colour for the letters that would be hard to read gets an "
+         "outline that makes it readable; an outline or key colour that is given is kept, and the result says it "
+         "may be hard to read. Colours given stay until changed, also in another look.",
          {"style": {"type": "string", "enum": list(STYLES), "description": "The house style."},
           "font": {"type": "string", "maxLength": 80,
                    "description": "A font family or face from list_fonts, free to use in a video. Leave it out for "
                                   "the style's own font."},
-          "colour": {"type": "string", "maxLength": 9,
-                     "description": "The colour of the words the person asked for, like #FFD400. Leave it out for "
-                                    "the style's own."},
           "size": {"type": "integer", "minimum": text.SIZES[0], "maximum": text.SIZES[-1],
                    "description": "How big the words are, %d (smallest) to %d (biggest); %d is the size tuned on "
                                   "phones. Leave it out to keep the size." % (text.SIZES[0], text.SIZES[-1],
                                                                               text.TUNED_SIZE)},
+          "colours": {"type": "object", "properties": {
+              "text": {"type": "string", "maxLength": 7, "description": "the letters"},
+              "key": {"type": "string", "maxLength": 7, "description": "the key word of a title"},
+              "edge": {"type": "string", "maxLength": 7,
+                       "description": "the outline, or the box behind the words in the sticker look"},
+              "glow": {"type": "string", "maxLength": 7,
+                       "description": "a soft glow around the letters: the glow look has one, and any look given "
+                                      "one gets it"},
+              "shade": {"type": "string", "maxLength": 7, "description": "the hard shadow of pop and 3d"}},
+                      "description": "The colours the person asked for, each #RRGGBB, such as {\"key\": "
+                                     "\"#E11D48\"}: only the ones to change. Leave it out to keep the look's own."},
           "part": {"type": "string", "enum": list(WORD_PARTS),
-                   "description": "Give the font or the size to one part only: " +
+                   "description": "Give the font, the size or the colours to one part only: " +
                                   "; ".join("%s: %s" % kv for kv in WORD_PARTS.items()) + ". Leave it out for every "
                                   "part."},
           "person_said": {"type": "string", "maxLength": 200,

@@ -266,6 +266,18 @@ body.details .simple { display: none !important; }
 
 .chip:disabled { cursor: default; background: transparent; color: var(--muted); border-color: var(--line); }
 
+.looks-head { margin-top: 12px; color: var(--muted); font-size: 14px; }
+
+.look-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 6px; }
+
+.chip.look-card { display: flex; min-width: 0; flex-direction: column; gap: 4px; padding: 6px; border-radius: 12px; text-align: left; }
+
+.chip.look-card[aria-current] { border: 2px solid var(--accent); padding: 5px; cursor: default; }
+
+.look-pic { display: block; width: 100%; max-width: 100%; height: auto; aspect-ratio: 540 / 200; border-radius: 8px; }
+
+.look-name { padding: 0 4px 2px; }
+
 .msg.you.tapped { font-size: 14px; }
 
 .step {
