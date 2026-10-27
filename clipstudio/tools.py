@@ -654,14 +654,69 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None):
     return "\n".join(lines)
 
 
-def set_style(job, why, style, font=None, colour=None):
+MOST_FONTS_SHOWN = 12
+
+
+def _letters(job, state):
+    """The letters the clip's words are written in: its titles and captions, else what the person typed last."""
+    words = [t["text"] for t in state["titles"]] + [l["text"] for l in (state["captions"] or {}).get("lines") or []]
+    if not words:
+        words = [e["text"] for e in job.chat.events if e["kind"] == "person"][-1:]
+    return "".join(sorted(set("".join(words)) - set(" \n\t")))
+
+
+def _font_entry(font, every):
+    """The entry of every (text.fonts()) whose family or one of whose faces is named font, or None."""
+    name = " ".join(font.split()).lower()
+    return next((f for f in every if f["family"].lower() == name or name in (x.lower() for x in f["faces"])), None)
+
+
+def _free_fonts(every):
+    free = [f["family"] for f in sorted(every, key=lambda f: f["where"] != "studio") if f["free"]]
+    return ", ".join(free[:MOST_FONTS_SHOWN]) + (" and %d more" % (len(free) - MOST_FONTS_SHOWN)
+                                                  if len(free) > MOST_FONTS_SHOWN else "")
+
+
+def list_fonts(job, why):
     state = _clip_state(job)
+    letters = _letters(job, state)
+    every = text.fonts(letters or None)
+    free = [f for f in every if f["free"]]
+    other = [f for f in every if not f["free"]]
+    lines = ["Fonts that can write every letter of the clip's words (%s): %d free to use in a video, %d not known to "
+             "be free." % ("the studio's and this computer's" if letters else "any words", len(free), len(other))]
+    lines += ["- %s (%s, %s): %s" % (f["family"], f["where"], f["licence"], ", ".join(f["faces"])) for f in free]
+    if other:
+        lines.append("Not known to be free, so use one only when the person names it: %s."
+                     % ", ".join(f["family"] for f in other))
+    lines.append("The person can add any free font: they install it on this computer, and it is listed here.")
+    return "\n".join(lines)
+
+
+def set_style(job, why, style, font=None, colour=None, person_said=None):
+    state = _clip_state(job)
+    shown = None
+    if font:
+        letters = _letters(job, state)
+        every = text.fonts(letters or None)
+        entry = _font_entry(font, every)
+        if entry is None:
+            known = _font_entry(font, text.fonts())
+            raise Refused(("%s cannot write every letter of the clip's words." % known["family"] if known else
+                           "There is no font %s in the studio or on this computer." % font) +
+                          " Free fonts that can: %s. The person can install another free font on this computer."
+                          % _free_fonts(every))
+        if not entry["free"] and not _asked(job, person_said):
+            raise Refused("%s is not known to be free (%s), so it may not be allowed in a video someone posts. Choose "
+                          "a free font: %s. Use it only if the person named it themselves; then give person_said, "
+                          "their own words." % (entry["family"], entry["licence"], _free_fonts(every)))
+        shown = entry["family"]
     try:
         st = text.style(style, font, colour)
     except ValueError as e:
         raise Refused(str(e))
     state = job.edit({"do": "style", "name": style, "font": font, "colour": colour})
-    lines = ["The words on screen now use the %s style%s." % (style, " with the font %s" % st.fontname if font else "")]
+    lines = ["The words on screen now use the %s style%s." % (style, " with the font %s" % shown if shown else "")]
     if st.note:
         lines.append(st.note)
     if state["titles"]:
@@ -1657,12 +1712,19 @@ TOOLS = {t.name: t for t in [
          "A colour that would be hard to read gets an outline that makes it readable, and the result says so.",
          {"style": {"type": "string", "enum": list(STYLES), "description": "The house style."},
           "font": {"type": "string", "maxLength": 80,
-                   "description": "A font the person named, installed on this computer. Leave it out for the "
-                                  "style's own font."},
+                   "description": "A font family or face from list_fonts, free to use in a video. Leave it out for "
+                                  "the style's own font."},
           "colour": {"type": "string", "maxLength": 9,
                      "description": "The colour of the words the person asked for, like #FFD400. Leave it out for "
-                                    "the style's own."}},
+                                    "the style's own."},
+          "person_said": {"type": "string", "maxLength": 200,
+                          "description": "Only for a font not known to be free that the person named: their own "
+                                         "words asking for it, quoted. Leave it out otherwise."}},
          ["style"], set_style, changes=True),
+    Tool("list_fonts", "Listed the fonts",
+         "List the fonts that can write every letter of the clip's words, the studio's and this computer's, with "
+         "whether each is free to use in a video someone posts. Use it when the person wants another font.",
+         {}, [], list_fonts),
     Tool("add_title", "Put a title on",
          "Put words on screen from start to end, in one of the layout's places for words, or in a box the person "
          "asked for. The program measures the words as they will be drawn and refuses any time or place you choose "

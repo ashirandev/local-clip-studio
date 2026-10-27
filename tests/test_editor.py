@@ -581,6 +581,56 @@ class Tools(unittest.TestCase):
     def test_muse_is_offered_the_looks_the_renderer_draws(self):
         self.assertEqual(set(tools.LOOKS) - {"none"}, set(effects.LOOKS))
 
+    def test_muse_picks_only_a_free_font_unless_the_person_named_one(self):
+        self.chat.emit("person", job=None, text="ใช้ฟอนต์ Kanit Black นะ")
+        kanit = ["Kanit Regular", "Kanit SemiBold", "Kanit Bold", "Kanit Black"]
+        listed = {"free": True}
+        asked = []
+
+        def fonts(letters=None):
+            asked.append(letters)
+            return [{"family": "Kanit", "faces": kanit, "free": listed["free"],
+                     "licence": "SIL Open Font License" if listed["free"] else "its file names no licence",
+                     "where": "studio"},
+                    {"family": "Thin Latin", "faces": ["Thin Latin"], "free": True, "licence": "Apache License",
+                     "where": "computer"}][:1 if letters and any("ก" <= c <= "๛" for c in letters) else 2]
+
+        real, tools.text.fonts = tools.text.fonts, fonts
+        try:
+            brain, steps = self.run_job(
+                *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("add_title", words="บอสล้ม", start=0, end=4, place="middle", why="the fall")],
+                [call("list_fonts", why="the person wants another font")],
+                [call("set_style", style="clean", font="Comic Sans", why="no such font")],
+                [call("set_style", style="clean", font="Thin Latin", why="it cannot write Thai")],
+                [call("set_style", style="pop", font="kanit black", why="the person asked")],
+                "Done.")
+            listed["free"] = False
+            brain, later = self.run_job(
+                [call("set_style", style="clean", font="Kanit", why="not free now")],
+                [call("set_style", style="clean", font="Kanit", person_said="ฟอนต์ Kanit Black", why="they named it")],
+                "Done.")
+        finally:
+            tools.text.fonts = real
+        title, listing, none, latin, black = steps[-5:]
+        self.assertFalse(title["refused"], title["result"])
+        self.assertIn("บ", asked[0], "the fonts asked for must write the title's letters")
+        self.assertIn("1 free to use in a video, 0 not known to be free.", listing["result"])
+        self.assertIn("- Kanit (studio, SIL Open Font License): Kanit Regular, Kanit SemiBold, Kanit Bold, Kanit Black",
+                      listing["result"])
+        self.assertTrue(none["refused"])
+        self.assertIn("There is no font Comic Sans in the studio or on this computer. Free fonts that can: Kanit.",
+                      none["result"])
+        self.assertTrue(latin["refused"])
+        self.assertIn("Thin Latin cannot write every letter of the clip's words.", latin["result"])
+        self.assertFalse(black["refused"], black["result"])
+        self.assertIn("The words on screen now use the pop style with the font Kanit.", black["result"])
+        not_free, named = later
+        self.assertTrue(not_free["refused"])
+        self.assertIn("Kanit is not known to be free (its file names no licence)", not_free["result"])
+        self.assertFalse(named["refused"], named["result"])
+        self.assertEqual(self.chat.project.state()["style"]["font"], "Kanit")
+
     def test_muse_is_offered_the_sounds_the_renderer_makes(self):
         self.assertEqual(set(tools.SOUNDS), set(effects.SOUNDS))
 
