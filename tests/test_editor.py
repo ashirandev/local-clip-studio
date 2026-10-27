@@ -1180,6 +1180,18 @@ class Tools(unittest.TestCase):
         self.assertIn("the title is on the clip only at the top from 1.5 to 10 s, where it covers no face", made)
         self.assertIn("no title on the clip", made, "clip 1, 2.6 s long, has no clear 2 s after the face")
 
+    def test_each_clips_words_are_proofread_together_before_its_title_goes_on(self):
+        clips = [{"moment": 1, "title": "ต้อสู้หนึ่ง", "caption": "ต่อสู้ในโกดัง", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        brain, _ = self.several([call("make_clips", clips=clips, why="both")],
+                                '{"texts": ["ต่อสู้หนึ่ง", "ต่อสู้ในโกดัง"]}', "Done.")
+        ready = [e for e in self.chat.events if e["kind"] == "ready"]
+        self.assertEqual(ready[0]["title"], "ต่อสู้หนึ่ง")
+        self.assertIn("ต่อสู้หนึ่ง", [t["text"] for t in self.chat.project.state()["titles"]], "the title on the clip too")
+        spelling = [m for m in brain.sent if len(m) == 1 and "Fix only the spelling" in m[0]["content"]]
+        self.assertEqual(len(spelling), 1, "asked once, before the title went on")
+        self.assertIn("ต่อสู้ในโกดัง", spelling[0][0]["content"], "with the post text beside the title")
+
     def test_a_clip_that_fails_a_check_is_not_handed_over(self):
         clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
                  {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
@@ -1477,8 +1489,11 @@ class Tools(unittest.TestCase):
                          (["ต่อสู้หลายคนแล้วตาย"] + texts[1:], [("ต้อสู้หลายคนแล้วตาย", "ต่อสู้หลายคนแล้วตาย")]),
                          "a tone mark fixed is kept; a reworded line and a dropped word are not")
         self.assertEqual(asked, [texts[:3]], "every Thai text is asked about")
-        self.assertEqual(words.spelled(ask, texts[:1], every=True, kept=kept)[0], ["ต่อสู้หลายคนแล้วตาย"])
-        self.assertEqual(len(asked), 1, "a text asked about once is not asked again")
+        self.assertEqual(words.spelled(ask, texts[:1] + texts[3:], every=True, kept=kept)[0],
+                         ["ต่อสู้หลายคนแล้วตาย", "ok"])
+        self.assertEqual(len(asked), 1, "a text fixed once is not asked about again")
+        words.spelled(ask, texts[1:3], every=True, kept=kept)
+        self.assertEqual(asked[-1], texts[1:3], "a change the rules refused is asked about again")
 
     def test_thai_spelling_is_fixed_before_it_is_burned_in_or_handed_over(self):
         def export(rec, state, out, on_progress=None, on_start=None, *, default):

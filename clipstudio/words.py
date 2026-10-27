@@ -161,7 +161,10 @@ def spelled(ask, texts, every=False, kept=None):
     every all Thai texts, are asked about in one question to Muse in a conversation of their own: ask(messages, schema)
     returns the answer's words. A fix is kept when it keeps every number and either leaves fewer flagged bits and
     changes at most a fifth of the text, or changes only tone marks and vowels and flags no more bits; otherwise the
-    text stays as it was written. kept, a dict, keeps each answer, so a text asked about once is not asked again.
+    text stays as it was written. kept, a dict, keeps each fix and each text Muse gave back as it was, so it is not
+    asked about again; a change these rules refused is not kept, and the text is asked about again next time, when
+    the texts around it may tell Muse more: alone, Muse wrote ต้องสู้ for ต้อสู้ five times of five; with the post text
+    beside it, ต่อสู้ three of three.
 
     every is for what the viewer reads. Glimmer's slips there are often real words, so the dictionary flags nothing:
     ต้อสู้ for ต่อสู้, ตังค่า for ตั้งค่า, ต้อวัน for ต่อวัน (10-27 and 10-28, in titles and post text). Measured 10-28 on the
@@ -184,7 +187,7 @@ def spelled(ask, texts, every=False, kept=None):
                      and difflib.SequenceMatcher(None, before, after).ratio() >= 1 - MOST_CHANGED)
                     or (_skeleton(after) == _skeleton(before) and len(odd_thai(after)) <= len(odd_thai(before)))):
                 kept[before] = after
-            elif isinstance(after, str):
+            elif after == before:
                 kept[before] = before
     changed = []
     for i, before in enumerate(texts):

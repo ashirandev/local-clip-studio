@@ -2601,11 +2601,13 @@ def _title_where_clear(job, rec, words):
 
 
 def _one_clip(job, rec, k, c, layout, blur):
-    """One clip of make_clips, from its moment to the hand-over: the sentence reporting on it. Each box in blur is
+    """One clip of make_clips, from its moment to the hand-over: the sentence reporting on it. Its words are
+    proofread together first, so the title on the clip is spelled as the post text is. Each box in blur is
     blurred for the whole clip. Seen 10-27 on a 4-hour game stream: six clips were made without the chat box blurred,
     none passed the check for viewers' names, and Muse ran out of room fixing the first one by hand."""
     n, head = c["moment"], "Clip %d (moment %d)" % (k, c["moment"])
     try:
+        _spell(job, [c["title"], c.get("words") or "", c["caption"]] + list(c["hashtags"]))
         made = make_clip(job, BATCH_WHY, n, layout)
         if made.startswith("Not made"):
             return "%s: not made, the person pressed Stop." % head
