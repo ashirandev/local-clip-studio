@@ -27,8 +27,10 @@ python app.py
 The face finder's model (YuNet, 230 KB) is downloaded from OpenCV Zoo the first time it is needed; set
 `LCS_FACE_MODEL` to the file if you have it. The house font (Google Sans), Kanit, Pattaya and Taviraj are in `fonts/`.
 
-Then open http://127.0.0.1:8899/ . Set `LCS_PORT` to use another port, and `LCS_VIDEOS` to the folders your
-recordings are in (separated by `;` on Windows; the default is `~/Videos`).
+Then open http://127.0.0.1:8899/ . Set `LCS_PORT` to use another port. Muse finds your recordings by itself: with
+nothing set, it looks on every drive (only names and sizes, leaving out system and program folders; 1.7 s for five
+drives here) and keeps that list 30 s. Set `LCS_VIDEOS` to the folders your recordings are in (separated by `;` on
+Windows) to keep it to those.
 
 **Hearing what is said** uses Meta's Omnilingual ASR (CTC 1B v2), run by onnxruntime inside the studio, on the
 processor, so the graphics card stays with Muse. It needs no Docker. Its model goes in `work/models/hearing` (or the

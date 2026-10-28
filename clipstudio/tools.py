@@ -198,8 +198,9 @@ def find_recordings(job, why, words="", newest=5):
     if not folders:
         raise Refused("No folder of recordings was found. Ask the person to set LCS_VIDEOS to the folders their "
                       "recordings are in, then start the studio again.")
-    found = recording.walk(words)
-    where = ", ".join(folders)
+    found = recording.walk(words) or recording.walk(words, fresh=True)
+    where = ", ".join(folders) + ("" if recording._swept.get("complete", True) else
+                                  " (the sweep stopped after %d s, so some may be missing)" % recording.SWEEP_SECONDS)
     if not found:
         about = 'has "%s" in its name, folders or recorded day' % words if words.split() else "is there"
         return "No recording %s in %s.%s" % (about, where, _names_here(folders))

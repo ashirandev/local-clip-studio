@@ -37,6 +37,47 @@ def snapshot(folder):
                    os.path.getmtime(os.path.join(d, n))) for d, _, names in os.walk(folder) for n in names)
 
 
+class EveryDrive(unittest.TestCase):
+    """With no folder named, Muse finds recordings on every drive, as Eaglet finds files (Tarm 10-28: his brother
+    should not have to set anything)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.had = os.environ.pop("LCS_VIDEOS", None), recording.WORK, recording.drives, recording.SMALLEST
+        self.c, self.d = os.path.join(self.tmp, "C"), os.path.join(self.tmp, "D")
+        recording.WORK = os.path.join(self.d, "studio", "work")
+        recording.drives, recording.SMALLEST = (lambda: [self.c, self.d]), 0
+        recording._swept.clear()
+
+    def tearDown(self):
+        videos, recording.WORK, recording.drives, recording.SMALLEST = self.had
+        if videos is not None:
+            os.environ["LCS_VIDEOS"] = videos
+        recording._swept.clear()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def put(self, *parts):
+        path = os.path.join(*parts)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(b"0123456789")
+        return os.path.realpath(path)
+
+    def test_every_drive_is_swept_without_system_hidden_or_studio_folders_and_a_miss_sweeps_again(self):
+        kept = [self.put(self.c, "Users", "me", "Videos", "trip.mp4"), self.put(self.d, "YouTube", "ep1.mkv")]
+        for left in [(self.c, "Program Files", "app", "intro.mp4"), (self.c, "Users", "me", "AppData", "cache.mp4"),
+                     (self.d, ".hidden", "x.mp4"), (self.d, "$Recycle.Bin", "old.mp4"),
+                     (self.d, "studio", "work", "clips", "made.mp4")]:
+            self.put(*left)
+        self.assertEqual(recording.folders(), [os.path.realpath(self.c), os.path.realpath(self.d)])
+        self.assertEqual(sorted(p for _, _, p in recording.walk()), sorted(kept))
+        self.assertTrue(recording._swept["complete"])
+        self.assertEqual([p for _, _, p in recording.walk("youtube")], [kept[1]])
+        later = self.put(self.d, "YouTube", "ep2.mp4")
+        self.assertNotIn(later, [p for _, _, p in recording.walk()], "one sweep is kept, not made for every search")
+        self.assertEqual(recording.locate("ep2.mp4", 10), later, "a dropped file the kept sweep lacks: swept again")
+
+
 @unittest.skipUnless(FFMPEG and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class Open(unittest.TestCase):
     def setUp(self):

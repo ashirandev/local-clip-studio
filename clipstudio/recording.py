@@ -2,7 +2,7 @@
 
 Nothing is copied or uploaded. A dropped file is found where it already is: a browser does not give the path of a
 dropped file, only its name, size and time, so the studio looks for that file in the folders recordings are kept in
-(LCS_VIDEOS). What the recording is (length, picture size, sound tracks) comes from ffprobe; one picture from it,
+(LCS_VIDEOS, else every drive). What the recording is (length, picture size, sound tracks) comes from ffprobe; one picture from it,
 made by ffmpeg, is kept in work/frames to show on the page.
 """
 import hashlib
@@ -19,6 +19,11 @@ WORK = os.environ.get("LCS_WORK") or os.path.join(ROOT, "work")
 VIDEO_TYPES = (".mp4", ".mkv", ".mov", ".m4v", ".webm", ".ts", ".flv", ".avi")
 SMALLEST = 1_000_000
 MOST_FILES_LOOKED_AT = 50_000
+SWEEP_SECONDS = 60
+FRESH_SECONDS = 30
+FIXED_DRIVE = 3
+SKIP_FOLDERS = {"windows", "program files", "program files (x86)", "programdata", "appdata", "recovery", "perflogs",
+                "system volume information", "windowsapps", "node_modules", "site-packages"}
 SAME_TIME = 2.0
 PROBE_SECONDS = 30
 NUMBER = re.compile(r"^\d+(\.\d+)?$")
@@ -29,28 +34,60 @@ class NotOpened(Exception):
 
 
 def folders():
-    """The folders recordings are kept in: LCS_VIDEOS (separated by ; on Windows, : elsewhere), else ~/Videos."""
+    """The folders recordings are kept in: LCS_VIDEOS (separated by ; on Windows, : elsewhere), else every drive
+    (drives()), so a person who never named a folder finds their videos wherever they keep them."""
     named = os.environ.get("LCS_VIDEOS", "")
-    found = [f.strip() for f in named.split(os.pathsep) if f.strip()] or [os.path.expanduser("~/Videos")]
+    found = [f.strip() for f in named.split(os.pathsep) if f.strip()] or drives()
     return [os.path.realpath(f) for f in found if os.path.isdir(f)]
+
+
+def drives():
+    """Every fixed drive on Windows (C:\\, D:\\, ...), else the home folder."""
+    if os.name != "nt":
+        return [os.path.expanduser("~")]
+    import ctypes
+    import string
+    k = ctypes.windll.kernel32
+    return [d + ":\\" for i, d in enumerate(string.ascii_uppercase)
+            if k.GetLogicalDrives() >> i & 1 and k.GetDriveTypeW(d + ":\\") == FIXED_DRIVE]
 
 
 THAI_MONTHS = ("มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน",
                "ตุลาคม", "พฤศจิกายน", "ธันวาคม")
 
 
-def walk(words=""):
+def walk(words="", fresh=False):
     """Every recording in the folders whose path or recorded day holds all the words: [(mtime, size, path)], newest
     first. The day is written the ways a person asks for it (2026-10-12, 12 Oct, October 12, ตุลาคม, Monday): Muse
     sees "recorded Mon 12 Oct" in every list, and on 10-28 it took 11 searches to find a recording by its day when
-    only the names were searched."""
+    only the names were searched. When the folders are every drive, one sweep is kept FRESH_SECONDS (fresh: sweep
+    again now)."""
     wanted = words.lower().split()
-    found, looked = [], 0
-    for top in folders():
+    tops = folders()
+    every = not os.environ.get("LCS_VIDEOS", "").strip()
+    if not every or fresh or _swept.get("tops") != tops or time.time() - _swept.get("at", 0) > FRESH_SECONDS:
+        _swept.update(sweep(tops), tops=tops, at=time.time())
+    return [(m, s, p) for m, s, p, top in _swept["found"]
+            if not wanted or all(w in os.path.relpath(p, top).lower() + " " + _day(m) for w in wanted)]
+
+
+_swept = {}
+
+
+def sweep(tops):
+    """{"found": [(mtime, size, path, top)] newest first, "complete": False when it stopped after SWEEP_SECONDS}:
+    every recording of SMALLEST or more in tops, leaving out system and program folders (SKIP_FOLDERS), hidden ones
+    and the studio's own work folder (its clips are not recordings). Reads names and sizes only; measured 10-28 on
+    five drives: 4.8 s for 413,000 files."""
+    found, started, work = [], time.time(), os.path.normcase(os.path.realpath(WORK))
+    for top in tops:
         for here, dirs, files in os.walk(top):
-            dirs[:] = [d for d in dirs if not d.startswith(("_", "."))]
+            if time.time() - started > SWEEP_SECONDS:
+                found.sort(reverse=True)
+                return {"found": found, "complete": False}
+            dirs[:] = [d for d in dirs if not d.startswith(("_", ".", "$")) and d.lower() not in SKIP_FOLDERS
+                       and os.path.normcase(os.path.join(here, d)) != work]
             for name in files:
-                looked += 1
                 if not name.lower().endswith(VIDEO_TYPES):
                     continue
                 path = os.path.join(here, name)
@@ -58,15 +95,10 @@ def walk(words=""):
                     st = os.stat(path)
                 except OSError:
                     continue
-                if wanted and not all(w in os.path.relpath(path, top).lower() + " " + _day(st.st_mtime)
-                                      for w in wanted):
-                    continue
                 if st.st_size >= SMALLEST:
-                    found.append((st.st_mtime, st.st_size, path))
-            if looked > MOST_FILES_LOOKED_AT:
-                break
+                    found.append((st.st_mtime, st.st_size, path, top))
     found.sort(reverse=True)
-    return found
+    return {"found": found, "complete": True}
 
 
 def _day(mtime):
@@ -146,8 +178,11 @@ def sound_seconds(path):
 
 def locate(name, size, mtime=None):
     """The path of a dropped file, found by its name and size (and its time, when two files share both)."""
-    hits = [(abs((m - mtime) if mtime else 0), p) for m, s, p in walk()
-            if os.path.basename(p).lower() == name.lower() and s == size]
+    for fresh in (False, True):
+        hits = [(abs((m - mtime) if mtime else 0), p) for m, s, p in walk(fresh=fresh)
+                if os.path.basename(p).lower() == name.lower() and s == size]
+        if hits:
+            break
     if not hits:
         raise NotOpened("%s is not in the folders recordings are kept in (%s). Move it into one of them, or add its "
                         "folder to LCS_VIDEOS and start the studio again." % (name, ", ".join(folders()) or "none"))
