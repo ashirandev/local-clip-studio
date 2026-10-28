@@ -1554,6 +1554,19 @@ class Tools(unittest.TestCase):
         words.spelled(ask, texts[1:3], every=True, kept=kept)
         self.assertEqual(asked[-1], texts[1:3], "a change the rules refused is asked about again")
 
+    def test_a_letter_muse_dropped_from_a_real_word_is_put_back(self):
+        def ask(messages, schema):
+            fixes = {"ห้อบอลรูมและเวทีแสงสี": "ห้องบอลรูมและเวทีแสงสี", "เลือกโมเดลและคาความเร็ว": "เลือกโมเดลและความเร็ว",
+                     "อายุเพิ่มที่ไม่คาดคิด": "อายุเพิ่มที่ไม่ได้คาดคิด"}
+            texts = json.loads(messages[-1]["content"].rsplit("\n\n", 1)[1])
+            return json.dumps({"texts": [fixes.get(x, x) for x in texts]}, ensure_ascii=False)
+
+        texts = ["ห้อบอลรูมและเวทีแสงสี", "เลือกโมเดลและคาความเร็ว", "อายุเพิ่มที่ไม่คาดคิด"]
+        self.assertEqual(words.spelled(ask, texts, every=True),
+                         (["ห้องบอลรูมและเวทีแสงสี"] + texts[1:], [(texts[0], "ห้องบอลรูมและเวทีแสงสี")]),
+                         "XM 10-28: ห้อ is a word, so only the count says ห้อง is meant; a word dropped or added is not "
+                         "a spelling fix")
+
     def test_a_tone_mark_that_makes_a_rarer_word_is_not_a_fix(self):
         right = "ไว้ใจให้ทำงานแทนตั้งแต่เลือกเงินเดือน"
 

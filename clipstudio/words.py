@@ -51,6 +51,7 @@ SPELL_ASK = ("Fix only the spelling in each of these Thai texts: tone marks, vow
 SPELL_SCHEMA = {"type": "object", "properties": {"texts": {"type": "array", "items": {"type": "string"}}},
                 "required": ["texts"], "additionalProperties": False}
 MOST_CHANGED = 0.2
+GROWS = 2
 
 
 def odd_thai(words):
@@ -171,7 +172,10 @@ def spelled(ask, texts, every=False, kept=None):
     111 Thai titles, captions and hashtags Muse had written, all asked: Muse changed 11, these rules kept the 9 right
     fixes and refused the 2 wrong ones (a reworded line, a word dropped), and none of the 100 right texts changed.
     Round 8 the same day, Muse made ตั้งแต่ into ตั้งแต้, a tone mark only: such a change is now kept only when the words
-    it touches are commoner after it (_commoner); on those 112 texts that keeps the 9 right fixes and refuses it."""
+    it touches are commoner after it (_commoner); on those 112 texts that keeps the 9 right fixes and refuses it.
+    And Muse dropped the ง of ห้องบอลรูม in an XM clip (ห้อ is a word: to gallop); asked, it wrote ห้อง five times of
+    five, which no rule kept. A change that adds or swaps at most GROWS letters, drops none, and makes the words it
+    touches commoner is kept too (_grows_little); on the same texts it keeps that one and no wrong one."""
     texts, kept = list(texts), {} if kept is None else kept
     todo = [i for i, t in enumerate(texts) if isinstance(t, str) and (THAI.search(t) if every else odd_thai(t))]
     todo = [i for i in todo if texts[i] not in kept]
@@ -188,7 +192,8 @@ def spelled(ask, texts, every=False, kept=None):
                     (len(odd_thai(after)) < len(odd_thai(before))
                      and difflib.SequenceMatcher(None, before, after).ratio() >= 1 - MOST_CHANGED)
                     or (_skeleton(after) == _skeleton(before) and len(odd_thai(after)) <= len(odd_thai(before))
-                        and _commoner(before, after))):
+                        and _commoner(before, after))
+                    or (_grows_little(before, after) and _commoner(before, after))):
                 kept[before] = after
             elif after == before:
                 kept[before] = before
@@ -220,6 +225,13 @@ def _commoner(before, after):
     ops = [o for o in difflib.SequenceMatcher(None, before, after, autojunk=False).get_opcodes() if o[0] != "equal"]
     return _least(after, [(j1 - 1, max(j2, j1 + 1)) for _, _, _, j1, j2 in ops]) > \
         _least(before, [(i1 - 1, max(i2, i1 + 1)) for _, i1, i2, _, _ in ops])
+
+
+def _grows_little(before, after):
+    """Whether after is before with at most GROWS letters added or swapped and none taken away."""
+    ops = [o for o in difflib.SequenceMatcher(None, before, after, autojunk=False).get_opcodes() if o[0] != "equal"]
+    return bool(ops) and all(j2 - j1 >= i2 - i1 for _, i1, i2, j1, j2 in ops) and \
+        sum(max(i2 - i1, j2 - j1) for _, i1, i2, j1, j2 in ops) <= GROWS
 
 
 def _least(text, spans):
