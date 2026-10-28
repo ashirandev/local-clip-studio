@@ -33,8 +33,9 @@ After the clip, the viewer has learned one thing they can use: one tip, one step
 
 ## The clip
 
-- Layout: the screen as a card across the middle and the face camera in a circle above it; the face layout when
-  there is no screen to show.
+- Layout: the screen as a card across the middle and the face camera in a circle above it, even when the person asks
+  for "a clip of me talking": the screen is what they explain. The face layout only when there is no screen to show,
+  or the person asks for their face alone, such as "only my face".
 - The title says what the viewer will be able to do, in the clip's language, in a few words; a number in it must be
   one that was said.
 - Captions on, plain: the words explain the screen.

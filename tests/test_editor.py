@@ -1625,6 +1625,33 @@ class Tools(unittest.TestCase):
         self.assertFalse(made["refused"], made["result"])
         self.assertEqual([e["title"] for e in self.chat.events if e["kind"] == "ready"], ["Jabs pack", "PDRN pack"])
 
+    def test_a_tutorial_is_a_card_unless_muse_says_again_the_person_asked_for_their_face(self):
+        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"], "layout": "face"},
+                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        _, steps = self.several([call("make_clips", clips=clips, why="a clip of me talking")],
+                                [call("make_clips", clips=clips, why="the person said: only my face")], "Done.")
+        asked, made = steps[-2:]
+        self.assertTrue(asked["refused"], "lane 5 10-28: 'a clip of me talking' on the Eaglet tutorial lost the page")
+        self.assertEqual(asked["result"], "Nothing was made. A tutorial's clip shows the screen being explained: the "
+                                          "card layout keeps the screen and puts the face in a circle above it. Use "
+                                          "face only when the person asked for their face to fill the frame, in words "
+                                          "such as 'only my face' or 'just me, big', or the recording has no screen to "
+                                          "show; then make it again unchanged.")
+        self.assertFalse(made["refused"], made["result"])
+        self.assertEqual([e["title"] for e in self.chat.events if e["kind"] == "ready"], ["Eaglet one", "Eaglet two"])
+
+    def test_a_talk_is_faces_unless_muse_says_again_the_person_asked_for_the_screen(self):
+        _, steps = self.run_job([call("load_recipe", type="talk", why="two people talking")], *self.to_moment(),
+                                [call("make_clip", moment=1, layout="card", why="the screen")],
+                                [call("make_clip", moment=1, layout="card", why="the person said: show the screen")],
+                                [call("make_clip", moment=1, layout="face", why="one face")], "Done.")
+        card, again, face = steps[-3:]
+        self.assertTrue(card["refused"])
+        self.assertTrue(card["result"].startswith("Not made. A talk's clip is its faces: talk, speaker, split or face. "
+                                                  "Use card only when the person asked for the screen"), card["result"])
+        self.assertFalse(again["refused"], again["result"])
+        self.assertFalse(face["refused"], face["result"])
+
     def test_a_clip_whose_recipe_does_not_read_the_screen_is_not_read(self):
         asked = []
         had, screen.readings = screen.readings, lambda rec, a, b, on_start=None: asked.append((a, b)) or []

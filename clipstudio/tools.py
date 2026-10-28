@@ -1154,6 +1154,9 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     except hearing.Stopped:
         return "Not made: the person pressed Stop."
     recipe = (job.chat.clip or {}).get("recipe")
+    unasked = _layout_unasked(job, recipe, [layout])
+    if unasked:
+        raise Refused("Not made. " + unasked)
     if layout in ("talk", "speaker", "split"):
         return _make_talk(job, rec, moment, m, *_pieces(m.get("said") or [], a, b, _still(rec, "talk", a, b, None)),
                           name=layout)
@@ -1367,6 +1370,34 @@ def _told_once(job, kind):
         return True
     job.emit(kind)
     return False
+
+
+FACES_ONLY = ("face", "talk", "speaker", "split")
+SCREENS = ("card", "stack")
+FACE_ASKED = "their face to fill the frame, in words such as 'only my face' or 'just me, big', or the recording has no " \
+             "screen to show"
+LAYOUT_RULES = {
+    "explain": (FACES_ONLY, "A tutorial's clip shows the screen being explained: the card layout keeps the screen and "
+                            "puts the face in a circle above it", FACE_ASKED),
+    "game": (FACES_ONLY, "A game clip shows the game: the card layout keeps it and puts the face in a circle above it",
+             FACE_ASKED),
+    "talk": (SCREENS, "A talk's clip is its faces: talk, speaker, split or face",
+             "the screen, in words such as 'show the screen', or what they talk about is on a screen"),
+}
+
+
+def _layout_unasked(job, recipe, kinds):
+    """The sentence refusing, once a job, a layout the recipe's kind of video does not take by default (Tarm 10-28: a
+    tutorial with a screen is a card, a talk or a story is faces, unless the person says otherwise; lane 5 asked for 'a
+    clip of me talking' on the Eaglet tutorial and the face filled the frame, the page it explained gone), or None. A
+    tap on the page is the person's own choice."""
+    rule = LAYOUT_RULES.get(recipe)
+    if not rule or job.n is None or not set(kinds) & set(rule[0]):
+        return None
+    if _told_once(job, "layout_asked"):
+        return None
+    return "%s. Use %s only when the person asked for %s; then make it again unchanged." % (
+        rule[1], " or ".join(sorted(set(kinds) & set(rule[0]))), rule[2])
 
 
 def _private_spans(lines):
@@ -3167,6 +3198,9 @@ def make_clips(job, why, clips, blur=None):
     if unseen and not _told_once(job, "unseen"):
         raise Refused("Nothing was made. %s %s" % (" ".join(unseen), UNSEEN_THEN % "make the clips again"))
     recipe = (job.chat.clip or {}).get("recipe")
+    unasked = _layout_unasked(job, recipe, [c.get("layout") or LAYOUT_OF.get(recipe, "subject") for c in clips])
+    if unasked:
+        raise Refused("Nothing was made. " + unasked)
     if recipe == "game" and not blur:
         raise Refused("Nothing was made. A game stream's clips show its chat box with the viewers' names: give the "
                       "chat box in blur, on your 0-1000 grid of the pictures from your looks, and every clip hides it. "
