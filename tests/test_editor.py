@@ -1090,6 +1090,60 @@ class Tools(unittest.TestCase):
                           ([108, 845, 756, 221], 15, 18, "light", True)])
         self.assertIn("glass boxes: dark 1-5 s, light 10-14 s, light 15-18 s, stickers: fire at 1 s, star at 2.5 s", self.chat.clip_line())
 
+    def test_muse_sends_stickers_flying_in_a_box_clear_of_faces_and_the_clip_draws_them(self):
+        face = [430, 660, 570, 755]
+        brain, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("add_flurry", stickers=["coin", "dollar_banknote"], at=2, move="rain", place="middle",
+                  why="the payout")],
+            [call("add_flurry", stickers="confetti", at=3, count=12, place="middle", why="a better one")],
+            [call("add_flurry", stickers=["red_heart"], at=18.8, move="rise", place="top", why="to the end")],
+            [call("add_flurry", stickers=["coin"], at=19.5, place="top", why="too late")],
+            [call("add_flurry", stickers=["coin"], at=1, box=face, why="on the face")],
+            [call("add_flurry", stickers=["coin"], at=6, box=[100, 460, 130, 470], why="too small")],
+            [call("add_flurry", stickers=["coin"] * 7, at=6, place="middle", why="too many")],
+            [call("add_flurry", stickers=["coin"], at=6, box=[100, 900, 300, 990], why="low")],
+            [call("add_flurry", stickers=["coin"], at=25, place="top", why="after the end")],
+            "Done.")
+        rain, confetti, short, late, on_face, small, many, low, after = steps[-9:]
+        self.assertFalse(rain["refused"], rain["result"])
+        self.assertIn("A rain flurry of 8 copies of coin and dollar_banknote from 2 to 4.4 s in the middle, clear of "
+                      "every face the program found: they fall from the top of the box to its bottom one after "
+                      "another, swaying.", rain["result"])
+        self.assertRegex(rain["result"], r"The pictures are \d+ px, not 150, so they move inside the box")
+        self.assertIn("comes next as a picture", rain["result"])
+        self.assertFalse(confetti["refused"], confetti["result"])
+        self.assertIn("It replaces the rain flurry at 2 s.", confetti["result"])
+        self.assertNotIn("The pictures are", confetti["result"], "paper pieces have their own size")
+        self.assertFalse(short["refused"], short["result"])
+        self.assertIn("It ends with the clip, so the move takes 1.2 s instead of 2.6 s.", short["result"])
+        self.assertTrue(late["refused"])
+        self.assertIn("At 19.5 s the clip ends 0.5 s later; a flurry needs 0.8 s to move. Put it earlier.",
+                      late["result"])
+        self.assertTrue(on_face["refused"])
+        self.assertIn("The flurry would cover a face at", on_face["result"])
+        self.assertTrue(small["refused"])
+        self.assertIn("is too small for these pictures to move in", small["result"])
+        self.assertTrue(many["refused"])
+        self.assertIn("stickers must be a list of 1 to 6 names.", many["result"])
+        self.assertTrue(low["refused"])
+        self.assertIn("On a phone, the name and the caption cover everything below y 1520", low["result"])
+        self.assertTrue(after["refused"])
+        self.assertIn("at 25 s is outside the clip, which is 20 s long", after["result"])
+        state = self.chat.project.state()
+        middle = state["clip"]["layout"]["places"]["middle"]
+        self.assertEqual([(f["names"], f["at"], f["move"], f["count"], f["length"], f["box"]) for f in state["flurries"]],
+                         [(["confetti"], 3, "burst", 12, 1.4, middle), (["red_heart"], 18.8, "rise", 8, 1.2,
+                                                                       state["clip"]["layout"]["places"]["top"])])
+        self.assertEqual(state["flurries"][1]["pngs"], [effects.sticker_png("red_heart")])
+        self.assertLess(state["flurries"][1]["size"], tools.FLURRY_SIZE, "shrunk to move inside the top place")
+        plain = dict(state, flurries=[])
+        for t in (3.7, 19.4):
+            self.assertNotEqual(pixels(render.frame(self.chat.recording, plain, t))[2],
+                                pixels(render.frame(self.chat.recording, state, t))[2], "the flurry shows at %g s" % t)
+        self.assertEqual(pixels(render.frame(self.chat.recording, plain, 10))[2],
+                         pixels(render.frame(self.chat.recording, state, 10))[2], "and only while it moves")
+
     def test_the_person_chooses_the_colours_of_a_look_for_every_part_or_for_one(self):
         brain, steps = self.run_job(
             *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],

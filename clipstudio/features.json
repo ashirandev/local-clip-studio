@@ -184,6 +184,62 @@
   "show": "sticker"
  },
  {
+  "tool": "add_flurry",
+  "group": "Effects",
+  "name": "Sticker burst",
+  "says": "A handful of stickers fly out from one spot every way, spinning, then drop a little and fade, like money thrown in the air.",
+  "ask": "Make money burst out when I get paid.",
+  "show": "flurry-burst"
+ },
+ {
+  "tool": "add_flurry",
+  "group": "Effects",
+  "name": "Sticker rain",
+  "says": "Stickers fall from the top one after another, swaying, such as coins raining down on a win.",
+  "ask": "Make coins rain down when I win.",
+  "show": "flurry-rain"
+ },
+ {
+  "tool": "add_flurry",
+  "group": "Effects",
+  "name": "Sticker fountain",
+  "says": "Stickers shoot up from the bottom and fall back, one after another, like a fountain.",
+  "ask": "Shoot gems up like a fountain on the big moment.",
+  "show": "flurry-fountain"
+ },
+ {
+  "tool": "add_flurry",
+  "group": "Effects",
+  "name": "Bouncing stickers",
+  "says": "Stickers drop from the top, bounce twice on the bottom and stay there.",
+  "ask": "Drop coins that bounce at the end.",
+  "show": "flurry-bounce"
+ },
+ {
+  "tool": "add_flurry",
+  "group": "Effects",
+  "name": "Rising hearts",
+  "says": "Stickers float up from the bottom to the top, swaying, like balloons or hearts.",
+  "ask": "Float hearts up when I say thank you.",
+  "show": "flurry-rise"
+ },
+ {
+  "tool": "add_flurry",
+  "group": "Effects",
+  "name": "Scattered stickers",
+  "says": "Stickers pop up one by one all over a box, stay a moment, then fade together.",
+  "ask": "Pop fire and stars all around the title.",
+  "show": "flurry-scatter"
+ },
+ {
+  "tool": "add_flurry",
+  "group": "Effects",
+  "name": "Party popper",
+  "says": "Confetti and stickers shoot up from both bottom corners like a party popper, then drift down.",
+  "ask": "Pop confetti when the clip ends.",
+  "show": "flurry-popper"
+ },
+ {
   "tool": "add_glass",
   "group": "Effects",
   "name": "Frosted glass box",

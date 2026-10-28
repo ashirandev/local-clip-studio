@@ -135,6 +135,18 @@ def _value(name, value, spec):
             raise Refused("%s must be a list of at most %d lists of numbers, such as [[600, 0, 1000, 300]]."
                           % (name, spec.get("maxItems", 100)))
         return [_value("%s %d" % (name, i), v, spec["items"]) for i, v in enumerate(value, 1)]
+    if kind == "array" and (spec.get("items") or {}).get("type") == "string":
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except ValueError:
+                value = [v for v in value.split(",") if v.strip()]
+        if isinstance(value, str):
+            value = [value]
+        low, high = spec.get("minItems", 0), spec.get("maxItems", 100)
+        if not isinstance(value, list) or not low <= len(value) <= high:
+            raise Refused("%s must be a list of %d to %d names." % (name, low, high))
+        return [_value("%s, name %d," % (name, i), v, spec["items"]) for i, v in enumerate(value, 1)]
     if kind == "string":
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             value = str(value)
@@ -2759,7 +2771,68 @@ def add_sticker(job, why, sticker, at, length=STICKER_LENGTH, place=None, box=No
     return "\n".join(lines)
 
 
-GLASS_TINTS = {"light": "the picture behind lightened, for dark words or busy colours",
+FLURRY_SIZE = 150
+
+
+def _flurry_size(pngs, box, move, count, length):
+    """The pictures' size in a flurry inside box: FLURRY_SIZE px on their longer side, or less, 10 px at a time
+    down to the smallest a flurry draws, so the copies move inside the box; Refused with the drawing's sentence when
+    even that is too big, or when anything else is wrong."""
+    error = None
+    for size in range(FLURRY_SIZE, effects.FLURRY_SIZES[0] - 1, -10):
+        try:
+            effects.flurry(pngs, 0, box, move, count, length, size)
+            return size
+        except ValueError as e:
+            if "too small" not in str(e):
+                raise Refused(str(e))
+            error = e
+    raise Refused(str(error))
+
+
+def add_flurry(job, why, stickers, at, move="burst", count=8, length=None, place=None, box=None, person_said=None):
+    asked = _asked(job, person_said)
+    rec = _open(job, "put a flurry on")
+    state = _clip_state(job)
+    clip_length = state["length"]
+    if not 0 <= at < clip_length:
+        raise Refused("at %g s is outside the clip, which is %g s long: use seconds of the clip." % (at, clip_length))
+    try:
+        pngs = [n if n == effects.CONFETTI else effects.sticker_png(n) for n in stickers]
+    except ValueError as e:
+        raise Refused(str(e))
+    if move not in effects.MOVES:
+        raise Refused("move %r is not a flurry's move: use one of %s." % (move, ", ".join(effects.MOVES)))
+    own = effects.MOVES[move][2] if length is None else length
+    length = min(own, round(clip_length - at, 2))
+    if length < effects.FLURRY_LENGTHS[0]:
+        raise Refused("At %g s the clip ends %g s later; a flurry needs %g s to move. Put it earlier."
+                      % (at, round(clip_length - at, 2), effects.FLURRY_LENGTHS[0]))
+    band, where = _spot("box", state, place, box)
+    size = _flurry_size(pngs, band, move, count, length)
+    notes = _phone(band, state["clip"]["layout"], state, asked)
+    more, hit = _off_faces(state, rec, band, at, at + length, asked, "flurry")
+    replaced = [f for f in state["flurries"] if project._same_box(f, {"box": band, "at": at, "length": length},
+                                                                  "at", "length")]
+    state = job.edit({"do": "flurry", "names": list(stickers), "pngs": pngs, "at": round(at, 2), "length": length,
+                      "box": band, "move": move, "count": count, "size": size})
+    said = effects.MOVES[move][0]
+    lines = ["A %s flurry of %d copies of %s from %g to %g s in %s%s: they %s" % (
+        move, count, " and ".join(stickers), at, round(at + length, 2), where,
+        "" if hit else ", clear of every face the program found", said[0].lower() + said[1:])]
+    if size < FLURRY_SIZE:
+        lines.append("The pictures are %d px, not %d, so they move inside the box; give a bigger box for bigger "
+                     "ones." % (size, FLURRY_SIZE))
+    if length < own:
+        lines.append("It ends with the clip, so the move takes %g s instead of %g s." % (length, own))
+    lines += notes + more
+    if replaced:
+        lines.append("It replaces %s." % ", ".join("the %s flurry at %g s" % (f["move"], f["at"]) for f in replaced))
+    lines.append(_show_frame(job, state, rec, at + length / 2.0, "The clip halfway through the flurry:"))
+    return "\n".join(lines)
+
+
+GLASS_TINTS ={"light": "the picture behind lightened, for dark words or busy colours",
                "dark": "the picture behind darkened, for white words on a bright picture"}
 
 
@@ -3705,6 +3778,8 @@ def describe(entry):
         return "the sticker %sat %g s" % (entry["name"] + " " if entry.get("name") else "", entry["at"])
     if entry["do"] == "glass":
         return "the %s glass box at %g-%g s" % (entry["tint"], entry["start"], entry["end"])
+    if entry["do"] == "flurry":
+        return "the %s flurry of %s at %g s" % (entry["move"], " and ".join(entry["names"]), entry["at"])
     if entry["do"] == "layout":
         return "changing the shots" if entry["part"] == "shots" else "moving the %s" % entry["part"]
     if entry["do"] == "untitle":
@@ -4191,6 +4266,35 @@ TOOLS = {t.name: t for t in [
                                          "chat, quoted. Then it goes there even over a face or where a phone covers "
                                          "it, and the result says so."}},
          ["sticker", "at"], add_sticker, changes=True),
+    Tool("add_flurry", "Send stickers flying",
+         "Send many copies of the studio's stickers moving together for a moment: money bursting out on a payout, "
+         "coins raining on a win, hearts rising on a thank-you, confetti at the end. The moves: " +
+         "; ".join("%s: %s" % (name, m[0].rstrip(".")) for name, m in effects.MOVES.items()) + ". Every copy stays "
+         "inside the box, so give a big one clear of faces (in a small one the pictures shrink to fit). One in a "
+         "clip, on the peak. A flurry on the same spot at an overlapping time replaces the earlier one.",
+         {"stickers": {"type": "array", "minItems": 1, "maxItems": effects.FLURRY_PICTURES,
+                       "items": {"type": "string", "enum": [s["name"] for s in effects.stickers()] + [effects.CONFETTI]},
+                       "description": "1 to %d of the studio's stickers by name, or %s for paper pieces in six "
+                                      "colours; the copies take them in turn." % (effects.FLURRY_PICTURES,
+                                                                                  effects.CONFETTI)},
+          "at": {"type": "number", "minimum": 0, "description": "When it starts, in seconds of the clip."},
+          "move": {"type": "string", "enum": list(effects.MOVES), "description": "How they move. Leave it out for "
+                                                                                 "burst."},
+          "count": {"type": "integer", "minimum": effects.FLURRY_COUNTS[0], "maximum": effects.FLURRY_COUNTS[1],
+                    "description": "How many copies. Leave it out for 8; 12 to 20 for rain or confetti."},
+          "length": {"type": "number", "minimum": effects.FLURRY_LENGTHS[0], "maximum": effects.FLURRY_LENGTHS[1],
+                     "description": "How long the move takes, in seconds. Leave it out for the move's own."},
+          "place": {"type": "string", "maxLength": 20,
+                    "description": "One of the layout's places for words, as make_clip listed them. Leave it out "
+                                   "when you give a box."},
+          "box": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0,
+                                                                              "maximum": 1000},
+                  "description": "[x1, y1, x2, y2] on a 0-1000 grid of the clip's vertical frame: where they move."},
+          "person_said": {"type": "string", "maxLength": 200,
+                          "description": "Only when the person asked for this exact spot: their own words from the "
+                                         "chat, quoted. Then it goes there even over a face or where a phone covers "
+                                         "it, and the result says so."}},
+         ["stickers", "at"], add_flurry, changes=True),
     Tool("add_glass", "Put a glass box on",
          "Put a frosted glass box on the clip for a title, a price or a list to stand on, so the words read over a "
          "busy picture: inside its rounded shape the picture is blurred and " +
