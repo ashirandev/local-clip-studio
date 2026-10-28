@@ -66,19 +66,25 @@
         </div>
       </div>
       <div class="panel" id="panel" hidden>
-        <div class="panel-group" role="group" aria-labelledby="capsHead">
+        <div class="part-tabs" id="partTabs" role="group" aria-label="What to change">
+          <button type="button" class="chip" data-show="caps" aria-pressed="true">Captions</button>
+          <button type="button" class="chip" data-show="look" aria-pressed="false">Colour</button>
+          <button type="button" class="chip" data-show="style" aria-pressed="false">Style</button>
+          <button type="button" class="chip" data-show="words" aria-pressed="false">Words</button>
+        </div>
+        <div class="panel-group" role="group" aria-labelledby="capsHead" data-part="caps">
           <p class="panel-head" id="capsHead">Captions</p>
           <div class="panel-row" id="capsRow"></div>
           <p class="panel-why" id="capsWhy" hidden></p>
           <div class="panel-row panel-sub" id="langRow" role="group" aria-label="Language of the captions"></div>
           <p class="panel-why" id="langWhy" hidden></p>
         </div>
-        <div class="panel-group" role="group" aria-labelledby="styleHead">
+        <div class="panel-group" role="group" aria-labelledby="styleHead" data-part="style">
           <p class="panel-head" id="styleHead">Text style</p>
           <div class="panel-cards" id="styleRow"></div>
           <p class="panel-why" id="styleWhy" hidden></p>
         </div>
-        <div class="panel-group" role="group" aria-labelledby="lookHead">
+        <div class="panel-group" role="group" aria-labelledby="lookHead" data-part="look">
           <p class="panel-head" id="lookHead">Colour look</p>
           <div class="panel-row" id="lookRow"></div>
           <p class="panel-why" id="lookWhy" hidden></p>
@@ -92,7 +98,7 @@
       <span class="clip-at" id="clipAtLine">0.0 s</span>
       <button type="button" class="ghost" id="clipUndo">Undo</button>
     </div>
-    <div class="words" id="words" hidden>
+    <div class="words" id="words" data-part="words" hidden>
       <p class="words-head">Words on the clip <span>Tap one to see it and change it.</span></p>
       <div class="lanes" id="lanes"></div>
       <form class="word-edit" id="wordEdit" hidden>

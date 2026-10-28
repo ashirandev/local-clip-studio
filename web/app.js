@@ -30,6 +30,7 @@ const clipAt = document.getElementById("clipAt");
 const clipAtLine = document.getElementById("clipAtLine");
 const clipUndo = document.getElementById("clipUndo");
 const panelBox = document.getElementById("panel");
+const partTabs = document.getElementById("partTabs");
 const panelNote = document.getElementById("panelNote");
 const wordsBox = document.getElementById("words");
 const lanes = document.getElementById("lanes");
@@ -742,8 +743,24 @@ function drawChoices(row, why, choices, act, card) {
   why.hidden = !reasons.length;
 }
 
+function showPart(name) {
+  room.part = name;
+  localStore("part", name);
+  partTabs.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.show === name)));
+  document.querySelectorAll("[data-part]").forEach((e) => e.classList.toggle("part-off", e.dataset.part !== name));
+}
+
+partTabs.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-show]");
+  if (b) showPart(b.dataset.show);
+});
+
 function drawPanel(d) {
   panelBox.hidden = false;
+  const wordsTab = partTabs.querySelector('[data-show="words"]');
+  wordsTab.hidden = !d.words.length;
+  const part = room.part || localStore("part") || "caps";
+  showPart(wordsTab.hidden && part === "words" ? "caps" : part);
   const caps = document.getElementById("capsRow");
   const langs = document.getElementById("langRow");
   const styles = document.getElementById("styleRow");

@@ -605,6 +605,10 @@ h2 { margin: 0 0 12px; font-size: 15px; }
 
 .frame { position: relative; }
 
+.part-tabs { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+
+.part-off { display: none !important; }
+
 .frame .layer { position: absolute; inset: 0; pointer-events: none; }
 
 .preview-line { margin: 8px 0 0; color: var(--muted); font-size: 14px; text-align: center; }
@@ -742,7 +746,7 @@ h2 { margin: 0 0 12px; font-size: 15px; }
 @container (max-width: 560px) {
   .studio { flex-direction: column; }
   .panel { width: auto; flex: none; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 16px; }
-  .panel-group:nth-child(2), .panel-note { grid-column: 1 / -1; order: 1; }
+  .panel-group[data-part="style"], .panel-note { grid-column: 1 / -1; order: 1; }
   .panel-cards { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 112px; overflow-x: auto; padding-bottom: 4px; }
 }
 
@@ -884,11 +888,11 @@ h2 { margin: 0 0 12px; font-size: 15px; }
     box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
     cursor: pointer;
   }
-  .clip[data-view="full"] { inset: 0; width: auto; display: flex; padding: 12px 16px 16px; border: 0; border-radius: 0; box-shadow: none; background: var(--bg); }
+  .clip[data-view="full"] { inset: 0; width: auto; display: flex; padding: 12px 16px 16px; border: 0; border-radius: 0; box-shadow: none; background: var(--bg); overflow-y: auto; }
   .clip[data-view="full"] h2 { padding: 0; font-size: 16px; margin: 0; }
   .clip[data-view="full"] .clip-head { margin-bottom: 10px; }
   .clip[data-view="full"] .studio { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
-  .clip[data-view="full"] .stage { flex: 1; min-height: 120px; display: grid; container-type: size; }
+  .clip[data-view="full"] .stage { flex: 1; min-height: 45dvh; display: grid; container-type: size; }
   .clip[data-view="full"] .panel:not([hidden]) { display: grid; width: auto; }
   .clip[data-view="full"] .words:not([hidden]) { display: block; }
   .clip[data-view="full"] .again:not([hidden]) { display: flex; }
