@@ -509,6 +509,97 @@ class Tools(unittest.TestCase):
                          "Setting it up is so easy.It costs 990 baht.")
         self.assertEqual({line["said"] for line in captions["lines"]}, {"ตั้งค่าเครื่อง ง่ายมาก", "ราคา 990 บาท"})
 
+    def test_sam_finds_the_person_once_and_a_title_behind_them_may_cross_a_face(self):
+        asked, broken = [], []
+
+        def cut_out(rec, start, end, face=None, on_progress=None, on_start=None):
+            asked.append((start, end, face))
+            on_progress(5, 10)
+            if broken:
+                raise tools.person.PersonError("Muse Glimmer could not step off the graphics card for SAM (refused).")
+            return {"path": "person.mkv", "person": "main", "fps": 10, "size": [320, 180], "from": start, "to": end}
+
+        had = tools.person.cut_out
+        tools.person.cut_out = cut_out
+        try:
+            _, steps = self.run_job(
+                *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("add_title", words="Boss down", start=5, end=9, place="top", behind=True, why="cover")],
+                [call("cut_out", look="grey", why="make him stand out")],
+                [call("cut_out", look="outline", start=2, end=4, why="an edge")],
+                [call("add_title", words="Boss down", start=5, end=9, place="top", behind=True, why="cover")],
+                [call("cut_out", look="glow", why="a glow")], "Done.")
+            early, grey, outline, title, glow = steps[-5:]
+            pieces = self.chat.project.state()["clip"]["pieces"]
+            face = self.chat.project.state()["clip"]["layout"].get("face")
+            state = self.chat.project.state()
+            broken.append(True)
+            self.chat.edit({"do": "mask", **{k: v for k, v in state["mask"].items() if k != "do"}, "from": 0, "to": 1})
+            _, failed = self.run_job([call("cut_out", why="again")], "Done.")
+        finally:
+            tools.person.cut_out = had
+        self.assertTrue(early["refused"])
+        self.assertIn("call cut_out first", early["result"])
+        self.assertFalse(grey["refused"], grey["result"])
+        self.assertIn("SAM 3.1 found the person through the clip, 0:30 to 0:50 of the recording, 10 pictures a second",
+                      grey["result"])
+        self.assertIn("The grey look is on from 0 to", grey["result"])
+        self.assertIn("The person was already found for this clip, so SAM did not run again.", outline["result"])
+        self.assertEqual(asked[0], (min(p[0] for p in pieces), max(p[1] for p in pieces), face))
+        self.assertEqual(state["mask"]["path"], "person.mkv")
+        self.assertEqual([(c["look"], c["start"], c["end"]) for c in state["cutouts"]], [("outline", 2, 4)],
+                         "a look at an overlapping time replaces the one before")
+        self.assertFalse(title["refused"], title["result"])
+        self.assertIn("It crosses a face at", title["result"])
+        self.assertIn("the person stands in front of it", title["result"])
+        self.assertTrue([t for t in state["titles"] if t["text"] == "Boss down"][0]["behind"])
+        self.assertTrue(glow["refused"])
+        self.assertIn("look must be one of: grey, outline.", glow["result"])
+        self.assertIn("The person could not be cut out: Muse Glimmer could not step off the graphics card for SAM "
+                      "(refused). Tell the person.", failed[-1]["result"])
+        self.assertEqual(len(asked), 2, "SAM runs again only when the clip's stretch is not covered")
+        self.assertEqual(self.chat.project.state()["mask"]["to"], 1, "a failed run leaves the clip as it was")
+
+    def test_a_line_that_leaves_out_a_number_is_asked_once_with_the_number_then_stands_and_is_named(self):
+        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "นะครับสามก่อนเข้าไปดู"},
+                               {"from": 5.0, "to": 8.0, "text": "ราคา 990 บาท"}]
+
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            brain, steps = self.run_job(
+                *self.to_moment()[:2],
+                [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the site"}])],
+                '{"lines": ["นะครับ<N1>ก่อนเข้าไปดู", "ราคา <N2> บาท"]}',
+                [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("add_captions", language="English", why="for viewers abroad")],
+                '{"lines": ["You can go see it.", "It costs 99 baht."]}',
+                '{"lines": ["You can go see it.", "It costs 990 baht."]}',
+                [call("decide_people", keep=[1], why="it is him")],
+                [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
+                [call("add_captions", language="English", lit=True, why="lit")], "Done.")
+        finally:
+            render.export = had
+        caps, checked, lit = steps[-5], steps[-2], steps[-1]
+        asked = [m for m in brain.sent if len(m) == 3 and "do not carry the numbers" in m[2]["content"]]
+        self.assertEqual(len(asked), 1)
+        self.assertIn('1. "นะครับสามก่อนเข้าไปดู" says 3; your line: "You can go see it."\n2. "ราคา 990 บาท" says 990; '
+                      'your line: "It costs 99 baht."', asked[0][2]["content"])
+        self.assertEqual(json.loads(asked[0][1]["content"])["lines"], ["You can go see it.", "It costs 99 baht."])
+        self.assertIn("numbers kept but in 1 where you were shown the number and left it out", caps["result"])
+        self.assertIn('- passed: Translated captions keep the numbers (1 of 2 sentences keep every number said; Muse was '
+                      'shown the number and wrote it as no number, which the person can check: "You can go see it." '
+                      'for "นะครับสามก่อนเข้าไปดู")', checked["result"], "Eaglet 10-28: four renders, then a red check")
+        self.assertFalse(lit["refused"], lit["result"])
+        self.assertEqual(len([m for m in brain.sent if "English subtitle" in m[0]["content"]]), 2,
+                         "a tap keeps the lines Muse already looked at twice")
+        self.assertEqual("".join(line["text"] for line in self.chat.project.state()["captions"]["lines"]),
+                         "You can go see it.It costs 990 baht.")
+
     def test_english_captions_that_do_not_line_up_are_asked_once_more_then_left_as_said(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "ตั้งค่าเครื่องง่ายมาก"},
                                {"from": 5.0, "to": 8.0, "text": "ราคาถูกมาก"}]
@@ -584,11 +675,19 @@ class Tools(unittest.TestCase):
             '{"lines": ["ตั้งค่าเครื่องง่ายมาก", "ราคาถูกมาก"]}',
             [call("make_clip", moment=1, layout="subject", why="the action")],
             [call("add_captions", why="captions")], '{"lines": ["Easy to set up.", "Really cheap."]}',
+            [call("add_title", words="ตั้งง่าย", start=0, end=3, place="top", why="the hook")],
+            [call("add_title", words="Easy setup", start=0, end=3, place="top", why="the hook")],
             [call("add_captions", language="ไทย", why="back to Thai")],
+            [call("add_title", words="ราคาถูก", start=3, end=6, place="middle", why="Thai again")],
             [call("load_recipe", type="talk", subtitles="Klingon", why="the kind")],
             "Done.")
-        recipe, english, thai_, klingon = steps[1], steps[-3], steps[-2], steps[-1]
+        recipe, english, thai_, klingon = steps[1], steps[-6], steps[-3], steps[-1]
+        self.assertFalse(steps[-2]["refused"], steps[-2]["result"])
         self.assertIn("captions in English", recipe["result"])
+        self.assertTrue(steps[-5]["refused"])
+        self.assertIn('the words on the clip in English, so a viewer who reads no Thai can follow: write "ตั้งง่าย" in '
+                      'English.', steps[-5]["result"])
+        self.assertFalse(steps[-4]["refused"], steps[-4]["result"])
         self.assertRegex(english["result"], r"^Captions on: 2 lines in English")
         self.assertRegex(thai_["result"], r"^Captions on: \d+ lines of what was said")
         self.assertNotIn("line up", thai_["result"])

@@ -245,6 +245,23 @@ class Arrange(unittest.TestCase):
         self.assertEqual(len(again.moments), 1)
         self.assertEqual(again.looks[again.moments[0]["look"] - 1]["end"], again.moments[0]["end"])
 
+    def test_words_asked_for_in_english_go_on_in_english_unless_the_person_typed_them(self):
+        self.chat.emit("person", job=None, text="ทำคลิปทริป ซับภาษาอังกฤษ เปิดด้วยคำว่า สถานีแรก")
+        thai = [{"clip": 2, "start": 0.5, "end": 2.5, "words": "ถึงสถานีแล้ว", "why": "where we are"},
+                {"clip": 1, "start": 1.0, "end": 2.0, "words": "Lunch", "why": "what we did first"},
+                {"clip": 3, "start": 0.0, "end": 1.9, "words": "จบวัน", "why": "the last thing seen"}]
+        typed = [dict(thai[0], words="สถานีแรก"), thai[1], dict(thai[2], words="The end")]
+        steps = self.run_job([call("open_clips", folder=self.folder, why="the trip's clips")],
+                             [call("load_recipe", type="montage", subtitles="English", why="clips of a trip")],
+                             [call("arrange_clips", story="the day", clips=thai, left_out=[], why="order")],
+                             [call("arrange_clips", story="the day", clips=typed, left_out=[], why="order")],
+                             "Done.")
+        self.assertTrue(steps[2]["refused"])
+        self.assertIn('in English, so a viewer who reads no Thai can follow: write these in English: "ถึงสถานีแล้ว"; '
+                      '"จบวัน".', steps[2]["result"])
+        self.assertFalse(steps[3]["refused"], steps[3]["result"])
+        self.assertEqual([t["text"] for t in self.chat.project.state()["titles"]], ["สถานีแรก", "Lunch", "The end"])
+
 
     def test_at_an_event_every_face_is_kept_and_one_is_blurred_by_its_number(self):
         def people(rec, pieces, face, span=None):

@@ -24,11 +24,12 @@ TOOL_CALL = [
 
 
 class Fake(BaseHTTPRequestHandler):
-    chunks, pause, status, asked, models = TOOL_CALL, 0, 200, [], []
+    chunks, pause, status, asked, models, states, loads = TOOL_CALL, 0, 200, [], [], {}, []
     refusal = b'{"error": "the request exceeds the available context size"}'
 
     def do_GET(self):
-        body = json.dumps({"data": [{"id": m} for m in self.models]}).encode()
+        body = json.dumps({"data": [dict({"id": m}, **({"status": {"value": self.states[m]}} if m in self.states
+                                                          else {})) for m in self.models]}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -36,6 +37,16 @@ class Fake(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        if self.path == "/models/load":
+            name = json.loads(self.rfile.read(int(self.headers["Content-Length"])))["model"]
+            Fake.loads.append((name, len(self.asked)))
+            Fake.states[name] = "loading"
+            threading.Timer(0.3, Fake.states.__setitem__, (name, "loaded")).start()
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+            return
         self.asked.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
         self.send_response(self.status)
         self.send_header("Content-Type", "text/event-stream" if self.status == 200 else "application/json")
@@ -93,6 +104,21 @@ class Stream(unittest.TestCase):
         Fake.models = []
         self.assertFalse(local.status()["ok"], "the server is asked, even with a model name")
         self.assertEqual(mind.MINDS["local"].model_id, os.environ.get("LCS_MIND_MODEL", "muse-glimmer"))
+
+    def test_a_router_that_holds_glimmer_unloaded_is_asked_to_load_it_before_the_question(self):
+        url = "http://127.0.0.1:%d/v1" % self.server.server_port
+        local = mind.Mind("local", "Muse Glimmer", url, model="muse-glimmer")
+        Fake.asked, Fake.loads, Fake.models, Fake.states = [], [], ["muse-glimmer"], {"muse-glimmer": "unloaded"}
+        try:
+            got = local.ask([{"role": "user", "content": "hi"}])
+            self.assertEqual(Fake.loads, [("muse-glimmer", 0)], "loaded once, before the question was sent")
+            self.assertEqual((len(Fake.asked), got["thinking"]), (1, "The person wants the newest files."))
+            local.ask([{"role": "user", "content": "hi"}])
+            Fake.states = {}
+            local.ask([{"role": "user", "content": "hi"}])
+            self.assertEqual(len(Fake.loads), 1, "a loaded model, or a server of one model, is just asked")
+        finally:
+            Fake.models, Fake.states = [], {}
 
     def test_cancel_stops_a_question_in_flight_within_a_second(self):
         Fake.pause = 10

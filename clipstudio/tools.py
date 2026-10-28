@@ -18,8 +18,8 @@ import time
 
 import numpy as np
 
-from . import (effects, faces, focus, hearing, layouts, maps, mind, montage, pauses, previews, project, recording,
-               render, voices,
+from . import (effects, faces, focus, hearing, layouts, maps, mind, montage, pauses, person, previews, project,
+               recording, render, voices,
                screen, spoken, takes, talk, text, thai, tracks, words)
 from .recipes import RECIPES, SIGNALS
 
@@ -441,6 +441,10 @@ def arrange_clips(job, why, story, clips, left_out=None):
         problems.append("%d line%s of words for %g s: give at least %d, one for each part of the story, so the "
                         "viewer knows what each part is." % (len(lines), "" if len(lines) == 1 else "s",
                                                              round(length, 1), round(length / LINE_EVERY)))
+    thai = _thai_for_english(job, [ln["text"] for ln in lines])
+    if thai:
+        problems.append("The person asked for the words on the clip in English, so a viewer who reads no Thai can "
+                        "follow: write these in English: %s." % "; ".join('"%s"' % t for t in thai))
     if problems:
         raise Refused("Nothing was joined. Fix all of these, then call it again:\n- " + "\n- ".join(problems))
     try:
@@ -1726,6 +1730,16 @@ def _spot(name, state, place, box):
     raise Refused("Give a box, or one of the layout's places for words: %s." % ", ".join(lay["places"]))
 
 
+def _thai_for_english(job, texts):
+    """The texts Muse wrote in Thai when the person asked for the words on the clip in English, so a viewer who reads
+    no Thai can follow; words the person typed themselves pass. The captions are not among them: they say what was
+    said, and add_captions translates them."""
+    if _subtitles((job.chat.clip or {}).get("subtitles")) != "English":
+        return []
+    said = " ".join(" ".join(e["text"].split()) for e in job.chat.events if e["kind"] == "person")
+    return [t for t in texts if re.search("[ก-๛]", t) and " ".join(t.split()) not in said]
+
+
 def _asked(job, person_said):
     """True when person_said quotes words the person typed in this chat, False when it is empty; Refused when the
     person never said it, so Muse cannot claim a request nobody made."""
@@ -1739,10 +1753,16 @@ def _asked(job, person_said):
     return True
 
 
-def add_title(job, why, words, start, end, place=None, key=None, box=None, person_said=None):
+def add_title(job, why, words, start, end, place=None, key=None, box=None, person_said=None, behind=False):
     asked = _asked(job, person_said)
     rec = _open(job, "put words on")
     state = _clip_state(job)
+    if behind and not state["mask"]:
+        raise Refused("A title goes behind the person once the person is found: call cut_out first, then put the title "
+                      "on again with behind true.")
+    if _thai_for_english(job, [words]):
+        raise Refused("The person asked for the words on the clip in English, so a viewer who reads no Thai can "
+                      "follow: write \"%s\" in English." % words)
     try:
         (words,), spelling = _spell(job, [words])
     except hearing.Stopped:
@@ -1786,7 +1806,9 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
     notes = _phone(drawn, lay, state, asked)
     times, every = _face_times(state, rec)
     hit = _covered(drawn, times, every, start, end)
-    if hit and asked:
+    if hit and behind:
+        notes.append("It crosses a face at %s, and the person stands in front of it." % _spans(hit))
+    elif hit and asked:
         notes.append("It covers a face%s at %s, where the person asked for it; tell the person." % (
             " or the product" if state["clip"].get("product") else "", _spans(hit)))
     elif hit:
@@ -1802,8 +1824,11 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
         raise Refused("At the %s, the title would cover a face%s at %s. Clear: %s. Pick a time or a place from these.%s"
                       % (place, " or the product" if state["clip"].get("product") else "", _spans(hit),
                          "; ".join(others), stuck))
-    state = job.edit({"do": "title", "text": words, "start": round(start, 2), "end": round(end, 2), "place": place,
-                      "box": band, "key": key})
+    entry = {"do": "title", "text": words, "start": round(start, 2), "end": round(end, 2), "place": place,
+             "box": band, "key": key}
+    if behind:
+        entry["behind"] = True
+    state = job.edit(entry)
     lines = ['The title "%s" is on screen at the %s from %g to %g s: %d line%s, %d x %d px%s.' % (
         words, place, start, end, len(size.lines), "" if len(size.lines) == 1 else "s", size.w, size.h,
         "" if hit else ", clear of every face the program found%s" % (
@@ -1833,6 +1858,9 @@ SUBTITLE_ASK = ("These are the spoken sentences of a short vertical clip (%s), i
                 "short, the meaning and not word for word; keep every number the sentence says, and add none; keep "
                 "names written in Latin letters exactly as they are%s; when a sentence is only a filler sound, write "
                 "it short (\"Yeah.\", \"Huh?\"). One %s line for each sentence, in the same order.\n\n%s")
+NUMBER_ASK = ("These lines do not carry the numbers their sentences say:\n%s\nGive each line the numbers its sentence "
+              "says, and no others. Where a word is not a number in that sentence (the speech recognition may have "
+              "misheard it), write the line as it was. Answer with all %d lines again, in the same order.")
 HITS = {"flash": "a short white flash", "shake": "the picture shakes and settles", "punch": "a quick zoom in and back",
         "word": "a big word that pops in, such as POW"}
 
@@ -2071,35 +2099,60 @@ def _sentences(phrases):
 
 
 def _translated(job, rec, state, units, language, said_in):
-    """Muse's subtitle in language for each unit, asked apart from the job, or None when twice the lines it wrote
-    did not line up one for one with the units. When the clip's captions already hold each sentence in language,
-    translated from the same words and keeping its numbers, they are kept: a tap on the page (Plain, Lit, Pop) never
-    asks Muse, and Muse putting the same captions on lit is not asked to translate them again. A line that lost a
-    number is asked again, so putting the captions on again is how Muse fixes the check that found it."""
+    """(Muse's subtitle in language for each unit, the units whose line leaves out a number Muse was shown), asked
+    apart from the job, or None when twice the lines it wrote did not line up one for one with the units. A line
+    that leaves out a number said is asked for once more with the number named, since the hearing can mishear a
+    word as a number (Eaglet 10-28: "นะครับสามก่อนเข้าไปดู", where สามารถ, can, was heard as สาม, three, and four
+    lines translated it rightly as "you can go see it" and failed the check each time). What Muse writes then
+    stands, and check_clip names the line for the person. When the clip's captions already hold each sentence in
+    language, translated from the same words, they are kept: a tap on the page (Plain, Lit, Pop) never asks Muse,
+    and Muse putting the same captions on lit is not asked to translate them again. A held line that lost a number
+    Muse was never shown is asked again, so putting the captions on again is how Muse fixes the check."""
     caps = (state["captions"] or {}).get("lines") or []
     held = {}
     if (state["captions"] or {}).get("language") == language:
         for k in {line["phrase"] for line in caps}:
             mine = [line for line in caps if line["phrase"] == k]
             held[(round(mine[0]["from"], 2), round(mine[-1]["to"], 2), mine[0].get("said"))] = \
-                "".join(line["text"] for line in mine).strip()
+                ("".join(line["text"] for line in mine).strip(), bool(mine[0].get("no_number")))
     kept = [held.get((u["from"], u["to"], u["text"])) for u in units]
-    if all(kept) and not any(_numbers_differ(u["text"], s) for u, s in zip(units, kept)):
-        return kept
+    if all(kept) and not any(_numbers_differ(u["text"], s) and not shown for u, (s, shown) in zip(units, kept)):
+        return [s for s, _ in kept], {k for k, (_, shown) in enumerate(kept) if shown}
     kind = (job.chat.clip or {}).get("title") or "a video"
     names = [w for w in dict.fromkeys(_screen_words(job, rec, state)) if len(w) >= 4][:SCREEN_NAMES]
     listing = "\n".join("%d. (%.1f s) %s" % (k, u["to"] - u["from"], u["text"]) for k, u in enumerate(units, 1))
     shown = "; the screen writes these words this way: %s" % ", ".join(names) if names else ""
-    ask = SUBTITLE_ASK % (kind, said_in, language, said_in, language, shown, language, listing)
-    for _ in range(2):
+    talk = [{"role": "user", "content": SUBTITLE_ASK % (kind, said_in, language, said_in, language, shown, language,
+                                                         listing)}]
+    lines = _subtitle_lines(job, talk, len(units), language, 2)
+    if lines is None:
+        return None
+    lost = [k for k, (u, s) in enumerate(zip(units, lines)) if _numbers_differ(u["text"], s)]
+    if not lost:
+        return lines, set()
+    named = "\n".join('%d. "%s" says %s; your line: "%s"' % (
+        k + 1, units[k]["text"], " and ".join("/".join("%g" % v for v in sorted(c)) for c in _said_numbers(
+            units[k]["text"])) or "no number", lines[k]) for k in lost)
+    talk += [{"role": "assistant", "content": json.dumps({"lines": lines}, ensure_ascii=False)},
+             {"role": "user", "content": NUMBER_ASK % (named, len(units))}]
+    again = _subtitle_lines(job, talk, len(units), language, 1)
+    if again is None:
+        return lines, set()
+    for k in lost:
+        lines[k] = again[k]
+    return lines, {k for k in lost if _numbers_differ(units[k]["text"], lines[k])}
+
+
+def _subtitle_lines(job, talk, count, language, tries):
+    """The count lines Muse writes for talk, or None when in tries asks they never came one for each sentence."""
+    for _ in range(tries):
         try:
-            got = json.loads(job.ask_aside([{"role": "user", "content": ask}], SUBTITLE_SCHEMA,
-                                           "Writing the %s subtitles" % language))["lines"]
+            got = json.loads(job.ask_aside(talk, SUBTITLE_SCHEMA, "Writing the %s subtitles" % language))["lines"]
         except mind.MindError as e:
             raise Refused("Muse writes the %s captions, and Muse could not be asked: %s" % (language, e))
         except (ValueError, KeyError, TypeError):
             continue
-        if isinstance(got, list) and len(got) == len(units) and all(isinstance(s, str) and s.strip() for s in got):
+        if isinstance(got, list) and len(got) == count and all(isinstance(s, str) and s.strip() for s in got):
             return [" ".join(s.split()) for s in got]
     return None
 
@@ -2160,7 +2213,7 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
     if not phrases:
         raise Refused("Nothing was heard clearly in this moment, so there are no words to caption. Leave the captions "
                       "off, and say so in your answer.")
-    translated, first = None, list(range(len(phrases)))
+    translated, first, unnumbered = None, list(range(len(phrases))), set()
     try:
         texts, spelling = _spell(job, [p["text"] for p in phrases])
         for phrase, p, words_ in zip(phrases, heard, texts):
@@ -2168,7 +2221,7 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
         said_in = _spoken(job, texts)
         if target and target != said_in:
             units = _sentences(phrases)
-            translated = _translated(job, rec, state, units, target, said_in)
+            translated, unnumbered = _translated(job, rec, state, units, target, said_in) or (None, set())
     except hearing.Stopped:
         return "No captions: the person pressed Stop."
     shown = [{"from": u["from"], "to": u["to"], "text": s} for u, s in zip(units, translated)] if translated else \
@@ -2180,6 +2233,8 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
     for line in lines:
         if translated:
             line["said"] = units[line["phrase"]]["text"]
+        if line["phrase"] in unnumbered:
+            line["no_number"] = True
         if (shown[line["phrase"]]["from"], shown[line["phrase"]]["to"]) in typed:
             line["typed"] = True
     if translated:
@@ -2201,8 +2256,10 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
     under = ("each under the face of the person who says it" if entry.get("bands") and any(
         line.get("who") for line in lines) else "in the band from y %d to %d" % (band[1], band[1] + band[3]))
     out = ["Captions on: %d lines %s, %s; %s."
-           % (len(lines), "in %s, translated from the %d sentences said in %s, numbers kept" % (
-               target, len(units), said_in) if translated else "of what was said, numbers exactly as heard", under,
+           % (len(lines), "in %s, translated from the %d sentences said in %s, %s" % (
+               target, len(units), said_in, "numbers kept" if not unnumbered else
+               "numbers kept but in %d where you were shown the number and left it out, which the check will name to "
+               "the person" % len(unnumbered)) if translated else "of what was said, numbers exactly as heard", under,
               "each word lights up as it is said" if lit else
               "each word pops in at its place as it is said and stays, so once said the line looks plain" if pop else
               "plain words, none lit, so the eye stays on the picture")]
@@ -2834,14 +2891,18 @@ def check_clip(job, why):
     sentences = {}
     for line in lines:
         if "said" in line and not line.get("typed"):
-            sentences.setdefault(line["phrase"], [line["said"], ""])[1] += line["text"]
+            sentences.setdefault(line["phrase"], [line["said"], "", line.get("no_number")])[1] += line["text"]
     if sentences:
-        off = ['"%s" for "%s"' % (t.strip(), s) for s, t in sentences.values()
-               if _numbers_differ(s, t)]
+        differ = [('"%s" for "%s"' % (t.strip(), s), shown) for s, t, shown in sentences.values()
+                  if _numbers_differ(s, t)]
+        off = [d for d, shown in differ if not shown]
+        read = [d for d, shown in differ if shown]
         check("Translated captions keep the numbers", not off,
-              "%d of %d sentences keep every number said" % (len(sentences) - len(off), len(sentences)) +
+              "%d of %d sentences keep every number said" % (len(sentences) - len(differ), len(sentences)) +
               ("; not kept: %s; put the captions on again and those lines are translated again"
-               % "; ".join(off[:3]) if off else ""))
+               % "; ".join(off[:3]) if off else "") +
+              ("; Muse was shown the number and wrote it as no number, which the person can check: %s"
+               % "; ".join(read[:3]) if read else ""))
     if kind == "seller":
         wrong = [n for t in state["titles"] for n in _not_said(t["text"], said)]
         unread = _numbers_unread(job, said) if wrong else None
@@ -3147,7 +3208,57 @@ def undo(job, why):
     return "Took back %s." % describe(entry)
 
 
+def cut_out(job, why, look=None, start=None, end=None):
+    """Finds the person through the clip with SAM 3.1 (person.cut_out), once for the clip's stretch of the recording,
+    so titles can go behind them and the clip can take a cut-out look. The mask is kept: asking again with another
+    look or time does not run SAM again."""
+    rec = _open(job, "cut the person out of")
+    state = _clip_state(job)
+    clip, length = state["clip"], state["length"]
+    a, b = min(p[0] for p in clip["pieces"]), max(p[1] for p in clip["pieces"])
+    held = state["mask"]
+    said = []
+    if held and held["from"] <= a + 0.01 and b - 0.01 <= held["to"]:
+        said.append("The person was already found for this clip, so SAM did not run again.")
+    else:
+        job.working("SAM 3.1 is finding the person: starting")
+        try:
+            mask = person.cut_out(rec, a, b, face=clip["layout"].get("face"), on_start=job.started_work,
+                                  on_progress=lambda done, of: job.working(
+                                      "SAM 3.1 is finding the person: picture %d of %d" % (done, of)))
+        except ValueError as e:
+            raise Refused(str(e))
+        except person.Stopped:
+            return "Not cut out: the person pressed Stop."
+        except person.PersonError as e:
+            return "The person could not be cut out: %s Tell the person." % e
+        finally:
+            job.done_working()
+        state = job.edit(dict(mask, do="mask"))
+        said.append("SAM 3.1 found the person through the clip, %s to %s of the recording, %d pictures a second."
+                    % (recording.clock(a), recording.clock(b), mask["fps"]))
+    if look:
+        s = 0.0 if start is None else start
+        e = length if end is None else min(end, length)
+        if not 0 <= s < e:
+            raise Refused("start %g s and end %g s do not make a time inside the clip, which is %g s long."
+                          % (s, e, length))
+        job.edit({"do": "cutout", "look": look, "start": round(s, 2), "end": round(e, 2)})
+        said.append("The %s look is on from %g to %g s: %s." % (look, s, e, CUTOUT_LOOK_SAYS[look]))
+    said.append("A title put on with behind true now goes behind the person.")
+    return "\n".join(said)
+
+
+CUTOUT_LOOK_SAYS = {"grey": "the footage around the person is black and white, and the person keeps their colour",
+                    "outline": "a white edge goes around the person"}
+
+
 def describe(entry):
+    if entry["do"] == "mask":
+        return "finding the person with SAM 3.1"
+    if entry["do"] == "cutout":
+        return "the %s cut-out look at %g-%g s" % (entry["look"], entry["start"], entry["end"]) if entry["look"] \
+            else "taking the cut-out look off at %g-%g s" % (entry["start"], entry["end"])
     if entry["do"] == "clip":
         return "the clip from moment %d in the %s layout" % (entry["moment"], entry["layout"]["kind"])
     if entry["do"] == "style":
@@ -3466,8 +3577,27 @@ TOOLS = {t.name: t for t in [
                                          "them. Then the title goes there even over a face or where a phone covers "
                                          "it, and the result says so; when you choose, those are refused."},
           "key": {"type": "string", "maxLength": 40,
-                  "description": "One word of the title to draw in the style's key colour. Leave it out for none."}},
+                  "description": "One word of the title to draw in the style's key colour. Leave it out for none."},
+          "behind": {"type": "boolean",
+                     "description": "true puts the title behind the person, so their head and body cross in front of "
+                                    "the words, as on a magazine cover. It needs cut_out first. Then a title may "
+                                    "cross a face: the face stays in front."}},
          ["words", "start", "end"], add_title, changes=True),
+    Tool("cut_out", "Found the person",
+         "Find the person through the whole clip with SAM 3.1, Meta's model that follows a person frame by frame, "
+         "so a title can go behind them (add_title with behind true) and the clip can take a cut-out look. It takes "
+         "about a minute: Muse steps off the graphics card while SAM works, and comes back after. The person is "
+         "found once; calling it again only changes the look. Use it when the person asks for words behind them or "
+         "a cut-out look, or when a title behind the person makes a product or talk clip stand out.",
+         {"look": {"type": "string", "enum": list(render.CUTOUT_LOOKS),
+                   "description": "grey: the footage around the person goes black and white, and the person keeps "
+                                  "their colour. outline: a white edge around the person. Leave it out to only find "
+                                  "the person, for a title behind them."},
+          "start": {"type": "number", "minimum": 0, "description": "When the look starts, in seconds of the clip. "
+                                                                   "Leave it out for the start."},
+          "end": {"type": "number", "minimum": 0, "description": "When the look ends, in seconds of the clip. Leave "
+                                                                 "it out for the end."}},
+         [], cut_out, changes=True),
     Tool("remove_title", "Took a title off",
          "Take a title off the clip, by its words.",
          {"words": {"type": "string", "maxLength": 80, "description": "The title's words, as on the clip."}},

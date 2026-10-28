@@ -27,6 +27,7 @@ import urllib.parse
 import urllib.request
 
 TIMEOUT = 900
+LOAD_SECONDS = 120
 CHAT_TEMPERATURE = 0.7
 
 
@@ -154,6 +155,42 @@ class Mind:
             return dict(out, ok=False, why="The server at %s has no model loaded." % self.url)
         return dict(out, ok=True, name=self.model_id if self.model_id in ids else os.path.basename(ids[0]))
 
+    def on_card(self):
+        """Loads the model and waits for it when a router llama-server holds it unloaded. Started with
+        --no-models-autoload, as the README shows, the router loads a model only when asked to, so nothing but the
+        studio brings Glimmer back onto the graphics card while SAM 3.1 has it step aside (10-28: a question from
+        another program loaded it 5 s into a SAM run, beside SAM and partly off the card, and it wrote 5.2 tokens a
+        second instead of 47.5). Nothing to do for the hosted API, or for a server of one model, whose list of models
+        carries no state."""
+        if self.key_env or not self.model_id:
+            return
+        root = self.url[:-3] if self.url.endswith("/v1") else self.url
+        until, asked = time.time() + LOAD_SECONDS, False
+        while True:
+            try:
+                got = self._call("/models")
+            except (OSError, ValueError):
+                return
+            row = next((m for m in got.get("data") or [] if m.get("id") == self.model_id), None)
+            state = ((row or {}).get("status") or {}).get("value")
+            if state in (None, "loaded"):
+                return
+            if state == "unloaded" and not asked:
+                req = urllib.request.Request(root + "/models/load", json.dumps({"model": self.model_id}).encode(),
+                                             {"Content-Type": "application/json"})
+                try:
+                    urllib.request.urlopen(req, timeout=LOAD_SECONDS).close()
+                except urllib.error.HTTPError as e:
+                    if e.code != 400:
+                        raise MindError("%s could not be loaded onto the graphics card (HTTP %d)."
+                                        % (self.label, e.code))
+                except OSError as e:
+                    raise MindError(self.unreachable(e))
+                asked = True
+            if time.time() > until:
+                raise MindError("%s was not loaded onto the graphics card within %d s." % (self.label, LOAD_SECONDS))
+            time.sleep(0.25)
+
     def unreachable(self, e):
         if self.key_env:
             return "Meta's API did not answer at %s (%s)." % (self.url, _reason(e))
@@ -174,6 +211,7 @@ class Mind:
         """
         if self.key_env and not self.secret():
             raise MindError("Set %s to your own Meta API key to use %s." % (self.key_env, self.label))
+        self.on_card()
         msgs = list(messages)
         if self.reasoning_line:
             if msgs and msgs[0].get("role") == "system":

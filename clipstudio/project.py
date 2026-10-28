@@ -33,13 +33,17 @@ the recording, and boxes on the frame are pixels of the 1080x1920 clip.
   "duck": dB lower while someone speaks}, or {"path": None} to take it off
 - people: {"blur": [person numbers], "keep": [person numbers]}: who of the clip's people is blurred; a later
   decision about the same person wins, and a new clip entry starts with nobody decided
+- mask: {"path", "person", "fps", "size", "from", "to"}: the person found frame by frame over recording seconds from
+  to (person.cut_out), for the cut-out looks and the titles behind the person; the last one stands
+- cutout: {"look": grey or outline, "start", "end"}, or {"look": None, "start", "end"} to take the looks at that time
+  off; a cut-out look at an overlapping time replaces an earlier one
 """
 
 import hashlib
 import json
 
 DOES = ("clip", "style", "title", "captions", "blur", "hit", "sticker", "people", "look", "push", "layout", "untitle",
-        "sound", "music", "glass")
+        "sound", "music", "glass", "mask", "cutout")
 
 
 class Project:
@@ -62,12 +66,12 @@ class Project:
         None, "blurs": [blur entries], "hits": [hit entries inside the clip], "stickers": [sticker entries inside the
         clip], "glass": [glass entries inside the clip], "look": the colour look's name or None, "pushes": [push entries inside the clip], "people": the clip's
         people, each with "blur" True, False or None when not decided, "sounds": [sound entries inside the clip],
-        "music": the last music entry with a path or None, "speech": the clip's speech spans or None}. A blurred
-        person's track is one of the blurs. A new clip entry keeps the words and effects; what starts after its end
-        is not drawn."""
+        "music": the last music entry with a path or None, "speech": the clip's speech spans or None, "mask": the last
+        mask entry or None, "cutouts": [cutout entries inside the clip]}. A blurred person's track is one of the
+        blurs. A new clip entry keeps the words and effects; what starts after its end is not drawn."""
         clip = style = captions = None
-        titles, blurs, hits, stickers, pushes, sounds, glass = [], [], [], [], [], [], []
-        look = music = None
+        titles, blurs, hits, stickers, pushes, sounds, glass, cutouts = [], [], [], [], [], [], [], []
+        look = music = mask = None
         decided = {}
         for e in self.entries:
             if e["do"] == "clip":
@@ -103,6 +107,11 @@ class Project:
             elif e["do"] == "people":
                 decided.update({n: True for n in e["blur"]})
                 decided.update({n: False for n in e["keep"]})
+            elif e["do"] == "mask":
+                mask = e
+            elif e["do"] == "cutout":
+                cutouts = [c for c in cutouts if not (c["start"] < e["end"] and e["start"] < c["end"])]
+                cutouts += [e] if e["look"] else []
         length = round(sum(b - a for a, b in clip["pieces"]), 2) if clip else 0
         inside = (lambda when: clip is not None and when < length)
         people = [dict(p, blur=decided.get(p["n"])) for p in (clip or {}).get("people") or []]
@@ -120,7 +129,9 @@ class Project:
                 "people": people,
                 "sounds": sorted([s for s in sounds if inside(s["at"])], key=lambda s: s["at"]),
                 "music": music if clip else None,
-                "speech": clip.get("speech") if clip else None}
+                "speech": clip.get("speech") if clip else None,
+                "mask": mask if clip else None,
+                "cutouts": sorted([c for c in cutouts if inside(c["start"])], key=lambda c: c["start"])}
 
 
 def signature(entries):

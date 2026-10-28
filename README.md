@@ -90,8 +90,12 @@ load-on-startup = true
 ```
 
 ```
-llama-server --models-preset glimmer.ini --models-max 1 --host 127.0.0.1 --port 8863
+llama-server --models-preset glimmer.ini --models-max 1 --no-models-autoload --host 127.0.0.1 --port 8863
 ```
+
+`--no-models-autoload` means only the studio loads Glimmer: a question from another program cannot bring it back
+while SAM has the card. (Measured 10-28: brought back 5 s into a SAM run, it sat beside SAM, partly off the card, and
+wrote 5.2 tokens a second instead of 47.5.) When a question finds Glimmer unloaded, the studio loads it first.
 
 The studio looks for it at `http://127.0.0.1:8863/v1` and names the model `muse-glimmer` in every question
 (`LCS_MIND_MODEL`). Set `LCS_MIND_URL` to point it at any other server that runs an eligible Muse model; a server
@@ -100,6 +104,21 @@ that runs one model without a preset works too, but then nothing that needs SAM 
 **2. Muse Spark on Meta's API.** This route needs no graphics card. Set `META_API_KEY` to your own key before
 starting the studio. `LCS_SPARK_MODEL` picks the model (default `muse-spark-1.3`). The key is read from the
 environment and is never written anywhere.
+
+**SAM 3.1, for the cut-out looks (optional).** SAM finds the person frame by frame, so words can sit behind them. It
+runs in its own Python as a worker, and Glimmer steps off the graphics card while it works, then comes back. A
+6-second stretch took 54 s on the RTX 5070 Ti, and Glimmer came back at 47.8 tokens a second (measured 10-28).
+
+| | |
+|---|---|
+| Weights | `sam3.1_multiplex_fp16.safetensors`: Meta's SAM 3.1 multiplex checkpoint in fp16, as repackaged by Comfy-Org ([Comfy-Org/sam3.1](https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors), not gated). Meta's original is `facebook/sam3.1` (`sam3.1_multiplex.pt`, gated) |
+| Size | 1,745,546,848 bytes |
+| SHA-256 | `9ba99c92703c2e8b4f47de2d34a539bb8e18923049e238b780d70dbe6368eb03`, the same as Hugging Face's own record (checked 10-28) |
+| Code | [facebookresearch/sam3](https://github.com/facebookresearch/sam3) at `f1647e8d`, in its own Python 3.11 with PyTorch 2.14.1 and CUDA 13.0; the install lines are at the top of `cutting/cut.py` |
+| Licence | SAM License (Meta, last updated 19 Nov 2025) |
+
+Set `LCS_SAM_PYTHON` to that Python's `python.exe` and `LCS_SAM_WEIGHTS` to the file. Without them, everything
+else works the same.
 
 ## How the agent works
 
@@ -248,6 +267,7 @@ Each piece is listed with its licence. The Status column says whether this build
 | [FFmpeg](https://ffmpeg.org/) | reads each recording (ffprobe) and takes pictures from it; later cuts and renders the clip | LGPL-2.1+ (GPL for some builds) | used |
 | [Omnilingual ASR](https://github.com/facebookresearch/omnilingual-asr) (Meta), CTC 1B v2 | writes down what is said, in many languages, with the time of every phrase | Apache-2.0 | used |
 | [FLEURS](https://huggingface.co/datasets/google/fleurs) (Google), Thai *train* transcripts | counted once into `clipstudio/thai_marks.json`, which puts back the Thai vowel marks Omnilingual cannot write | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | used |
+| [SAM 3.1](https://github.com/facebookresearch/sam3) (Meta) | finds the person frame by frame, for the cut-out looks and the titles behind the person (`cut_out`) | SAM License | used |
 | [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) (OpenCV Zoo) | finds faces, so the layouts frame them and words never cover one | MIT | used |
 | [OpenCV](https://opencv.org/) (`opencv-python`) | runs YuNet | Apache-2.0 | used |
 | [PyThaiNLP](https://github.com/PyThaiNLP/pythainlp) | breaks Thai titles and captions at word boundaries | Apache-2.0 | used |
