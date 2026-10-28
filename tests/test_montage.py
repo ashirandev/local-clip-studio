@@ -9,9 +9,10 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, hearing, montage, recording, tools  # noqa: E402
+from clipstudio import agent, hearing, montage, recording, takes, tools  # noqa: E402
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_hearing import Worker  # noqa: E402
+from test_takes import ASIDE, GAVE_UP  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
 
@@ -168,6 +169,18 @@ class Arrange(unittest.TestCase):
         self.assertRegex(said, r"does not move at (1\.9\d|2(\.\d+)?)-4 s: a frozen screen")
         self.assertEqual(len(self.chat.clips["clips"]), 3)
         self.assertEqual([c["n"] for c in agent.Chat.load(self.chat.id).clips["clips"]], [1, 2, 3])
+
+    def test_with_clips_open_any_recipe_asked_is_the_montage_until_another_recording_opens(self):
+        steps = self.run_job([call("open_clips", folder=self.folder, why="the review's takes")],
+                             [call("load_recipe", type="seller", length_s=60, why="a review")],
+                             [call("open_recording", path=os.path.join(self.folder, "a_late.mov"), why="one take")],
+                             [call("load_recipe", type="seller", length_s=60, why="a review of one take")], "Done.")
+        self.assertIn("so this is the montage recipe, not the seller one you asked for", steps[1]["result"])
+        self.assertIn("# Trip or event clips", steps[1]["result"])
+        self.assertNotIn("not the seller one", steps[3]["result"])
+        self.assertIn("Recipe loaded: Trip or event clips (montage).", steps[1]["result"])
+        self.assertIn("about 60 s", steps[1]["result"], "Muse's guess is kept")
+        self.assertEqual((self.chat.clip["recipe"], self.chat.clip["length_s"]), ("seller", 60))
 
     def test_the_montage_recipe_needs_clips_open(self):
         steps = self.run_job([call("load_recipe", type="montage", why="a trip")], "Done.")
@@ -336,6 +349,62 @@ class Fit(unittest.TestCase):
         self.assertEqual([round(p["to"] - p["from"], 2) for p in pieces], [5.0, 2.0, 7.0], "never longer")
 
 
+class Talking(unittest.TestCase):
+    """A review told over several takes (Tarm's yeti folder, 10-28): Muse joined the first 8 s of each, his clap and
+    the take he gave up before it included. Here his own lines, 100 s earlier, in a 26 s clip that talks through."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.made = tempfile.mkdtemp()
+        make_clip(os.path.join(cls.made, "review.mov"), seconds=26.0, shot="2026-03-10T14:00:00+0900")
+        make_clip(os.path.join(cls.made, "desk.mov"), seconds=3.0, shot="2026-03-10T15:00:00+0900")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.made, ignore_errors=True)
+
+    def setUp(self):
+        Arrange.setUp(self)
+        rec = recording.probe(os.path.join(self.folder, "review.mov"))
+        hearing.keep(rec, 0.0, rec["seconds"], [dict(p, **{"from": round(p["from"] - 100, 2),
+                                                           "to": round(p["to"] - 100, 2)}) for p in GAVE_UP])
+        self.heard_claps, self.fix = takes.heard_claps, hearing.fix
+        takes.heard_claps = lambda r, a=0.0, b=None: [[16.02, 16.37, 0]] if r["name"] == "review.mov" else []
+        hearing.fix = lambda ask, lines, kind, before=(), names=(): (list(lines), [None] * len(lines))
+
+    def tearDown(self):
+        takes.heard_claps, hearing.fix = self.heard_claps, self.fix
+        Arrange.tearDown(self)
+
+    def test_a_clip_someone_talks_through_is_cut_by_its_lines_without_the_take_given_up(self):
+        opened = [[call("open_clips", folder=self.folder, why="the review's takes")],
+                  [call("load_recipe", type="montage", why="clips of a review")]]
+        desk = {"clip": 2, "why": "the desk"}
+        steps = Arrange.run_job(self, *opened, [call(
+            "arrange_clips", story="the review", why="order",
+            clips=[{"clip": 1, "words": "This mic", "why": "the review"}, desk])], [call(
+                "arrange_clips", story="the review", why="order",
+                clips=[{"clip": 1, "start": 2.5, "end": 12, "words": "This mic", "why": "the start"},
+                       {"clip": 1, "start": 10, "end": 23.5, "why": "the presets"}, desk])], [call(
+                "arrange_clips", story="the review", why="order",
+                clips=[{"clip": 1, "start": 2.5, "end": 23.5, "words": "This mic", "why": "the review"}, desk])],
+            "Done.")
+        listed, refused, overlap, joined = (s["result"] for s in steps[0:1] + steps[2:5])
+        self.assertIn("Someone talks through it", listed)
+        self.assertIn("6.5-17.1 s cut: a take given up at a clap, said again after it", listed)
+        self.assertNotIn("ขอโทษอันนี้จะเป็น", listed)
+        self.assertIn("Clip 1 is someone talking for 26 s: give its piece a start and an end", refused)
+        self.assertIn("Clip 1: 10-23.5 s overlaps a piece of it you already use", overlap)
+        self.assertNotIn("named twice", overlap, "a clip someone talks through may give more than one piece")
+        self.assertFalse(steps[4]["refused"], joined + steps[4].get("fault", ""))
+        self.assertIn("a take given up at the clap at 0:16", joined)
+        said = " ".join(p["text"] for p in self.chat.looks[-1]["said"])
+        self.assertIn("ซึ่งตรงนี้นะครับก็จะเป็น", said)
+        self.assertIn("แต่สำหรับใครนะครับที่แบบอยากจะลองใช้", said)
+        self.assertNotIn("ขอโทษอันนี้จะเป็น", said, "the take he gave up is not in the clip")
+        self.assertAlmostEqual(self.chat.recording["seconds"], (6.5 - 2.5) + (23.5 - 17.14) + 3.0, delta=0.3)
+
+
 class Listing(unittest.TestCase):
     def test_lines_the_hearing_was_not_sure_of_are_counted_not_listed(self):
         c = {"n": 1, "rec": {"name": "a.mov", "seconds": 9.0, "width": 1080, "height": 1920}, "when": "shot 10:00",
@@ -346,6 +415,16 @@ class Listing(unittest.TestCase):
         self.assertEqual(tools._clip_lines(c)[1:], [
             "   1 s here we are",
             "   2 more lines heard but not sure, such as voices around the camera: left out."])
+
+    def test_a_clip_someone_talks_through_lists_what_is_cut_instead_of_its_lines(self):
+        said = [dict(p, **{"from": round(p["from"] - 75, 2), "to": round(p["to"] - 75, 2)}) for p in ASIDE] + [
+            {"from": 16.5, "to": 18.5, "text": "แต่สำหรับใครนะครับที่แบบอยากจะลองใช้", "sure": 0.95}]
+        c = {"n": 6, "rec": {"name": "IMG_3375.MOV", "seconds": 19.0, "width": 1920, "height": 1080},
+             "when": "shot 22:45", "stills": [], "unheard": None, "said": said, "claps": [[14.43, 14.71, 0]]}
+        listed = tools._clip_lines(c)[1:]
+        self.assertTrue(listed[0].startswith("   Someone talks through it: give each piece of it a start and an end"))
+        self.assertEqual(listed[1:5], ["   1.3 s ตั้งเสียงประมาณนี้", "   2.7-15.1 s cut: talk off the script before a clap",
+                                       "   15.4 s แต่สำหรับใครที่แบบ", "   16.5 s แต่สำหรับใครนะครับที่แบบอยากจะลองใช้"])
 
 
 class Crowd(unittest.TestCase):

@@ -11,11 +11,29 @@ The cut runs from the earlier take's first word to just before the new take, so 
 Tarm, 10-27, on a clip that opened with his first try: "มันมีจุดที่ผมพูดซ้ำ มันก็เอาครั้งแรกมา ซึ่งผมพูดผิด แล้วเริ่มพูด
 ประโยคเดิมครั้งที่สองเพื่ออัดต่อ". The speaker records the line again because the first one was wrong, so the last take is
 the one meant.
+
+Claps: Tarm, 10-28, on a folder of his review takes: "มันไม่รู้ว่าผมพูดซ้ำ แถมผมปรบมือเพื่อให้เกิดจังหวะในการคัท slate". He
+gives a take up, claps, and starts again. claps() finds the crack of a clap in the sound, and at_claps() cuts the
+take before it, the clap, and up to AFTER_CLAP s after it. Only on evidence from the words, because a key pressed on
+a keyboard cracks as loud and as sharp (his Eaglet screen recording: 39 in 14.5 min, peaks of -20 to -39 dB against
+his claps' -15 to -29). Keys come in runs and a clap comes alone, so a clap counts as said again only when no other
+crack is heard within ALONE s of it and what follows says the take again at CLAP_ALIKE or more (his three retakes at
+a clap: 0.35, 0.63, 0.71; at 34 stops with no clap, 12% reach 0.35). Of his 10 claps 7 are alone, of the 39 keys
+5. Or the take is nothing but lines the hearing was not sure of (him talking to himself, off the script). A clap
+with nothing said in the WITHIN s before it and words within SLATE_WORDS s after it is a slate before a take, and
+only the clap goes.
 """
 import difflib
+import hashlib
+import json
+import os
 import re
+import shutil
+import subprocess
 
-from . import pauses
+import numpy as np
+
+from . import pauses, recording
 
 RESTART = 1.0
 WITHIN = 20.0
@@ -24,6 +42,26 @@ ALIKE = 0.6
 NEAR = 0.05
 AIR = 0.25
 _NOT_LETTERS = re.compile(r"[\W_]+", re.UNICODE)
+
+RATE = 16000
+FRAME = 0.01
+CLAP_FLOOR = -40.0
+CLAP_RISE = 20.0
+CLAP_DROP = 12.0
+CLAP_FALL = 0.12
+CLAP_BRIGHT = 0.25
+CLAP_TOGETHER = 0.6
+INTO_LINE = 0.3
+CLAP_TAIL = 0.25
+AFTER_CLAP = 1.0
+CLAP_ALIKE = 0.35
+SLATE_WORDS = 3.0
+ALONE = 2.0
+CRACK_FLOOR = -50.0
+CRACK_RISE = 10.0
+CRACK_DROP = 8.0
+CRACK_BRIGHT = 0.15
+CLAPS_VERSION = 3
 
 
 def _letters(text):
@@ -68,3 +106,129 @@ def without(pieces, cuts):
                     if part[1] - part[0] > 1e-6] if x < b and a < y else kept
         out += kept
     return [[round(x, 3), round(y, 3)] for x, y in out]
+
+
+def claps(samples, rate=RATE):
+    """[[first, last, others]] seconds of each clap in samples (mono, -1 to 1, at rate), and how many other cracks are
+    heard within ALONE s of it. A clap is a sound over CLAP_FLOOR dB that jumps CLAP_RISE dB over the 0.3 s before
+    it, falls CLAP_DROP dB within CLAP_FALL s, and is bright, its change from one sample to the next carrying
+    CLAP_BRIGHT of its energy or more (a clap cracks, a voice hums: Tarm's claps 0.26 to 1.43, his voice under 0.2).
+    Claps less than CLAP_TOGETHER s apart are one: a double clap is one mark, and each one past two counts among the
+    others (keys pressed in a run). A crack is anything sharp: CRACK_RISE dB over the 30 ms before it, CRACK_DROP dB
+    down within CLAP_FALL s, CRACK_BRIGHT bright, over CRACK_FLOOR dB."""
+    x = np.asarray(samples, dtype=np.float32)
+    hop = int(round(rate * FRAME))
+    n = len(x) // hop
+    if n < 45:
+        return []
+    energy = (x[:n * hop].reshape(n, hop) ** 2).mean(axis=1) + 1e-10
+    change = np.diff(x[:n * hop], prepend=x[:1]).reshape(n, hop)
+    bright = ((change ** 2).mean(axis=1) + 1e-10) / energy
+    db = 10 * np.log10(energy)
+    fall = int(round(CLAP_FALL / FRAME))
+    found, i = [], 30
+    while i < n - fall - 1:
+        if db[i] > CLAP_FLOOR and db[i] - np.median(db[i - 30:i - 2]) >= CLAP_RISE:
+            peak = i + int(np.argmax(db[i:i + 3]))
+            if db[peak] - db[peak + fall] >= CLAP_DROP and bright[peak] >= CLAP_BRIGHT:
+                t = round(peak * FRAME, 2)
+                if found and t - found[-1][-1] < CLAP_TOGETHER:
+                    found[-1].append(t)
+                else:
+                    found.append([t])
+            i = peak + 25
+        else:
+            i += 1
+    lead = np.concatenate([np.full(3, db[0]), db])
+    sharp = ((db - (lead[:-3] + lead[1:-2] + lead[2:-1]) / 3 >= CRACK_RISE) & (bright >= CRACK_BRIGHT)
+             & (db > CRACK_FLOOR) & (db - np.concatenate([db[fall:], np.full(fall, db[-1])]) >= CRACK_DROP))
+    cracks = np.flatnonzero(sharp) * FRAME
+    return [[g[0], g[-1], int(((cracks >= g[0] - ALONE) & (cracks < g[0] - 0.05)).sum()
+                              + ((cracks > g[-1] + 0.3) & (cracks <= g[-1] + ALONE)).sum()) + max(0, len(g) - 2)]
+            for g in found]
+
+
+def heard_claps(rec, a=0.0, b=None):
+    """claps() in rec from a to b (recording seconds; b None for its end), kept in WORK/claps so a stretch is listened
+    to once. [] when it has no sound or ffmpeg cannot read it: then no clap is cut, as before claps were known."""
+    b = rec["seconds"] if b is None else b
+    tool = shutil.which("ffmpeg")
+    if not rec.get("sound_tracks") or b <= a or not tool:
+        return []
+    try:
+        st = os.stat(rec["path"])
+    except OSError:
+        return []
+    key = hashlib.sha1(("%d|%s|%d|%s|%.2f|%.2f" % (CLAPS_VERSION, rec["path"], st.st_size, st.st_mtime, a, b))
+                       .encode("utf-8")).hexdigest()[:16]
+    target = os.path.join(recording.WORK, "claps", key + ".json")
+    try:
+        with open(target, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        pass
+    try:
+        got = subprocess.run([tool, "-v", "error", "-ss", "%.2f" % a, "-t", "%.2f" % (b - a), "-i", rec["path"],
+                              "-map", "0:a:0", "-ac", "1", "-ar", str(RATE), "-f", "s16le", "-"],
+                             stdin=subprocess.DEVNULL, capture_output=True)
+    except OSError:
+        return []
+    if got.returncode != 0 or not got.stdout:
+        return []
+    found = [[round(a + x, 2), round(a + y, 2), n] for x, y, n in
+             claps(np.frombuffer(got.stdout, dtype=np.int16).astype(np.float32) / 32768.0)]
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target + ".part", "w", encoding="utf-8") as f:
+        json.dump(found, f)
+    os.replace(target + ".part", target)
+    return found
+
+
+def at_claps(said, claps_found, unsure=lambda p: False, slates=False):
+    """[{"cut": [from, to], "clap": seconds, "first": the words cut, "why": "again", "unsure" or "slate"}] for every clap
+    [first, last, others] (claps()) that is not inside a word, in time order, on the evidence the module's note gives. The
+    take is the words just before the clap, back to a stop of RESTART s, at most WITHIN s; said again, the cut starts
+    where the words most alike start (at the clap Tarm marked at 116 s, 0.35 from his first wrong word and 0.31 one
+    word later, which would leave "อันนี้จะไม่ใช่" hanging before the new take); not sure,
+    it also takes the lines the hearing was not sure of just before it. unsure(phrase) says which are not sure. Slates
+    only when said holds a whole take from its first second (a phone clip): in a screen recording a key pressed in a
+    pause looked like one 3 times in 10 min."""
+    lines = sorted((p for p in said or [] if p.get("to", 0) > p.get("from", 0) and not pauses.filler(p.get("text"))),
+                   key=lambda p: p["from"])
+    found, bound = [], float("-inf")
+    for t0, t1, others in sorted(claps_found):
+        if any(p["from"] + INTO_LINE < t0 < p["to"] for p in lines):
+            continue
+        before = [p for p in lines if bound < p["from"] < t0 - INTO_LINE and t0 - p["from"] <= WITHIN]
+        after = [p for p in lines if p["from"] >= t0 - INTO_LINE]
+        bound = t1
+        end = t1 + CLAP_TAIL
+        if after and after[0]["from"] - AIR > end:
+            end = min(after[0]["from"] - AIR, t1 + AFTER_CLAP)
+        if not before:
+            if slates and after and after[0]["from"] - t1 <= SLATE_WORDS:
+                found.append({"cut": [round(t0 - 0.05, 2), round(end, 2)], "clap": t0, "first": "", "why": "slate"})
+            continue
+        k = len(before) - 1
+        while k > 0 and before[k]["from"] - before[k - 1]["to"] < RESTART:
+            k -= 1
+        run = before[k:]
+        again = "".join(_letters(p["text"]) for p in after)
+        scored = []
+        for i in range(len(run) - 1, -1, -1):
+            first = "".join(_letters(p["text"]) for p in run[i:])
+            if len(first) >= LEAST:
+                scored.append((i, difflib.SequenceMatcher(None, first, again[:len(first)], autojunk=False).ratio()))
+        top = max([s for _, s in scored] or [0])
+        if top >= CLAP_ALIKE and not others:
+            i = next(i for i, s in scored if s == top)
+            cut, why = run[i:], "again"
+        elif all(unsure(p) for p in run):
+            while k > 0 and unsure(before[k - 1]):
+                k -= 1
+            cut, why = before[k:], "unsure"
+        else:
+            continue
+        found.append({"cut": [round(cut[0]["from"], 2), round(end, 2)], "clap": t0,
+                      "first": " ".join(p["text"] for p in cut), "why": why})
+    return found

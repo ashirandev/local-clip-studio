@@ -306,6 +306,7 @@ def open_clips(job, why, folder):
             job.working("Looking at clip %d of %d" % (c["n"], len(clips)))
             c["stills"] = montage.stills(c["rec"])
             c["said"], c["unheard"] = _clip_said(job, c["rec"])
+            c["claps"] = takes.heard_claps(c["rec"]) if c["said"] else []
     except hearing.Stopped:
         return "Not opened: the person pressed Stop."
     except montage.MontageError as e:
@@ -321,7 +322,7 @@ def open_clips(job, why, folder):
             job.attach(picture, "Clip %d (%s, %g s): pictures at %s s:" % (
                 c["n"], rec["name"], rec["seconds"], ", ".join("%g" % t for t in montage.strip_times(rec["seconds"]))))
         kept.append({"n": c["n"], "rec": rec, "when": montage.when(c), "stills": c["stills"], "said": c["said"],
-                     "unheard": c["unheard"], "picture": picture})
+                     "unheard": c["unheard"], "claps": c["claps"], "picture": picture})
     job.chat.clips = {"folder": real, "clips": kept}
     job.show(clips=job.chat.clips)
     lines = ["Opened %d clips from %s, numbered in the order they were shot, by the camera's clock where it wrote one. "
@@ -333,7 +334,25 @@ def open_clips(job, why, folder):
     lines.append("Next: load the %s recipe, then arrange the clips: which go in, in what order, which seconds of "
                  "each, the words on screen over each, and why. Every clip is either used or left out with a reason."
                  % MONTAGE)
+    talking = [c["n"] for c in kept if _talking(c) and c["rec"]["seconds"] > LONGEST_PIECE]
+    if talking:
+        lines.append("Someone talks through clip%s %s: choose the lines that tell the story, and give each piece the "
+                     "seconds around them. A clip someone talks through may give more than one piece."
+                     % ("s" if len(talking) > 1 else "", ", ".join(map(str, talking))))
     return "\n".join(lines)
+
+
+TALKING = 0.3
+TALKING_LINES = 3
+
+
+def _talking(c):
+    """True when someone talks through clip c (open_clips): words cover TALKING of it or more and at least
+    TALKING_LINES of its lines are sure. Measured on Tarm's yeti review takes (10-28): words cover 43-80% of the five
+    he talks through; the three short clips around them have no sure line."""
+    said = [p for p in c.get("said") or [] if not pauses.filler(p["text"])]
+    return (len([p for p in said if not _unsure(p)]) >= TALKING_LINES
+            and sum(p["to"] - p["from"] for p in said) >= TALKING * c["rec"]["seconds"])
 
 
 def _clip_said(job, rec):
@@ -367,11 +386,34 @@ def _clip_lines(c):
         lines.append("   No words heard.")
     else:
         sure = [p for p in c["said"] if not _unsure(p)]
-        lines += ["   %g s %s" % (round(p["from"], 1), p["text"]) for p in sure]
+        cuts = _take_cuts(c) if _talking(c) and rec["seconds"] > LONGEST_PIECE else None
+        if cuts is not None:
+            lines.append("   Someone talks through it: give each piece of it a start and an end around the lines you "
+                         "keep. The program cuts the stretches marked cut here, and silences over %g s." % DEAD_AIR)
+        rows = [(p["from"], "   %g s %s" % (round(p["from"], 1), p["text"])) for p in sure
+                if not any(x <= p["from"] < y for x, y, _ in cuts or [])]
+        rows += [(x, "   %g-%g s cut: %s" % (round(x, 1), round(y, 1), why)) for x, y, why in cuts or []]
+        lines += [r for _, r in sorted(rows, key=lambda r: r[0])]
         if len(sure) < len(c["said"]):
             lines.append("   %d more line%s heard but not sure, such as voices around the camera: left out." % (
                 len(c["said"]) - len(sure), "" if len(c["said"]) - len(sure) == 1 else "s"))
     return lines
+
+
+TAKE_CUT = {"again": "a take given up at a clap, said again after it",
+            "unsure": "talk off the script before a clap",
+            "slate": "a clap before the first word",
+            "said again": "a take said again just after it"}
+
+
+def _take_cuts(c):
+    """[[from, to, why]] that the program cuts from any piece of talking clip c that holds them: takes given up at a
+    clap or said again, and slates (takes.at_claps, takes.said_again), as _pieces cuts them."""
+    said = [p for p in c["said"] or [] if p["to"] > p["from"]]
+    clapped = takes.at_claps(said, c.get("claps") or [], unsure=_unsure, slates=True)
+    again = [dict(x, why="said again") for x in takes.said_again(said, 0.0, c["rec"]["seconds"])
+             if not any(x["cut"][0] < y["cut"][1] and y["cut"][0] < x["cut"][1] for y in clapped)]
+    return sorted(x["cut"] + [TAKE_CUT[x["why"]]] for x in clapped + again)
 
 
 def arrange_clips(job, why, story, clips, left_out=None):
@@ -390,10 +432,12 @@ def arrange_clips(job, why, story, clips, left_out=None):
     left_out = list(out.values())
     named = used + [c["clip"] for c in left_out]
     problems = []
-    twice = sorted({n for n in named if named.count(n) > 1})
+    talking = {n for n, c in known.items() if _talking(c) and c["rec"]["seconds"] > LONGEST_PIECE}
+    twice = sorted({n for n in named if named.count(n) > 1 and not (n in talking and n not in out)})
     if twice:
-        problems.append("Clip%s %s named twice: each clip is either used once or left out." % (
-            "s" if len(twice) > 1 else "", ", ".join(map(str, twice))))
+        problems.append("Clip%s %s named twice: each clip is either used once or left out%s." % (
+            "s" if len(twice) > 1 else "", ", ".join(map(str, twice)),
+            " (only a clip someone talks through may give more than one piece)" if talking else ""))
     strange = sorted({n for n in named if n not in known})
     if strange:
         problems.append("There is no clip %s: the clips are numbered 1 to %d." % (
@@ -403,20 +447,49 @@ def arrange_clips(job, why, story, clips, left_out=None):
         problems.append("Clip%s %s %s neither used nor left out. Say for every clip whether it goes in, and why it "
                         "does not when it does not." % ("s" if len(missing) > 1 else "", ", ".join(map(str, missing)),
                                                         "are" if len(missing) > 1 else "is"))
-    pieces, lines, fitted = [], [], []
+    pieces, lines, fitted, taken = [], [], [], {}
     for k, c in enumerate(clips, 1):
         if c["clip"] not in known:
             continue
-        rec = known[c["clip"]]["rec"]
+        clip = known[c["clip"]]
+        rec = clip["rec"]
         a = c.get("start", 0.0)
         b = min(c.get("end", rec["seconds"]), rec["seconds"])
-        frozen = [s for s in known[c["clip"]]["stills"] if s[0] < b and a < s[1]]
-        if b <= a:
+        frozen = [s for s in clip["stills"] if s[0] < b and a < s[1]]
+        talk = c["clip"] in talking
+        if talk and ("start" not in c or "end" not in c):
+            problems.append("Clip %d is someone talking for %g s: give its piece a start and an end around the lines "
+                            "you keep, at the seconds the list gives them; a piece of it never starts at 0 s by "
+                            "itself." % (c["clip"], rec["seconds"]))
+            b = min(b, a + LONGEST_PIECE)
+        elif b <= a:
             problems.append("Clip %d: start %g s must come before end %g s; the clip is %g s long."
                             % (c["clip"], a, b, rec["seconds"]))
         elif b - a < min(SHORTEST_PIECE, rec["seconds"]) - 0.01:
             problems.append("Clip %d: %g-%g s is under %g s, too short to see. Keep more of it, or leave it out."
                             % (c["clip"], a, b, SHORTEST_PIECE))
+        elif talk:
+            given = (a, b)
+            a, b, _ = _snapped({"said": clip["said"] or [], "heard": (0.0, rec["seconds"])}, a, b)
+            if any(x < b and a < y for x, y in taken.get(c["clip"], [])):
+                problems.append("Clip %d: %g-%g s overlaps a piece of it you already use; a line goes in once."
+                                % ((c["clip"],) + given))
+            taken.setdefault(c["clip"], []).append((a, b))
+            parts, cut = _pieces(clip["said"] or [], a, b, _still(rec, None, a, b, None), clip.get("claps") or [],
+                                 slates=True, of="the piece")
+            parts = takes.without(parts, clip["stills"])
+            if not parts:
+                problems.append("Clip %d: nothing is said at %g-%g s once the takes given up and the silences are cut. "
+                                "Keep lines the list shows." % (c["clip"], a, b))
+                continue
+            if cut:
+                fitted.append("clip %d, %g-%g s: %s" % (c["clip"], a, b, cut[0].lower() + cut[1:].rstrip(".")))
+            first = len(pieces) + 1
+            pieces += [{"rec": rec, "from": round(x, 2), "to": round(y, 2), "clip": c["clip"], "why": c["why"],
+                        "talk": True} for x, y in parts]
+            if c.get("words"):
+                lines.append({"piece": first, "text": c["words"]})
+            continue
         else:
             fit = _moving(a, b, known[c["clip"]]["stills"], LONGEST_PIECE, min(SHORTEST_PIECE, b - a))
             if fit is None:
@@ -435,17 +508,21 @@ def arrange_clips(job, why, story, clips, left_out=None):
     asked = job.chat.clip["length_s"]
     most = min(LONGEST, asked * OVER_LENGTH)
     length = sum(p["to"] - p["from"] for p in pieces)
+    said_length = sum(p["to"] - p["from"] for p in pieces if p.get("talk"))
     if length > most:
         target = min(asked, most)
-        _shortened(pieces, target)
+        _shortened([p for p in pieces if not p.get("talk")], max(0.0, target - said_length))
         now = sum(p["to"] - p["from"] for p in pieces)
         if now < length - 0.05:
-            fitted.append("the pieces came to %g s, longer than the %g s asked, so the end of each was cut by the "
-                          "same share, keeping at least %g s of each" % (round(length, 1), target, SHORTEST_FIT))
+            fitted.append("the pieces came to %g s, longer than the %g s asked, so the end of each piece without "
+                          "talk was cut by the same share, keeping at least %g s of each" % (
+                              round(length, 1), target, SHORTEST_FIT))
         length = now
     if not SHORTEST <= round(length) <= most:
         problems.append("The pieces add up to %g s; this clip is %d to %d s (about %d s was asked). %s" % (
-            round(length, 1), SHORTEST, most, asked, "Use fewer clips." if length > most else
+            round(length, 1), SHORTEST, most, asked, (
+                "Keep fewer lines of the talking clips (%g s of them, never cut inside a line)." % round(said_length, 1)
+                if said_length > most * 0.5 else "Use fewer clips.") if length > most else
             "Keep more seconds of each, or more clips."))
     if clips and not clips[0].get("words"):
         problems.append("The first piece (clip %d) opens the clip: give it words that say where we are or what this "
@@ -851,9 +928,11 @@ DEAD_AIR = 1.0
 KEPT_AIR = 0.3
 
 
-def _pieces(said, a, b, still):
+def _pieces(said, a, b, still, claps=(), slates=False, of="the moment"):
     """(the pieces of the recording a clip from a to b is made of, a sentence for Muse or None): the earlier take of a
-    line said again is cut (takes.said_again), and every silence longer than DEAD_AIR is cut down to KEPT_AIR at each
+    line said again is cut (takes.said_again), and so is a take given up at a clap from claps (takes.heard_claps), with
+    the clap, or the clap alone when it is a slate and slates (takes.at_claps); every silence longer than DEAD_AIR is
+    cut down to KEPT_AIR at each
     side (pauses.tighten), the clip's opening and closing silence down to KEPT_AIR, where still(x, y) says nothing
     happens on the picture from x to y: a silence while the answer streams onto the screen is the payoff, not dead
     air. still None keeps the moment whole (a game, where the action is the clip and nobody needs to speak). Measured
@@ -862,8 +941,13 @@ def _pieces(said, a, b, still):
     if still is None:
         return [[a, b]], None
     said = [p for p in said if p["to"] > p["from"]]
-    again = takes.said_again(said, a, b)
-    pieces = takes.without([[a, b]], [x["cut"] for x in again])
+    clapped = [x for x in takes.at_claps(said, [c for c in claps if a <= c[0] < b], unsure=_unsure, slates=slates)
+               if x["cut"][0] < b and a < x["cut"][1]]
+    again = [x for x in takes.said_again(said, a, b)
+             if not any(x["cut"][0] < y["cut"][1] and y["cut"][0] < x["cut"][1] for y in clapped)]
+    pieces = takes.without([[a, b]], [x["cut"] for x in again + clapped])
+    if not pieces:
+        return [], None
     try:
         _, quiet = pauses.tighten(pieces, said, gap=DEAD_AIR, air=KEPT_AIR)
     except ValueError:
@@ -879,12 +963,18 @@ def _pieces(said, a, b, still):
         return pieces, None
     parts = ["the first take of a line said again at %s (\"%s\"; the take from %s is kept)" % (
         recording.clock(x["cut"][0]), x["first"], recording.clock(x["cut"][1] + takes.AIR)) for x in again]
-    inner = len(pieces) - 1 - len(again)
+    parts += [CLAPPED[x["why"]] % {"at": recording.clock(x["clap"]), "said": x["first"]} for x in clapped]
+    inner = len(pieces) - 1 - len(again) - len(clapped)
     if inner > 0:
         parts.append("%d silence%s longer than %g s while nothing moved on the picture"
                      % (inner, "" if inner == 1 else "s", DEAD_AIR))
-    return pieces, "The program cut %g s out of the moment: %s." % (gone, "; ".join(
+    return pieces, "The program cut %g s out of %s: %s." % (gone, of, "; ".join(
         parts + ["the silence at its edges, so it opens and closes %g s from a word" % KEPT_AIR]))
+
+
+CLAPPED = {"again": "a take given up at the clap at %(at)s (\"%(said)s\"), said again after it",
+           "unsure": "talk off the script before the clap at %(at)s (\"%(said)s\")",
+           "slate": "the clap at %(at)s before the first word"}
 
 
 def _still(rec, recipe, a, b, avoid):
@@ -1171,8 +1261,8 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     if unasked:
         raise Refused("Not made. " + unasked)
     if layout in ("talk", "speaker", "split"):
-        return _make_talk(job, rec, moment, m, *_pieces(m.get("said") or [], a, b, _still(rec, "talk", a, b, None)),
-                          name=layout)
+        return _make_talk(job, rec, moment, m, *_pieces(m.get("said") or [], a, b, _still(rec, "talk", a, b, None),
+                                                        takes.heard_claps(rec, a, b)), name=layout)
     try:
         box, face_line = _the_face(job, rec, a, b, face)
     except faces.Stopped:
@@ -1181,7 +1271,8 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
         lay = layouts.make(layout, (rec["width"], rec["height"]), box, _pixels("crop", crop, rec) if crop else None)
     except ValueError as e:
         raise Refused(str(e))
-    pieces, cut = _pieces(m.get("said") or [], a, b, _still(rec, recipe, a, b, layouts.face_room(lay)))
+    still = _still(rec, recipe, a, b, layouts.face_room(lay))
+    pieces, cut = _pieces(m.get("said") or [], a, b, still, takes.heard_claps(rec, a, b) if still else [])
     following = ""
     if lay["kind"] == "card" and follow and not crop and _reads_screen(job):
         lay, following = _follow(rec, lay, pieces, [a, b])
@@ -3817,6 +3908,9 @@ def load_recipe(job, why, type, length_s=None, style=None, language="", brief=""
         raise Refused("The %s recipe is for several clips opened together with open_clips; this chat has %s. Pick "
                       "the recipe for the kind of recording that is open." % (
                           MONTAGE, "one recording open" if job.chat.recording else "no clips open"))
+    asked = None
+    if recipe["name"] != MONTAGE and _joining(job):
+        asked, recipe = recipe, RECIPES[MONTAGE]
     clip = {"recipe": recipe["name"], "title": recipe["title"], "length_s": length_s or recipe["length"],
             "style": style or recipe["style"], "language": language, "brief": brief, "subtitles": subtitles}
     had = job.chat.clip
@@ -3830,7 +3924,20 @@ def load_recipe(job, why, type, length_s=None, style=None, language="", brief=""
     if had and had["recipe"] != recipe["name"]:
         lines.append("This recipe replaces the %s recipe read earlier in this chat; follow only this one." %
                      had["recipe"])
+    if asked:
+        lines.append("Clips from a folder are open, so this is the %s recipe, not the %s one you asked for: the clips "
+                     "are joined first, with arrange_clips. A %s told over several takes is joined the same way, by "
+                     "its lines." % (MONTAGE, asked["name"], asked["title"][0].lower() + asked["title"][1:]))
     return "\n".join(lines) + "\n\n" + recipe["body"]
+
+
+def _joining(job):
+    """True while a folder of clips is open and what is open is not another recording: no recording yet, or the one
+    arrange_clips joined from them. Seen 10-28 in Tarm's yeti review, twice: Muse loaded the seller recipe for a
+    review in eight takes, arrange_clips refused it, and one run gave up on the folder for a single take."""
+    rec = job.chat.recording
+    return bool(job.chat.clips) and (rec is None or os.path.dirname(os.path.abspath(rec["path"])) == os.path.abspath(
+        os.path.join(recording.WORK, "montage")))
 
 
 def chips(clip):
@@ -3889,8 +3996,10 @@ TOOLS = {t.name: t for t in [
          "over each, and why; and why each clip left out is left out. The program joins the pieces into one "
          "recording in that order, makes the clip from it and puts the words on. A piece is at most %g s: the "
          "program keeps that much of a longer one from its start, skips where the picture holds still, and cuts "
-         "the end of every piece by the same share when together they are longer than asked. Call it again to "
-         "change anything." % LONGEST_PIECE,
+         "the end of every piece by the same share when together they are longer than asked. A clip someone talks "
+         "through is cut by its lines instead: give each piece of it a start and an end around the lines you keep; "
+         "the program cuts the takes said again or given up at a clap, and the silences. Call it again to change "
+         "anything." % LONGEST_PIECE,
          {"story": {"type": "string", "maxLength": 300,
                     "description": "One line for the person, in their language: what the clip tells, from its first "
                                    "picture to its last."},
@@ -3901,7 +4010,7 @@ TOOLS = {t.name: t for t in [
                                  "description": "The clip's number."},
                         "start": {"type": "number", "minimum": 0,
                                   "description": "The second of the clip its piece starts at. Leave it out for its "
-                                                 "start."},
+                                                 "start, except in a clip someone talks through."},
                         "end": {"type": "number", "minimum": 0,
                                 "description": "The second of the clip its piece ends at. Leave it out for its end."},
                         "words": {"type": "string", "maxLength": 80,

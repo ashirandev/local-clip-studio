@@ -25,6 +25,9 @@ tells it best.
 - Leave a clip out when a better one shows the same thing (two phones at the same moment: keep the better),
   when it is shaky, dark or blurred all through, or when nothing in it matters to the story. Say which.
 - Close on the clip that ends the day or the event: a result, the last thing seen, people leaving.
+- When someone talks to the camera through the clips (a review or a talk told over several takes), what is said
+  is the story: choose the lines that tell it, from each clip's list, and give each piece the seconds around them.
+  One clip can give several pieces. Open on the line that says what this is; never use a stretch the list marks cut.
 
 ## The words on screen
 
