@@ -18,7 +18,6 @@ from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_map import make_moment  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HAS_NUMPY = importlib.util.find_spec("numpy") is not None
 
 
@@ -158,9 +157,8 @@ class Fix(unittest.TestCase):
 class Ears(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        spec = importlib.util.spec_from_file_location("ears", os.path.join(ROOT, "hearing", "ears.py"))
-        cls.ears = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(cls.ears)
+        from clipstudio import ears
+        cls.ears = ears
 
     def test_long_sound_is_cut_at_its_quietest_tenth_between_20_and_30_s(self):
         import numpy as np
@@ -334,12 +332,14 @@ class Look(unittest.TestCase):
 
 class Status(unittest.TestCase):
     def setUp(self):
-        self.url, self.why = hearing.URL, hearing._state["why"]
+        self.url, self.why, self.models = hearing.URL, hearing._state["why"], hearing.MODELS
+        self.folder = tempfile.mkdtemp()
 
     def tearDown(self):
-        hearing.URL, hearing._state["why"] = self.url, self.why
+        hearing.URL, hearing._state["why"], hearing.MODELS = self.url, self.why, self.models
+        shutil.rmtree(self.folder, ignore_errors=True)
 
-    def test_the_status_says_what_is_ready_or_why_not(self):
+    def test_the_status_says_what_is_ready_or_where_the_model_goes(self):
         worker = Worker()
         hearing.URL = worker.url
         try:
@@ -347,19 +347,51 @@ class Status(unittest.TestCase):
         finally:
             worker.close()
         self.assertEqual((got["ok"], got["name"]), (True, "omniASR_CTC_1B_v2, float32, 8 threads"))
-        hearing.URL = "http://127.0.0.1:9"
-        with mock.patch("shutil.which", return_value=None):
-            hearing._start()
-        self.assertIn("Docker is not installed", hearing.status()["why"])
+        hearing.URL, hearing.MODELS = "http://127.0.0.1:9", self.folder
+        hearing._start()
+        self.assertEqual(hearing.status()["why"], "The hearing model is not downloaded yet, so the studio cannot hear "
+                                                  "what is said: it goes in %s (model.int8.onnx or model.onnx and "
+                                                  "letters.json)." % self.folder)
 
-    def test_an_image_not_built_yet_says_how_to_build_it(self):
-        hearing.URL = "http://127.0.0.1:9"
-        done = mock.Mock(returncode=0, stdout="", stderr="")
-        with mock.patch("shutil.which", return_value="docker"), \
-                mock.patch("subprocess.run", return_value=done) as run:
+    @unittest.skipUnless(HAS_NUMPY, "numpy is not installed")
+    def test_the_studio_hears_by_itself_with_the_model_in_its_folder_and_no_docker(self):
+        import numpy as np
+        with open(os.path.join(self.folder, "letters.json"), "w", encoding="utf-8") as f:
+            json.dump({"card": "omniASR_CTC_1B_v2", "letters": ["", "", "", " ?? ", " ", "ก", "า"]}, f)
+        open(os.path.join(self.folder, "model.int8.onnx"), "wb").close()
+        given = []
+
+        class Session:
+            def __init__(self, path, options, providers):
+                self.path, self.threads = path, options.intra_op_num_threads
+
+            def run(self, names, feed):
+                given.append(feed["x"])
+                chosen = [5, 5, 0, 6, 4, 5]
+                return [np.array([[[9.0 if k == c else 0.0 for k in range(7)] for c in chosen]], dtype=np.float32)]
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), BaseHTTPRequestHandler)
+        port = server.server_address[1]
+        server.server_close()
+        hearing.URL, hearing.MODELS = "http://127.0.0.1:%d" % port, self.folder
+        with mock.patch("onnxruntime.InferenceSession", Session):
             hearing._start()
-        self.assertEqual(run.call_args_list[0][0][0], ["docker", "images", "-q", hearing.IMAGE])
-        self.assertIn("docker build -t local-clip-studio-hearing hearing", hearing.status()["why"])
+            for _ in range(100):
+                if hearing.status()["ok"]:
+                    break
+                time.sleep(0.05)
+        got = hearing.status()
+        self.assertEqual((got["ok"], got["where"]), (True, "Omnilingual ASR on the processor"))
+        self.assertEqual(got["name"], "omniASR_CTC_1B_v2, model.int8.onnx, onnx, 8 threads")
+        tone = (np.sin(np.arange(16000) / 5.0) * 3000 + 1000).astype("<i2").tobytes()
+        import urllib.request
+        said = json.load(urllib.request.urlopen(urllib.request.Request(hearing.URL + "/hear", tone), timeout=10))
+        self.assertEqual([(p["from"], p["to"], p["text"]) for p in said["phrases"]],
+                         [(0.0, 0.67, "กา"), (0.83, 1.0, "ก")])
+        x = given[0][0]
+        self.assertEqual(given[0].shape, (1, 16000))
+        self.assertAlmostEqual(float(x.mean()), 0.0, places=4)
+        self.assertAlmostEqual(float(x.std()), 1.0, places=2)
 
 
 if __name__ == "__main__":

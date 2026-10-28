@@ -30,20 +30,15 @@ The face finder's model (YuNet, 230 KB) is downloaded from OpenCV Zoo the first 
 Then open http://127.0.0.1:8899/ . Set `LCS_PORT` to use another port, and `LCS_VIDEOS` to the folders your
 recordings are in (separated by `;` on Windows; the default is `~/Videos`).
 
-**Hearing what is said** uses Meta's Omnilingual ASR, which needs Linux, so it runs in
-[Docker](https://www.docker.com/products/docker-desktop/) on the processor and leaves the graphics card to Muse.
-Build its image once, in this folder:
+**Hearing what is said** uses Meta's Omnilingual ASR (CTC 1B v2), run by onnxruntime inside the studio, on the
+processor, so the graphics card stays with Muse. It needs no Docker. Its model goes in `work/models/hearing` (or the
+folder `LCS_HEARING_MODELS` names): `model.int8.onnx` (1.0 GB) and `letters.json`; `model.onnx` with
+`model.onnx.data` (3.9 GB) works too and is used when the int8 file is not there. The studio starts the hearing by
+itself, before Muse is asked anything; it takes about 1 GB of memory. Without the model the studio still works;
+Muse just cannot hear, and says so.
 
-```
-docker build -t local-clip-studio-hearing hearing
-```
-
-The studio then starts it by itself, before Muse is asked anything, and keeps it while the studio runs (it takes
-about 4 GB of memory). The first time, Omnilingual's own loader (fairseq2) downloads the model (3.9 GB) into
-`~/.cache/fairseq2`, which the studio keeps in a Docker volume, so it is downloaded once. That first download has not
-been tried on our machine, which already had the files: if you have `omniASR-CTC-1B-v2.pt` and
-`omniASR_tokenizer_written_v2.model`, set `LCS_HEARING_MODELS` to their folder to use them instead. Without Docker
-the studio still works; Muse just cannot hear, and says so.
+The model file is made once from Meta's checkpoint by `hearing/export_onnx.py`, which runs in Docker because
+Omnilingual's own loader (fairseq2) runs on Linux only; only whoever makes the file needs that (see the file).
 
 Drop a recording on the page, or tap one of your newest. It is opened where it is: a browser does not give the
 path of a dropped file, so the studio finds it in those folders by its name, size and time. Nothing is copied or
@@ -311,6 +306,7 @@ Model weights are downloaded when they are first needed. None of them are commit
 | 2026-10-27, this build | What a look costs Glimmer Q3 (vision on the processor) | 4 frames, each its own 540-pixel picture: 971 tokens read in 10.8 s; the same 4 frames in one picture: 293 tokens in 2.9 s |
 | 2026-10-27, this build | From opening to proposed moments, Glimmer Q3, one run each | the review clip (3:06): 7 steps, 0 refused, 3 cards at 1:19; the 4-hour stream: 10 steps, 0 refused, cards at 2:04 after looking at the map's top 6, each moment ending before the death screen. A rough 30 s preview: 1.3-2.1 s to cut |
 | 2026-10-27, this build | Omnilingual ASR CTC 1B in Docker on the processor (float32, 8 threads), Thai FLEURS, the 60 test sentences, spaces and punctuation left out | 8.4% character errors after the Thai repair (12.3% as the model wrote it), 5.4-5.6x real time, 4.0 GB of memory. bfloat16 took 2.2 GB but had not finished after about 20 minutes (float32: 132 s), so float32 stays |
+| 2026-10-28, this build | Omnilingual ASR CTC 1B v2 as ONNX, onnxruntime 1.27 on the processor (8 threads), against fairseq2 in Docker; the same 60 Thai FLEURS sentences | float32: the same token in all 2,253 frames of a 17 s and a 28 s check (exported at 10 s), 8.4% character errors after the Thai repair (12.4% as written), 7.3x real time, 3.6 GB of memory. int8 (its matrix products in 8 bits): 8.5% (653 of 7,657 letters wrong against 647), 9.4x real time, 1.0 GB of memory, a 1.0 GB file, so int8 is the one the studio uses |
 | 2026-10-27, this build | Numbers in the review clip as the model wrote them | "5้าสิบ", "เจ็ดสิบ5้า", "1ึ่ง.ิด5": a digit where a number word begins. Muse's card said 70 m² where the seller said 75. Now written as said (ห้าสิบ, เจ็ดสิบห้า, หนึ่งจุดห้า); FLEURS unchanged at 8.4% |
 | 2026-10-27, this build | Where the time of a 30 s look goes, Glimmer Q3 | hearing 5.3-6.2 s; Muse fixing the misheard words 20-42 s, mostly thinking (about 1,000 tokens written at "Reasoning strength: low"; with thinking switched off it wrote 2,600-2,900). So the fix runs only for the moments Muse proposes, and only the first before the cards show: Muse answers one question at a time, and fixing three moments kept the first clip waiting 195 s (10-27). Another moment is fixed when a clip is made from it. A question asked apart from the job kept the job's cache: 2,136 tokens reused, 5 read new |
 | 2026-10-27, this build | Opening to cards with hearing, one run each | the review clip: 7 steps, 0 refused, 2:48 (1:19 without hearing); the 4-hour stream: 7 steps, 0 refused, 3:12 |

@@ -1,15 +1,11 @@
 """Hearing: what is said in a stretch of the recording, written down by Meta's Omnilingual ASR, then misheard words
 fixed by Muse from the context, with every number locked.
 
-The hearing worker runs in its own container (hearing/), on the processor. The studio starts it when the studio
-starts, so it is loaded before Muse is asked anything, and asks it /health every minute, so it stays loaded while
-the studio runs and stops by itself after the studio is gone. Build the image once:
-
-    docker build -t local-clip-studio-hearing hearing
-
-On first use the model (3.9 GB) is downloaded into a Docker volume and kept. LCS_HEARING_MODELS names a folder that
-already holds omniASR-CTC-1B-v2.pt and omniASR_tokenizer_written_v2.model, to use those instead. LCS_HEARING_URL
-points at a hearing worker run some other way; then the studio does not start one.
+The hearing worker (ears.py) runs inside the studio, on the processor, with onnxruntime: no Docker. The studio starts
+it when the studio starts, so the model is loaded before Muse is asked anything. Its model is in MODELS
+(LCS_HEARING_MODELS, else work/models/hearing): Omnilingual's CTC model as ONNX, made once by
+hearing/export_onnx.py, with letters.json. LCS_HEARING_URL points at a hearing worker run some other way; then the
+studio does not start one.
 
 What was heard is kept per file and stretch in work/heard, so hearing a stretch again is instant. Each phrase has
 its own time in the recording, from the model's own frames.
@@ -33,14 +29,12 @@ import threading
 import time
 import urllib.parse
 
-from . import recording, thai
+from . import ears, recording, thai
 
 VERSION = 2
-IMAGE = NAME = "local-clip-studio-hearing"
 OWN_URL = os.environ.get("LCS_HEARING_URL", "")
 URL = OWN_URL or "http://127.0.0.1:8802"
-MODELS = os.environ.get("LCS_HEARING_MODELS", "")
-PING = 60
+MODELS = os.environ.get("LCS_HEARING_MODELS") or os.path.join(recording.WORK, "models", "hearing")
 HEAR_SECONDS = 600
 LINES_PER_QUESTION = 12
 MOST_CHANGED = 0.4
@@ -57,50 +51,23 @@ class Stopped(Exception):
 
 
 def start():
-    """Starts the hearing worker in the background unless one already answers, and keeps it alive. Never raises:
-    status() says what is wrong."""
+    """Starts the hearing worker in the background unless one already answers. Never raises: status() says what is
+    wrong."""
     threading.Thread(target=_start, name="hearing-start", daemon=True).start()
-    threading.Thread(target=_keep_alive, name="hearing-ping", daemon=True).start()
 
 
 def _start():
     if OWN_URL or _health() is not None:
         return
-    docker = shutil.which("docker")
-    if not docker:
-        _state["why"] = ("Docker is not installed, so the studio cannot hear what is said. Install Docker Desktop, "
-                         "build the hearing image (see the README), then start the studio again.")
+    if not ears.model_file(MODELS) or not os.path.isfile(os.path.join(MODELS, "letters.json")):
+        _state["why"] = ("The hearing model is not downloaded yet, so the studio cannot hear what is said: it goes in "
+                         "%s (%s and letters.json)." % (MODELS, " or ".join(ears.MODEL_FILES)))
         return
+    u = urllib.parse.urlsplit(URL)
     try:
-        built = subprocess.run([docker, "images", "-q", IMAGE], capture_output=True, text=True, timeout=30)
-        if built.returncode != 0:
-            _state["why"] = "Docker is not running. Start Docker Desktop, then start the studio again."
-            return
-        if not built.stdout.strip():
-            _state["why"] = ("The hearing image is not built yet. Run: docker build -t %s hearing  (in the studio's "
-                             "folder), then start the studio again." % IMAGE)
-            return
-        running = subprocess.run([docker, "ps", "-q", "--filter", "name=^%s$" % NAME], capture_output=True,
-                                 text=True, timeout=30)
-        if running.stdout.strip():
-            return
-        port = urllib.parse.urlsplit(URL).port
-        args = [docker, "run", "-d", "--rm", "--name", NAME, "-p", "127.0.0.1:%d:8802" % port]
-        if MODELS:
-            args += ["-v", "%s:/models:ro" % MODELS, "-e", "LCS_HEARING_CARD=omniASR_CTC_1B_v2@user"]
-        else:
-            args += ["-v", "%s-models:/root/.cache/fairseq2" % NAME]
-        made = subprocess.run(args + [IMAGE], capture_output=True, text=True, timeout=60)
-        if made.returncode != 0:
-            _state["why"] = "Docker could not start the hearing worker (%s)." % _last_line(made.stderr)
-    except (OSError, subprocess.SubprocessError) as e:
-        _state["why"] = "Docker could not start the hearing worker (%s)." % e
-
-
-def _keep_alive():
-    while True:
-        time.sleep(PING)
-        _health()
+        ears.serve(MODELS, u.hostname, u.port)
+    except OSError as e:
+        _state["why"] = "The hearing worker could not start on %s (%s)." % (URL, e)
 
 
 def _health():
@@ -118,12 +85,12 @@ def _health():
 
 def status():
     """{ok, label, where, url, name} or {ok: False, ..., why} with a sentence."""
-    out = {"label": "Hearing", "where": "Omnilingual ASR in Docker, on the processor", "url": URL}
+    out = {"label": "Hearing", "where": "Omnilingual ASR on the processor", "url": URL}
     got = _health()
     if got and got.get("ok"):
         return dict(out, ok=True, name="%s, %s, %s threads" % (got.get("model"), got.get("dtype"), got.get("threads")))
     if got and got.get("loading"):
-        return dict(out, ok=False, why="The hearing model is loading; this takes from 20 s to about 2 minutes.")
+        return dict(out, ok=False, why="The hearing model is loading; this takes 2 to 10 s.")
     if got and got.get("error"):
         return dict(out, ok=False, why="The hearing model could not load (%s)." % got["error"])
     return dict(out, ok=False, why=_state["why"] or "The hearing worker is not answering at %s." % URL)
@@ -280,6 +247,3 @@ def _changed(a, b):
             prev, row[j] = row[j], min(row[j] + 1, row[j - 1] + 1, prev + (x != y))
     return row[-1] / max(len(a), len(b))
 
-
-def _last_line(text):
-    return ((text or "").strip().splitlines() or ["no reason given"])[-1][:200]
