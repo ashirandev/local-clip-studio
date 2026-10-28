@@ -1755,12 +1755,16 @@ def _frame_box(name, grid):
 
 
 def _covers(drawn, lay, state):
-    """What lies over drawn on a phone, or under it in the clip, as short reasons: what the apps draw on top, and
-    the captions band when the clip has captions."""
+    """What lies over drawn on a phone, or under it in the clip, as short reasons: what the apps draw on top, the
+    captions band when the clip has captions, and the row kept for the channel's name (layouts.NAME_TOP), on every
+    clip, since a name saved later goes there."""
     out = layouts.unsafe(drawn)
     y, h = lay["captions"][1], lay["captions"][3]
     if state["captions"] and drawn[1] < y + h and y < drawn[1] + drawn[3]:
         out.append("the captions run from y %d to %d" % (y, y + h))
+    if drawn[1] < layouts.SAFE_BOTTOM and drawn[1] + drawn[3] > layouts.NAME_TOP:
+        out.append("the row kept for the channel's name runs from y %d to %d" % (layouts.NAME_TOP,
+                                                                                layouts.SAFE_BOTTOM))
     return out
 
 
@@ -1772,7 +1776,7 @@ def _phone(drawn, lay, state, asked):
         raise Refused("On a phone, %s. Pick one of the layout's places, or a box inside x %d-%d, y %d-%d; give "
                       "person_said only when the person asked for this spot." % (
                           "; ".join(covers), layouts.SAFE[0], layouts.SAFE[0] + layouts.SAFE[2], layouts.SAFE[1],
-                          layouts.SAFE_BOTTOM))
+                          layouts.NAME_TOP))
     return ["Placed where the person asked. On a phone, %s; tell the person." % "; ".join(covers)] if covers else []
 
 
@@ -3394,7 +3398,7 @@ HIDDEN_MOST = 1 / 3.0
 PERSON_STEP = 5
 PERSON_SCALE = 8
 HAIR = 0.3
-SAFE_ROWS = (250, 1520)
+SAFE_ROWS = (layouts.SAFE[1], layouts.NAME_TOP)
 LIKES_LEFT = 890
 FRAME = {"width": effects.FRAME_W, "height": effects.FRAME_H}
 

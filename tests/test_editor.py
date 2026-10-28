@@ -65,6 +65,15 @@ class Layouts(unittest.TestCase):
         self.assertTrue(all(65 <= b[0] and b[0] + b[2] <= 1015 and layouts.SAFE[1] <= b[1] and b[1] + b[3] <= 1250
                             for b in list(lay["places"].values()) + [lay["captions"]]), "inside the phone's safe zone")
 
+    def test_words_muse_puts_in_the_row_kept_for_the_channel_name_are_refused_with_no_name_on_the_clip_yet(self):
+        lay, state = layouts.make("card", (1920, 1080), SIFU_FACE), {"captions": None, "channel": None}
+        with self.assertRaises(tools.Refused) as row:
+            tools._phone([60, 1325, 820, 144], lay, state, asked=False)
+        self.assertIn("On a phone, the row kept for the channel's name runs from y 1456 to 1520. Pick one of the "
+                      "layout's places, or a box inside x 56-1024, y 250-1456;", str(row.exception))
+        self.assertEqual(tools._phone([60, 1312, 820, 144], lay, state, asked=False), [], "ending at 1456 is clear")
+        self.assertEqual(tools.SAFE_ROWS, (250, 1456), "a title behind the person is placed above the row too")
+
     def test_a_vertical_recording_fills_the_frame_instead_of_a_card(self):
         lay = layouts.make("card", (1080, 1920), [400, 300, 300, 400])
         self.assertEqual(lay["kind"], "subject")
@@ -1032,7 +1041,7 @@ class Tools(unittest.TestCase):
             [call("add_glass", box=[100, 440, 800, 555], start=10, end=14, tint="light", why="light")],
             [call("add_glass", box=[100, 440, 800, 555], start=6, end=6.2, why="too short")],
             [call("add_glass", box=[100, 460, 130, 470], start=6, end=9, why="too small")],
-            [call("add_glass", box=face, start=1, end=4, tint="dark", why="on the face")],
+            [call("add_glass", box=face[:3] + [755], start=1, end=4, tint="dark", why="on the face")],
             [call("add_glass", box=[100, 940, 900, 1000], start=6, end=9, why="at the bottom")],
             [call("set_style", style="sticker", why="labels")],
             [call("add_glass", box=[100, 440, 800, 555], start=15, end=18, why="under a label")],
