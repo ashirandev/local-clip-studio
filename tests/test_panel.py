@@ -547,6 +547,23 @@ class Endpoints(Served):
         self.assertEqual(self.ask("POST", "/api/captions", {"chat": "nope", "mode": "pop"})[0], 404)
         self.assertEqual(self.ask("POST", "/api/style", {"chat": self.chat.id, "style": "pop"}, "text/plain")[0], 415)
 
+    def test_a_part_is_muted_with_a_post_of_its_seconds_and_muse_is_told(self):
+        self.make(SAID, call("add_captions", why="say it"))
+        panel = "/api/panel?chat=" + self.chat.id
+        self.assertEqual(self.ask("GET", panel)[1]["sound"], {"mutes": [], "has": True})
+        self.assertEqual(self.ask("POST", "/api/mute", {"chat": self.chat.id, "start": 0, "end": 1.5}),
+                         (200, {"ok": True}))
+        self.assertEqual(self.ask("GET", panel)[1]["sound"]["mutes"], [[0, 1.5]])
+        self.assertIn("the person muted the sound from 0 to 1.5 s of the clip on the page", self.chat.told)
+        numbers = "Send the start and the end of the part to mute, in seconds of the clip."
+        for body, said in (({"start": "0", "end": 1}, numbers), ({"start": 0, "end": True}, numbers),
+                           ({"start": 5, "end": 6, "back": True}, "The sound is not muted anywhere from 5 to 6 s.")):
+            self.assertEqual(self.ask("POST", "/api/mute", dict(body, chat=self.chat.id)),
+                             (400, {"ok": False, "error": said}), body)
+        self.assertEqual(self.ask("POST", "/api/mute", {"chat": self.chat.id, "start": 0, "end": 1.5, "back": True}),
+                         (200, {"ok": True}))
+        self.assertEqual(self.chat.project.state()["mutes"], [])
+
     def test_words_are_changed_with_a_post_naming_the_block_and_its_words(self):
         self.make(SAID, call("add_captions", why="say it"))
         body = {"chat": self.chat.id, "kind": "caption", "n": 0, "was": "this is the moment", "words": "this is it"}

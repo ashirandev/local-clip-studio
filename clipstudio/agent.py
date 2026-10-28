@@ -307,7 +307,8 @@ class Chat:
                                   lambda n: {"style": n}),
                 "looks": choices("look", COLOUR_LOOKS, str.capitalize, "set_look", lambda n: {"look": n}),
                 "words": self.words_on(state), "again": bool(self.rendered) and self.finished() is None,
-                "making": self.making is not None, "channels": self.channels_now(state)}
+                "making": self.making is not None, "channels": self.channels_now(state),
+                "sound": {"mutes": state["mutes"], "has": self.has_sound()}}
 
     def channels_now(self, state):
         """The channel looks the page offers: each saved look with what it puts on a clip, the one in use, and the
@@ -431,6 +432,20 @@ class Chat:
         if look and look["handle"] == state["channel"]["name"]:
             channels.save(dict(look, spot=spot))
         return None
+
+    def has_sound(self):
+        """True when the clip's recording has sound to mute."""
+        return bool((self.recording or {}).get("sound_tracks"))
+
+    def set_mute(self, start, end, back=False):
+        """The person's seconds to mute under the clip, or to bring the sound back over: mute_sound's own edit, as
+        set_captions."""
+        self._clip_now()
+        refused, entry = self.tap("mute_sound", start=start, end=end, back=back)
+        if entry:
+            self._tell("the person %s from %g to %g s of the clip on the page"
+                       % ("brought the sound back" if back else "muted the sound", entry["start"], entry["end"]))
+        return refused
 
     def set_look(self, name):
         """The person's tap on a colour look for the footage: set_look's own edit, as set_captions."""
@@ -695,6 +710,8 @@ class Chat:
             extras.append("sounds: " + ", ".join("%s at %g s" % (s["kind"], s["at"]) for s in state["sounds"]))
         if state["music"]:
             extras.append("music %s" % os.path.basename(state["music"]["path"]))
+        if state["mutes"]:
+            extras.append("sound muted " + ", ".join("%g-%g s" % (a, b) for a, b in state["mutes"]))
         done = self.finished()
         if done:
             made = "finished file %s, made from the clip as it is now" % done["name"]

@@ -444,6 +444,7 @@ function showClip(e) {
   const entry = e.kind === "edit" ? e.entry : null;
   if (entry && entry.do === "title") clipAt.value = (entry.start + entry.end) / 2;
   else if (entry && entry.do === "clip") clipAt.value = Math.min(clip.length / 2, clip.length - 0.1);
+  if (entry && entry.do === "clip") room.mute = {};
   drawClipFrame();
   const titles = clip.titles.length;
   clipTitle.textContent = "Your clip";
@@ -764,6 +765,7 @@ function drawPanel(d) {
   panelBox.hidden = false;
   partTabs.querySelector('[data-show="words"]').hidden = !d.words.length;
   partTabs.querySelector('[data-show="channel"]').hidden = !d.channels;
+  partTabs.querySelector('[data-show="sound"]').hidden = !(d.sound && d.sound.has);
   const part = room.part || localStore("part") || "caps";
   const tab = partTabs.querySelector('[data-show="' + part + '"]');
   showPart(tab && !tab.hidden ? part : "caps");
@@ -789,7 +791,68 @@ function drawPanel(d) {
   drawChoices(styles, document.getElementById("styleWhy"), d.styles, (c) => choose(styles, "/api/style", { style: c.name }), stylePic);
   drawChoices(looks, document.getElementById("lookWhy"), d.looks, (c) => choose(looks, "/api/colour", { look: c.name }), lookPic);
   if (d.channels) drawChannels(d.channels);
+  drawSound(d.sound);
 }
+
+const muteFrom = document.getElementById("muteFrom");
+const muteTo = document.getElementById("muteTo");
+const muteGo = document.getElementById("muteGo");
+
+function clipNow() {
+  const v = frameBox.querySelector("video");
+  if (room.made) return Number(clipAt.value) || 0;
+  return v ? v.currentTime : 0;
+}
+
+function drawMute() {
+  const m = room.mute || {};
+  muteFrom.textContent = m.from === undefined ? "Start here" : "Start " + m.from.toFixed(1) + " s";
+  muteTo.textContent = m.to === undefined ? "End here" : "End " + m.to.toFixed(1) + " s";
+  const ok = m.from !== undefined && m.to !== undefined && Math.abs(m.to - m.from) >= 0.1;
+  muteFrom.disabled = muteTo.disabled = false;
+  muteGo.disabled = !ok;
+  muteGo.textContent = ok ? "Mute " + Math.min(m.from, m.to).toFixed(1) + "–" + Math.max(m.from, m.to).toFixed(1) + " s" : "Mute";
+}
+
+function drawSound(sound) {
+  const row = document.getElementById("mutedRow");
+  row.textContent = "";
+  ((sound && sound.mutes) || []).forEach(([a, b]) => {
+    const back = el("button", "chip", "Muted " + a.toFixed(1) + "–" + b.toFixed(1) + " s · Bring the sound back");
+    back.type = "button";
+    back.addEventListener("click", () => mute(a, b, true));
+    row.appendChild(back);
+  });
+  drawMute();
+}
+
+async function mute(start, end, back) {
+  document.querySelectorAll("#muteRow button, #mutedRow button").forEach((b) => (b.disabled = true));
+  panelNote.textContent = "";
+  try {
+    const d = await post("/api/mute", { chat: room.chat, start, end, back });
+    if (d.ok) room.mute = {};
+    else panelNote.textContent = d.error || "That could not be muted.";
+  } catch (err) {
+    panelNote.textContent = "The studio is not answering. Start it again with: python app.py";
+  }
+  loadPanel();
+}
+
+muteFrom.addEventListener("click", () => {
+  room.mute = Object.assign({}, room.mute, { from: clipNow() });
+  drawMute();
+});
+
+muteTo.addEventListener("click", () => {
+  room.mute = Object.assign({}, room.mute, { to: clipNow() });
+  drawMute();
+});
+
+muteGo.addEventListener("click", () => {
+  const m = room.mute || {};
+  mute(Math.max(0, Math.min(m.from, m.to)), Math.max(m.from, m.to), false);
+});
 
 const channelSave = document.getElementById("channelSave");
 const channelName = document.getElementById("channelName");
@@ -1362,6 +1425,7 @@ const MINI = {
   "cut-outline": { parts: "who" },
   sound: { parts: "who wave fx", fx: "💥" },
   music: { parts: "who wave fx", fx: "🎵" },
+  mute: { parts: "who wave fx", fx: "🔇" },
   "blur-box": { parts: "rows box" },
   people: { parts: "two who fx", fx: "2" },
   "blur-faces": { parts: "two who" },

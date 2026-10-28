@@ -24,6 +24,7 @@ through a name it owns), and a POST must be JSON (another web page cannot send J
 - POST /api/captions {chat, mode}, /api/style {chat, style}, /api/colour {chat, look}: a tap beside the clip. The
   program makes the edit Muse's tool makes, at once, without asking Muse; Undo takes it back, and Muse is told
 - POST /api/words {chat, kind, n, was, words}: the person's own words for a title or a caption phrase
+- POST /api/mute {chat, start, end, back}: the clip's own sound muted from start to end s of the clip, or brought back
 - POST /api/remake {chat}: makes the video again from the clip as it is now, as render_clip does, without Muse.
   Each answers {"ok": true}, or {"ok": false, "error"} with 404 when the clip or the words are not there and 400
   with the reason the change was refused. /api/captions {chat, language: "said"} puts the captions back in the words
@@ -79,7 +80,7 @@ POSTER_AT = 1.0
 READ_TRIES, READ_WAIT = 10, 0.05
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 CHANGES = ("/api/captions", "/api/style", "/api/colour", "/api/words", "/api/remake", "/api/channel",
-           "/api/channel/save")
+           "/api/channel/save", "/api/mute")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -206,6 +207,10 @@ class Handler(BaseHTTPRequestHandler):
                 why = chat.use_channel(str(body.get("name") or ""))
             elif path == "/api/channel/save":
                 why = chat.save_channel(str(body.get("name") or ""), str(body.get("handle") or ""))
+            elif path == "/api/mute":
+                start, end = body.get("start"), body.get("end")
+                why = chat.set_mute(start, end, body.get("back") is True) if all(
+                    isinstance(v, (int, float)) and not isinstance(v, bool) for v in (start, end)) else                     "Send the start and the end of the part to mute, in seconds of the clip."
             elif body.get("kind") not in ("title", "caption") or not isinstance(body.get("n"), int) or \
                     isinstance(body.get("n"), bool):
                 why = "Send which words to change: a title or a caption, and its number."

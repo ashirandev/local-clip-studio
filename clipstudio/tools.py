@@ -2223,6 +2223,56 @@ def set_music(job, why, music=None, start=0, level=render.MUSIC_LEVEL, duck=rend
     return "\n".join(lines)
 
 
+def mute_sound(job, why, start, end, back=False):
+    """Mutes the recording's own sound from clip second start to end, or brings it back over them (back): a count-in,
+    another person's voice, a noise. The mute is kept as the stretches of the recording those seconds play
+    (project.to_recording_spans), so it stays on what was said there when the clip is cut again. Tarm 10-28, after
+    Eve's "1 2 3" opened his review: the person picks the seconds and the sound there goes."""
+    rec = _open(job, "mute the sound of")
+    state = _clip_state(job)
+    length = state["length"]
+    if not rec.get("sound_tracks"):
+        raise Refused("The recording has no sound, so there is nothing to mute.")
+    e = min(end, length)
+    if not 0 <= start < e:
+        raise Refused("start %g s and end %g s do not make a time inside the clip, which is %g s long."
+                      % (start, end, length))
+    if e - start < MUTE_SHORTEST:
+        raise Refused("%g to %g s is shorter than %g s: give the start and end of what should not be heard."
+                      % (start, e, MUTE_SHORTEST))
+    before, had = state["mutes"], _caption_words(state)
+    if back and not any(a < e and start < b for a, b in before):
+        raise Refused("The sound is not muted anywhere from %g to %g s. %s" % (start, e, _muted_now(before)))
+    start, e = round(start, 2), round(e, 2)
+    spans = project.to_recording_spans(state["clip"]["pieces"], start, e)
+    state = job.edit({"do": "mute", "spans": spans, "start": start, "end": e, "back": bool(back)})
+    if back:
+        return "The clip's own sound is back from %g to %g s. %s" % (start, e, _muted_now(state["mutes"]))
+    out = ["The clip's own sound is muted from %g to %g s (%s of the recording): the picture plays on, and the music "
+           "and the studio's sounds still play there. It is heard in the finished file and the page's video. %s"
+           % (start, e, ", ".join("%s to %s" % (recording.clock(a), recording.clock(b)) for a, b in spans),
+              _muted_now(state["mutes"]))]
+    gone = had - _caption_words(state)
+    if gone:
+        out.append("%d caption word%s said there %s off the captions." % (gone, "" if gone == 1 else "s",
+                                                                     "is" if gone == 1 else "are"))
+    if start <= project.SLIVER and not state["music"]:
+        out.append("The clip now opens without sound for %g s: music under it would fill that (set_music), when the "
+                   "person has some." % e)
+    return "\n".join(out)
+
+
+MUTE_SHORTEST = 0.1
+
+
+def _muted_now(mutes):
+    return "Muted now: %s." % ", ".join("%g-%g s" % (a, b) for a, b in mutes) if mutes else "Nothing is muted now."
+
+
+def _caption_words(state):
+    return sum(len(ln["words"]) for ln in (state["captions"] or {}).get("lines") or [])
+
+
 UNSURE = 0.88
 READ_SURE = 0.8
 
@@ -3191,7 +3241,10 @@ def check_clip(job, why):
           "%.1f s; a Reel is at most %d s" % (made["seconds"], REEL_LONGEST))
     black, silent = _start_of(path, made["sound_tracks"])
     heard = _sound_at(state, path) if silent and not black else None
-    check(OPENING, not (black or silent),
+    muted = silent and not black and state["mutes"] and state["mutes"][0][0] <= project.SLIVER
+    check(OPENING, None if muted else not (black or silent),
+          "silent for the first %g s, where the sound is muted (0-%g s) as asked: music under it would fill it"
+          % (FIRST, state["mutes"][0][1]) if muted else
           "picture and sound from the first %g s" % FIRST if not (black or silent) else
           " and ".join(w for w, bad in (("black", black), ("silent", silent)) if bad) + " for the first %g s" % FIRST +
           ("; the first sound is %g s in, at %g s in the recording: propose the moment again from %g s and make "
@@ -3886,6 +3939,9 @@ def describe(entry):
         return "the %s at %g s" % (entry["kind"], entry["at"])
     if entry["do"] == "music":
         return "the music %s" % os.path.basename(entry["path"]) if entry["path"] else "taking the music off"
+    if entry["do"] == "mute":
+        return "%s at %g-%g s" % ("bringing the sound back" if entry.get("back") else "the mute", entry["start"],
+                                  entry["end"])
     if entry["do"] == "people":
         return "the decision on people (%s)" % "; ".join(
             "%s person %s" % (k, _numbers(entry[k])) for k in ("blur", "keep") if entry[k])
@@ -4335,6 +4391,18 @@ TOOLS = {t.name: t for t in [
           "duck": {"type": "number", "minimum": -40, "maximum": -1,
                    "description": "dB lower while someone speaks, such as -12. Leave it out for -12."}},
          [], set_music, changes=True),
+    Tool("mute_sound", "Muted the sound",
+         "Mute the clip's own sound from one second of the clip to another: a count-in such as 1 2 3, someone else "
+         "talking, a noise. The picture plays on; the music and the studio's sounds still play there, and the "
+         "captions leave out the words said there. back true brings the sound back over that time. The mute stays on "
+         "what was said there when the clip is cut again. Use it when the person asks to cut, mute or take out the "
+         "sound of a part, or when what is heard there is not part of the clip, such as a voice counting in before "
+         "the speaker starts.",
+         {"start": {"type": "number", "minimum": 0, "description": "Where the mute starts, in seconds of the clip."},
+          "end": {"type": "number", "minimum": 0, "description": "Where it ends, in seconds of the clip."},
+          "back": {"type": "boolean", "description": "true brings the sound back from start to end. Leave it out "
+                                                     "to mute."}},
+         ["start", "end"], mute_sound, changes=True),
     Tool("slow_push", "Pushed in slowly",
          "A slow push in on the clip's main picture, like a camera moving closer, for the build-up into the peak. "
          "It eases in and out, then cuts back at the end. One per moment; a zoom of 1.05 to 1.12 reads as a "
@@ -4480,7 +4548,7 @@ TOOLS = {t.name: t for t in [
          ["clips"], make_clips, changes=True),
     Tool("undo", "Took back the last change",
          "Take back the last change to the clip: a layout, a moved part, a style, a title, the captions, a blur, a hit, a "
-         "look, a push or a decision about people. The "
+         "look, a push, a sound, a mute or a decision about people. The "
          "person can also do this on the page.",
          {}, [], undo, changes=True),
 ]}

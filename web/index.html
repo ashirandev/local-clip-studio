@@ -77,6 +77,7 @@
           <button type="button" class="chip" data-show="style" aria-pressed="false">Style</button>
           <button type="button" class="chip" data-show="channel" aria-pressed="false">Channel</button>
           <button type="button" class="chip" data-show="words" aria-pressed="false">Words</button>
+          <button type="button" class="chip" data-show="sound" aria-pressed="false">Sound</button>
         </div>
         <div class="panel-group" role="group" aria-labelledby="capsHead" data-part="caps">
           <p class="panel-head" id="capsHead">Captions</p>
@@ -111,6 +112,16 @@
               <button type="submit" class="chip">Save</button>
             </div>
           </form>
+        </div>
+        <div class="panel-group" role="group" aria-labelledby="soundHead" data-part="sound">
+          <p class="panel-head" id="soundHead">Mute a part</p>
+          <p class="panel-says">Move the clip to where the part starts and tap Start here, then to where it ends and tap End here. The picture and your music play on, and the captions leave out the words said there.</p>
+          <div class="panel-row" id="muteRow">
+            <button type="button" class="chip" id="muteFrom">Start here</button>
+            <button type="button" class="chip" id="muteTo">End here</button>
+            <button type="button" class="chip" id="muteGo" disabled>Mute</button>
+          </div>
+          <div class="panel-row panel-sub" id="mutedRow" role="group" aria-label="Parts muted now"></div>
         </div>
         <p class="panel-note" id="panelNote" role="status"></p>
       </div>

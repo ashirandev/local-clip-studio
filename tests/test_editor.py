@@ -154,6 +154,41 @@ class Projects(unittest.TestCase):
         with self.assertRaises(ValueError):
             p.add({"do": "nothing"})
 
+    def test_a_mute_stays_on_the_seconds_of_the_recording_when_the_clip_is_cut_again(self):
+        pieces = [[30, 40], [50, 60]]
+        spans = project.to_recording_spans(pieces, 8, 12)
+        self.assertEqual(spans, [[38, 40], [50, 52]], "clip 8-12 s crosses the cut between the pieces")
+        p = project.Project([{"do": "clip", "moment": 1, "pieces": pieces, "layout": {"kind": "card"},
+                              "speech": [[0, 20]]},
+                             {"do": "mute", "spans": spans, "start": 8, "end": 12, "back": False}])
+        self.assertEqual(p.state()["mutes"], [[8, 12]], "one stretch where the pieces meet")
+        self.assertEqual(p.state()["speech"], [[0, 8], [12, 20]], "nobody is heard there, so the music stays up")
+        p.add({"do": "clip", "moment": 1, "pieces": [[35, 40], [50, 60]], "layout": {"kind": "card"}})
+        self.assertEqual(p.state()["mutes"], [[3, 7]], "cut 5 s later, the mute moves with the words")
+        p.add({"do": "mute", "spans": [[39, 40]], "start": 4, "end": 5, "back": True})
+        self.assertEqual(p.state()["mutes"], [[3, 4], [5, 7]], "the sound back over 39-40 s of the recording")
+        p.add({"do": "clip", "moment": 2, "pieces": [[0, 10]], "layout": {"kind": "card"}})
+        self.assertEqual(p.state()["mutes"], [], "a clip that does not play those seconds has nothing muted")
+        p.add({"do": "clip", "moment": 3, "pieces": [[38, 40], [38, 40]], "layout": {"kind": "card"}})
+        self.assertEqual(p.state()["mutes"], [[0, 1], [2, 3]], "a stretch the clip plays twice is muted twice")
+
+    def test_the_captions_leave_out_the_words_said_where_the_sound_is_muted(self):
+        lines = text.caption_lines([{"from": 0, "to": 2, "text": "one two three"},
+                                    {"from": 3, "to": 5, "text": "hello there"}])
+        p = project.Project([{"do": "clip", "moment": 1, "pieces": [[10, 20]], "layout": {"kind": "card"}},
+                             {"do": "captions", "lines": lines, "band": [1500, 200]},
+                             {"do": "mute", "spans": [[10, 12.1], [13, 13.9]], "start": 0, "end": 3.9,
+                              "back": False}])
+        kept = p.state()["captions"]["lines"]
+        self.assertEqual(["".join(w["text"] for w in ln["words"]) for ln in kept], [ln["text"] for ln in kept])
+        said = "".join(ln["text"] for ln in kept)
+        self.assertNotIn("one", said, "the count-in is off the captions")
+        self.assertNotIn("hello", said, "and the word whose middle is muted")
+        self.assertIn("there", said, "the word after the mute stays")
+        self.assertEqual(kept[0]["from"], [w for w in kept[0]["words"]][0]["from"], "the line starts at its first word")
+        p.undo()
+        self.assertIn("one", "".join(ln["text"] for ln in p.state()["captions"]["lines"]), "undo brings them back")
+
     def test_a_private_blur_belongs_to_its_clip_and_a_plain_one_is_kept(self):
         p = project.Project()
         p.add({"do": "clip", "moment": 1, "pieces": [[30, 50]], "layout": {"kind": "card"}})
@@ -1303,6 +1338,43 @@ class Tools(unittest.TestCase):
         self.assertEqual(tools._speech({"sound_tracks": 0}, {}, [[30, 40]]), [], "no sound: nobody speaks")
         self.assertIsNone(tools._speech({"sound_tracks": 1}, {}, [[30, 40]]), "never heard: nobody knows")
 
+    def test_muse_mutes_a_part_of_the_clip_brings_it_back_and_the_captions_follow(self):
+        self.worker.phrases = [{"from": 2, "to": 4.5, "text": "hello there", "sure": 0.99}]
+        brain, steps = self.run_job(
+            *self.to_moment(), '{"lines": ["hello there"]}',
+            [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("add_captions", why="say what he says")],
+            [call("mute_sound", start=0.2, end=1.6, why="a count-in")],
+            [call("mute_sound", start=2, end=1, why="backwards")],
+            [call("mute_sound", start=5, end=5.05, why="too short")],
+            [call("mute_sound", start=5, end=6, back=True, why="nothing muted there")],
+            [call("mute_sound", start=1, end=1.6, back=True, why="the person wants that back")],
+            [call("mute_sound", start=0, end=0.5, why="the very start")],
+            "Done.")
+        state = self.chat.project.state()
+        line = self.chat.clip_line()
+        muted, backwards, short, nothing, back, opening = steps[-6:]
+        start = state["clip"]["pieces"][0][0]
+        self.assertFalse(muted["refused"], muted["result"])
+        self.assertIn("The clip's own sound is muted from 0.2 to 1.6 s (%s to %s of the recording)" % (
+            recording.clock(start + 0.2), recording.clock(start + 1.6)), muted["result"])
+        self.assertIn("Muted now: 0.2-1.6 s.", muted["result"])
+        self.assertRegex(muted["result"], r"\d+ caption words? said there (is|are) off the captions")
+        self.assertTrue(backwards["refused"])
+        self.assertIn("do not make a time inside the clip", backwards["result"])
+        self.assertTrue(short["refused"])
+        self.assertIn("is shorter than 0.1 s", short["result"])
+        self.assertTrue(nothing["refused"])
+        self.assertIn("The sound is not muted anywhere from 5 to 6 s. Muted now: 0.2-1.6 s.", nothing["result"])
+        self.assertIn("The clip's own sound is back from 1 to 1.6 s. Muted now: 0.2-1 s.", back["result"])
+        self.assertIn("The clip now opens without sound for 0.5 s", opening["result"])
+        self.assertEqual(state["mutes"], [[0, 1]])
+        self.assertEqual(state["speech"], [[1, 2.8]], "the words before 1 s are not heard")
+        self.assertIn("sound muted 0-1 s", line)
+        brain, (undone,) = self.run_job([call("undo", why="the person liked the start")], "Done.")
+        self.assertIn("Took back the mute at 0-0.5 s.", undone["result"])
+        self.assertEqual(self.chat.project.state()["mutes"], [[0.2, 1]])
+
     def test_muse_adds_sounds_and_the_persons_music_goes_down_while_someone_speaks(self):
         music = os.path.join(self.tmp, "music")
         os.makedirs(music)
@@ -1727,6 +1799,25 @@ class Tools(unittest.TestCase):
         self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
         self.assertNotIn("read the screen", steps[-1]["result"])
         self.assertEqual(asked, [])
+
+    def test_a_clip_whose_start_was_muted_is_not_failed_for_opening_on_silence(self):
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(2, 20))
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            brain, steps = self.run_job(
+                *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("decide_people", keep=[1], why="it is him")],
+                [call("mute_sound", start=0, end=2, why="a count-in")],
+                [call("render_clip", why="make the file")],
+                [call("check_clip", why="check it")], "Done.")
+        finally:
+            render.export = had
+        self.assertIn("- not needed: It does not start black or silent (silent for the first 0.5 s, where the sound "
+                      "is muted (0-2 s) as asked: music under it would fill it)", steps[-1]["result"])
 
     def test_the_finished_file_is_checked_before_it_is_handed_over_and_a_failure_is_fixed(self):
         renders = []

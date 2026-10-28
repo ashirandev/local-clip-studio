@@ -35,6 +35,9 @@ BASES, BASE_SIZE, BASE_PRESET, BASE_CRF = 1, (540, 960), "veryfast", 24
 EXPORT_SECONDS = 600
 MUSIC_LEVEL, MUSIC_LEVELS, MUSIC_DUCK = -6, (-30, 0), -12
 MUSIC_IN, MUSIC_OUT = 0.3, 1.5
+# a muted stretch's edges ease over MUTE_FADE s, in frames of MUTE_FRAME samples (5 ms): at FFmpeg's own 1024 the
+# level stepped from 91% to 20% in one frame (measured 10-28 on a tone)
+MUTE_FADE, MUTE_FRAME = 0.03, 240
 SILENT = -70
 
 
@@ -292,12 +295,13 @@ def _inputs(rec, pieces, sound_only=False):
     return cmd
 
 
-def loudness(rec, pieces):
+def loudness(rec, pieces, muted=""):
     """How loud the joined pieces are, measured for loudnorm's second pass ({"input_i", "input_tp", "input_lra",
-    "input_thresh", "target_offset"}), or None when the recording has no sound or the pieces are silent."""
+    "input_thresh", "target_offset"}), or None when the recording has no sound or the pieces are silent. muted is
+    _muted()'s filter, so what is measured is what is heard."""
     if not rec.get("sound_tracks"):
         return None
-    return _measured(_inputs(rec, pieces, True), _sound(pieces), "the clip's sound")
+    return _measured(_inputs(rec, pieces, True), _sound(pieces, level=muted), "the clip's sound")
 
 
 def music_loudness(music, length):
@@ -337,6 +341,23 @@ def _level(measured):
             "linear=true,aresample=%d" % (LUFS, PEAK, RANGE, measured["input_i"], measured["input_tp"],
                                           measured["input_lra"], measured["input_thresh"], measured["target_offset"],
                                           RATE))
+
+
+def _muted(state):
+    """Filter text, from a comma, that silences the clip's own sound over state['mutes'] ([[clip a, clip b]]), each
+    edge easing over MUTE_FADE s inside the stretch so it does not click (none at the clip's start or end); "" when
+    nothing is muted."""
+    spans, length = state.get("mutes") or [], state["length"]
+    if not spans:
+        return ""
+    gains = []
+    for a, b in spans:
+        if not (isinstance(a, (int, float)) and isinstance(b, (int, float)) and 0 <= a < b):
+            raise ValueError("mute %r is not a stretch of the clip: give [start, end] in clip seconds." % ([a, b],))
+        rise = "clip((t-%.3f)/%g,0,1)" % (a, MUTE_FADE) if a > project.SLIVER else "1"
+        fall = "clip((%.3f-t)/%g,0,1)" % (b, MUTE_FADE) if b < length - project.SLIVER else "1"
+        gains.append("(1-%s*%s)" % (rise, fall))
+    return ",asetnsamples=n=%d:p=0,volume=volume='%s':eval=frame" % (MUTE_FRAME, "*".join(gains))
 
 
 def _music(state):
@@ -406,7 +427,7 @@ def _mix_gain(rec, state, measured, music_measured):
     inputs = (_inputs(rec, pieces, True) if voice else []) + (_music_input(music) if music else [])
     graph = _mix(state, voice, length, len(pieces) if voice else 0, music_measured, "snd")
     if voice:
-        graph = _sound(pieces, "voice", _level(measured)) + ";" + graph
+        graph = _sound(pieces, "voice", _muted(state) + _level(measured)) + ";" + graph
     cmd = [_ffmpeg(), "-hide_banner", "-nostats"] + inputs + [
         "-filter_complex", graph + ";[snd]ebur128=framelog=quiet[o]", "-map", "[o]", "-f", "null", "-"]
     what = "the clip's sound with its sounds and music"
@@ -439,8 +460,8 @@ def base(rec, state, on_progress=None, on_start=None, default="clean"):
     except ValueError as e:
         raise NotDrawn(str(e))
     key = hashlib.sha1(json.dumps([BASES, rec["path"], rec["size"], rec["mtime"], clip["pieces"], drawn, files,
-                                   state.get("music"), state.get("sounds"), state.get("speech"), BASE_SIZE,
-                                   BASE_PRESET, BASE_CRF], ensure_ascii=False, sort_keys=True, default=str)
+                                   state.get("music"), state.get("sounds"), state.get("speech"), state.get("mutes"),
+                                   BASE_SIZE, BASE_PRESET, BASE_CRF], ensure_ascii=False, sort_keys=True, default=str)
                        .encode("utf-8")).hexdigest()[:16]
     path = os.path.join(folder("bases"), key + ".mp4")
     if os.path.isfile(path):
@@ -474,14 +495,15 @@ def export(rec, state, out_path, on_progress=None, on_start=None, default="clean
         added = bool(music or state.get("sounds"))
         music_measured = music_loudness(music, length) if music else None
         mixed = _mix(state, sound, length, count + len(files), music_measured, "mix") if added else ""
+        muted = _muted(state) if sound else ""
     except ValueError as e:
         raise NotDrawn(str(e))
-    measured = loudness(rec, pieces) if sound else None
+    measured = loudness(rec, pieces, muted) if sound else None
     streams = "".join("[%d:v:0]" % k + ("[%d:a:0]" % k if sound else "") for k in range(count))
     joined = "%sconcat=n=%d:v=1:a=%d[cat]%s;[cat]fps=%d[src]" % (
         streams, count, 1 if sound else 0, "[catsnd]" if sound else "", FPS)
     if sound:
-        joined += ";[catsnd]aresample=%d%s[%s]" % (RATE, _level(measured), "voice" if added else "snd")
+        joined += ";[catsnd]aresample=%d%s%s[%s]" % (RATE, muted, _level(measured), "voice" if added else "snd")
     if added:
         # the limiter, so a sound landing on a loud word never goes over PEAK
         joined += ";%s;[mix]volume=%.2fdB,alimiter=limit=%.4f:level=0:latency=1[snd]" % (

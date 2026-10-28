@@ -40,13 +40,16 @@ the recording, and boxes on the frame are pixels of the 1080x1920 clip.
   to (person.cut_out), for the cut-out looks and the titles behind the person; the last one stands
 - cutout: {"look": grey or outline, "start", "end"}, or {"look": None, "start", "end"} to take the looks at that time
   off; a cut-out look at an overlapping time replaces an earlier one
+- mute: {"spans": [[recording a, recording b], ...], "start", "end": the clip seconds asked for, "back": False}: the
+  recording's own sound is silent over those seconds of the recording, wherever the clip plays them, so a mute stays
+  on what was said when the clip is cut again; "back": True brings the sound back over them
 """
 
 import hashlib
 import json
 
 DOES = ("clip", "style", "title", "captions", "blur", "hit", "sticker", "people", "look", "push", "layout", "untitle",
-        "sound", "music", "glass", "mask", "cutout", "channel", "flurry")
+        "sound", "music", "glass", "mask", "cutout", "channel", "flurry", "mute")
 
 
 class Project:
@@ -71,11 +74,14 @@ class Project:
         people, each with "blur" True, False or None when not decided, "sounds": [sound entries inside the clip],
         "music": the last music entry with a path or None, "speech": the clip's speech spans or None, "mask": the last
         mask entry or None, "cutouts": [cutout entries inside the clip], "channel": the last channel entry, the
-        channel's name drawn on the clip ({"name", "spot"}), or None when its name is empty}. A blurred person's
-        track is one of the blurs. A new clip entry keeps the words and effects; what starts after its end is not
-        drawn."""
+        channel's name drawn on the clip ({"name", "spot"}), or None when its name is empty, "mutes": [[clip a, clip
+        b]] where the recording's own sound is muted}. A blurred person's track is one of the blurs. A new clip entry
+        keeps the words and effects; what starts after its end is not drawn. Where the sound is muted nobody is heard:
+        the speech spans leave out those seconds, so the music does not go down there, and the captions leave out the
+        words said there."""
         clip = style = captions = None
         titles, blurs, hits, stickers, pushes, sounds, glass, cutouts, flurries = [], [], [], [], [], [], [], [], []
+        muted = []
         look = music = mask = channel = None
         decided = {}
         for e in self.entries:
@@ -121,14 +127,18 @@ class Project:
             elif e["do"] == "cutout":
                 cutouts = [c for c in cutouts if not (c["start"] < e["end"] and e["start"] < c["end"])]
                 cutouts += [e] if e["look"] else []
+            elif e["do"] == "mute":
+                muted = _less(muted, e["spans"]) if e.get("back") else _joined(muted + e["spans"])
         length = round(sum(b - a for a, b in clip["pieces"]), 2) if clip else 0
+        mutes = to_clip_spans(clip["pieces"], muted) if clip else []
+        speech = clip.get("speech") if clip else None
         inside = (lambda when: clip is not None and when < length)
         people = [dict(p, blur=decided.get(p["n"])) for p in (clip or {}).get("people") or []]
         blurs = blurs + [{"do": "blur", "person": p["n"], "track": p["points"], "start": p["from"], "end": p["to"]}
                          for p in people if p["blur"]]
         return {"clip": clip, "length": length, "style": style,
                 "titles": [t for t in titles if inside(t["start"])],
-                "captions": captions if clip else None,
+                "captions": _heard(captions, mutes) if clip else None,
                 "blurs": [b for b in blurs if inside(b["start"])],
                 "hits": sorted([h for h in hits if inside(h["at"])], key=lambda h: h["at"]),
                 "stickers": sorted([k for k in stickers if inside(k["at"])], key=lambda k: k["at"]),
@@ -139,10 +149,11 @@ class Project:
                 "people": people,
                 "sounds": sorted([s for s in sounds if inside(s["at"])], key=lambda s: s["at"]),
                 "music": music if clip else None,
-                "speech": clip.get("speech") if clip else None,
+                "speech": _less(speech, mutes) if speech else speech,
                 "mask": mask if clip else None,
                 "channel": channel if clip else None,
-                "cutouts": sorted([c for c in cutouts if inside(c["start"])], key=lambda c: c["start"])}
+                "cutouts": sorted([c for c in cutouts if inside(c["start"])], key=lambda c: c["start"]),
+                "mutes": mutes}
 
 
 def signature(entries):
@@ -173,6 +184,68 @@ def to_clip(pieces, t):
             return (k, a + t - at) if t >= at else None
         at += b - a
     return None
+
+
+def to_recording_spans(pieces, a, b):
+    """Clip seconds a to b as the stretches of the recording they play: [[recording a, recording b]], one for each
+    piece they cross."""
+    out, at = [], 0.0
+    for s, e in pieces:
+        lo, hi = max(a, at), min(b, at + e - s)
+        if hi - lo > SLIVER:
+            out.append([round(s + lo - at, 3), round(s + hi - at, 3)])
+        at += e - s
+    return out
+
+
+def to_clip_spans(pieces, spans):
+    """Stretches of the recording as the clip plays them: [[clip a, clip b]], joined where they meet. A stretch that
+    two pieces both play is in the clip twice; one no piece plays is not in it."""
+    out, at = [], 0.0
+    for a, b in pieces:
+        for s, e in spans:
+            lo, hi = max(a, s), min(b, e)
+            if hi - lo > SLIVER:
+                out.append([round(at + lo - a, 3), round(at + hi - a, 3)])
+        at += b - a
+    return _joined(out)
+
+
+SLIVER = 0.005
+
+
+def _joined(spans):
+    """[[a, b]] sorted, with the ones that overlap or meet made one."""
+    out = []
+    for a, b in sorted(spans):
+        if out and a <= out[-1][1] + SLIVER:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return out
+
+
+def _less(spans, cuts):
+    """[[a, b]] without the seconds of cuts ([[a, b]])."""
+    for c, d in cuts:
+        spans = [p for a, b in spans for p in ([a, min(b, c)], [max(a, d), b]) if p[1] - p[0] > SLIVER]
+    return spans
+
+
+def _heard(captions, mutes):
+    """The captions without the words said where the sound is muted: a line keeps its other words, and goes when
+    none are left. A word is said where its middle is."""
+    if not captions or not mutes:
+        return captions
+    lines = []
+    for ln in captions["lines"]:
+        words = [w for w in ln["words"] if not any(a <= (w["from"] + w["to"]) / 2 < b for a, b in mutes)]
+        if len(words) == len(ln["words"]):
+            lines.append(ln)
+        elif words:
+            lines.append(dict(ln, words=words, text="".join(w["text"] for w in words), **{
+                "from": words[0]["from"], "to": words[-1]["to"]}))
+    return dict(captions, lines=lines)
 
 
 def from_recording(pieces, s):

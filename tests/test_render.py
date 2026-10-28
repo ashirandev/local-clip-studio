@@ -617,6 +617,12 @@ class Base(unittest.TestCase):
         flashed = dict(self.state, hits=[{"kind": "flash", "at": 1.0, "word": None, "centre": [540, 960]}])
         self.assertNotEqual(render.base(self.rec, flashed), self.made, "a change to the picture: made again")
 
+    def test_a_mute_makes_the_page_video_again(self):
+        with mock.patch.object(render, "export", side_effect=lambda rec, state, path, *a, **k: path) as made:
+            muted = render.base(self.rec, dict(self.state, mutes=[[0.5, 1.5]]))
+        self.assertNotEqual(muted, self.made, "the page plays the clip as it sounds now")
+        self.assertEqual(made.call_args[0][1]["mutes"], [[0.5, 1.5]])
+
 
 @unittest.skipUnless(FFMPEG and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class Export(unittest.TestCase):
@@ -718,6 +724,7 @@ class Export(unittest.TestCase):
 
 
 VOICE = "0.3*(between(t,1,2.5)+between(t,4,5))*(sin(2*PI*220*t)+0.5*sin(2*PI*440*t))"
+UNEVEN = "(0.6*between(t,1,2.5)+0.06*between(t,4,5))*(sin(2*PI*220*t)+0.5*sin(2*PI*440*t))"
 
 
 def meter(path):
@@ -852,6 +859,75 @@ class ExportSound(unittest.TestCase):
             render.export(self.rec, dict(self.state, music={"path": silent}), out)
         self.assertIn("The music silent.wav is silent from its second 0", str(e.exception))
         self.assertFalse(os.path.exists(out))
+
+
+def peak(x, a, b):
+    """The loudest sample from second a to b, 0 to 1."""
+    import numpy as np
+    return float(np.abs(x[round(a * 48000):round(b * 48000)]).max())
+
+
+@unittest.skipUnless(FFMPEG and shutil.which("ffprobe") and HAS_NUMPY, "needs ffmpeg, ffprobe and numpy")
+class ExportMute(unittest.TestCase):
+    """The ExportSound recording, where someone speaks from 1 to 2.5 s and from 4 to 5 s, as a 7 s clip from 0.5 s
+    with 1.0-1.5 s (inside the first words) and 3.4-4.6 s (all the second) muted; and as a 2 s clip from 1.2 s, in
+    the middle of the first words, with its first 0.8 s muted."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.work, recording.WORK = recording.WORK, os.path.join(cls.tmp, "work")
+        talk = os.path.join(cls.tmp, "talk.mp4")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=8", "-f",
+                        "lavfi", "-i", "aevalsrc=exprs='%s':s=48000:c=stereo:d=8" % VOICE, "-c:v", "libx264",
+                        "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", talk], check=True)
+        cls.rec = recording.probe(talk)
+        lay = layouts.make("subject", (640, 360))
+        p = project.Project([{"do": "clip", "moment": 1, "pieces": [[0.5, 7.5]], "layout": lay},
+                             {"do": "mute", "spans": [[1.5, 2.0], [3.9, 5.1]], "start": 1.0, "end": 4.6,
+                              "back": False}])
+        cls.state = p.state()
+        cls.sound = samples(render.export(cls.rec, cls.state, os.path.join(cls.tmp, "clip.mp4")))
+        p = project.Project([{"do": "clip", "moment": 1, "pieces": [[1.2, 3.2]], "layout": lay},
+                             {"do": "mute", "spans": [[1.2, 2.0]], "start": 0, "end": 0.8, "back": False}])
+        cls.opening = samples(render.export(cls.rec, p.state(), os.path.join(cls.tmp, "opening.mp4")))
+        uneven = os.path.join(cls.tmp, "uneven.mp4")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=8", "-f",
+                        "lavfi", "-i", "aevalsrc=exprs='%s':s=48000:c=stereo:d=8" % UNEVEN, "-c:v", "libx264",
+                        "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", uneven], check=True)
+        p = project.Project([{"do": "clip", "moment": 1, "pieces": [[0.5, 7.5]], "layout": lay},
+                             {"do": "mute", "spans": [[0.9, 2.6]], "start": 0.4, "end": 2.1, "back": False}])
+        cls.quiet = render.export(recording.probe(uneven), p.state(), os.path.join(cls.tmp, "quiet.mp4"))
+
+    @classmethod
+    def tearDownClass(cls):
+        recording.WORK = cls.work
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_nothing_of_the_recording_is_heard_where_it_is_muted_and_the_words_around_it_are(self):
+        self.assertEqual(self.state["mutes"], [[1.0, 1.5], [3.4, 4.6]])
+        self.assertLess(peak(self.sound, 1.06, 1.44), 1e-3, "muted inside the first words")
+        self.assertLess(peak(self.sound, 3.45, 4.55), 1e-3, "and over all the second")
+        self.assertGreater(power(self.sound, 0.6, 0.95), -30, "the first words before the mute are heard")
+        self.assertGreater(power(self.sound, 1.55, 1.95), -30, "and after it")
+
+    def test_the_mute_eases_in_over_its_first_30_ms_without_a_click(self):
+        full = peak(self.sound, 0.9, 0.99)
+        steps = [round(peak(self.sound, t, t + 0.005) / full, 2) for t in (1.01, 1.02, 1.035)]
+        self.assertTrue(0.3 < steps[0] < 0.85 and steps[1] < 0.5 and steps[2] < 0.1,
+                        "10, 20 and 35 ms in, at %s of the words' level" % steps)
+
+    def test_a_clip_muted_from_its_first_second_has_no_sound_before_the_mute_ends(self):
+        self.assertLess(peak(self.opening, 0, 0.75), 1e-3, "no ease at the clip's start, where nothing came before")
+        self.assertGreater(power(self.opening, 0.85, 1.25), -30, "the words after the mute are heard")
+
+    def test_the_clip_is_still_levelled_to_minus_14_lufs_on_what_is_heard(self):
+        loud, top = meter(os.path.join(self.tmp, "clip.mp4"))
+        self.assertLess(abs(loud - render.LUFS), 0.5, "the sound is at %s LUFS" % loud)
+        self.assertLess(top, render.PEAK + 0.5)
+        loud, top = meter(self.quiet)
+        self.assertLess(abs(loud - render.LUFS), 1, "with a loud count-in muted, the quiet words left are levelled "
+                                                    "up, not left 20 dB down: %s LUFS" % loud)
 
 
 

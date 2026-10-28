@@ -304,6 +304,14 @@
   "show": "music"
  },
  {
+  "tool": "mute_sound",
+  "group": "Sound",
+  "name": "Mute a part",
+  "says": "Pick the seconds and the sound there goes: a count-in, someone else talking, a noise. The picture and your music play on, and the captions leave out those words.",
+  "ask": "Mute the sound from 0 to 3 s.",
+  "show": "mute"
+ },
+ {
   "tool": "blur_box",
   "group": "Blur",
   "name": "Blur a box",

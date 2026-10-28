@@ -709,6 +709,9 @@ body.details .simple { display: none !important; }
 .mini[data-show="sound"] .wave i { animation: mini-hit 1.8s infinite; }
 .mini[data-show="sound"] .fx { top: 30%; animation: mini-pop 1.8s infinite both; }
 .mini[data-show="music"] .wave i { animation: mini-dance 0.9s ease-in-out infinite alternate; }
+.mini[data-show="mute"] .wave i:nth-child(n+3):nth-child(-n+6) { height: 6%; background: #A6B1C2; }
+.mini[data-show="mute"] .wave i:not(:nth-child(n+3):nth-child(-n+6)) { animation: mini-dance 0.9s ease-in-out infinite alternate; }
+.mini[data-show="mute"] .fx { top: 18%; }
 .mini[data-show="music"] .wave i:nth-child(2n) { animation-delay: 0.3s; }
 .mini[data-show="music"] .wave i:nth-child(3n) { animation-delay: 0.6s; }
 .mini[data-show="music"] .fx { top: 26%; left: 74%; animation: mini-float 2.4s ease-in-out infinite; }
@@ -1021,7 +1024,8 @@ h2 { margin: 0 0 12px; font-size: 15px; }
 
 .channel-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.channel-says { margin: 6px 0 0; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+.channel-says, .panel-says { margin: 6px 0 0; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+.panel-says + .panel-row { margin-top: 8px; }
 
 .word-actions { display: flex; gap: 8px; }
 
