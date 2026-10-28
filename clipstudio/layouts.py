@@ -70,6 +70,7 @@ GROUND = "0x101014"
 FACE_SHARE = {"circle": 1.5, "stack": 2.0, "face": 4.0}
 HEAD_UP, HEAD_SIDE = 0.4, 0.15
 GAP = 24
+SHORTEST_PLACE = 100
 UNDER = 200
 SAFE_BOTTOM = 1520
 # The channel's name (text.channel_name) has the bottom NAME_ROW px of what a phone shows to itself, so it sits in
@@ -287,6 +288,10 @@ def _around_the_head(head, notes):
                 title = places["middle"]
                 title[1] = min(title[1], max(_even(chin + GAP / 3.0), y - UNDER))
                 title[3] = min(UNDER, y - title[1])
+                if title[3] < SHORTEST_PLACE:
+                    title[1], title[3] = y - UNDER, UNDER
+                    notes.append("No room is left between the chin and the captions, so the title's place sits just "
+                                 "above the captions, over the face: the program says when it is clear of it.")
     return places, [65, y, 830, tall]
 
 

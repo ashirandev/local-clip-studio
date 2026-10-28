@@ -1724,7 +1724,7 @@ def _make_talk(job, rec, moment, m, pieces, cut, name="talk"):
     private = _private_lines(job, rec, lay, pieces, [a, b])
     if private is None:
         return "Not made: the person pressed Stop."
-    people = _people(rec, pieces, None, [a, b])
+    people = _people(rec, pieces, None, [a, b], shown=[p["box"] for p in persons])
     state = job.edit({"do": "clip", "moment": moment, "pieces": pieces, "span": [a, b], "layout": lay, "product": None,
                       "people": [{k: v for k, v in p.items() if k != "crop"} for p in people or []],
                       "speech": _speech(rec, job.chat.looks[m["look"] - 1], pieces), "voices": spoken})
@@ -2681,17 +2681,19 @@ CROWD_SHOWN = 4
 SAME_FACE = 0.3
 
 
-def _people(rec, pieces, face, span=None):
+def _people(rec, pieces, face, span=None, shown=()):
     """The other people's faces in the clip, from the faces already found in each piece, most seen first: [{"n",
     "seen", "of", "from", "to" (clip seconds), "box" (recording), "points": [[clip second, x, y, w, h]], "crop"}].
-    The face the layout shows, and a face that sits still (the person making the clip), are not among them. None
-    when the faces of a piece were not found."""
+    The face the layout shows, the faces of a talk layout (shown: the people it follows, the clip itself), and a
+    face that sits still (the person making the clip), are not among them. None when the faces of a piece were not
+    found. 10-29, the brother's podcast: the three hosts were listed as other people, and Glimmer blurred them all."""
     out = []
     for a, b, found in _found_faces(rec, pieces, span):
         if not found:
             return None
         for tr in tracks.tracks(found, rec):
-            if tr["steady"] or face and _overlap(tr["box"], face) > SAME_FACE:
+            if tr["steady"] or face and _overlap(tr["box"], face) > SAME_FACE or any(
+                    _overlap(tr["box"], box) > SAME_FACE for box in shown):
                 continue
             points = []
             for t, x, y, w, h in tr["points"]:
@@ -2723,7 +2725,7 @@ def _people_lines(job, people, rec):
         return ["Other people's faces could not be looked for, so none are listed."]
     if not people:
         return ["No other person's face is in the clip."]
-    lines = ["Other people's faces in the clip: %d (the face the layout shows is not one of them). Decide about each "
+    lines = ["Other people's faces in the clip: %d (the faces the layout shows are not among them). Decide about each "
              "with decide_people before you render: blur a real person who is not the one making the clip, such as "
              "someone passing behind; keep a face that belongs, such as a game character or a face on a screen or a "
              "box." % len(people)]

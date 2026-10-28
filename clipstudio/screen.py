@@ -38,6 +38,7 @@ LONG_SIDE = 1920
 CHECKS = 2
 SMALL = (192, 108)
 LEVEL = 24
+SLACK = 2
 CHANGED = 0.02
 GAP = 1.0
 FORCE = 3.0
@@ -432,8 +433,10 @@ def hidden(rec, pieces, on_start=None, span=None):
 
 
 def covered(item, blurs):
-    """True when one fixed blur hides the whole of a private line for the whole time it shows."""
+    """True when one fixed blur hides the whole of a private line for the whole time it shows, to within SLACK px:
+    Muse is told the line's box on a grid of 1000 steps, rounded, so a blur on exactly that box can fall under a
+    pixel short of the line (SIFU, 10-29: the check failed three renders running on such a blur)."""
     x, y, w, h = item["box"]
-    return any(b.get("box") and b["box"][0] <= x and b["box"][1] <= y and b["box"][0] + b["box"][2] >= x + w and
-               b["box"][1] + b["box"][3] >= y + h and b["start"] <= item["start"] + 0.01 and
-               b["end"] >= item["end"] - 0.01 for b in blurs)
+    return any(b.get("box") and b["box"][0] <= x + SLACK and b["box"][1] <= y + SLACK and
+               b["box"][0] + b["box"][2] >= x + w - SLACK and b["box"][1] + b["box"][3] >= y + h - SLACK and
+               b["start"] <= item["start"] + 0.01 and b["end"] >= item["end"] - 0.01 for b in blurs)

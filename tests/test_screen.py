@@ -103,6 +103,16 @@ class Hidden(unittest.TestCase):
         self.assertFalse(screen.covered(item, [{"box": [150, 190, 320, 60], "start": 0.0, "end": 9.0}]))
         self.assertFalse(screen.covered(item, [{"track": [[0, 100, 200, 300, 40]], "start": 0.0, "end": 9.0}]))
 
+    def test_a_blur_on_the_box_muse_was_told_covers_the_line_though_the_grid_rounded_it(self):
+        """10-29, SIFU on Glimmer: told the names were at [781, 45, 879, 147] on its grid, it blurred exactly that, and
+        the check failed three renders running: the grid rounds to the nearest of 1000 steps, so a blur on the box
+        it was told can fall under a pixel short of the line."""
+        item = {"kind": "a person's handle", "box": [1500.4, 48.4, 187.2, 110.3], "start": 0.0, "end": 50.0}
+        told = [781 * 1.92, 45 * 1.08, (879 - 781) * 1.92, (147 - 45) * 1.08]
+        self.assertTrue(screen.covered(item, [{"box": told, "start": 0.0, "end": 50.0}]))
+        short = [told[0] + 5, told[1], told[2] - 5, told[3]]
+        self.assertFalse(screen.covered(item, [{"box": short, "start": 0.0, "end": 50.0}]), "5 px short shows letters")
+
 
 class Words(unittest.TestCase):
     """The words a stretch shows, for names: sure lines only, never a private one, most seen first."""

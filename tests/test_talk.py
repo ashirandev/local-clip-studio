@@ -6,10 +6,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import layouts, project, recording, render, talk  # noqa: E402
+from clipstudio import layouts, project, recording, render, talk, tools  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
 LEFT, RIGHT = [200, 200, 160, 160], [920, 200, 160, 160]
@@ -75,6 +76,27 @@ class Turns(unittest.TestCase):
         rows[12] = (1, [5.0, 1.5])
         self.assertEqual(len(talk.shots(self.wins(rows), talk.turns(self.wins(rows)), 2)), 1,
                          "a listener who barely moves gets no reaction shot")
+
+
+class Followed(unittest.TestCase):
+    """10-29, the brother's podcast in the speaker layout: the three hosts were listed as other people to decide
+    about, and Glimmer blurred them all, which hid the clip. The people a talk layout follows are the clip."""
+
+    def test_the_people_a_talk_layout_follows_are_not_listed_to_blur_and_a_passer_by_is(self):
+        passer = [600, 500, 90, 90]
+
+        def track(box, steady=False):
+            return {"box": box, "steady": steady, "seen": 8, "crop": None,
+                    "points": [[t, box[0], box[1], box[2], box[3]] for t in (1.0, 2.0, 3.0)]}
+
+        found = {"samples": [None] * 10}
+        with mock.patch.object(tools, "_found_faces", lambda rec, pieces, span: [(0.0, 4.0, found)]),                 mock.patch.object(tools.tracks, "tracks", lambda f, rec: [
+                    track([LEFT[0] + 6, LEFT[1] - 4, 150, 166]), track(list(RIGHT)), track(passer)]):
+            listed = tools._people({"width": 1280, "height": 720}, [[0.0, 4.0]], None, [0.0, 4.0],
+                                   shown=[p["box"] for p in persons()])
+            everyone = tools._people({"width": 1280, "height": 720}, [[0.0, 4.0]], None, [0.0, 4.0])
+        self.assertEqual([p["box"] for p in listed], [passer])
+        self.assertEqual(len(everyone), 3, "without the layout's people, all three are listed")
 
 
 @unittest.skipUnless(FFMPEG, "needs ffmpeg")

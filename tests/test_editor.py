@@ -428,7 +428,7 @@ class Tools(unittest.TestCase):
         self.assertIn("- top (y 285 to 520): clear of faces at 0-4.7 s, 9.8-20 s", step["result"])
         self.assertIn("- middle (y 905 to 1075): clear of faces for the whole clip", step["result"])
         self.assertIn("comes next as a picture", step["result"])
-        self.assertIn("Other people's faces in the clip: 1 (the face the layout shows is not one of them).", step["result"])
+        self.assertIn("Other people's faces in the clip: 1 (the faces the layout shows are not among them).", step["result"])
         self.assertIn("- person 1: seen in 10 of 40 pictures, 0:05-0:10 of the clip, at [438, 56, 562, 278] on your grid; "
                       "decide before you render; its face comes next as a picture", step["result"])
         sent = brain.sent[-1][-1]
@@ -1247,6 +1247,13 @@ class Tools(unittest.TestCase):
             return [[9.0 if f else 1.0 for f in first], [1.0 if f else 9.0 for f in first]]
 
         real, talk.motion = talk.motion, moving
+        listing, asked = tools._people, []
+
+        def people(*args, **kw):
+            asked.append(kw.get("shown"))
+            return listing(*args, **kw)
+
+        tools._people = people
         try:
             brain, steps = self.run_job(
                 *self.to_moment(), '{"lines": ["hello there", "and you"]}',
@@ -1258,9 +1265,11 @@ class Tools(unittest.TestCase):
                 [call("move_part", part="circle", box=[600, 700, 900, 900], why="move it")],
                 "Done.")
         finally:
-            talk.motion = real
+            talk.motion, tools._people = real, listing
         made, reaction, together, nobody, push, move = steps[-6:]
         self.assertFalse(made["refused"], made["result"])
+        self.assertEqual(asked[0], [p["box"] for p in self.chat.project.state()["clip"]["layout"]["people"]],
+                         "the people the clip follows are not listed to blur (10-29: Glimmer blurred a podcast's hosts)")
         self.assertIn("in the talk layout. It follows 2 people, numbered from the left", made["result"])
         self.assertIn("The program cut 2 s out of the moment", made["result"], "the stop between the two is cut")
         self.assertIn("Shots: 0-8.6 s person 1; 8.6-18 s person 2.", made["result"], "the cut is where the pieces join")

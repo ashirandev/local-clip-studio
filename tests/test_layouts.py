@@ -224,6 +224,16 @@ class Places(unittest.TestCase):
             self.assertFalse(overlap(title, captions), what)
             self.assertGreaterEqual(title[3], 192, "%s: the title place holds two lines of the tallest style" % what)
 
+    def test_heads_that_leave_no_room_under_the_chin_still_leave_a_place_a_title_fits_in(self):
+        """10-29, the brother's podcast in the speaker layout: three heads from y 380 to a chin at 1302 gave the
+        title a place 12 px tall ABOVE nothing (-12), every title was refused as too tall, and Glimmer tried 15."""
+        notes = []
+        places, captions = layouts._around_the_head([0, 380, 1080, 922], notes)
+        (name, title), = places.items()
+        self.assertGreaterEqual(title[3], layouts.SHORTEST_PLACE, "%s %s" % (name, title))
+        self.assertFalse(overlap(title, captions), "%s %s on the captions %s" % (name, title, captions))
+        self.assertTrue(any("over the face" in n for n in notes), notes)
+
 
 # What Instagram and Facebook Reels draw over a 1080x1920 clip, measured on Tarm's iPhone screenshots (10-27,
 # 1179x2556): both apps fill the screen to their own bottom bar and cut the sides; boxes in clip pixels.
