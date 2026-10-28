@@ -59,8 +59,9 @@ page cannot send it anything without asking first).
 
 ## The mind: three ways to run Muse
 
-Settings has a switch for the three. With Show how Muse works on, every answer shows which one answered, with its
-engine numbers: tokens read new, tokens reused from the question before, reading and writing speed, and seconds.
+The line under the title shows which Muse will answer and where it runs: local (on this computer) or API (on
+someone's servers, paid per token). Tap it to switch. With Show how Muse works on, every answer shows which one
+answered, with its engine numbers: tokens read new, tokens reused from the question before, reading and writing speed, and seconds.
 
 **1. Muse Glimmer on your own graphics card (the default).** This is Meta's open-weight model, run by llama.cpp's
 own server. This is the exact setup the demo runs on:
@@ -140,8 +141,8 @@ else works the same.
 
 ## How the agent works
 
-Each message starts a job. Muse makes a plan, then calls one tool at a time, and the page shows every step as it
-happens: its number, what it did and why (one line in your language), and with Show how Muse works on, the input,
+Each message that asks for work starts a job. Muse makes a plan, then calls one tool at a time, and the page shows
+every step as it happens: its number, what it did and why (one line in your language), and with Show how Muse works on, the input,
 the result and the engine numbers.
 
 - **The loop keeps the rules, not Muse.** Wrong input is refused with a sentence that says what to send instead. A
@@ -152,7 +153,12 @@ the result and the engine numbers.
 - **You can steer it while it works.** Muse's thinking shows on the page as it is written. Type at any time: the
   question in flight is cancelled and your words go in next, so Muse answers them before anything else. Stop ends
   the job at once. Both close the connection, and llama-server drops the work.
-- **Chats are kept.** New chat starts an empty one; Earlier chats opens an old one again, exactly as it was.
+- **An editor you can talk to.** A greeting, a thanks or a word about your day gets an answer, not a job. If Muse's
+  first answer to something you typed calls a tool anyway, one short question apart asks whether you asked for
+  work; if you did not, Muse is asked again with no tools at all, so nothing runs.
+- **Chats are kept.** New chat starts an empty one; Earlier chats opens an old one again, exactly as it was. After
+  the first job that does work, Muse names the chat in a few words of your language ("รีวิวไมค์ Yeti Orb"), and
+  the list says which Muse answered in it, local or API.
 - **One recipe per kind of video, and no questions.** Muse picks the kind (`recipes/seller.md` for a product review
   or a selling live, `recipes/game.md` for a game stream), reads that recipe, and shows its guesses: the kind, the
   length, the style and the language. Each guess has a button to change it with one tap, and Muse plans again.
@@ -344,6 +350,8 @@ Model weights are downloaded when they are first needed. None of them are commit
 | 2026-10-27, this build | Muse's answer after the cards, before any clip existed | it said the clip was made, with captions and a blurred chat. Now the state Muse reads says "no clip made yet": next run, it said only that the moments were ready to preview (one run, not yet a measurement) |
 | 2026-10-27, this build | The editor, one live run each on Glimmer Q3, from opening the recording | the review clip: 14 steps, 3:00, no question to the person, a title clear of the face; it found four faults, all fixed: "the clip is ready" with no file made, a free window of 0.4 s offered, a key word inside "50–75", a title over the product. The 4-hour stream: 11 steps, 2:54, 0 refused, card layout with the face found in 37 of 40 pictures; it found two: the chat blur put over the streamer's face, and a Thai key word that coloured the whole title |
 | 2026-10-27, this build | Drawing one preview frame of the clip | 0.1-0.45 s for a layout from a 1080p stream; one 1080x1920 frame with a title, captions and a hit in under 1 s |
+| 2026-10-28, this build | Small talk in a new chat ("ฝนตกทั้งวันเลย", "ok", "เหนื่อยจัง ไลฟ์มาทั้งวัน"), 12 messages each | before: Glimmer called a tool for 4, Spark for 3. With the new instruction and the check: 0 of 40 small-talk messages ran a tool on either (12 in a new chat and 8 after a finished clip, twice each), and 8 of 8 requests for work still started work on each |
+| 2026-10-28, this build | The question apart that sorts a message into work or talk, 36 talk and 34 work messages | 70 of 70 right with each, Spark in a median 3.1 s, Glimmer in 5.1 s (Glimmer missed "มีไฟล์อะไรบ้าง" until asking which recordings you have was named as work). So it is asked only when Muse's first answer calls a tool |
 
 New measurements are added here as the build is tested, each with its date.
 

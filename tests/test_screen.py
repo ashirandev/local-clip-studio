@@ -54,7 +54,7 @@ class Private(unittest.TestCase):
         for line in ["ashiran.com", "Ashiran Local AI - 127.0.0.1:8791", "gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
                      "Muse-Glimmer-30B-UD-Q3_K_XL", "Huihui-Qwen3.8-27B-abliterated-Q3_K", "2026-10-12 14-17-28.mkv",
                      "-0.08%", "2,065+", "Forex 29 n.s. 2569", "luuatiuwhnForex100%Aaasls?luuauuu",
-                     "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "127.0.0.1:8850/#chat/01c097110521", "Head to head, on one PC", "4111 1111 1111 1112",
+                     "https://www.facebook.com/reel/1234567890", "127.0.0.1:8850/#chat/01c097110521", "Head to head, on one PC", "4111 1111 1111 1112",
                      "Password", "1234567890123", "price @ 20 baht", "@ab", "พี่ตูมตามอยู่จังหวัดไหนครับ"]:
             self.assertIsNone(screen.private(line), line)
 

@@ -164,7 +164,7 @@ def _mark(img, text, at, scale, thick):
 
 def stills(rec):
     """The stretches of rec where the picture does not move for FROZEN s or more: [(from, to)] in its seconds. A held
-    picture is a frozen screen (Tarm, 10-27: "ไม่เอา จอแช่เหมือน tiktok นะ"). None of the 31 phone clips of 10-27 holds
+    picture is a frozen screen (Tarm, 10-27: "ไม่เอา จอแช่"). None of the 31 phone clips of 10-27 holds
     still that long; a picture held on purpose, or a freeze frame, does."""
     key = hashlib.sha1(("%s|%d|%s|%g|%g" % (rec["path"], rec["size"], rec["mtime"], STILL_NOISE, FROZEN)
                         ).encode("utf-8")).hexdigest()[:16]

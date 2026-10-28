@@ -468,7 +468,7 @@
   "group": "Check and post",
   "name": "Ready to post",
   "says": "Gives you the video with a title, post text and hashtags, a Copy all button and a download.",
-  "ask": "Write the post text for TikTok.",
+  "ask": "Write the post text for Instagram Reels.",
   "show": "post"
  },
  {

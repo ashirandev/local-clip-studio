@@ -9,7 +9,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, mind, recipes, tools, words  # noqa: E402
+from clipstudio import agent, chatname, mind, needs, recipes, tools, words  # noqa: E402
 
 
 def call(name, **args):
@@ -21,14 +21,26 @@ class ScriptedMind:
 
     An item is the words of an answer, a list of tool calls, or a function(asking) that acts while the question is
     in flight (the person types, or presses Stop) and then raises or returns one of the other two. A spelling question
-    is answered with its texts unchanged, unless the next item is a scripted spelling answer or a function.
+    is answered with its texts unchanged, unless the next item is a scripted spelling answer or a function. The
+    question whether a message asks for work (needs.py) is answered work, and the chat's name (chatname.py) "a chat",
+    unless the next item is a scripted answer to it ('{"needs": ...', '{"name": ...') or a function; one answered so
+    is not kept in sent, which holds the conversations a test scripted. offered and schemas keep the tools and the
+    schema of every question.
     """
     label = "scripted"
 
     def __init__(self, *script):
-        self.script, self.sent = list(script), []
+        self.script, self.sent, self.offered, self.schemas = list(script), [], [], []
 
     def ask(self, messages, tools=None, temperature=None, max_tokens=None, on_delta=None, asking=None, schema=None):
+        self.offered.append(tools)
+        self.schemas.append(schema)
+        for asked, start, default in ((needs.SCHEMA, '{"needs"', '{"needs": "work"}'),
+                                      (chatname.SCHEMA, '{"name"', '{"name": "a chat"}')):
+            if schema is asked and not (self.script and (callable(self.script[0]) or (
+                    isinstance(self.script[0], str) and self.script[0].startswith(start)))):
+                return {"text": default, "thinking": "", "tool_calls": [], "message": {"role": "assistant"},
+                        "engine": {"read_new": 10, "reused": 0, "seconds": 0.1}}
         self.sent.append(json.loads(json.dumps(messages)))
         if schema is words.SPELL_SCHEMA and not (self.script and (callable(self.script[0]) or (
                 isinstance(self.script[0], str) and self.script[0].startswith('{"texts"')))):
@@ -389,6 +401,121 @@ class Loop(unittest.TestCase):
         job.take_inbox = take_then_person_types
         job.run()
         self.assertEqual([m["content"] for m in brain.sent[0][1:]], ["find the review", "and the game"])
+
+
+class Talk(unittest.TestCase):
+    """A typed message that only talks starts no work, however Muse first answers it (needs.py)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        os.environ["LCS_VIDEOS"] = self.tmp
+        agent.WORK = os.path.join(self.tmp, "work")
+        self.chat, self.real = agent.Chat(), mind.get
+
+    def tearDown(self):
+        mind.get = self.real
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def say(self, brain, said):
+        mind.get = lambda key: brain
+        job = self.chat.say(said, None)
+        job.thread.join(10)
+        self.assertFalse(job.thread.is_alive())
+        if getattr(job, "speller", None):
+            job.speller.join(10)
+        return [e for e in self.chat.events if e.get("job") == job.n]
+
+    def test_small_talk_is_answered_in_words_and_no_tool_runs(self):
+        brain = ScriptedMind([call("find_recordings", why="หาคลิป")], '{"needs": "talk"}', "ฝนตกเหรอ พักก่อนนะ")
+        events = self.say(brain, "ฝนตกทั้งวันเลย")
+        self.assertEqual([e["kind"] for e in events if e["kind"] == "step"], [])
+        answer = [e for e in events if e["kind"] == "answer"][-1]
+        self.assertEqual((answer["text"], answer["talk"], events[-1]["why"]), ("ฝนตกเหรอ พักก่อนนะ", True, "answered"))
+        self.assertEqual(brain.schemas[1], needs.SCHEMA)
+        self.assertIn("The person's message: ฝนตกทั้งวันเลย", brain.sent[1][-1]["content"])
+        self.assertIsNotNone(brain.offered[0])
+        self.assertIsNone(brain.offered[2], "asked again with no tools, so no call can come back")
+        self.assertFalse(any(m.get("tool_calls") for m in self.chat.messages), "the call that was not run is not kept")
+        self.assertEqual([m["role"] for m in self.chat.messages], ["system", "user", "assistant"])
+
+    def test_a_request_for_work_runs_its_tools(self):
+        brain = ScriptedMind([call("find_recordings", why="หาไลฟ์")], '{"needs": "work"}', "เจอแล้ว")
+        events = self.say(brain, "หาไลฟ์เมื่อวานให้หน่อย")
+        self.assertEqual([e["tool"] for e in events if e["kind"] == "step"], ["find_recordings"])
+        self.assertFalse([e for e in events if e["kind"] == "answer"][-1]["talk"])
+
+    def test_an_answer_in_words_asks_no_question_apart(self):
+        brain = ScriptedMind("สวัสดีครับ")
+        self.say(brain, "สวัสดีครับ")
+        self.assertEqual(brain.schemas, [None])
+
+    def test_a_tap_and_an_opened_recording_are_never_asked_about(self):
+        for said in (agent.TAP_SAID + "Put the captions in Thai.", agent.OPEN_SAID + "review.mp4"):
+            brain = ScriptedMind([call("find_recordings", why="look")], "Done.")
+            events = self.say(brain, said)
+            self.assertNotIn(needs.SCHEMA, brain.schemas, said)
+            self.assertEqual([e["tool"] for e in events if e["kind"] == "step"], ["find_recordings"], said)
+
+    def test_the_question_sees_the_editors_last_answer(self):
+        self.say(ScriptedMind("อยากให้ตัดคลิปขายของจากไลฟ์นี้ไหมครับ"), "มีไลฟ์ยาวอยู่")
+        brain = ScriptedMind([call("find_recordings", why="look")], '{"needs": "work"}', "Done.")
+        self.say(brain, "เอาเลย")
+        self.assertIn("The editor's last answer: อยากให้ตัดคลิปขายของจากไลฟ์นี้ไหมครับ", brain.sent[1][-1]["content"])
+
+    def test_a_question_that_fails_leaves_the_job_as_work(self):
+        def broken(asking):
+            raise mind.MindError("Muse is not there.")
+
+        brain = ScriptedMind([call("find_recordings", why="look")], broken, "Done.")
+        events = self.say(brain, "หาไลฟ์ให้หน่อย")
+        self.assertEqual([e["tool"] for e in events if e["kind"] == "step"], ["find_recordings"])
+
+    def named(self):
+        return [e["title"] for e in self.chat.events if e["kind"] == "named"]
+
+    def test_muse_names_the_chat_after_its_first_work_and_the_list_shows_that_name(self):
+        """Tarm 10-28: "ให้ model คิดชื่อเลย"."""
+        brain = ScriptedMind([call("find_recordings", why="หาไลฟ์")], '{"needs": "work"}', "เจอไลฟ์เมื่อวานแล้ว",
+                             '{"name": "\\"ไลฟ์ขายของ เมื่อวาน\\""}')
+        self.say(brain, "หาไลฟ์เมื่อวานให้หน่อย")
+        self.assertEqual(self.named(), ["ไลฟ์ขายของ เมื่อวาน"], "quotes around the name are taken off")
+        asked = brain.sent[-1][-1]["content"]
+        self.assertIn("- หาไลฟ์เมื่อวานให้หน่อย", asked)
+        self.assertIn("The editor answered: เจอไลฟ์เมื่อวานแล้ว", asked)
+        self.assertEqual(agent.earlier()[0]["title"], "ไลฟ์ขายของ เมื่อวาน")
+
+    def test_talk_does_not_name_the_chat_and_a_named_chat_is_not_named_again(self):
+        self.say(ScriptedMind("สวัสดีครับ"), "สวัสดีครับ")
+        self.assertEqual(self.named(), [])
+        self.say(ScriptedMind([call("find_recordings", why="look")], "Found.", '{"name": "รีวิวไมค์"}'), "หาคลิปไมค์")
+        self.assertEqual(self.named(), ["รีวิวไมค์"])
+        brain = ScriptedMind([call("find_recordings", why="look")], "Found again.")
+        self.say(brain, "หาอีกที")
+        self.assertNotIn(chatname.SCHEMA, brain.schemas)
+
+    def test_the_name_comes_from_the_messages_that_asked_for_work_not_from_small_talk(self):
+        """10-28, live on Glimmer: "ฝนตกทั้งวันเลย เหนื่อยจัง" then a look at the yeti folder was named
+        "รวมคลิปฝนตกทั้งวัน"."""
+        self.say(ScriptedMind("พักก่อนนะ"), "ฝนตกทั้งวันเลย เหนื่อยจัง")
+        brain = ScriptedMind([call("find_recordings", why="look")], "มี 8 ไฟล์", '{"name": "คลิปรีวิวไมค์"}')
+        self.say(brain, "มีคลิปรีวิวไมค์กี่ไฟล์")
+        asked = brain.sent[-1][-1]["content"]
+        self.assertIn("- มีคลิปรีวิวไมค์กี่ไฟล์", asked)
+        self.assertNotIn("ฝนตก", asked)
+
+    def test_a_name_that_shows_a_file_or_folder_is_not_kept(self):
+        for said in ('{"name": "yeti-c149d0193c.mp4"}', '{"name": "H:\\\\Phone\\\\yeti"}', '{"name": "H:/Phone/yeti"}',
+                     '{"name": "clips in /Users/me"}', '{"name": "  "}', "not json"):
+            self.assertIsNone(chatname.read(said), said)
+        self.assertEqual(chatname.read('{"name": "เครื่องดูดความชื้น 750 มล/วัน"}'), "เครื่องดูดความชื้น 750 มล/วัน",
+                         "a slash between words is not a folder (10-28: both Muses named the dehumidifier so)")
+        self.assertEqual(chatname.read('{"name": "' + "ไมค์ " * 20 + '"}'), ("ไมค์ " * 9).strip())
+
+    def test_only_the_first_answer_is_asked_about(self):
+        brain = ScriptedMind([call("find_recordings", why="look")], '{"needs": "work"}',
+                             [call("find_recordings", words="sifu", why="narrow")], "Done.")
+        self.say(brain, "หาไลฟ์ให้หน่อย")
+        self.assertEqual(brain.schemas.count(needs.SCHEMA), 1)
 
 
 if __name__ == "__main__":

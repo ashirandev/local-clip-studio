@@ -9,6 +9,9 @@ What the loop keeps, whatever Muse writes:
 - Every tool result ends with the state of the job ("Now: ..."), so the newest thing Muse reads is the current state.
 - The repeat guard refuses a call only when the same call already got the same result twice and nothing has changed
   since. A call with fixed input, or any call after a change, runs.
+- A message that only talks starts no work: when Muse's first answer to a typed message calls a tool, one short
+  question apart (needs.py) asks whether the message asked for work, and if it did not, Muse is asked again with no
+  tools at all, so it answers in words and nothing runs.
 - The loop ends the job, not Muse: when Muse answers in words (after one reminder of any plan steps it left open),
   when it keeps repeating a refused call, or after MAX_STEPS steps.
 - The person can steer at any time. Words typed while Muse works cancel the question in flight and go in as the
@@ -28,7 +31,7 @@ import threading
 import time
 import traceback
 
-from . import channels, faces, hearing, layer, maps, mind, previews, project, recording, render, spent, text, words
+from . import channels, chatname, faces, hearing, layer, maps, mind, needs, previews, project, recording, render, spent, text, words
 from .tools import (CAPTION_LETTERS, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, STYLES, TOOLS, Refused, _spoken, _subtitles,
                     _undecided, channel_entries, channel_unfit, describe, faces_at, features, look_of, look_said)
 
@@ -56,7 +59,8 @@ TAP_SAID = "(tapped) "
 OPEN_SAID = "(opened) "
 AS_SAID = "said"
 SYSTEM = """You are the editor in Local Clip Studio. People bring long recordings (selling lives, game streams, travel \
-clips) and you turn them into short vertical clips ready to post.
+clips) and you turn them into short vertical clips ready to post as Reels on Instagram and Facebook. When you say \
+where a clip goes, name those; never name another company's app.
 
 You work as an agent. You call one tool at a time, read what it returns, and go on by yourself until the work is \
 done. Nobody approves your steps, so never stop to ask for something a tool can find out. When a couple of tries \
@@ -73,7 +77,9 @@ a title, the post text and hashtags. Plan those three steps too.
 - Each tool result ends with a line that starts with "Now:". It is the current state; trust it over anything older.
 - When the work is done, or only the person can decide, answer briefly, in the language the person writes in. Say \
 only what your tools actually did, in plain words, without tool or field names. Write plain text, not markdown.
-- A question that needs no tool gets a plain answer, with no plan.
+- When the person only talks (a greeting, thanks, how they feel, small talk, or a question you can answer from \
+what you already know), answer like a person, briefly and warmly, with no tool and no plan. If they may want \
+something done, ask what; do not start it.
 - A message that starts with "(tapped)" is a choice the person made with a button under your guesses. Act on it \
 like their own words, and keep answering in the language they type in.
 - A message that starts with "(opened)" means the person opened that recording to make a clip from it. Start at \
@@ -214,7 +220,8 @@ class Chat:
             if self.spelling:
                 self.spelling.cancel()
             self.jobs += 1
-            self.job = Job(self, mind.get(mind_key), content)
+            typed = None if shown.startswith((TAP_SAID, OPEN_SAID)) else shown
+            self.job = Job(self, mind.get(mind_key), content, said=typed)
             self.emit("person", job=self.jobs, text=shown)
             self.job.thread.start()
             return self.job
@@ -753,8 +760,11 @@ class Chat:
 class Job:
     """One message from the person and everything Muse does about it, including words typed while it works."""
 
-    def __init__(self, chat, brain, content):
+    def __init__(self, chat, brain, content, said=None):
+        """said is the person's own words when they typed the message (not a tap, not an opened recording): only
+        then may the message turn out to be talk (needs.py)."""
         self.chat, self.brain, self.n = chat, brain, chat.jobs
+        self.said, self.sorted, self.talk = said, False, False
         self.inbox = [content]
         self.pictures = []
         self.proofread = {}
@@ -933,6 +943,8 @@ class Job:
                 self.emit("wait", step=self.steps + 1)
                 try:
                     got = self.ask()
+                    if got["tool_calls"] and self.only_talk():
+                        got = self.ask(tools=None)
                 except mind.Cancelled:
                     self.emit("cut", step=self.steps + 1, by="stop" if self.stopped else "person")
                     continue
@@ -964,7 +976,7 @@ class Job:
                     with chat.cond:
                         more = bool(self.inbox) and not self.stopped
                         self.emit("answer", final=not more, text=got["text"], thinking=got["thinking"],
-                                  engine=got["engine"], mind=self.brain.label)
+                                  engine=got["engine"], mind=self.brain.label, talk=self.talk)
                         if not more:
                             self.close(end, started)
                             return
@@ -1003,7 +1015,39 @@ class Job:
         with chat.cond:
             self.close(end, started)
 
-    def ask(self):
+    def only_talk(self):
+        """True when the person's typed message only talks, so Muse answers it in words with no tools offered. Asked
+        once a job, before any step, and only when Muse's first answer calls a tool: an answer in words needs no
+        question. A question that cannot be answered leaves the job as work, as it was before this existed."""
+        if self.said is None or self.sorted or self.steps:
+            return False
+        self.sorted = True
+        messages, schema = needs.question(needs.last_answer(self.chat.messages[:-1]), self.said)
+        with self.chat.cond:
+            if self.stopped or self.inbox:
+                raise mind.Cancelled()
+            self.asking = mind.Asking()
+            self.chat.live = {"job": self.n, "step": 1, "work": "Reading whether you asked for work or are just "
+                                                               "talking"}
+            self.chat.live_rev += 1
+            self.chat.cond.notify_all()
+        try:
+            said = self.paid(self.brain.ask(messages, temperature=0.0, max_tokens=needs.ROOM, asking=self.asking,
+                                            schema=schema))["text"]
+        except mind.MindError:
+            return False
+        finally:
+            with self.chat.cond:
+                self.chat.live = {"job": self.n, "step": 1, "thinking": "", "text": ""}
+        self.talk = needs.read(said) == "talk"
+        if self.talk:
+            with self.chat.cond:
+                if self.stopped or self.inbox:
+                    raise mind.Cancelled()
+                self.asking = mind.Asking()
+        return self.talk
+
+    def ask(self, tools=SCHEMAS):
         """Muse's next answer. When the conversation and an answer no longer fit in Muse's memory (mind.TooLong),
         the oldest pictures are taken out of it (make_room) and Muse is asked again, so a job is not ended by its own
         length. Measured 10-28: a montage of 19 clips filled Glimmer's 32,768 tokens 20 tokens before its hand-over,
@@ -1011,7 +1055,7 @@ class Job:
         tries = 0
         while True:
             try:
-                return self.paid(self.brain.ask(self.chat.messages, tools=SCHEMAS, temperature=AGENT_TEMPERATURE,
+                return self.paid(self.brain.ask(self.chat.messages, tools=tools, temperature=AGENT_TEMPERATURE,
                                                 max_tokens=AGENT_MAX_TOKENS, on_delta=self.on_delta,
                                                 asking=self.asking))
             except mind.TooLong as e:
@@ -1039,8 +1083,45 @@ class Job:
         self.emit("end", steps=self.steps, refused=self.refused, fixed=self.fixed,
                   seconds=round(time.time() - started, 1), why=end)
         if end == "answered":
-            self.speller = threading.Thread(target=self.spell_shown, name="spell-%d" % self.n, daemon=True)
+            self.speller = threading.Thread(target=self.after_answer, name="spell-%d" % self.n, daemon=True)
             self.speller.start()
+
+    def after_answer(self):
+        """What runs once a job is answered, one question after the other, since Glimmer answers one at a time: the
+        spelling of what the job showed, then the chat's name."""
+        self.spell_shown()
+        self.name_chat()
+
+    def name_chat(self):
+        """Names the chat once, after its first job that did any work, with a "named" event the list of earlier chats
+        reads (chatname.py), from what was typed in the jobs that did work: small talk before them named a look at
+        the yeti folder "รวมคลิปฝนตกทั้งวัน" (10-28). Like the spelling pass, the person's next message cancels it; a
+        later job asks again."""
+        events = self.chat.events
+        if not self.steps or any(e["kind"] == "named" for e in events):
+            return
+        worked = {e["job"] for e in events if e["kind"] == "step"}
+        said = [e["text"] for e in events if e["kind"] == "person" and e.get("job") in worked
+                and not e["text"].startswith((TAP_SAID, OPEN_SAID))]
+        answer = [e["text"] for e in events if e["kind"] == "answer" and e.get("job") == self.n and e.get("text")]
+        titles = [e["title"] for e in events if e["kind"] == "ready" and e.get("title")]
+        messages, schema = chatname.question(said, answer[-1] if answer else "", titles[-1] if titles else "")
+        asking = mind.Asking()
+        with self.chat.cond:
+            if self.chat.job is not self:
+                return
+            self.chat.spelling = asking
+        try:
+            name = chatname.read(self.paid(self.brain.ask(messages, temperature=0.3, max_tokens=chatname.ROOM,
+                                                          asking=asking, schema=schema))["text"])
+        except (mind.Cancelled, mind.MindError):
+            return
+        finally:
+            with self.chat.cond:
+                if self.chat.spelling is asking:
+                    self.chat.spelling = None
+        if name:
+            self.emit("named", title=name)
 
     def spell_shown(self):
         """After the job, the reasons, moment cards and answers it showed, with their Thai spelling fixed in one question of their
@@ -1412,9 +1493,9 @@ def find(chat_id):
 
 def earlier(limit=CHATS_LISTED):
     """The newest chats on disk that have at least one message: [{id, when, first, messages, recording, title,
-    minds}], title being the title of its newest finished clip ("" before one), minds each Muse that answered in it,
-    [{label, local}], local when it runs on this computer (no key). Tarm 10-28: the list read "yeti-c149d0193c.mp4"
-    eight times over."""
+    minds}], title being the name Muse gave the chat (Job.name_chat), else the title of its newest finished clip, else
+    "", minds each Muse that answered in it, [{label, local}], local when it runs on this computer (no key). Tarm
+    10-28: the list read "yeti-c149d0193c.mp4" eight times over."""
     folder = os.path.join(WORK, "chats")
     try:
         names = [n for n in os.listdir(folder) if n.endswith(".events.jsonl") and CHAT_ID.match(n[:-13])]
@@ -1428,7 +1509,8 @@ def earlier(limit=CHATS_LISTED):
         opened = [e["recording"]["name"] for e in events if e["kind"] == "opened"]
         if said:
             minds = list(dict.fromkeys(e["mind"] for e in events if e["kind"] == "job" and e.get("mind")))
-            titles = [e["title"] for e in events if e["kind"] == "ready" and e.get("title")]
+            titles = [e["title"] for e in events if e["kind"] == "named"] or [
+                e["title"] for e in events if e["kind"] == "ready" and e.get("title")]
             out.append({"id": name[:-13], "when": round(os.path.getmtime(os.path.join(folder, name))),
                         "first": said[0][:100], "messages": len(said), "recording": opened[-1] if opened else "",
                         "title": titles[-1] if titles else "",

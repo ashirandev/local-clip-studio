@@ -11,6 +11,9 @@ const earlier = document.getElementById("earlier");
 const earlierList = document.getElementById("earlierList");
 const mindsBox = document.getElementById("minds");
 const machineBox = document.getElementById("machine");
+const museMenu = document.getElementById("museMenu");
+const museChip = document.getElementById("museChip");
+const museWhere = document.getElementById("museWhere");
 const settings = document.getElementById("settings");
 const MONEY = { TH: "THB", JP: "JPY", KR: "KRW", CN: "CNY", TW: "TWD", HK: "HKD", SG: "SGD", MY: "MYR", ID: "IDR", VN: "VND", PH: "PHP", IN: "INR", GB: "GBP", AU: "AUD", NZ: "NZD", CA: "CAD", CH: "CHF", BR: "BRL", MX: "MXN" };
 const EURO = ["AT", "BE", "CY", "DE", "EE", "ES", "FI", "FR", "GR", "HR", "IE", "IT", "LT", "LU", "LV", "MT", "NL", "PT", "SI", "SK"];
@@ -1298,9 +1301,30 @@ function showStatus() {
   }
 }
 
+function mindName(m) {
+  return m.label.replace(/^Muse /, "");
+}
+
+function whereTag(m) {
+  return el("span", "mind-tag" + (m.local ? "" : " api"), m.local ? "local" : "API");
+}
+
+function drawChip() {
+  const m = current();
+  museChip.textContent = "";
+  if (!m) return;
+  const dot = el("span", "dot " + (m.ok ? "ok" : "off"));
+  dot.setAttribute("aria-hidden", "true");
+  museChip.append(dot, el("span", "muse-name", mindName(m)), whereTag(m));
+  museChip.setAttribute("aria-label", "Muse: " + m.label + ", " + (m.local ? "on this computer" : "through an API, which costs money") + ". Change");
+  museChip.title = m.label + ", " + m.where;
+  museWhere.textContent = m.ok ? m.where.charAt(0).toUpperCase() + m.where.slice(1) : "Not ready yet";
+}
+
 function drawMinds() {
   mindsBox.textContent = "";
   machineBox.textContent = "";
+  drawChip();
   room.minds.forEach((m) => {
     const b = el("button", "mind");
     b.type = "button";
@@ -1313,6 +1337,7 @@ function drawMinds() {
     b.addEventListener("click", () => {
       room.mind = m.key;
       localStore("mind", m.key);
+      museMenu.open = false;
       drawMinds();
     });
     mindsBox.appendChild(b);
@@ -1334,7 +1359,7 @@ detailsBox.addEventListener("change", () => {
 });
 
 document.addEventListener("click", (e) => {
-  [settings, earlier, features].forEach((menu) => {
+  [museMenu, settings, earlier, features].forEach((menu) => {
     if (menu.open && !menu.contains(e.target) && !e.target.closest("#seeFeatures")) menu.open = false;
   });
 });
@@ -1617,7 +1642,7 @@ earlier.addEventListener("toggle", async () => {
       const b = el("button", "earlier-chat" + (c.id === room.chat ? " here" : ""));
       b.type = "button";
       const meta = el("span", "meta", when(c.when));
-      (c.minds || []).forEach((m) => meta.appendChild(el("span", "mind-tag" + (m.local ? "" : " api"), m.label.replace(/^Muse /, "") + " · " + (m.local ? "local" : "API"))));
+      (c.minds || []).forEach((m) => meta.appendChild(el("span", "mind-tag" + (m.local ? "" : " api"), mindName(m) + " · " + (m.local ? "local" : "API"))));
       b.append(el("span", "first", c.title || c.first || c.recording), meta);
       b.addEventListener("click", () => {
         earlier.open = false;

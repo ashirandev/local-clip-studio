@@ -13,7 +13,16 @@
       <svg class="mark" viewBox="0 0 36 36" aria-hidden="true"><rect class="bg" width="36" height="36" rx="10"/><rect class="line" x="11" y="6" width="14" height="24" rx="3"/><path class="fill" d="M16 13.5v9l7-4.5z"/></svg>
       <div class="name">
         <h1>Local Clip Studio</h1>
-        <p class="sub">Long videos into short clips, on your own computer</p>
+        <div class="under">
+          <details class="menu" id="museMenu">
+            <summary class="ghost muse-chip" id="museChip"></summary>
+            <div class="pop muse-box">
+              <p class="pop-head">Muse</p>
+              <div class="minds" id="minds" role="radiogroup" aria-label="Which Muse does the work"></div>
+            </div>
+          </details>
+          <p class="sub" id="museWhere">Long videos into short clips</p>
+        </div>
       </div>
       <div class="actions">
         <button type="button" class="ghost" id="new">New<span class="word"> chat</span></button>
@@ -28,8 +37,6 @@
         <details class="menu" id="settings">
           <summary class="ghost settings-button" aria-label="Settings"><svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14"/><circle cx="7" cy="5" r="2"/><circle cx="13" cy="10" r="2"/><circle cx="8" cy="15" r="2"/></svg><span class="word">Settings</span></summary>
           <div class="pop settings-box">
-            <p class="pop-head">Muse</p>
-            <div class="minds" id="minds" role="radiogroup" aria-label="Which Muse does the work"></div>
             <label class="switch"><input type="checkbox" id="details"><span><b>Show how Muse works</b><small>Each step in full, with its thinking.</small></span></label>
             <label class="switch"><input type="checkbox" id="dark"><span><b>Dark look</b></span></label>
             <details class="machine-more"><summary>About this computer</summary><div class="machine" id="machine"></div></details>
@@ -40,7 +47,7 @@
     <div class="log" id="log" aria-live="polite">
       <div class="welcome" id="welcome">
         <p class="lead">Turn a long video into a short vertical clip.</p>
-        <p>For TikTok, Reels and Shorts. Muse, an AI video editor that runs on your own computer, watches your video, picks the best moment, tells you why, and cuts the clip for you.</p>
+        <p>For Reels on Instagram and Facebook. Muse, an AI video editor that runs on your own computer, watches your video, picks the best moment, tells you why, and cuts the clip for you.</p>
         <ol class="how">
           <li><b>Pick a video</b> from your videos below.</li>
           <li><b>Say what you want</b> in the box at the bottom, if you like: "a funny 20-second clip".</li>

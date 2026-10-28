@@ -64,7 +64,7 @@ class EveryDrive(unittest.TestCase):
         return os.path.realpath(path)
 
     def test_every_drive_is_swept_without_system_hidden_or_studio_folders_and_a_miss_sweeps_again(self):
-        kept = [self.put(self.c, "Users", "me", "Videos", "trip.mp4"), self.put(self.d, "YouTube", "ep1.mkv")]
+        kept = [self.put(self.c, "Users", "me", "Videos", "trip.mp4"), self.put(self.d, "Streams", "ep1.mkv")]
         for left in [(self.c, "Program Files", "app", "intro.mp4"), (self.c, "Users", "me", "AppData", "cache.mp4"),
                      (self.d, ".hidden", "x.mp4"), (self.d, "$Recycle.Bin", "old.mp4"),
                      (self.d, "studio", "work", "clips", "made.mp4")]:
@@ -72,8 +72,8 @@ class EveryDrive(unittest.TestCase):
         self.assertEqual(recording.folders(), [os.path.realpath(self.c), os.path.realpath(self.d)])
         self.assertEqual(sorted(p for _, _, p in recording.walk()), sorted(kept))
         self.assertTrue(recording._swept["complete"])
-        self.assertEqual([p for _, _, p in recording.walk("youtube")], [kept[1]])
-        later = self.put(self.d, "YouTube", "ep2.mp4")
+        self.assertEqual([p for _, _, p in recording.walk("streams")], [kept[1]])
+        later = self.put(self.d, "Streams", "ep2.mp4")
         self.assertNotIn(later, [p for _, _, p in recording.walk()], "one sweep is kept, not made for every search")
         self.assertEqual(recording.locate("ep2.mp4", 10), later, "a dropped file the kept sweep lacks: swept again")
 

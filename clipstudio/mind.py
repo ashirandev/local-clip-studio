@@ -193,8 +193,9 @@ class Mind:
             return json.loads(r.read().decode("utf-8"))
 
     def status(self):
-        """{ok, key, label, where, name} or {ok: False, ..., why} with a sentence. Never sends a question."""
-        out = {"key": self.key, "label": self.label, "where": self.where, "url": self.url}
+        """{ok, key, label, where, local, name} or {ok: False, ..., why} with a sentence. local is True for a mind
+        on this computer, False for one on someone's servers. Never sends a question."""
+        out = {"key": self.key, "label": self.label, "where": self.where, "url": self.url, "local": not self.key_env}
         if self.key_env and not self.secret():
             return dict(out, ok=False, why=self.missing())
         if self.key_env:
@@ -358,7 +359,7 @@ class Shared(Mind):
         return headers
 
     def status(self):
-        out = {"key": self.key, "label": self.label, "where": self.where, "url": self.url}
+        out = {"key": self.key, "label": self.label, "where": self.where, "url": self.url, "local": False}
         if not self.secret():
             return dict(out, ok=False, why=self.missing())
         try:
