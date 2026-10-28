@@ -42,11 +42,12 @@ const wordNote = document.getElementById("wordNote");
 const againBox = document.getElementById("again");
 const againButton = document.getElementById("againButton");
 const againLine = document.getElementById("againLine");
+const previewLine = document.getElementById("previewLine");
 const fileInput = document.getElementById("file");
 const dropCover = document.getElementById("dropCover");
 const idle = text.placeholder;
 
-const room = { mind: localStore("mind") || "local", minds: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null };
+const room = { mind: localStore("mind") || "local", minds: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false } };
 
 function localStore(key, value) {
   try {
@@ -276,6 +277,9 @@ function fillPreview(li, e) {
 
 function showMoment(m) {
   room.showing = m;
+  room.wantBase = false;
+  room.base = null;
+  previewLine.hidden = true;
   const ready = room.cut[m.preview];
   if (ready && ready.ok) {
     const v = el("video");
@@ -357,10 +361,15 @@ function hideLive(j) {
 
 function setBusy() {
   const busy = room.open.size > 0;
-  stopButton.hidden = !busy;
+  stopButton.hidden = !(busy || room.work.video || room.work.preview);
   stopButton.disabled = false;
   text.placeholder = busy ? "Type here to change what Muse is doing" : idle;
   showStatus();
+}
+
+function pageWork(what, on) {
+  room.work[what] = on;
+  setBusy();
 }
 
 const TAPPED = "(tapped) ";
@@ -400,8 +409,12 @@ function clearClip() {
   clipTools.hidden = true;
   room.made = null;
   room.panel = null;
+  room.wantBase = false;
+  room.base = null;
+  room.steps = [];
   room.againError = false;
   againLine.textContent = "";
+  previewLine.hidden = true;
   hidePanel();
   clipView("none");
 }
@@ -416,6 +429,7 @@ function showClip(e) {
   }
   room.made = { clip, version: e.id };
   room.showing = null;
+  room.wantBase = true;
   clipAt.max = clip.length;
   const entry = e.kind === "edit" ? e.entry : null;
   if (entry && entry.do === "title") clipAt.value = (entry.start + entry.end) / 2;
@@ -432,6 +446,7 @@ function showClip(e) {
 function showFinished(file) {
   room.made = null;
   room.showing = null;
+  leaveBase();
   const v = el("video");
   v.src = "/api/clip/" + file.name;
   v.poster = "/api/clip/" + file.name.replace(/\.mp4$/, ".jpg");
@@ -448,19 +463,23 @@ function showFinished(file) {
   popClip();
 }
 
+const CHECKED = { pass: "Passed", fail: "FAILED", skip: "Not needed", muse: "For Muse", fixed: "Fixed" };
+
 function drawChecked(j, e) {
   const due = e.checks.filter((c) => c.ok !== null);
   const passed = due.filter((c) => c.ok).length;
+  const fixed = e.checks.filter((c) => c.fixed).length;
   const div = el("div", "checks" + (passed === due.length ? " all" : ""));
-  div.appendChild(el("p", "checks-head", "Checked " + passed + " of " + due.length + " on the finished file"));
+  div.appendChild(el("p", "checks-head", "Checked " + passed + " of " + due.length + " on the finished file" + (fixed ? " · " + fixed + " fixed since the last check" : "")));
   const list = el("ul", "checks-list");
   e.checks.forEach((c) => {
-    const li = el("li", c.ok === null ? "skip" : c.ok ? "pass" : "fail");
+    const how = c.fixed ? "fixed" : c.ok === null ? (c.who === "Muse" ? "muse" : "skip") : c.ok ? "pass" : "fail";
+    const li = el("li", how);
     const mark = el("span", "mark", c.ok === null ? "–" : c.ok ? "✓" : "✗");
     mark.setAttribute("aria-hidden", "true");
     const words = el("span", "what");
-    words.append(el("span", "sr", c.ok === null ? (c.who === "Muse" ? "Left to Muse: " : "Not needed: ") : c.ok ? "Passed: " : "Failed: "), el("b", null, c.name), el("small", null, c.found + (c.who === "program" ? "" : " · " + c.who)));
-    li.append(mark, words);
+    words.append(el("b", null, c.name), el("small", null, c.found + (c.who === "program" ? "" : " · " + c.who) + (c.fixed ? " · it failed the check before" : "")));
+    li.append(mark, el("span", "check-word", CHECKED[how]), words);
     list.appendChild(li);
   });
   div.appendChild(list);
@@ -470,6 +489,7 @@ function drawChecked(j, e) {
 function drawReady(j, e) {
   const div = el("div", "ready");
   div.appendChild(el("p", "ready-head", "Ready to post"));
+  if (e.work) div.appendChild(el("p", "ready-work", e.work.line));
   const v = el("video");
   v.src = "/api/clip/" + e.file;
   v.poster = "/api/clip/" + e.file.replace(/\.mp4$/, ".jpg");
@@ -505,6 +525,11 @@ function drawClipFrame() {
   if (!made) return;
   const t = Math.min(Number(clipAt.value), Math.max(0, made.clip.length - 0.05));
   clipAtLine.textContent = t.toFixed(1) + " s";
+  const v = frameBox.querySelector("video.base");
+  if (v) {
+    if (Math.abs(v.currentTime - t) > 0.04) v.currentTime = t;
+    return;
+  }
   const img = el("img");
   img.src = "/api/clipframe?chat=" + encodeURIComponent(room.chat) + "&t=" + t.toFixed(2) + "&v=" + made.version;
   img.alt = "Your clip at " + t.toFixed(1) + " seconds";
@@ -581,10 +606,116 @@ function loadPanel() {
     drawPanel(d);
     drawWords(d);
     drawAgain(d);
+    if (room.wantBase && room.made) refreshPreview();
   }, 150);
 }
 
-function drawChoices(row, why, choices, path, field, card) {
+async function refreshPreview() {
+  const chat = room.chat;
+  const ask = (room.previewAsk || 0) + 1;
+  room.previewAsk = ask;
+  let words, base;
+  try {
+    [words, base] = await Promise.all([
+      fetch("/api/layer?chat=" + encodeURIComponent(chat), { cache: "no-store" }).then((r) => r.json()),
+      post("/api/base", { chat: chat }),
+    ]);
+  } catch (err) {
+    return;
+  }
+  if (chat !== room.chat || ask !== room.previewAsk || !room.wantBase || !room.made) return;
+  room.steps = words.ok ? words.steps : [];
+  room.steps.forEach((step) => {
+    const pic = new Image();
+    pic.src = step.url;
+  });
+  if (base.ok && base.url) {
+    pageWork("preview", false);
+    previewLine.hidden = true;
+    showBase(base.url);
+  } else {
+    leaveBase();
+    drawClipFrame();
+    pageWork("preview", Boolean(base.ok && base.making));
+    previewLine.textContent = base.ok ? "Making the preview…" : "No quick preview: " + (base.error || "it could not be made.");
+    previewLine.hidden = false;
+  }
+}
+
+function showBase(url) {
+  let v = frameBox.querySelector("video.base");
+  if (!v || room.base !== url) {
+    const at = Number(clipAt.value);
+    v = el("video", "base");
+    v.src = url;
+    v.controls = true;
+    v.playsInline = true;
+    v.preload = "auto";
+    v.setAttribute("aria-label", "Your clip");
+    const pic = el("img", "layer");
+    pic.alt = "";
+    pic.hidden = true;
+    v.addEventListener("loadedmetadata", () => {
+      v.currentTime = Math.min(at, Math.max(0, v.duration - 0.05));
+    });
+    v.addEventListener("timeupdate", () => {
+      clipAt.value = v.currentTime;
+      clipAtLine.textContent = v.currentTime.toFixed(1) + " s";
+      movePlayhead(v.currentTime);
+      drawLayer();
+    });
+    v.addEventListener("seeked", () => {
+      drawLayer();
+      baseFaces(v);
+    });
+    v.addEventListener("pause", () => baseFaces(v));
+    v.addEventListener("play", () => {
+      frameBox.querySelectorAll(".faces").forEach((f) => f.remove());
+      follow(v);
+    });
+    frameBox.replaceChildren(v, pic);
+    room.base = url;
+  }
+  drawLayer();
+}
+
+function leaveBase() {
+  room.base = null;
+  frameBox.querySelectorAll("video.base, img.layer").forEach((n) => n.remove());
+}
+
+function drawLayer() {
+  const v = frameBox.querySelector("video.base");
+  const pic = frameBox.querySelector("img.layer");
+  if (!v || !pic) return;
+  const t = v.currentTime;
+  const step = (room.steps || []).find((s) => s.from <= t && t < s.to);
+  pic.hidden = !step;
+  if (step && pic.dataset.url !== step.url) {
+    pic.src = step.url;
+    pic.dataset.url = step.url;
+  }
+}
+
+function follow(v) {
+  const tick = () => {
+    if (!frameBox.contains(v)) return;
+    drawLayer();
+    if (!v.paused && !v.ended) next();
+  };
+  const next = () => (v.requestVideoFrameCallback ? v.requestVideoFrameCallback(tick) : requestAnimationFrame(tick));
+  next();
+}
+
+function baseFaces(v) {
+  const made = room.made;
+  frameBox.querySelectorAll(".faces").forEach((f) => f.remove());
+  if (!made || !made.clip.people || !v.paused) return;
+  room.facesAt = made.version + "@" + v.currentTime.toFixed(2);
+  drawFaces(v.currentTime, made, room.facesAt);
+}
+
+function drawChoices(row, why, choices, act, card) {
   row.textContent = "";
   const off = {};
   choices.forEach((c) => {
@@ -602,7 +733,7 @@ function drawChoices(row, why, choices, path, field, card) {
       b.setAttribute("aria-describedby", why.id);
       (off[c.why] = off[c.why] || []).push(c.label);
     } else if (!c.now) {
-      b.addEventListener("click", () => choose(row, path, field, c.name));
+      b.addEventListener("click", () => act(c));
     }
     row.appendChild(b);
   });
@@ -613,16 +744,27 @@ function drawChoices(row, why, choices, path, field, card) {
 
 function drawPanel(d) {
   panelBox.hidden = false;
-  drawChoices(document.getElementById("capsRow"), document.getElementById("capsWhy"), d.captions, "/api/captions", "mode", false);
-  drawChoices(document.getElementById("styleRow"), document.getElementById("styleWhy"), d.styles, "/api/style", "style", true);
-  drawChoices(document.getElementById("lookRow"), document.getElementById("lookWhy"), d.looks, "/api/colour", "look", false);
+  const caps = document.getElementById("capsRow");
+  const langs = document.getElementById("langRow");
+  const styles = document.getElementById("styleRow");
+  const looks = document.getElementById("lookRow");
+  drawChoices(caps, document.getElementById("capsWhy"), d.captions, (c) => choose(caps, "/api/captions", { mode: c.name }), false);
+  drawChoices(langs, document.getElementById("langWhy"), d.languages, (c) => (c.say ? askMuse(langs, c) : choose(langs, "/api/captions", { language: c.name })), false);
+  drawChoices(styles, document.getElementById("styleWhy"), d.styles, (c) => choose(styles, "/api/style", { style: c.name }), true);
+  drawChoices(looks, document.getElementById("lookWhy"), d.looks, (c) => choose(looks, "/api/colour", { look: c.name }), false);
 }
 
-async function choose(row, path, field, name) {
+async function askMuse(row, c) {
+  row.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  panelNote.textContent = (await say(c.say)) ? "Muse is putting the captions in " + c.label + ". It writes them, so this takes a little while." : "";
+  loadPanel();
+}
+
+async function choose(row, path, body) {
   row.querySelectorAll("button").forEach((b) => (b.disabled = true));
   panelNote.textContent = "";
   try {
-    const d = await post(path, { chat: room.chat, [field]: name });
+    const d = await post(path, Object.assign({ chat: room.chat }, body));
     if (!d.ok) panelNote.textContent = d.error || "That could not be changed.";
   } catch (err) {
     panelNote.textContent = "The studio is not answering. Start it again with: python app.py";
@@ -735,6 +877,7 @@ wordText.addEventListener("keydown", (e) => {
 });
 
 function drawAgain(d) {
+  pageWork("video", d.making);
   againBox.hidden = !(d.again || d.making);
   againButton.disabled = d.making;
   if (d.making && !againLine.textContent) againLine.textContent = "Making the video…";
@@ -747,6 +890,7 @@ againButton.addEventListener("click", async () => {
   againLine.textContent = "Making the video…";
   try {
     const d = await post("/api/remake", { chat: room.chat });
+    if (d.ok) pageWork("video", true);
     if (!d.ok) {
       room.againError = true;
       againLine.textContent = d.error || "The video could not be made.";
@@ -771,6 +915,8 @@ clipUndo.addEventListener("click", async () => {
 
 function showRecording(e) {
   const r = e.recording;
+  room.wantBase = false;
+  room.base = null;
   if (e.frame) {
     const img = el("img");
     img.src = "/api/frame/" + e.frame;
@@ -813,14 +959,23 @@ function on(e) {
     return;
   }
   if (e.kind === "rendered") {
+    room.wantBase = false;
     showFinished(e.file);
     againLine.textContent = "";
+    if (e.job === null) pageWork("video", false);
     loadPanel();
     return;
   }
   if (e.kind === "not_made") {
     room.againError = true;
     againLine.textContent = "The video was not made: " + e.error;
+    pageWork("video", false);
+    loadPanel();
+    return;
+  }
+  if (e.kind === "base") {
+    pageWork("preview", false);
+    if (e.error) previewLine.textContent = "No quick preview: " + e.error;
     loadPanel();
     return;
   }
@@ -886,7 +1041,11 @@ function on(e) {
 
 function onThinking(live) {
   if (live.job === null) {
-    if (live.work) {
+    if (live.work && live.page === "preview") {
+      if (!room.work.preview) pageWork("preview", true);
+      previewLine.hidden = false;
+      previewLine.textContent = live.work;
+    } else if (live.work) {
       againBox.hidden = false;
       againButton.disabled = true;
       againLine.textContent = live.work;
@@ -919,6 +1078,8 @@ function showStatus() {
   const m = current();
   if (room.open.size) {
     statusLine.textContent = "Muse is working on it. Type to change what it does, or press Stop.";
+  } else if (room.work.video || room.work.preview) {
+    statusLine.textContent = "Making the " + (room.work.video ? "video" : "preview") + ". Press Stop to end it.";
   } else if (m) {
     statusLine.textContent = m.ok ? m.label + " is ready, " + m.where + "." : m.label + " is not ready yet. Open Settings to see why.";
   }
@@ -1007,6 +1168,7 @@ function show(chatId) {
   room.open = new Set();
   room.cut = {};
   room.showing = null;
+  room.work = { video: false, preview: false };
   log.replaceChildren(welcome.cloneNode(true));
   clearClip();
   fillNewest();

@@ -3,6 +3,7 @@ by ffmpeg: python -m unittest discover -s tests"""
 import http.client
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -54,17 +55,20 @@ class Clip(unittest.TestCase):
         self.real = faces.sample, faces.kept, render.export, mind.get
         self.faces = found([(30 + i * 0.5, [[140, 10, 40, 40] if 35 <= 30 + i * 0.5 < 40 else [140, 120, 40, 40]])
                             for i in range(40)], size=(320, 180))
-        self.looked, self.exported = [], []
+        self.looked, self.exported, self.based = [], [], []
 
         def sample(rec, a, b, every=0.5, on_start=None):
             self.looked.append((a, b))
             return self.faces
 
-        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+        def export(rec, state, out, on_progress=None, on_start=None, default="clean", **how):
             on_start(lambda: None)
             on_progress(state["length"] / 2)
+            if how.get("words") is False:
+                self.based.append((os.path.basename(out), dict(self.chat.live or {})))
             make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
-            self.exported.append(default)
+            if how.get("words") is not False:
+                self.exported.append(default)
             return out
 
         faces.sample, faces.kept = sample, lambda rec, a, b, every=0.5: self.faces if self.looked else None
@@ -99,6 +103,12 @@ class Clip(unittest.TestCase):
                                 *[[c] for c in calls], "Done.")
         self.assertFalse(any(s["refused"] for s in steps), [s["result"] for s in steps if s["refused"]])
         return steps
+
+    def until(self, done, seconds=30):
+        stop = time.time() + seconds
+        while not done() and time.time() < stop:
+            time.sleep(0.05)
+        self.assertTrue(done(), "done within %g s" % seconds)
 
     def made_again(self):
         self.assertIsNone(self.chat.make_again())
@@ -390,7 +400,9 @@ class Again(Clip):
                          ["Not rendered: the person pressed Stop."])
 
 
-class Endpoints(Clip):
+class Served(Clip):
+    """A clip with the studio's server running on a free port."""
+
     def setUp(self):
         super().setUp()
         self.http = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
@@ -411,6 +423,17 @@ class Endpoints(Clip):
         finally:
             conn.close()
 
+    def fetch(self, path, headers=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.http.server_port, timeout=30)
+        try:
+            conn.request("GET", path, None, headers or {})
+            resp = conn.getresponse()
+            return resp.status, resp.getheader("Content-Type"), resp.read()
+        finally:
+            conn.close()
+
+
+class Endpoints(Served):
     def test_the_panel_is_read_with_a_get(self):
         status, panel = self.ask("GET", "/api/panel?chat=" + self.chat.id)
         self.assertEqual((status, panel), (200, {"ok": True, "clip": False}))
@@ -467,6 +490,217 @@ class Endpoints(Clip):
 
     def test_a_path_that_is_not_listed_is_not_posted_to(self):
         self.assertEqual(self.ask("POST", "/api/panel", {"chat": self.chat.id})[0], 404)
+
+
+
+class Preview(Served):
+    def setUp(self):
+        super().setUp()
+        self.wait, agent.PREVIEW_WAIT = agent.PREVIEW_WAIT, 30
+
+    def tearDown(self):
+        agent.PREVIEW_WAIT = self.wait
+        super().tearDown()
+
+    def test_the_words_layer_is_read_with_a_get_and_its_pictures_only_from_work_layers(self):
+        status, answer = self.ask("GET", "/api/layer?chat=nope")
+        self.assertEqual((status, answer["error"]), (404, server.GONE))
+        status, answer = self.ask("GET", "/api/layer?chat=" + self.chat.id)
+        self.assertEqual((status, answer["error"]), (404, "There is no clip yet. Ask Muse to make one first."))
+        self.make(SAID, call("add_captions", why="say it"),
+                  call("add_title", words="Boss down", start=0, end=3, place="top", why="the hook"))
+        status, answer = self.ask("GET", "/api/layer?chat=" + self.chat.id)
+        self.assertEqual((status, answer["size"]), (200, [540, 960]))
+        steps = answer["steps"]
+        self.assertEqual((steps[0]["from"], steps[-1]["to"] <= 18.3), (0.0, True))
+        self.assertTrue(all(re.fullmatch(r"/api/layer/[0-9a-f]{20}\.png", st["url"]) for st in steps), steps)
+        self.assertTrue(all(a["to"] <= b["from"] for a, b in zip(steps, steps[1:])), "in time order, none overlap")
+        status, kind, body = self.fetch(steps[0]["url"])
+        self.assertEqual((status, kind, body[:8]), (200, "image/png", b"\x89PNG\r\n\x1a\n"))
+        for name in ("..%2F..%2Fwork%2Flayers%2Fx.png", "0" * 20 + ".png", "abc.png", "%s.PNG" % ("a" * 20)):
+            self.assertEqual(self.fetch("/api/layer/" + name)[0], 404, name)
+        with open(os.path.join(self.tmp, "outside.png"), "wb") as f:
+            f.write(b"\x89PNG")
+        self.assertEqual(self.fetch("/api/layer/../../outside.png")[0], 404)
+
+    def test_words_that_cannot_be_drawn_say_why(self):
+        self.make(SAID)
+        had = agent.layer.words
+
+        def words(state, default="clean"):
+            raise ValueError("key 'x' is not one of the title's words")
+
+        agent.layer.words = words
+        try:
+            status, answer = self.ask("GET", "/api/layer?chat=" + self.chat.id)
+        finally:
+            agent.layer.words = had
+        self.assertEqual((status, answer["error"]), (404, "The words could not be drawn: key 'x' is not one of the "
+                                                          "title's words"))
+
+    def test_a_words_edit_keeps_the_base_and_a_look_change_makes_a_new_one(self):
+        status, answer = self.ask("POST", "/api/base", {"chat": self.chat.id})
+        self.assertEqual((status, answer["error"]), (404, "There is no clip yet. Ask Muse to make one first."))
+        self.assertEqual(self.ask("POST", "/api/base", {"chat": "nope"})[0], 404)
+        self.make(SAID, call("add_title", words="Boss down", start=0, end=3, place="top", why="the hook"))
+        status, first = self.ask("POST", "/api/base", {"chat": self.chat.id})
+        self.assertEqual((status, first["from_cache"]), (200, False))
+        self.assertRegex(first["url"], r"^/api/base/[0-9a-f]{16}\.mp4$")
+        self.assertEqual(self.ask("POST", "/api/base", {"chat": self.chat.id})[1]["from_cache"], True)
+        self.assertIsNone(self.chat.set_words("title", 0, "Boss down", "The boss is down"))
+        self.assertIsNone(self.chat.set_captions("plain"))
+        status, words = self.ask("POST", "/api/base", {"chat": self.chat.id})
+        self.assertEqual((status, words["url"], words["from_cache"]), (200, first["url"], True),
+                         "a change of words needs no new video")
+        self.assertIsNone(self.chat.set_look("warm"))
+        status, look = self.ask("POST", "/api/base", {"chat": self.chat.id})
+        self.assertEqual((status, look["from_cache"]), (200, False))
+        self.assertNotEqual(look["url"], first["url"], "a look changes the picture")
+        self.assertEqual(len(self.based), 2)
+        self.assertEqual(self.exported, [], "the finished clip is not made for the preview")
+        status, kind, body = self.fetch(look["url"], {"Range": "bytes=0-99"})
+        self.assertEqual((status, kind, len(body)), (206, "video/mp4", 100))
+        self.assertEqual(self.fetch("/api/base/" + "0" * 16 + ".mp4")[0], 404)
+
+    def test_a_base_made_in_the_background_shows_its_progress_and_says_when_it_is_made(self):
+        agent.PREVIEW_WAIT = 0.01
+        self.make(SAID)
+        status, answer = self.ask("POST", "/api/base", {"chat": self.chat.id})
+        self.assertEqual((status, answer), (200, {"ok": True, "url": None, "making": True}))
+        self.until(lambda: any(e["kind"] == "base" for e in self.chat.events))
+        made = [e for e in self.chat.events if e["kind"] == "base"]
+        self.assertEqual((len(made), made[0]["job"]), (1, None))
+        self.assertRegex(made[0]["url"], r"^/api/base/[0-9a-f]{16}\.mp4$")
+        live = self.based[0][1]
+        self.assertEqual((live["job"], live["page"]), (None, "preview"))
+        self.assertRegex(live["work"], r"^Making the preview: 9 of 18 s \(50%\)$")
+        agent.PREVIEW_WAIT = 30
+        status, again = self.ask("POST", "/api/base", {"chat": self.chat.id})
+        self.assertEqual((again["url"], again["from_cache"]), (made[0]["url"], True))
+        self.assertEqual(len([e for e in self.chat.events if e["kind"] == "base"]), 1, "no event for one already made")
+
+    def test_one_preview_is_made_at_a_time_and_stop_ends_it(self):
+        agent.PREVIEW_WAIT = 0.01
+        self.make(SAID)
+        started, stopped = threading.Event(), threading.Event()
+
+        def export(rec, state, out, on_progress=None, on_start=None, default="clean", **how):
+            on_start(stopped.set)
+            started.set()
+            stopped.wait(10)
+            raise render.Stopped()
+
+        render.export = export
+        self.assertEqual(self.chat.base(), {"url": None, "making": True})
+        self.assertTrue(started.wait(10))
+        self.assertEqual(self.chat.base(), {"url": None, "making": True})
+        self.assertTrue(self.chat.stop())
+        self.until(lambda: self.chat.basing is None)
+        self.until(lambda: any(e["kind"] == "base" for e in self.chat.events))
+        self.assertEqual([e.get("error") for e in self.chat.events if e["kind"] == "base"],
+                         ["The preview was not made: Stop was pressed."])
+
+    def test_a_preview_that_could_not_be_made_says_why(self):
+        self.make(SAID)
+
+        def export(rec, state, out, on_progress=None, on_start=None, default="clean", **how):
+            raise render.NotDrawn("FFmpeg could not make the clip: no room on the disk")
+
+        render.export = export
+        status, answer = self.ask("POST", "/api/base", {"chat": self.chat.id})
+        self.assertEqual((status, answer["error"]), (400, "The preview could not be made: FFmpeg could not make the "
+                                                          "clip: no room on the disk"))
+        self.assertIsNone(self.chat.basing)
+
+
+class Worked(Clip):
+    def test_ready_says_how_long_muse_worked_what_the_person_typed_and_tapped_and_the_steps(self):
+        self.make(SAID)
+        self.chat.emit("person", job=1, text="(opened) stream.mp4 · 1:00 long · 320x180")
+        self.chat.emit("person", job=1, text="a funny clip")
+        self.chat.set_style("pop")
+        self.chat.set_person(1, False)
+        brain = ScriptedMind([call("render_clip", why="make the file")], [call("check_clip", why="check")],
+                             [call("hand_over", title="Down", caption="He falls.", hashtags=["#a"], why="post")],
+                             "Done.")
+        mind.get = lambda key: brain
+        self.chat.say("post it", None)
+        self.chat.job.thread.join(30)
+        ready = [e for e in self.chat.events if e["kind"] == "ready"][-1]
+        work = ready["work"]
+        self.assertEqual((work["messages"], work["taps"], work["steps"]), (2, 3, 3))
+        self.assertRegex(work["line"], r"^Muse worked 0:0\d · you typed 2 messages and tapped 3 times · 3 steps$")
+        job = [e for e in self.chat.events if e["kind"] == "job"][-1]
+        self.assertAlmostEqual(work["seconds"], ready["t"] - job["t"], delta=1)
+
+    def test_a_person_who_typed_nothing_is_told_so(self):
+        self.chat.jobs = 1
+        self.chat.emit("job", job=1, mind="scripted")
+        self.chat.emit("person", job=1, text="(opened) stream.mp4 · 1:00 long · 320x180")
+        self.assertEqual(self.chat.worked(1, 1)["line"], "Muse worked 0:00 · you typed nothing and tapped once · 1 step")
+        self.chat.emit("person", job=1, text="(opened) stream.mp4 · 1:00 long · 320x180\nfunny, 20 s")
+        self.chat.emit("person", job=1, text="(tapped) Shorter.")
+        self.assertEqual(self.chat.worked(1, 12)["line"], "Muse worked 0:00 · you typed 1 message and tapped 3 times · "
+                                                          "12 steps")
+
+
+class Checks(Clip):
+    def checked(self):
+        self.run_job([call("render_clip", why="make the file")], [call("check_clip", why="check")], "Done.")
+        return [e for e in self.chat.events if e["kind"] == "checked"][-1]
+
+    def test_a_check_that_failed_before_and_passes_now_is_marked_fixed(self):
+        self.make(SAID, call("add_captions", why="say it"), call("decide_people", keep=[1], why="him"))
+        caps = self.chat.project.state()["captions"]
+        self.chat.edit(dict(caps, lines=[dict(caps["lines"][0], text="made up words")] + caps["lines"][1:]))
+        first = self.checked()
+        said = {c["name"]: c for c in first["checks"]}["Captions are words that were said"]
+        self.assertEqual((said["ok"], said.get("fixed"), first["moment"]), (False, None, 1))
+        self.chat.undo()
+        second = self.checked()
+        fixed = [c["name"] for c in second["checks"] if c.get("fixed")]
+        self.assertEqual(fixed, ["Captions are words that were said"], "only the line that turned green")
+        self.assertEqual([c["name"] for c in self.checked()["checks"] if c.get("fixed")], [], "fixed once")
+
+    def test_a_check_of_another_recording_fixes_nothing(self):
+        self.make(SAID, call("add_captions", why="say it"), call("decide_people", keep=[1], why="him"))
+        caps = self.chat.project.state()["captions"]
+        self.chat.edit(dict(caps, lines=[dict(caps["lines"][0], text="made up words")] + caps["lines"][1:]))
+        self.checked()
+        self.chat.undo()
+        self.chat.emit("opened", recording=self.chat.recording, frame=None, line="another video")
+        self.assertEqual([c["name"] for c in self.checked()["checks"] if c.get("fixed")], [])
+
+
+class Languages(Clip):
+    def test_as_said_is_put_back_at_a_tap_and_english_is_a_message_to_muse(self):
+        self.make(SAID, call("add_captions", lit=True, why="karaoke"))
+        self.assertEqual([(c["name"], c["now"], c["why"]) for c in self.chat.panel()["languages"]],
+                         [("said", True, None), ("English", False, None)])
+        _, steps = self.run_job([call("add_captions", language="Thai", lit=True, why="for Thai viewers")],
+                                '{"lines": ["นี่คือช่วงนั้น", "ดูเขาล้มตอนนี้"]}', "Done.")
+        self.assertFalse(steps[0]["refused"], steps[0]["result"])
+        languages = self.chat.panel()["languages"]
+        self.assertEqual([(c["name"], c["label"], c["now"], c["why"]) for c in languages],
+                         [("said", "As said", False, None), ("English", "English", False, None),
+                          ("Thai", "Thai", True, None)])
+        self.assertEqual(languages[1]["say"], "(tapped) Put the captions in English.")
+        self.assertEqual(self.chat.set_captions_language("English"), "Only As said changes here; Muse writes the "
+                                                                     "captions in another language when you tap it.")
+        self.assertIsNone(self.chat.set_captions_language("said"))
+        caps = self.chat.project.state()["captions"]
+        self.assertEqual((caps.get("language"), caps["lit"]), (None, True), "lit stays lit")
+        self.assertEqual("".join(ln["text"] for ln in caps["lines"]), "this is the momentwatch him fall down now")
+        self.assertEqual(self.chat.told[-1], "the person put the captions back in the words as said, on the page")
+        self.assertEqual([c["name"] for c in self.chat.panel()["languages"] if c["now"]], ["said"])
+        had = list(self.chat.project.entries)
+        self.assertIsNone(self.chat.set_captions_language("said"), "already as said")
+        self.assertEqual(self.chat.project.entries, had)
+
+    def test_a_language_the_captions_cannot_be_in_is_off_with_the_tools_reason(self):
+        self.make(said=[])
+        whys = [c["why"] for c in self.chat.panel()["languages"]]
+        self.assertEqual(whys, [None, "Nothing was heard clearly in this moment, so there are no words to caption."])
 
 
 if __name__ == "__main__":

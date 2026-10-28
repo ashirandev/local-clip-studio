@@ -70,6 +70,8 @@
           <p class="panel-head" id="capsHead">Captions</p>
           <div class="panel-row" id="capsRow"></div>
           <p class="panel-why" id="capsWhy" hidden></p>
+          <div class="panel-row panel-sub" id="langRow" role="group" aria-label="Language of the captions"></div>
+          <p class="panel-why" id="langWhy" hidden></p>
         </div>
         <div class="panel-group" role="group" aria-labelledby="styleHead">
           <p class="panel-head" id="styleHead">Text style</p>
@@ -84,6 +86,7 @@
         <p class="panel-note" id="panelNote" role="status"></p>
       </div>
     </div>
+    <p class="preview-line" id="previewLine" role="status" hidden></p>
     <div class="clip-tools" id="clipTools" hidden>
       <input type="range" id="clipAt" min="0" max="20" step="0.1" value="0" aria-label="Where in the clip">
       <span class="clip-at" id="clipAtLine">0.0 s</span>

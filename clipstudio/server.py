@@ -26,7 +26,15 @@ through a name it owns), and a POST must be JSON (another web page cannot send J
 - POST /api/words {chat, kind, n, was, words}: the person's own words for a title or a caption phrase
 - POST /api/remake {chat}: makes the video again from the clip as it is now, as render_clip does, without Muse.
   Each answers {"ok": true}, or {"ok": false, "error"} with 404 when the clip or the words are not there and 400
-  with the reason the change was refused
+  with the reason the change was refused. /api/captions {chat, language: "said"} puts the captions back in the words
+  as said; English is a message to Muse, which writes it
+- GET /api/layer?chat=<id>: the clip's words as see-through pictures by their time, {"size", "steps": [{"from",
+  "to", "url"}]}, so the page lays them over the base video and a change of words shows without a render
+- GET /api/layer/<name>.png: one of those pictures, from work/layers only
+- POST /api/base {chat}: the base video of the clip as it is now, the clip without its words: {"url", "from_cache"}
+  at once when it is there, else {"url": null, "making": true} while it is made in the background (a "base" event
+  says when). A POST, as it starts work: another web page cannot start it
+- GET /api/base/<name>.mp4: the base video, in the byte range the browser asks for
 - GET /api/events?chat=<id>: every event of the chat from the start, then each new one as it happens, and Muse's
   thinking while it is written (Server-Sent Events, so a reload redraws the whole chat and a running job carries on).
   Every page shows the chat the server has open: when another chat opens, the stream says "moved" and the page
@@ -45,7 +53,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl
 
-from . import __version__, agent, hearing, mind, previews, recording, render, text
+from . import __version__, agent, hearing, layer, mind, previews, recording, render, text
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
@@ -64,6 +72,8 @@ PREVIEW = re.compile(r"^/api/preview/([0-9a-f]{16}\.mp4)$")
 CLIP = re.compile(r"^/api/clip/([0-9a-f]{16}\.mp4)$")
 POSTER = re.compile(r"^/api/clip/([0-9a-f]{16})\.jpg$")
 LOOK = re.compile(r"^/api/look/([0-9a-z]+)\.png$")
+LAYER = re.compile(r"^/api/layer/([0-9a-f]{20}\.png)$")
+BASE = re.compile(r"^/api/base/([0-9a-f]{16}\.mp4)$")
 POSTER_AT = 1.0
 READ_TRIES, READ_WAIT = 10, 0.05
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
@@ -112,6 +122,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"ok": False, "error": GONE}, HTTPStatus.NOT_FOUND)
             else:
                 self.send_json(dict(chat.panel(), ok=True))
+        elif path == "/api/layer":
+            self.send_layer(agent.find(query.get("chat", "")))
+        elif LAYER.match(path):
+            self.send_picture(render.folder("layers"), LAYER.match(path).group(1))
+        elif BASE.match(path):
+            self.send_video(render.folder("bases"), BASE.match(path).group(1), "preview")
         elif LOOK.match(path):
             self.send_look(LOOK.match(path).group(1))
         elif path.startswith("/api/"):
@@ -123,7 +139,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self.named_well():
             return
         path = self.path.split("?", 1)[0]
-        if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/open", "/api/undo", "/api/person") + CHANGES:
+        if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/open", "/api/undo", "/api/person",
+                        "/api/base") + CHANGES:
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
             return
         body = self.read_json()
@@ -153,6 +170,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"ok": True})
         elif path in CHANGES:
             self.change_clip(chat, path, body)
+        elif path == "/api/base":
+            self.send_base(chat)
         else:
             words = str(body.get("message") or "").strip()
             if not words:
@@ -165,7 +184,9 @@ class Handler(BaseHTTPRequestHandler):
         """A tap beside or under the clip: {"ok": true} once the change is made (for /api/remake, once the video is
         being made), else 404 when the clip or the words are not there and 400 with the reason it was refused."""
         try:
-            if path == "/api/captions":
+            if path == "/api/captions" and "language" in body:
+                why = chat.set_captions_language(str(body.get("language") or ""))
+            elif path == "/api/captions":
                 why = chat.set_captions(str(body.get("mode") or ""))
             elif path == "/api/style":
                 why = chat.set_style(str(body.get("style") or ""))
@@ -185,6 +206,51 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": why}, HTTPStatus.BAD_REQUEST)
         else:
             self.send_json({"ok": True})
+
+    def send_layer(self, chat):
+        """The clip's words layer: {"size", "steps": [{"from", "to", "url"}]}, or 404 with why there is none."""
+        try:
+            if chat is None:
+                raise agent.Missing(GONE)
+            steps = chat.layer()
+        except agent.Missing as e:
+            self.send_json({"ok": False, "error": str(e)}, HTTPStatus.NOT_FOUND)
+            return
+        except (RuntimeError, ValueError) as e:
+            self.send_json({"ok": False, "error": "The words could not be drawn: %s" % e}, HTTPStatus.NOT_FOUND)
+            return
+        self.send_json({"ok": True, "size": list(layer.SIZE), "steps": [
+            {"from": s["from"], "to": s["to"], "url": "/api/layer/" + os.path.basename(s["file"])} for s in steps]})
+
+    def send_base(self, chat):
+        """The base video of the clip as it is now (Chat.base): 404 before there is a clip, 400 when it could not be
+        made."""
+        try:
+            got = chat.base()
+        except agent.Missing as e:
+            self.send_json({"ok": False, "error": str(e)}, HTTPStatus.NOT_FOUND)
+            return
+        if "error" in got:
+            self.send_json({"ok": False, "error": got["error"]}, HTTPStatus.BAD_REQUEST)
+        else:
+            self.send_json(dict(got, ok=True))
+
+    def send_picture(self, folder, name):
+        """A words picture the page lays over the video, by its name: nothing from the request but a name of hex
+        digits reaches the disk, so only files in folder are sent. A name is what the picture shows, so it never
+        changes."""
+        full = os.path.join(folder, name)
+        if not os.path.isfile(full):
+            self.send_json({"ok": False, "error": "There is no words picture %s." % name}, HTTPStatus.NOT_FOUND)
+            return
+        with open(full, "rb") as f:
+            body = f.read()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "max-age=3600")
+        self.end_headers()
+        self.wfile.write(body)
 
     def open_recording(self, chat, body):
         try:

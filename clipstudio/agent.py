@@ -28,9 +28,9 @@ import threading
 import time
 import traceback
 
-from . import faces, hearing, maps, mind, previews, project, recording, render, text, words
-from .tools import (CAPTION_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, STYLES, TOOLS, Refused, _undecided, describe,
-                    faces_at)
+from . import faces, hearing, layer, maps, mind, previews, project, recording, render, text, words
+from .tools import (CAPTION_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, STYLES, TOOLS, Refused, _spoken, _subtitles,
+                    _undecided, describe, faces_at)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = os.environ.get("LCS_WORK") or os.path.join(ROOT, "work")
@@ -51,6 +51,10 @@ TAPPED = "the person tapped it on the page"
 CAPTION_CHOICES = {"off": {"on": False}, "plain": {}, "lit": {"lit": True}, "pop": {"pop": True}}
 COLOUR_LOOKS = ("none",) + tuple(n for n in LOOKS if n != "none")
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"(])")
+PREVIEW_WAIT = 1.0
+TAP_SAID = "(tapped) "
+OPEN_SAID = "(opened) "
+AS_SAID = "said"
 SYSTEM = """You are the editor in Local Clip Studio. People bring long recordings (selling lives, game streams, travel \
 clips) and you turn them into short vertical clips ready to post.
 
@@ -106,7 +110,7 @@ class Chat:
         self.checks = {}
         self.told = []
         self.spelling = None
-        self.making = None
+        self.making = self.basing = None
         self.cond = threading.Condition()
         folder = os.path.join(WORK, "chats")
         os.makedirs(folder, exist_ok=True)
@@ -216,10 +220,12 @@ class Chat:
             return self.job
 
     def stop(self):
-        """Stops the job running now and the video the page is making, at once. True when either was running."""
-        job, making = self.job, self.making
+        """Stops the job running now and what the page is making (the video, the preview), at once. True when any
+        of them was running."""
+        job, making, basing = self.job, self.making, self.basing
         stopped = bool(job and job.stop())
-        return bool(making and making.stop()) or stopped
+        stopped = bool(making and making.stop()) or stopped
+        return bool(basing and basing.stop()) or stopped
 
     def edit(self, entry, job=None):
         """Adds one change to the clip's project list; the page redraws the clip. Returns the clip's state."""
@@ -276,13 +282,33 @@ class Chat:
             return [{"name": n, "label": label(n), "now": n == now[group],
                      "why": None if n == now[group] else self.tap(tool, True, **args(n))[0]} for n in names]
 
-        return {"clip": True, "length": state["length"],
-                "captions": choices("captions", CAPTION_CHOICES, str.capitalize, "add_captions", CAPTION_CHOICES.get),
+        captions = choices("captions", CAPTION_CHOICES, str.capitalize, "add_captions", CAPTION_CHOICES.get)
+        return {"clip": True, "length": state["length"], "captions": captions,
+                "languages": self.languages(state, next(c["why"] for c in captions if c["name"] == "plain")),
                 "styles": choices("style", STYLES, lambda n: LOOK_LABELS.get(n, n.capitalize()), "set_style",
                                   lambda n: {"style": n}),
                 "looks": choices("look", COLOUR_LOOKS, str.capitalize, "set_look", lambda n: {"look": n}),
                 "words": self.words_on(state), "again": bool(self.rendered) and self.finished() is None,
                 "making": self.making is not None}
+
+    def languages(self, state, refused):
+        """The captions' language choices: as said, which the page puts on itself (add_captions in the language
+        the words are said in needs no translation), and English, which only Muse can write: its tap is a message
+        to Muse, as a chip under Muse's guesses is. The one marked now is the captions' language (none: as said);
+        a language Muse put on that is neither is shown too, so the page says what the clip has. refused is why
+        Plain captions would be refused, which holds for every language."""
+        now = (state["captions"] or {}).get("language")
+        said = refused
+        if not said and now:
+            try:
+                _subtitles(self._said_in(state))
+            except Refused as e:
+                said = _first_sentence(str(e))
+        out = [{"name": AS_SAID, "label": "As said", "now": not now, "why": None if not now else said}]
+        for name in ["English"] + ([now] if now and now != "English" else []):
+            out.append({"name": name, "label": name, "now": name == now, "why": None if name == now else refused,
+                        "say": TAP_SAID + "Put the captions in %s." % name})
+        return out
 
     def words_on(self, state):
         """The words on the clip as blocks the page places by their time: every title, and every phrase of the
@@ -405,6 +431,103 @@ class Chat:
             self._tell("the person made the video again on the page")
         else:
             self.emit("not_made", error=_first_sentence(said))
+
+    def set_captions_language(self, name):
+        """The person's tap on As said beside the clip: add_captions's own edit in the language the words are said
+        in, which needs no translation, so Muse is not asked; lit or popped stays as it is. English is not put on
+        here: only Muse writes it, so its tap is a message to Muse. Returns None, or the sentence why not."""
+        state = self._clip_now()
+        if name != AS_SAID:
+            return "Only As said changes here; Muse writes the captions in another language when you tap it."
+        caps = state["captions"]
+        if not caps or not caps.get("language"):
+            return None
+        refused, entry = self.tap("add_captions", lit=bool(caps.get("lit")), pop=bool(caps.get("pop")),
+                                  language=self._said_in(state))
+        if entry:
+            self._tell("the person put the captions back in the words as said, on the page")
+        return refused
+
+    def _said_in(self, state):
+        """The language the clip's moment is said in, as add_captions names it."""
+        moments, n = self.moments or [], state["clip"]["moment"]
+        said = moments[n - 1].get("said") or [] if n <= len(moments) else []
+        return _spoken(Hand(self, True), [p["text"] for p in said])
+
+    def layer(self):
+        """The clip's words as the layer the page lays over its video (layer.words): [{"from", "to", "file"}] in clip
+        seconds. Missing before there is a clip; RuntimeError when FFmpeg cannot draw it."""
+        return layer.words(self._clip_now(), self.clip["style"] if self.clip else "clean")
+
+    def base(self):
+        """The page's video of the clip as it is now, without its words over the picture (render.base): {"url",
+        "from_cache"} when it is there within PREVIEW_WAIT s; else {"url": None, "making": True} while it is made in
+        the background, as make_again makes the video (its progress shown, Stop ends it), and a "base" event says
+        when it is made, or why not. One is made at a time; asked while one is made, the page asks again when its
+        event comes. A change to the words alone keeps the same file, so only a change to the picture or the sound
+        waits (lane 5 measured a new one at 9 to 17 s, 10-28). {"error"} when it could not be made."""
+        state = self._clip_now()
+        hand, got, done = Hand(self, page="preview"), {}, threading.Event()
+        with self.cond:
+            if self.basing:
+                return {"url": None, "making": True}
+            self.basing = hand
+        total, shown = max(0.1, state["length"]), [0.0]
+
+        def started(stop):
+            got["ran"] = True
+            hand.started_work(stop)
+
+        def progress(at):
+            if time.time() - shown[0] >= SHOW_THINKING_EVERY:
+                shown[0] = time.time()
+                hand.working("Making the preview: %.0f of %.0f s (%d%%)" % (min(at, total), total,
+                                                                            min(99, 100 * at / total)))
+
+        def make():
+            try:
+                got["url"] = "/api/base/" + os.path.basename(render.base(
+                    self.recording, state, on_progress=progress, on_start=started,
+                    default=self.clip["style"] if self.clip else "clean"))
+            except render.Stopped:
+                got["error"] = "The preview was not made: Stop was pressed."
+            except render.NotDrawn as e:
+                got["error"] = "The preview could not be made: %s" % e
+            except Exception as e:
+                got["error"] = "The studio broke while making the preview (%s)." % e
+            finally:
+                hand.done_working()
+                with self.cond:
+                    self.basing, hand.done, got["done"] = None, True, True
+                    late = got.get("late")
+            if late:
+                self.emit("base", job=None, **{k: got[k] for k in ("url", "error") if k in got})
+            done.set()
+
+        threading.Thread(target=make, name="preview", daemon=True).start()
+        done.wait(PREVIEW_WAIT)
+        with self.cond:
+            if not got.get("done"):
+                got["late"] = True
+                return {"url": None, "making": True}
+        if "error" in got:
+            return {"error": got["error"]}
+        return {"url": got["url"], "from_cache": not got.get("ran")}
+
+    def worked(self, n, steps):
+        """The line on the Ready to post card that shows how little the person did for the clip job n made: Muse's
+        time on the job from its start, the messages the person typed in the chat so far, their taps (a chip under
+        Muse's guesses, a video picked, a change made on the page), and the job's steps."""
+        started = next((e["t"] for e in self.events if e["kind"] == "job" and e.get("job") == n), time.time())
+        said = [e["text"] for e in self.events if e["kind"] == "person"]
+        typed = sum(1 for s in said if not s.startswith(TAP_SAID) and not (s.startswith(OPEN_SAID) and "\n" not in s))
+        taps = sum(1 for s in said if s.startswith((TAP_SAID, OPEN_SAID))) + sum(
+            1 for e in self.events if e.get("job") is None and e["kind"] in ("edit", "undo", "rendered"))
+        seconds = round(time.time() - started)
+        line = "Muse worked %s · you typed %s%s · %s" % (
+            recording.clock(seconds), _count(typed, "message") if typed else "nothing",
+            " and tapped %s" % ("once" if taps == 1 else "%d times" % taps) if taps else "", _count(steps, "step"))
+        return {"seconds": seconds, "messages": typed, "taps": taps, "steps": steps, "line": line}
 
     def _clip_now(self):
         state = self.project.state()
@@ -977,13 +1100,20 @@ class Hand(Job):
     project edit, and Muse is never asked (a spelling question gets no answer, so the words stay as typed). What a
     tool does after its edit is for Muse (a frame to look at, a warning to pass on), so the hand stops the tool at
     its edit (Made). A trial hand stops it there before the edit (Allowed) and changes nothing: that is how the page
-    knows a choice the tool would refuse, and why."""
+    knows a choice the tool would refuse, and why. page names what the hand makes for the page (the video, the
+    preview), so the page shows each one's progress in its own place."""
 
-    def __init__(self, chat, trial=False):
-        self.chat, self.trial, self.n, self.steps = chat, trial, None, 0
+    def __init__(self, chat, trial=False, page="video"):
+        self.chat, self.trial, self.page, self.n, self.steps = chat, trial, page, None, 0
         self.proofread, self.pictures, self.shown_extra = {}, [], {}
         self.asking = self.stop_work = self.entry = None
         self.stopped = self.done = False
+
+    def working(self, line):
+        with self.chat.cond:
+            self.chat.live = {"job": None, "step": 0, "work": line, "page": self.page}
+            self.chat.live_rev += 1
+            self.chat.cond.notify_all()
 
     def edit(self, entry):
         if self.trial:
@@ -1004,6 +1134,10 @@ class Hand(Job):
 def _first_sentence(said):
     """The first sentence of a tool's answer, for the page: the rest tells Muse what to do next."""
     return SENTENCE_END.split(said.strip(), 1)[0].split("\n", 1)[0]
+
+
+def _count(n, one):
+    return "%d %s%s" % (n, one, "" if n == 1 else "s")
 
 
 def _grid_box(box):
