@@ -7,6 +7,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -307,11 +308,25 @@ class Wrapping(unittest.TestCase):
         self.assertLessEqual(tight.w, whole.w - 8)
 
     def test_a_measure_is_quick(self):
+        """New words are measured in two FFmpeg runs, their pieces drawn together in one and the lines tried in the
+        other, and the rest of the work is quick. The clock time of the two runs is not the measure's: it is mostly
+        FFmpeg starting, which waits for a busy computer. Measured 10-28 on Linux: 0.22-0.44 s of clock time for
+        0.04-0.16 s of this thread's own work, and a limit of 0.3 s on the clock failed in 2 of 11 full runs."""
         st = text.STYLES["clean"]
         text.measure("อุ่นเครื่องก่อน", st, "title", 900)
-        started = time.time()
-        text.measure("วันนี้ลดราคา %d บาท ส่งฟรีทั่วประเทศ" % int(time.time()), st, "title", 700)
-        self.assertLess(time.time() - started, 0.3)
+        runs, real, me = [], subprocess.run, threading.get_ident()
+
+        def counted(cmd, *args, **kwargs):
+            if threading.get_ident() == me:
+                runs.append(os.path.basename(cmd[0]))
+            return real(cmd, *args, **kwargs)
+
+        with mock.patch.object(subprocess, "run", counted):
+            started = time.thread_time()
+            text.measure("วันนี้ลดราคา %d บาท ส่งฟรีทั่วประเทศ" % int(time.time()), st, "title", 700)
+            spent = time.thread_time() - started
+        self.assertEqual(len(runs), 2, runs)
+        self.assertLess(spent, 0.3)
 
     def test_width_refusal(self):
         with self.assertRaisesRegex(ValueError, "width 0 is not a width"):
