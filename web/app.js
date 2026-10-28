@@ -1388,8 +1388,10 @@ function mini(show, said) {
     v.muted = true;
     v.loop = true;
     v.playsInline = true;
-    v.autoplay = !matchMedia("(prefers-reduced-motion: reduce)").matches;
-    v.preload = "metadata";
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    v.autoplay = !still;
+    v.preload = still ? "auto" : "metadata";
+    if (still) v.addEventListener("loadedmetadata", () => { v.currentTime = v.duration / 2; }, { once: true });
     box.append(v);
     return box;
   }
