@@ -205,6 +205,13 @@ the result and the engine numbers.
   style, titles, captions, blurs, hits). The same list draws the preview and the finished file. After each change
   Muse sees the frame it made, and the page shows the clip with a slider to any second. The person can undo on the
   page too, and Muse is told before it answers next.
+- **The look and the words change at a tap, without waiting for Muse.** Beside the clip are its captions (Off,
+  Plain, Lit, Pop), the six text styles and the colour looks; under it, every title and caption phrase sits on a
+  line by its time. A tap runs the very tool Muse would call, with its checks, so a choice the tool would refuse is
+  shown off with the tool's reason, and the page and Muse never disagree. Undo takes a tap back, and Muse is told
+  before it answers next. Caption words the person types are kept as typed, also when the captions go on again, and
+  the check on captions passes them as the person's own words. When the clip has changed since its video was made,
+  Make the video again renders it as Muse's render does.
 - **A clip is ready only when its file is.** Render returns when the file exists. Hand-over takes only a file made
   from the clip as it is now: a change after the render makes the file old, and the state Muse reads says so in
   words, so it cannot tell the person a clip is ready when it is not.

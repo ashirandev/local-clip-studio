@@ -29,6 +29,19 @@ const clipTools = document.getElementById("clipTools");
 const clipAt = document.getElementById("clipAt");
 const clipAtLine = document.getElementById("clipAtLine");
 const clipUndo = document.getElementById("clipUndo");
+const panelBox = document.getElementById("panel");
+const panelNote = document.getElementById("panelNote");
+const wordsBox = document.getElementById("words");
+const lanes = document.getElementById("lanes");
+const wordEdit = document.getElementById("wordEdit");
+const wordLabel = document.getElementById("wordLabel");
+const wordText = document.getElementById("wordText");
+const wordSave = document.getElementById("wordSave");
+const wordCancel = document.getElementById("wordCancel");
+const wordNote = document.getElementById("wordNote");
+const againBox = document.getElementById("again");
+const againButton = document.getElementById("againButton");
+const againLine = document.getElementById("againLine");
 const fileInput = document.getElementById("file");
 const dropCover = document.getElementById("dropCover");
 const idle = text.placeholder;
@@ -386,6 +399,10 @@ function clearClip() {
   clipTitle.textContent = "Your clip";
   clipTools.hidden = true;
   room.made = null;
+  room.panel = null;
+  room.againError = false;
+  againLine.textContent = "";
+  hidePanel();
   clipView("none");
 }
 
@@ -422,6 +439,7 @@ function showFinished(file) {
   v.playsInline = true;
   v.preload = "metadata";
   v.setAttribute("aria-label", "Your finished clip");
+  v.addEventListener("timeupdate", () => movePlayhead(v.currentTime));
   frameBox.replaceChildren(v);
   clipTools.hidden = true;
   clipTitle.textContent = "Your clip";
@@ -530,8 +548,214 @@ async function drawFaces(t, made, asked) {
 }
 
 clipAt.addEventListener("input", () => {
+  movePlayhead(Number(clipAt.value));
   clearTimeout(room.frameTimer);
   room.frameTimer = setTimeout(drawClipFrame, 120);
+});
+
+function hidePanel() {
+  panelBox.hidden = true;
+  wordsBox.hidden = true;
+  againBox.hidden = true;
+  closeWords();
+}
+
+function loadPanel() {
+  clearTimeout(room.panelTimer);
+  room.panelTimer = setTimeout(async () => {
+    const chat = room.chat;
+    let d;
+    try {
+      const r = await fetch("/api/panel?chat=" + encodeURIComponent(chat), { cache: "no-store" });
+      d = await r.json();
+    } catch (err) {
+      return;
+    }
+    if (chat !== room.chat) return;
+    if (!d.ok || !d.clip) {
+      room.panel = null;
+      hidePanel();
+      return;
+    }
+    room.panel = d;
+    drawPanel(d);
+    drawWords(d);
+    drawAgain(d);
+  }, 150);
+}
+
+function drawChoices(row, why, choices, path, field, card) {
+  row.textContent = "";
+  const off = {};
+  choices.forEach((c) => {
+    const b = el("button", card ? "chip look-card" : "chip", card ? null : c.label);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(c.now));
+    if (card) {
+      const pic = el("img", "look-pic");
+      pic.src = "/api/look/" + c.name + ".png";
+      pic.alt = "";
+      b.append(pic, el("span", "look-name", c.label));
+    }
+    if (c.why) {
+      b.disabled = true;
+      b.setAttribute("aria-describedby", why.id);
+      (off[c.why] = off[c.why] || []).push(c.label);
+    } else if (!c.now) {
+      b.addEventListener("click", () => choose(row, path, field, c.name));
+    }
+    row.appendChild(b);
+  });
+  const reasons = Object.entries(off).map(([words, labels]) => labels.join(", ") + ": " + words);
+  why.textContent = reasons.join("\n");
+  why.hidden = !reasons.length;
+}
+
+function drawPanel(d) {
+  panelBox.hidden = false;
+  drawChoices(document.getElementById("capsRow"), document.getElementById("capsWhy"), d.captions, "/api/captions", "mode", false);
+  drawChoices(document.getElementById("styleRow"), document.getElementById("styleWhy"), d.styles, "/api/style", "style", true);
+  drawChoices(document.getElementById("lookRow"), document.getElementById("lookWhy"), d.looks, "/api/colour", "look", false);
+}
+
+async function choose(row, path, field, name) {
+  row.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  panelNote.textContent = "";
+  try {
+    const d = await post(path, { chat: room.chat, [field]: name });
+    if (!d.ok) panelNote.textContent = d.error || "That could not be changed.";
+  } catch (err) {
+    panelNote.textContent = "The studio is not answering. Start it again with: python app.py";
+  }
+  loadPanel();
+}
+
+function rows(blocks) {
+  const ends = [];
+  return blocks.map((b) => {
+    let k = ends.findIndex((end) => end <= b.start);
+    if (k < 0) k = ends.push(0) - 1;
+    ends[k] = b.end;
+    return k;
+  });
+}
+
+function drawWords(d) {
+  lanes.textContent = "";
+  const kinds = [["title", "On screen"], ["caption", "Captions"]];
+  kinds.forEach(([kind, name]) => {
+    const blocks = d.words.filter((b) => b.kind === kind);
+    if (!blocks.length) return;
+    const lane = el("div", "lane");
+    lane.setAttribute("role", "group");
+    lane.setAttribute("aria-label", name);
+    const track = el("div", "track");
+    const row = rows(blocks);
+    track.style.height = (Math.max(...row) + 1) * 30 + "px";
+    blocks.forEach((b, i) => {
+      const button = el("button", "block" + (b.typed ? " typed" : ""), b.text);
+      button.type = "button";
+      button.title = b.text;
+      button.style.left = (100 * b.start / d.length) + "%";
+      button.style.width = (100 * Math.max(0, Math.min(b.end, d.length) - b.start) / d.length) + "%";
+      button.style.top = row[i] * 30 + "px";
+      button.setAttribute("aria-label", (kind === "title" ? "Words on screen" : "Caption") + " from " + b.start.toFixed(1) + " to " + b.end.toFixed(1) + " s: " + b.text + (b.typed ? ". Your own words." : ""));
+      button.addEventListener("click", () => openWords(b));
+      track.appendChild(button);
+    });
+    lane.append(el("span", "lane-name", name), track);
+    lanes.appendChild(lane);
+  });
+  const head = el("div", "playhead");
+  head.setAttribute("aria-hidden", "true");
+  lanes.appendChild(head);
+  wordsBox.hidden = !d.words.length;
+  movePlayhead(room.made ? Number(clipAt.value) : 0);
+  if (room.editing && !d.words.some((b) => b.kind === room.editing.kind && b.n === room.editing.n && b.text === room.editing.was)) closeWords();
+}
+
+function movePlayhead(t) {
+  const head = lanes.querySelector(".playhead");
+  if (!head || !room.panel) return;
+  const share = Math.max(0, Math.min(1, t / room.panel.length));
+  head.style.left = "calc(var(--lane-name) + (100% - var(--lane-name)) * " + share + ")";
+}
+
+function seek(t) {
+  const v = frameBox.querySelector("video");
+  if (room.made) {
+    clipAt.value = Math.min(t + 0.05, room.made.clip.length - 0.05);
+    movePlayhead(Number(clipAt.value));
+    drawClipFrame();
+  } else if (v && !room.showing) {
+    v.currentTime = t;
+    movePlayhead(t);
+  }
+}
+
+function openWords(b) {
+  seek(b.start);
+  room.editing = { kind: b.kind, n: b.n, was: b.text };
+  wordLabel.textContent = (b.kind === "title" ? "Words on screen" : "Caption") + ", " + b.start.toFixed(1) + " to " + b.end.toFixed(1) + " s" + (b.typed ? " · your own words" : "");
+  wordText.value = b.text;
+  wordNote.textContent = "";
+  wordEdit.hidden = false;
+  wordText.focus();
+}
+
+function closeWords() {
+  room.editing = null;
+  wordEdit.hidden = true;
+  wordNote.textContent = "";
+}
+
+wordEdit.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const editing = room.editing;
+  if (!editing) return;
+  wordSave.disabled = true;
+  try {
+    const d = await post("/api/words", { chat: room.chat, kind: editing.kind, n: editing.n, was: editing.was, words: wordText.value });
+    if (d.ok) closeWords();
+    else wordNote.textContent = d.error || "Those words could not be saved.";
+  } catch (err) {
+    wordNote.textContent = "The studio is not answering. Start it again with: python app.py";
+  }
+  wordSave.disabled = false;
+});
+
+wordCancel.addEventListener("click", closeWords);
+
+wordText.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeWords();
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    wordEdit.requestSubmit();
+  }
+});
+
+function drawAgain(d) {
+  againBox.hidden = !(d.again || d.making);
+  againButton.disabled = d.making;
+  if (d.making && !againLine.textContent) againLine.textContent = "Making the video…";
+  if (!d.making && !room.againError) againLine.textContent = d.again ? "You changed the clip after the video was made." : "";
+}
+
+againButton.addEventListener("click", async () => {
+  againButton.disabled = true;
+  room.againError = false;
+  againLine.textContent = "Making the video…";
+  try {
+    const d = await post("/api/remake", { chat: room.chat });
+    if (!d.ok) {
+      room.againError = true;
+      againLine.textContent = d.error || "The video could not be made.";
+      againButton.disabled = false;
+    }
+  } catch (err) {
+    againLine.textContent = "The studio is not answering. Start it again with: python app.py";
+    againButton.disabled = false;
+  }
 });
 
 clipUndo.addEventListener("click", async () => {
@@ -584,6 +808,20 @@ function on(e) {
   }
   if (e.kind === "edit" || e.kind === "undo") {
     showClip(e);
+    room.againError = false;
+    loadPanel();
+    return;
+  }
+  if (e.kind === "rendered") {
+    showFinished(e.file);
+    againLine.textContent = "";
+    loadPanel();
+    return;
+  }
+  if (e.kind === "not_made") {
+    room.againError = true;
+    againLine.textContent = "The video was not made: " + e.error;
+    loadPanel();
     return;
   }
   if (e.kind === "preview") {
@@ -618,8 +856,6 @@ function on(e) {
   } else if (e.kind === "answer") {
     hideLive(j);
     drawAnswer(j, e);
-  } else if (e.kind === "rendered") {
-    showFinished(e.file);
   } else if (e.kind === "checked") {
     drawChecked(j, e);
   } else if (e.kind === "spelled") {
@@ -649,6 +885,14 @@ function on(e) {
 }
 
 function onThinking(live) {
+  if (live.job === null) {
+    if (live.work) {
+      againBox.hidden = false;
+      againButton.disabled = true;
+      againLine.textContent = live.work;
+    }
+    return;
+  }
   const j = room.jobs[live.job];
   if (!j) return;
   if (live.work) {

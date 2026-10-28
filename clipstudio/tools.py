@@ -2066,10 +2066,23 @@ def _sentences(phrases):
     return out
 
 
-def _translated(job, units, language, said_in, names):
+def _translated(job, rec, state, units, language, said_in):
     """Muse's subtitle in language for each unit, asked apart from the job, or None when twice the lines it wrote
-    did not line up one for one with the units."""
+    did not line up one for one with the units. When the clip's captions already hold each sentence in language,
+    translated from the same words, they are kept: a tap on the page (Plain, Lit, Pop) never asks Muse, and Muse
+    putting the same captions on lit is not asked to translate them again."""
+    caps = (state["captions"] or {}).get("lines") or []
+    held = {}
+    if (state["captions"] or {}).get("language") == language:
+        for k in {line["phrase"] for line in caps}:
+            mine = [line for line in caps if line["phrase"] == k]
+            held[(round(mine[0]["from"], 2), round(mine[-1]["to"], 2), mine[0].get("said"))] = \
+                "".join(line["text"] for line in mine).strip()
+    kept = [held.get((u["from"], u["to"], u["text"])) for u in units]
+    if all(kept):
+        return kept
     kind = (job.chat.clip or {}).get("title") or "a video"
+    names = [w for w in dict.fromkeys(_screen_words(job, rec, state)) if len(w) >= 4][:SCREEN_NAMES]
     listing = "\n".join("%d. (%.1f s) %s" % (k, u["to"] - u["from"], u["text"]) for k, u in enumerate(units, 1))
     shown = "; the screen writes these words this way: %s" % ", ".join(names) if names else ""
     ask = SUBTITLE_ASK % (kind, said_in, language, said_in, language, shown, language, listing)
@@ -2077,6 +2090,8 @@ def _translated(job, units, language, said_in, names):
         try:
             got = json.loads(job.ask_aside([{"role": "user", "content": ask}], SUBTITLE_SCHEMA,
                                            "Writing the %s subtitles" % language))["lines"]
+        except mind.MindError as e:
+            raise Refused("Muse writes the %s captions, and Muse could not be asked: %s" % (language, e))
         except (ValueError, KeyError, TypeError):
             continue
         if isinstance(got, list) and len(got) == len(units) and all(isinstance(s, str) and s.strip() for s in got):
@@ -2094,7 +2109,7 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
     state = _clip_state(job)
     if lit and pop:
         raise Refused("Captions are lit or popped, not both: a popped word already moves as it is said. Choose one.")
-    target = _subtitles(language or (job.chat.clip or {}).get("subtitles"))
+    target = _subtitles(language or (job.chat.clip or {}).get("subtitles") or (state["captions"] or {}).get("language"))
     if language and job.chat.clip is not None:
         job.chat.clip["subtitles"] = target
     clip, length = state["clip"], state["length"]
@@ -2125,18 +2140,22 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
         said_in = _spoken(job, texts)
         if target and target != said_in:
             units = _sentences(phrases)
-            names = [w for w in dict.fromkeys(_screen_words(job, rec, state)) if len(w) >= 4][:SCREEN_NAMES]
-            translated = _translated(job, units, target, said_in, names)
+            translated = _translated(job, rec, state, units, target, said_in)
     except hearing.Stopped:
         return "No captions: the person pressed Stop."
-    if translated:
-        lines = text.caption_lines([{"from": u["from"], "to": u["to"], "text": s} for u, s in zip(units, translated)],
-                                   CAPTION_LETTERS)
-        for line in lines:
+    shown = [{"from": u["from"], "to": u["to"], "text": s} for u, s in zip(units, translated)] if translated else \
+        phrases
+    typed = _typed(state["captions"])
+    for piece in shown:
+        piece["text"] = typed.get((piece["from"], piece["to"]), piece["text"])
+    lines = text.caption_lines(shown, CAPTION_LETTERS)
+    for line in lines:
+        if translated:
             line["said"] = units[line["phrase"]]["text"]
+        if (shown[line["phrase"]]["from"], shown[line["phrase"]]["to"]) in typed:
+            line["typed"] = True
+    if translated:
         first = [u["first"] for u in units]
-    else:
-        lines = text.caption_lines(phrases, CAPTION_LETTERS)
     band = clip["layout"]["captions"]
     entry = {"do": "captions", "lines": lines, "band": [band[1], band[3]], "lit": bool(lit), "pop": bool(pop)}
     if translated:
@@ -2172,6 +2191,9 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
     elif target and target != said_in:
         out.append("The %s lines Muse wrote did not line up one for one with the sentences said, twice, so the "
                    "captions are in %s as said. Tell the person, or put the captions on again." % (target, said_in))
+    if any(line.get("typed") for line in lines):
+        out.append("The words the person typed on the page for %d of the lines are kept as they typed them."
+                   % sum(1 for line in lines if line.get("typed")))
     if unsure:
         out.append("Left out %d line%s the hearing was not sure of, because a wrong caption is worse than none: %s."
                    % (len(unsure), "" if len(unsure) == 1 else "s",
@@ -2193,6 +2215,17 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
     first = lines[0]
     out.append(_show_frame(job, state, rec, (first["from"] + first["to"]) / 2, "The clip with captions:"))
     return "\n".join(out)
+
+
+def _typed(captions):
+    """{(from, to): the words} of each caption phrase the person typed on the page, by the phrase's time in the clip:
+    captions put on again keep the person's words."""
+    lines = (captions or {}).get("lines") or []
+    out = {}
+    for k in {line["phrase"] for line in lines if line.get("typed")}:
+        mine = [line for line in lines if line["phrase"] == k]
+        out[(round(mine[0]["from"], 2), round(mine[-1]["to"], 2))] = "".join(line["text"] for line in mine)
+    return out
 
 
 def _on_camera(rec, clip):
@@ -2764,12 +2797,15 @@ def check_clip(job, why):
     lines = (state["captions"] or {}).get("lines") or []
     joined = "".join(said).replace(" ", "")
     unsaid = [line["text"] for line in lines if line.get("said", line["text"]).replace(" ", "") not in joined]
+    typed = {line["text"] for line in lines if line.get("typed")}
+    unsaid = [t for t in unsaid if t not in typed]
     check("Captions are words that were said", not unsaid if lines else None,
-          ("%d of %d lines are in what was said" % (len(lines) - len(unsaid), len(lines)) +
+          ("%d of %d lines are in what was said%s" % (len(lines) - len(unsaid), len(lines), " or are the person's "
+                                                       "own words, typed on the page" if typed else "") +
            ("; not said: %s" % "; ".join(unsaid[:3]) if unsaid else "")) if lines else "no captions")
     sentences = {}
     for line in lines:
-        if "said" in line:
+        if "said" in line and not line.get("typed"):
             sentences.setdefault(line["phrase"], [line["said"], ""])[1] += line["text"]
     if sentences:
         off = ['"%s" for "%s"' % (t.strip(), s) for s, t in sentences.values()

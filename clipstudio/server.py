@@ -18,6 +18,15 @@ through a name it owns), and a POST must be JSON (another web page cannot send J
 - GET /api/look/<name>.png: the picture of one look of the words, for the person to pick from
 - GET /api/preview/<name>.mp4: the rough video of a proposed moment, in the byte range the browser asks for, so it
   can play from any second
+- GET /api/panel?chat=<id>: what the page shows beside and under the clip: the choices of captions, text style and
+  colour look (the one the clip has, and why a choice is off), the words on the clip by their time, and whether the
+  video can be made again
+- POST /api/captions {chat, mode}, /api/style {chat, style}, /api/colour {chat, look}: a tap beside the clip. The
+  program makes the edit Muse's tool makes, at once, without asking Muse; Undo takes it back, and Muse is told
+- POST /api/words {chat, kind, n, was, words}: the person's own words for a title or a caption phrase
+- POST /api/remake {chat}: makes the video again from the clip as it is now, as render_clip does, without Muse.
+  Each answers {"ok": true}, or {"ok": false, "error"} with 404 when the clip or the words are not there and 400
+  with the reason the change was refused
 - GET /api/events?chat=<id>: every event of the chat from the start, then each new one as it happens, and Muse's
   thinking while it is written (Server-Sent Events, so a reload redraws the whole chat and a running job carries on).
   Every page shows the chat the server has open: when another chat opens, the stream says "moved" and the page
@@ -58,6 +67,7 @@ LOOK = re.compile(r"^/api/look/([0-9a-z]+)\.png$")
 POSTER_AT = 1.0
 READ_TRIES, READ_WAIT = 10, 0.05
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
+CHANGES = ("/api/captions", "/api/style", "/api/colour", "/api/words", "/api/remake")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -96,6 +106,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_clip_frame(query)
         elif path == "/api/faces":
             self.send_faces(query)
+        elif path == "/api/panel":
+            chat = agent.find(query.get("chat", ""))
+            if chat is None:
+                self.send_json({"ok": False, "error": GONE}, HTTPStatus.NOT_FOUND)
+            else:
+                self.send_json(dict(chat.panel(), ok=True))
         elif LOOK.match(path):
             self.send_look(LOOK.match(path).group(1))
         elif path.startswith("/api/"):
@@ -107,7 +123,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.named_well():
             return
         path = self.path.split("?", 1)[0]
-        if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/open", "/api/undo", "/api/person"):
+        if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/open", "/api/undo", "/api/person") + CHANGES:
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
             return
         body = self.read_json()
@@ -135,6 +151,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"ok": False, "error": "The clip has no person %s." % n}, HTTPStatus.NOT_FOUND)
             else:
                 self.send_json({"ok": True})
+        elif path in CHANGES:
+            self.change_clip(chat, path, body)
         else:
             words = str(body.get("message") or "").strip()
             if not words:
@@ -142,6 +160,31 @@ class Handler(BaseHTTPRequestHandler):
                 return
             job = chat.say(words, body.get("mind"))
             self.send_json({"ok": True, "chat": chat.id, "job": job.n})
+
+    def change_clip(self, chat, path, body):
+        """A tap beside or under the clip: {"ok": true} once the change is made (for /api/remake, once the video is
+        being made), else 404 when the clip or the words are not there and 400 with the reason it was refused."""
+        try:
+            if path == "/api/captions":
+                why = chat.set_captions(str(body.get("mode") or ""))
+            elif path == "/api/style":
+                why = chat.set_style(str(body.get("style") or ""))
+            elif path == "/api/colour":
+                why = chat.set_look(str(body.get("look") or ""))
+            elif path == "/api/remake":
+                why = chat.make_again()
+            elif body.get("kind") not in ("title", "caption") or not isinstance(body.get("n"), int) or \
+                    isinstance(body.get("n"), bool):
+                why = "Send which words to change: a title or a caption, and its number."
+            else:
+                why = chat.set_words(body["kind"], body["n"], str(body.get("was") or ""), str(body.get("words") or ""))
+        except agent.Missing as e:
+            self.send_json({"ok": False, "error": str(e)}, HTTPStatus.NOT_FOUND)
+            return
+        if why:
+            self.send_json({"ok": False, "error": why}, HTTPStatus.BAD_REQUEST)
+        else:
+            self.send_json({"ok": True})
 
     def open_recording(self, chat, body):
         try:

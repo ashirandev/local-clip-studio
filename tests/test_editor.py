@@ -467,13 +467,20 @@ class Tools(unittest.TestCase):
                 '{"lines": ["Setting it up is so easy.", "It costs 990 baht."]}',
                 [call("decide_people", keep=[1], why="it is him")],
                 [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
-                [call("add_captions", language="English", why="again")],
-                '{"lines": ["Setting it up is so easy.", "It costs 99 baht."]}',
-                [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
-                "Done.")
+                [call("add_captions", language="English", lit=True, why="lit")], "Done.")
+            lit = steps[-1]
+            caps = self.chat.project.state()["captions"]
+            self.chat.edit(dict(caps, lines=[dict(ln, text=ln["text"].replace("990", "99"), words=[
+                dict(w, text=w["text"].replace("990", "99")) for w in ln["words"]]) for ln in caps["lines"]]))
+            _, again = self.run_job([call("render_clip", why="make the file")], [call("check_clip", why="check it")],
+                                    "Done.")
         finally:
             render.export = had
-        caps, _, _, checked, _, _, wrong = steps[-7:]
+        caps, _, _, checked = steps[-5:-1]
+        wrong = again[-1]
+        self.assertFalse(lit["refused"], lit["result"])
+        self.assertEqual(len([m for m in brain.sent if len(m) == 1 and "English subtitle" in m[0]["content"]]), 1,
+                         "captions put on again lit keep the translation the clip holds")
         self.assertFalse(caps["refused"], caps["result"])
         self.assertRegex(caps["result"], r"^Captions on: \d+ lines in English, translated from the 2 sentences said in "
                                          r"Thai, numbers kept")
