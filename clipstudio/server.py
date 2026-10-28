@@ -54,9 +54,9 @@ import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, quote
 
-from . import __version__, agent, effects, hearing, layer, mind, previews, recording, render, spent, text
+from . import __version__, agent, effects, hearing, layer, mind, premiere, previews, recording, render, spent, text
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
@@ -137,6 +137,8 @@ class Handler(BaseHTTPRequestHandler):
                 query.get("currency"), os.path.join(agent.WORK, "rates.json"))))
         elif path == "/api/layer":
             self.send_layer(agent.find(query.get("chat", "")))
+        elif path == "/api/premiere":
+            self.send_premiere(agent.find(query.get("chat", "")))
         elif LAYER.match(path):
             self.send_picture(render.folder("layers"), LAYER.match(path).group(1))
         elif BASE.match(path):
@@ -427,6 +429,27 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "max-age=3600")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_premiere(self, chat):
+        """The clip as it is now as a Premiere Pro project (premiere.py), a zip to save; 404 with the reason when the
+        chat or its clip is not there."""
+        if chat is None:
+            self.send_json({"ok": False, "error": GONE}, HTTPStatus.NOT_FOUND)
+            return
+        titles = [e["title"] for e in chat.events if e["kind"] in ("ready", "named") and e.get("title")]
+        try:
+            name, body = premiere.bundle(titles[-1] if titles else "", chat.recording, chat.project.state())
+        except premiere.NotExported as e:
+            self.send_json({"ok": False, "error": str(e)}, HTTPStatus.NOT_FOUND)
+            return
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/zip")
+        self.send_header("Content-Disposition", "attachment; filename=\"clip-premiere.zip\"; filename*=UTF-8''%s"
+                         % quote(name))
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 

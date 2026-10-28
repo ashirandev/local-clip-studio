@@ -258,11 +258,41 @@ def target(pieces, name):
     return os.path.join(recording.WORK, "montage", "%s-%s.mp4" % (safe, key))
 
 
+def _made_of_path(path):
+    return path + ".pieces.json"
+
+
+def made_of(path):
+    """The pieces the joined recording at path was made of, in order: [{"path", "name", "from", "to", "centre",
+    "width", "height", "seconds", "fps", "sound_tracks", "clip", "why"}], seconds of each piece's own file; None for a
+    recording that was not joined here, or was joined before this was written down. An export to an editor
+    (premiere.py) points at those files, so each piece can be made longer from its own file."""
+    try:
+        with open(_made_of_path(path), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _write_made_of(pieces, out):
+    if made_of(out) is not None:
+        return
+    rows = [{"path": p["rec"]["path"], "name": p["rec"]["name"], "from": p["from"], "to": p["to"],
+             "centre": p.get("centre"), "width": p["rec"]["width"], "height": p["rec"]["height"],
+             "seconds": p["rec"]["seconds"], "fps": p["rec"].get("fps"), "sound_tracks": p["rec"].get("sound_tracks"),
+             "clip": p.get("clip"), "why": p.get("why")} for p in pieces]
+    part = _made_of_path(out) + ".part"
+    with open(part, "w", encoding="utf-8") as f:
+        json.dump(rows, f, ensure_ascii=False)
+    os.replace(part, _made_of_path(out))
+
+
 def join(pieces, out, on_start=None):
     """Joins pieces into out and returns out once the file is there and as long as the pieces together. The file is
-    written next to out and only replaces it when FFmpeg has finished. on_start(stop) is given a function that ends
-    FFmpeg at once, after which join raises Stopped and leaves no file."""
+    written next to out and only replaces it when FFmpeg has finished, with what it was made of beside it (made_of).
+    on_start(stop) is given a function that ends FFmpeg at once, after which join raises Stopped and leaves no file."""
     if os.path.isfile(out):
+        _write_made_of(pieces, out)
         return out
     tool = shutil.which("ffmpeg")
     if not tool:
@@ -311,6 +341,7 @@ def join(pieces, out, on_start=None):
         if abs(got - want) > 0.2:
             raise MontageError("The joined clips came out %.2f s long, not %.2f s, so they were not kept." % (got, want))
         os.replace(part, out)
+        _write_made_of(pieces, out)
     finally:
         if os.path.isfile(part):
             os.remove(part)

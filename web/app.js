@@ -599,6 +599,9 @@ function drawReady(j, e) {
   });
   const save = el("a", "chip", "Download the clip");
   save.href = "/api/clip/" + e.file + "?download=1";
+  const edit = el("a", "chip", "Premiere project");
+  edit.href = "/api/premiere?chat=" + encodeURIComponent(room.chat);
+  edit.title = "The clip as it is now, for Premiere Pro: each piece points at your own file, so an editor can drag its edges";
   const cost = el("details", "menu ready-cost");
   const tag = el("summary", "chip cost-chip", "$");
   tag.setAttribute("aria-label", "What Muse cost for this clip");
@@ -610,7 +613,7 @@ function drawReady(j, e) {
   room.costs.push({ job: e.job, tag, box });
   refreshCost(e.job);
   const row = el("div", "ready-actions");
-  row.append(copy, save, cost);
+  row.append(copy, save, edit, cost);
   body.appendChild(row);
   div.append(v, body);
   j.flow.appendChild(div);

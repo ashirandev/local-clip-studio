@@ -159,6 +159,13 @@ the result and the engine numbers.
 - **Chats are kept.** New chat starts an empty one; Earlier chats opens an old one again, exactly as it was. After
   the first job that does work, Muse names the chat in a few words of your language ("รีวิวไมค์ Yeti Orb"), and
   the list says which Muse answered in it, local or API.
+- **An editor can finish it in Premiere Pro.** Premiere project, under a finished clip, saves a zip: the clip as a
+  sequence in Final Cut Pro 7 XML (File > Import in Premiere), its captions as .srt and a note. Every piece on the
+  timeline points at your own file, named by it, with its in and out points there, so an editor drags an edge to take
+  more or less of it; a montage points back at the clips it was joined from, not at the joined file. The frame comes
+  over as scale and position (a crop where a part does not fill the frame), the sound left and right, the music,
+  and the titles and each piece's reason as markers. Looks, stickers and blurs do not; the note lists what the clip
+  had and did not come over, a blur first, since a hidden face or chat shows again there.
 - **One recipe per kind of video, and no questions.** Muse picks the kind (`recipes/seller.md` for a product review
   or a selling live, `recipes/game.md` for a game stream), reads that recipe, and shows its guesses: the kind, the
   length, the style and the language. Each guess has a button to change it with one tap, and Muse plans again.
@@ -352,6 +359,7 @@ Model weights are downloaded when they are first needed. None of them are commit
 | 2026-10-27, this build | Drawing one preview frame of the clip | 0.1-0.45 s for a layout from a 1080p stream; one 1080x1920 frame with a title, captions and a hit in under 1 s |
 | 2026-10-28, this build | Small talk in a new chat ("ฝนตกทั้งวันเลย", "ok", "เหนื่อยจัง ไลฟ์มาทั้งวัน"), 12 messages each | before: Glimmer called a tool for 4, Spark for 3. With the new instruction and the check: 0 of 40 small-talk messages ran a tool on either (12 in a new chat and 8 after a finished clip, twice each), and 8 of 8 requests for work still started work on each |
 | 2026-10-28, this build | The question apart that sorts a message into work or talk, 36 talk and 34 work messages | 70 of 70 right with each, Spark in a median 3.1 s, Glimmer in 5.1 s (Glimmer missed "มีไฟล์อะไรบ้าง" until asking which recordings you have was named as work). So it is asked only when Muse's first answer calls a tool |
+| 2026-10-29, this build | The Premiere export of the yeti review (7 pieces from 3 phone clips, 45.6 s), read back with OpenTimelineIO's Final Cut Pro 7 XML reader | 7 pieces on the video track and on the sound, each pointing at its own phone clip (83-109 s long) at the seconds the studio used, the timeline 45.60 s like the clip, the 6 reasons and the title as markers. Frames drawn from the originals with the exported scale and position matched the finished clip at each piece (mean difference 1.6-8.2 of 255, captions left out). Not yet opened in Premiere itself |
 
 New measurements are added here as the build is tested, each with its date.
 
