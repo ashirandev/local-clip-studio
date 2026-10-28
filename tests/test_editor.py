@@ -1173,6 +1173,10 @@ class Tools(unittest.TestCase):
         self.assertEqual(len({e["file"] for e in ready}), 2, "two files")
         self.assertEqual(self.chat.project.state()["clip"]["moment"], 1, "the page shows the first clip")
         self.assertEqual(self.chat.finished()["name"], ready[0]["file"])
+        sent = str(brain.sent[-1][-1])
+        self.assertIn("Clip 2: The finished clip, picture 4 of 4:", sent, "each clip is looked at as a viewer sees it")
+        self.assertEqual(sent.count("The finished clip, picture"), 8)
+        self.assertIn("Each clip's finished file comes next in 4 pictures", made["result"])
         self.assertNotIn("The clip at", str(brain.sent[-1]), "no picture of each clip is sent to Muse")
 
     def test_a_game_streams_clips_each_hide_the_chat_box_muse_gives_once(self):
@@ -1318,7 +1322,9 @@ class Tools(unittest.TestCase):
         self.assertIn("- passed: The length fits a Reel (60.0 s; a Reel is at most 90 s)", first["result"])
         self.assertIn("- not needed: Captions are words that were said (no captions)", first["result"])
         self.assertIn("Fix what failed, render again and check again", first["result"])
-        self.assertIn("The finished clip, picture 1 of 3:", str(brain.sent[len(steps) - 4]))
+        self.assertIn("The finished clip, picture 4 of 4:", str(brain.sent[len(steps) - 4]))
+        self.assertIn("4 pictures of the finished clip come next, as a viewer sees it.", first["result"])
+        self.assertIn("a viewer's name, a phone number or a face in the chat that can be read", first["result"])
         self.assertTrue(failed["refused"])
         self.assertIn("These checks failed on the finished file: No viewer's name can be read; It does not start black "
                       "or silent.", failed["result"])

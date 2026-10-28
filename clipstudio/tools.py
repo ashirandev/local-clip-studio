@@ -1157,11 +1157,20 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     at = min(max(0.0, peak if peak is not None else state["length"] / 2), state["length"] - 0.1)
     lines.append(_show_frame(job, state, rec, at, "The clip at %g s (moment %d, %s layout):" % (
         round(at, 2), moment, lay["kind"])))
-    lines += _people_lines(job, people, rec)
+    if people and recipe == MONTAGE:
+        state = job.edit({"do": "people", "blur": [], "keep": [p["n"] for p in people]})
+        lines.append(KEPT_AT_AN_EVENT % len(people))
+    else:
+        lines += _people_lines(job, people, rec)
     lines.append("Look at it: if a face or the action is cut badly, make the clip again with another layout or crop. "
                  "Then put the title on.")
     job.show(clip=job.chat.clip_view())
     return "\n".join(lines)
+
+
+KEPT_AT_AN_EVENT = ("%d people's faces are in the clip, all kept as they are: at a trip or an event the people are "
+                    "part of the day. Blur someone only when the person asks: show_people numbers the faces at the "
+                    "second they mean, and decide_people blurs that number.")
 
 
 def _follow(rec, lay, pieces, span):
@@ -2099,6 +2108,73 @@ def decide_people(job, why, blur=None, keep=None, others=None):
     return "\n".join(lines)
 
 
+NEAR = 0.5
+
+
+def show_people(job, why, at):
+    rec = _open(job, "look at the people in")
+    state = _clip_state(job)
+    length = state["length"]
+    if not 0 <= at <= length:
+        raise Refused("at %g s is outside the clip, which is %g s long: give the second in seconds of the clip, from 0 "
+                      "to %g." % (at, length, round(length, 1)))
+    seen = []
+    for p in state["people"]:
+        point = min(p["points"], key=lambda q: abs(q[0] - at))
+        if abs(point[0] - at) <= NEAR:
+            seen.append({"n": p["n"], "box": point[1:], "blur": p["blur"]})
+    if not seen:
+        near = sorted(state["people"], key=lambda p: min(abs(q[0] - at) for q in p["points"]))[:3]
+        raise Refused("No face the program found shows at %g s.%s" % (at, " The nearest: %s." % "; ".join(
+            "person %d at %s-%s" % (p["n"], recording.clock(p["from"]), recording.clock(p["to"])) for p in near)
+            if near else " The clip has no other people's faces."))
+    where = project.to_clip(state["clip"]["pieces"], at)
+    path = _people_picture(rec, where[1] if where else at, seen, "%s-%d" % (job.chat.id, int(at * 100)))
+    if not path:
+        return "The picture at %g s could not be drawn, so the faces cannot be shown." % at
+    job.attach(path, "The picture at %g s of the clip, each face the program found in a numbered box:" % round(at, 2))
+    lines = ["%d face%s at %g s, numbered in the picture that comes next:" % (len(seen), "" if len(seen) == 1 else "s",
+                                                                               round(at, 2))]
+    for s in sorted(seen, key=lambda s: s["n"]):
+        p = next(q for q in state["people"] if q["n"] == s["n"])
+        lines.append("- person %d: %s-%s of the clip, %s" % (s["n"], recording.clock(p["from"]), recording.clock(p["to"]),
+                                                              "blurred" if s["blur"] else "kept" if s["blur"] is False
+                                                              else "not decided yet"))
+    lines.append("Match the person's words (what they wear, where they stand) to a number, then blur or keep that "
+                 "number with decide_people. A person seen in other seconds may have another number there.")
+    return "\n".join(lines)
+
+
+def _people_picture(rec, at, seen, name):
+    """The recording's picture at `at` with a numbered box around each face in seen ({"n", "box"} in recording
+    pixels), 896 px on its long side; the jpg's path in work/people, or None."""
+    import cv2
+    folder = os.path.join(recording.WORK, "people")
+    os.makedirs(folder, exist_ok=True)
+    raw = subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-ss", "%.3f" % at, "-i", rec["path"],
+                          "-frames:v", "1", "-f", "image2pipe", "-c:v", "png", "-"], capture_output=True,
+                         timeout=60).stdout
+    img = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR) if raw else None
+    if img is None:
+        return None
+    k = 896.0 / max(img.shape[:2])
+    img = cv2.resize(img, (int(img.shape[1] * k), int(img.shape[0] * k)), interpolation=cv2.INTER_AREA)
+    for s in seen:
+        x, y, w, h = [int(v * k) for v in s["box"]]
+        cv2.rectangle(img, (x, y), (x + w, y + h), (0, 220, 255), 2)
+        label = str(s["n"])
+        (tw, th), base = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
+        top = max(th + 8, y - 4)
+        cv2.rectangle(img, (x, top - th - 8), (x + tw + 10, top + base - 2), (16, 16, 16), -1)
+        cv2.putText(img, label, (x + 5, top - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
+    path = os.path.join(folder, name + ".jpg")
+    ok, data = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 88])
+    if not ok:
+        return None
+    data.tofile(path)
+    return path
+
+
 def _people_named(ns):
     """"person 3" or "person 2 and 5", or for a crowd only how many, and that others decides them together."""
     if len(ns) > PEOPLE_LISTED:
@@ -2508,19 +2584,29 @@ def check_clip(job, why):
     out += ["- %s: %s (%s)" % ("passed" if c["ok"] else "FAILED" if c["ok"] is False else
                                "for you to check" if c["who"] == "Muse" else "not needed", c["name"], c["found"])
             for c in checks]
-    if kind == "game":
-        for k, at in enumerate((0.25, 0.5, 0.75), 1):
-            name = recording.frame(made, made["seconds"] * at)
-            if name:
-                job.attach(os.path.join(recording.WORK, "frames", name), "The finished clip, picture %d of 3:" % k)
-        out.append("Three pictures of the finished clip come next. Look for any name, phone number or face that can "
-                   "be read and should not be: if you find one, blur it, render again and check again.")
+    shown = 0
+    for k, share in enumerate(REVIEWED, 1):
+        name = recording.frame(made, made["seconds"] * share)
+        if name:
+            shown += 1
+            job.attach(os.path.join(recording.WORK, "frames", name), "%s %d of %d:" % (FINISHED, k, len(REVIEWED)))
+    if shown:
+        out.append(LOOK_AT_IT % (shown, " or the product" if kind == "seller" else "",
+                                 "; a viewer's name, a phone number or a face in the chat that can be read" if
+                                 kind == "game" else ""))
     if failed:
         out.append("Fix what failed, render again and check again, then hand it over.")
     else:
         out.append("Hand it over next.")
     return "\n".join(out)
 
+
+REVIEWED = (0.12, 0.37, 0.62, 0.87)
+FINISHED = "The finished clip, picture"
+LOOK_AT_IT = ("%d pictures of the finished clip come next, as a viewer sees it. Before you hand it over, look at each "
+              "for: a face blurred that should show, or one the person asked to blur that shows; words over a "
+              "face%s; words cut off at an edge or too small to read; a head or the action cut off by the frame%s. "
+              "Say in your next why what you saw. If something is wrong, fix it, render again and check again.")
 
 _odd_thai = words.odd_thai
 
@@ -2620,7 +2706,7 @@ def make_clips(job, why, clips, blur=None):
         raise Refused("Nothing was made. A game stream's clips show its chat box with the viewers' names: give the "
                       "chat box in blur, on your 0-1000 grid of the pictures from your looks, and every clip hides it. "
                       "Leave the face camera out of the box.")
-    pictures, lines, first = len(job.pictures), [], None
+    pictures, lines, first, looked = len(job.pictures), [], None, []
     for k, c in enumerate(clips, 1):
         if job.stopped:
             lines.append("The person pressed Stop before clip %d; it and the clips after it were not made." % k)
@@ -2628,15 +2714,21 @@ def make_clips(job, why, clips, blur=None):
         job.working("Making clip %d of %d, from moment %d" % (k, len(clips), c["moment"]))
         job.chat.project = project.Project()
         lines.append(_one_clip(job, rec, k, c, c.get("layout") or LAYOUT_OF.get(recipe, "subject"), blur or []))
+        seen = [p for p in job.pictures[pictures:] if p[1].startswith(FINISHED)][-len(REVIEWED):]
         del job.pictures[pictures:]
+        looked += [(path, "Clip %d: %s" % (k, caption)) for path, caption in seen]
         if first is None and job.chat.project.entries:
             first = list(job.chat.project.entries)
+    job.pictures += looked
     if first:
         job.chat.project = project.Project(first)
         job.show(clip=job.chat.clip_view())
     done = sum(1 for line in lines if " handed over" in line and "not handed over" not in line)
     return "\n".join(["Made %d clip%s, %d handed over; each is reported on its own:" % (
         len(lines), "" if len(lines) == 1 else "s", done)] + lines + [
+        "Each clip's finished file comes next in %d pictures, as a viewer sees it: look at them as check_clip asks "
+        "and say what you saw. When one shows something wrong, make that clip again with make_clip and fix it." %
+        len(REVIEWED),
         "The person sees a ready card for each clip handed over. The clip on the page now is the first one: change it "
         "with your tools, and tell the person in one or two lines which clips are ready and what failed in the "
         "others."])
@@ -3096,8 +3188,9 @@ TOOLS = {t.name: t for t in [
     Tool("decide_people", "Decided about people",
          "Decide who of the other people make_clip listed is blurred and who is kept. A blurred face is followed as "
          "it moves. Blur a real person who is not the one making the clip, such as someone passing behind; keep a "
-         "face that belongs, such as a game character, or a face on a screen or a box. Every person seen in two "
-         "pictures or more must be decided before the clip is rendered; one call can decide them all.",
+         "face that belongs, such as a game character, or a face on a screen or a box. At a trip or an event every "
+         "face starts kept: blur one only when the person asks. Every person seen in two pictures or more must be "
+         "decided before the clip is rendered; one call can decide them all.",
          {"blur": {"type": "array", "items": {"type": "integer", "minimum": 1},
                    "description": "The numbers of the people to blur, such as [2]."},
           "keep": {"type": "array", "items": {"type": "integer", "minimum": 1},
@@ -3105,6 +3198,12 @@ TOOLS = {t.name: t for t in [
           "others": {"type": "string", "enum": ["blur", "keep"],
                      "description": "What happens to everyone not named in blur or keep, such as a crowd."}},
          [], decide_people, changes=True),
+    Tool("show_people", "Looked at the people",
+         "Shows the clip's picture at one second with a numbered box on every face the program found then. Use it "
+         "when the person names someone by what they look like or where they stand (the man in white at 12 s), to "
+         "find that person's number for decide_people.",
+         {"at": {"type": "number", "minimum": 0, "description": "The second of the clip, such as 12."}},
+         ["at"], show_people),
     Tool("move_part", "Moved a part of the frame",
          "Only when the person asks: put one part of the frame where they want it, anywhere on the clip, such as "
          "their face circle bottom right, a bigger circle, or the card higher. circle also adds the face circle to "

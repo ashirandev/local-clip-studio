@@ -37,7 +37,8 @@ tells it best.
 ## Rules
 
 - Every second is moving video. A picture that holds still is a frozen screen and never goes in.
-- People who are not part of the story keep their faces blurred unless the person says otherwise.
+- Every face is kept as it is: the people at a trip or an event are part of the day. Blur someone only when the
+  person asks, such as "blur the man in white at 12 s": look at that second's faces, numbered, and blur that one.
 - Captions are only for people speaking to the camera, in their own words.
 
 ## The clip

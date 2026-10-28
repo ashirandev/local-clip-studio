@@ -242,6 +242,37 @@ class Arrange(unittest.TestCase):
         self.assertEqual(again.looks[again.moments[0]["look"] - 1]["end"], again.moments[0]["end"])
 
 
+    def test_at_an_event_every_face_is_kept_and_one_is_blurred_by_its_number(self):
+        def people(rec, pieces, face, span=None):
+            return [{"n": 1, "seen": 4, "of": 10, "from": 0.5, "to": 2.0, "box": [10, 10, 40, 40], "crop": None,
+                     "points": [[0.5 * k, 10 + 2 * k, 10, 40, 40] for k in range(1, 5)]},
+                    {"n": 2, "seen": 2, "of": 10, "from": 3.0, "to": 3.5, "box": [100, 20, 30, 30], "crop": None,
+                     "points": [[3.0, 100, 20, 30, 30], [3.5, 100, 20, 30, 30]]}]
+
+        had = tools._people
+        tools._people = people
+        try:
+            steps = self.run_job(*self.opened(), [call(
+                "arrange_clips", story="the day", why="in order", left_out=[],
+                clips=[{"clip": 2, "start": 0.5, "end": 2.5, "words": "We arrive", "why": "where we are"},
+                       {"clip": 1, "start": 1.0, "end": 2.0, "why": "what we did first"},
+                       {"clip": 3, "start": 0.0, "end": 1.9, "words": "The end", "why": "the last thing seen"}])],
+                [call("show_people", at=9, why="too late")],
+                [call("show_people", at=1.0, why="the man in white at 1 s")],
+                [call("decide_people", blur=[1], why="the person asked")], "Done.")
+        finally:
+            tools._people = had
+        arranged, late, shown, decided = steps[-4:]
+        self.assertIn("2 people's faces are in the clip, all kept as they are", arranged["result"])
+        self.assertNotIn("Decide about each", arranged["result"])
+        self.assertTrue(late["refused"])
+        self.assertFalse(shown["refused"], shown["result"])
+        self.assertIn("1 face at 1 s, numbered in the picture that comes next:\n- person 1: 0:00-0:02 of the clip, kept",
+                      shown["result"])
+        self.assertNotIn("person 2", shown["result"])
+        self.assertFalse(decided["refused"], decided["result"])
+        self.assertEqual([q["blur"] for q in self.chat.project.state()["people"]], [True, False])
+
     def test_a_line_that_would_cover_a_face_goes_up_where_it_covers_none(self):
         had = tools._face_times
         tools._face_times = lambda state, rec: ([(t / 4, [[0, 0, 1080, 1920]]) for t in range(1, 4)], 0.5)
