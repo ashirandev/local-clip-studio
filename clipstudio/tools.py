@@ -1985,7 +1985,13 @@ def add_captions(job, why, on=True, lit=False, pop=False):
         return "No captions: the person pressed Stop."
     for phrase, p, words_ in zip(phrases, heard, texts):
         phrase["text"] = p["text"] = words_
+    typed = _typed(state["captions"])
+    for phrase in phrases:
+        phrase["text"] = typed.get((phrase["from"], phrase["to"]), phrase["text"])
     lines = text.caption_lines(phrases, CAPTION_LETTERS)
+    for line in lines:
+        if (phrases[line["phrase"]]["from"], phrases[line["phrase"]]["to"]) in typed:
+            line["typed"] = True
     band = clip["layout"]["captions"]
     entry = {"do": "captions", "lines": lines, "band": [band[1], band[3]], "lit": bool(lit), "pop": bool(pop)}
     bands, spoken = clip["layout"].get("bands"), clip.get("voices")
@@ -2006,6 +2012,9 @@ def add_captions(job, why, on=True, lit=False, pop=False):
               "plain words, none lit, so the eye stays on the picture")]
     if spelling:
         out.append(spelling)
+    if any(line.get("typed") for line in lines):
+        out.append("The words the person typed on the page for %d of the lines are kept as they typed them."
+                   % sum(1 for line in lines if line.get("typed")))
     if unsure:
         out.append("Left out %d line%s the hearing was not sure of, because a wrong caption is worse than none: %s."
                    % (len(unsure), "" if len(unsure) == 1 else "s",
@@ -2027,6 +2036,17 @@ def add_captions(job, why, on=True, lit=False, pop=False):
     first = lines[0]
     out.append(_show_frame(job, state, rec, (first["from"] + first["to"]) / 2, "The clip with captions:"))
     return "\n".join(out)
+
+
+def _typed(captions):
+    """{(from, to): the words} of each caption phrase the person typed on the page, by the phrase's time in the clip:
+    captions put on again keep the person's words."""
+    lines = (captions or {}).get("lines") or []
+    out = {}
+    for k in {line["phrase"] for line in lines if line.get("typed")}:
+        mine = [line for line in lines if line["phrase"] == k]
+        out[(round(mine[0]["from"], 2), round(mine[-1]["to"], 2))] = "".join(line["text"] for line in mine)
+    return out
 
 
 def _on_camera(rec, clip):
@@ -2595,8 +2615,11 @@ def check_clip(job, why):
     lines = (state["captions"] or {}).get("lines") or []
     joined = "".join(said).replace(" ", "")
     unsaid = [line["text"] for line in lines if line["text"].replace(" ", "") not in joined]
+    typed = {line["text"] for line in lines if line.get("typed")}
+    unsaid = [t for t in unsaid if t not in typed]
     check("Captions are words that were said", not unsaid if lines else None,
-          ("%d of %d lines are in what was said" % (len(lines) - len(unsaid), len(lines)) +
+          ("%d of %d lines are in what was said%s" % (len(lines) - len(unsaid), len(lines), " or are the person's "
+                                                       "own words, typed on the page" if typed else "") +
            ("; not said: %s" % "; ".join(unsaid[:3]) if unsaid else "")) if lines else "no captions")
     if kind == "seller":
         wrong = [n for t in state["titles"] for n in _not_said(t["text"], said)]

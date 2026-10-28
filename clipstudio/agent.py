@@ -28,8 +28,9 @@ import threading
 import time
 import traceback
 
-from . import faces, hearing, maps, mind, previews, project, recording, render, words
-from .tools import SCHEMAS, TOOLS, Refused, describe, faces_at
+from . import faces, hearing, maps, mind, previews, project, recording, render, text, words
+from .tools import (CAPTION_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, STYLES, TOOLS, Refused, _undecided, describe,
+                    faces_at)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = os.environ.get("LCS_WORK") or os.path.join(ROOT, "work")
@@ -46,6 +47,10 @@ TAKEN_OUT = ("(A picture was here. It was taken out to make room in Muse's memor
 SHOW_THINKING_EVERY = 0.4
 CHATS_LISTED = 20
 CHAT_ID = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{4}$")
+TAPPED = "the person tapped it on the page"
+CAPTION_CHOICES = {"off": {"on": False}, "plain": {}, "lit": {"lit": True}, "pop": {"pop": True}}
+COLOUR_LOOKS = ("none",) + tuple(n for n in LOOKS if n != "none")
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"(])")
 SYSTEM = """You are the editor in Local Clip Studio. People bring long recordings (selling lives, game streams, travel \
 clips) and you turn them into short vertical clips ready to post.
 
@@ -72,6 +77,18 @@ once: pick its kind, then plan and work. Do not ask anything first; the person c
 Judge the kind by the picture that comes with it and by the person's words, not by the file name."""
 
 
+class Missing(Exception):
+    """What the page named is not on the clip, or not as the page showed it. The sentence says so."""
+
+
+class Made(Exception):
+    """The page's hand made the tool's edit. What the tool does after its edit is for Muse."""
+
+
+class Allowed(Exception):
+    """A trial hand reached the tool's edit: the tool would make it."""
+
+
 class Chat:
     """One conversation: the messages Muse reads, the events the page draws, and the job running now."""
 
@@ -89,6 +106,7 @@ class Chat:
         self.checks = {}
         self.told = []
         self.spelling = None
+        self.making = None
         self.cond = threading.Condition()
         folder = os.path.join(WORK, "chats")
         os.makedirs(folder, exist_ok=True)
@@ -198,8 +216,10 @@ class Chat:
             return self.job
 
     def stop(self):
-        job = self.job
-        return bool(job and job.stop())
+        """Stops the job running now and the video the page is making, at once. True when either was running."""
+        job, making = self.job, self.making
+        stopped = bool(job and job.stop())
+        return bool(making and making.stop()) or stopped
 
     def edit(self, entry, job=None):
         """Adds one change to the clip's project list; the page redraws the clip. Returns the clip's state."""
@@ -221,6 +241,180 @@ class Chat:
 
     def faces(self, t):
         return faces_at(self.project.state(), t)
+
+    def tap(self, name, trial=False, **args):
+        """Runs Muse's tool name for a tap on the page, through the tool's own input check (see Hand). Returns
+        (None, the entry it made) when it made its edit, or with trial would, and (the first sentence of its refusal,
+        None) when it refused."""
+        tool, hand = TOOLS[name], Hand(self, trial)
+        try:
+            why, _, clean = tool.check(dict(args, why=TAPPED), 0)
+            said = tool.run(hand, why, **clean)
+        except (Made, Allowed):
+            return None, hand.entry
+        except Refused as e:
+            said = str(e)
+        return _first_sentence(said), None
+
+    def panel(self):
+        """What the page shows beside and under the clip, or {"clip": False} before there is one: each choice of
+        captions, text style and colour look, with the one the clip has now and the reason a choice is off (its tool
+        is tried, changing nothing, so the page and Muse never disagree); the words on the clip by their time; and
+        whether the video can be made again. Where the captions sit is not offered: no tool moves them (the layout
+        places them, and move_part moves the picture's parts only)."""
+        state = self.project.state()
+        if not state["clip"]:
+            return {"clip": False}
+        caps = state["captions"]
+        now = {"captions": "off" if not caps else "lit" if caps.get("lit") else "pop" if caps.get("pop") else "plain",
+               "style": state["style"]["name"] if state["style"] else (self.clip or {}).get("style", "clean"),
+               "look": state["look"] or "none"}
+
+        def choices(group, names, label, tool, args):
+            return [{"name": n, "label": label(n), "now": n == now[group],
+                     "why": None if n == now[group] else self.tap(tool, True, **args(n))[0]} for n in names]
+
+        return {"clip": True, "length": state["length"],
+                "captions": choices("captions", CAPTION_CHOICES, str.capitalize, "add_captions", CAPTION_CHOICES.get),
+                "styles": choices("style", STYLES, lambda n: LOOK_LABELS.get(n, n.capitalize()), "set_style",
+                                  lambda n: {"style": n}),
+                "looks": choices("look", COLOUR_LOOKS, str.capitalize, "set_look", lambda n: {"look": n}),
+                "words": self.words_on(state), "again": bool(self.rendered) and self.finished() is None,
+                "making": self.making is not None}
+
+    def words_on(self, state):
+        """The words on the clip as blocks the page places by their time: every title, and every phrase of the
+        captions (its lines joined give it back whole), "typed" when the person wrote it on the page."""
+        out = [{"kind": "title", "n": k, "text": t["text"], "start": t["start"], "end": t["end"]}
+               for k, t in enumerate(state["titles"])]
+        lines = (state["captions"] or {}).get("lines") or []
+        for k in sorted({ln["phrase"] for ln in lines}):
+            mine = [ln for ln in lines if ln["phrase"] == k]
+            out.append({"kind": "caption", "n": k, "text": "".join(ln["text"] for ln in mine).strip(),
+                        "start": mine[0]["from"], "end": mine[-1]["to"],
+                        "typed": any(ln.get("typed") for ln in mine)})
+        return sorted(out, key=lambda b: (b["start"], b["kind"]))
+
+    def set_captions(self, mode):
+        """The person's tap on Off, Plain, Lit or Pop beside the clip: add_captions's own edit, made at once without
+        asking Muse (so Undo takes it back), and told to Muse before its next job. Returns None, or the sentence why
+        not."""
+        self._clip_now()
+        if mode not in CAPTION_CHOICES:
+            return "Choose Off, Plain, Lit or Pop for the captions."
+        refused, entry = self.tap("add_captions", **CAPTION_CHOICES[mode])
+        if entry:
+            self._tell("the person %s on the page" % ("turned the captions off" if mode == "off" else
+                                                      "put on %s" % describe(entry)))
+        return refused
+
+    def set_style(self, name):
+        """The person's tap on one of the house styles of the words: set_style's own edit, as set_captions."""
+        self._clip_now()
+        if name not in STYLES:
+            return "Choose one of the text styles: %s." % ", ".join(LOOK_LABELS.get(n, n.capitalize()) for n in STYLES)
+        refused, entry = self.tap("set_style", style=name)
+        if entry:
+            self._tell("the person chose the %s style on the page" % name)
+        return refused
+
+    def set_look(self, name):
+        """The person's tap on a colour look for the footage: set_look's own edit, as set_captions."""
+        self._clip_now()
+        if name not in COLOUR_LOOKS:
+            return "Choose None, Vivid, Warm or Film for the colour look."
+        refused, entry = self.tap("set_look", look=name)
+        if entry:
+            self._tell("the person %s on the page" % ("took the colour look off" if name == "none" else
+                                                      "chose the %s look" % name))
+        return refused
+
+    def set_words(self, kind, n, was, words):
+        """The person's own words for one block of the words under the clip. A title goes on again through
+        add_title, in its place and time, so its checks hold (it must fit the place and keep off faces) and it
+        replaces the old one. A caption phrase is broken into lines as add_captions breaks it, over the phrase's own
+        time, and marked typed: what the person typed is what they want, so the check "Captions are words that were
+        said" does not fail it, and add_captions keeps it when the captions go on again. Told to Muse before its next
+        job. Returns None, or the sentence why not; Missing when the block is not on the clip as the page showed it."""
+        state = self._clip_now()
+        block = next((b for b in self.words_on(state) if b["kind"] == kind and b["n"] == n), None)
+        if block is None or block["text"] != was:
+            raise Missing("Those words are not on the clip as the page showed them. Look at the clip again.")
+        words = " ".join(str(words).split())
+        if not words:
+            return "Type the words first."
+        if words == was:
+            return None
+        if kind == "title":
+            t = state["titles"][n]
+            spot = {"place": t["place"]} if t["place"] in state["clip"]["layout"]["places"] else \
+                {"box": _grid_box(t["box"])}
+            refused, entry = self.tap("add_title", words=words, start=t["start"], end=t["end"],
+                                      key=t["key"] if t.get("key") and t["key"] in words else None, **spot)
+            if refused:
+                return refused
+        else:
+            caps = state["captions"]
+            mine = [ln for ln in caps["lines"] if ln["phrase"] == n]
+            typed = text.caption_lines([{"from": mine[0]["from"], "to": mine[-1]["to"], "text": words}],
+                                       CAPTION_LETTERS)
+            for ln in typed:
+                ln.update(phrase=n, typed=True)
+                if "who" in mine[0]:
+                    ln["who"] = mine[0]["who"]
+            self.edit(dict(caps, lines=[ln for ln in caps["lines"] if ln["phrase"] < n] + typed +
+                           [ln for ln in caps["lines"] if ln["phrase"] > n]))
+        self._tell('the person typed their own words for the %s at %g-%g s on the page: "%s" is now "%s"'
+                   % (kind, block["start"], block["end"], was, words))
+        return None
+
+    def make_again(self):
+        """The person's tap on "Make the video again": render_clip's own render of the clip as it is now, run in the
+        background without asking Muse, its progress shown as a render's is. render_clip's checks hold (nobody left
+        undecided, nothing made when the file is already the clip as it is now), and its file is the one check_clip
+        and hand_over take, as from Muse. Returns None once it has started, or the sentence why not."""
+        state = self._clip_now()
+        if self.busy():
+            return "Muse is working on the clip now. Wait until it is done, or press Stop."
+        if self.making:
+            return "The video is being made now."
+        if _undecided(state):
+            return "Decide about each person in the clip first: tap a face to blur it, and tap it again to show it."
+        refused, _ = self.tap("render_clip", trial=True)
+        if refused:
+            return refused
+        hand = Hand(self)
+        with self.cond:
+            if self.busy() or self.making:
+                return "Muse is working on the clip now. Wait until it is done, or press Stop."
+            self.making = hand
+        threading.Thread(target=self._make, args=(hand,), name="make-again", daemon=True).start()
+        return None
+
+    def _make(self, hand):
+        try:
+            said = TOOLS["render_clip"].run(hand, TAPPED)
+        except Refused as e:
+            said = str(e)
+        except Exception as e:
+            said = "The studio broke while making the video (%s)." % e
+        finally:
+            with self.cond:
+                self.making, hand.done = None, True
+        if hand.shown_extra.get("rendered"):
+            self._tell("the person made the video again on the page")
+        else:
+            self.emit("not_made", error=_first_sentence(said))
+
+    def _clip_now(self):
+        state = self.project.state()
+        if not state["clip"]:
+            raise Missing("There is no clip yet. Ask Muse to make one first.")
+        return state
+
+    def _tell(self, line):
+        with self.cond:
+            self.told.append(line)
 
     def undo(self, job=None):
         """Takes the last change back, or returns None when there is none. The person's undo is told to Muse
@@ -776,6 +970,47 @@ class Job:
                 for m in self.chat.moments))
         parts.append(self.chat.clip_line())
         return " · ".join(parts)
+
+
+class Hand(Job):
+    """The page's hand: a tap runs the very tool Muse calls, so the page gets the tool's checks, its refusals and its
+    project edit, and Muse is never asked (a spelling question gets no answer, so the words stay as typed). What a
+    tool does after its edit is for Muse (a frame to look at, a warning to pass on), so the hand stops the tool at
+    its edit (Made). A trial hand stops it there before the edit (Allowed) and changes nothing: that is how the page
+    knows a choice the tool would refuse, and why."""
+
+    def __init__(self, chat, trial=False):
+        self.chat, self.trial, self.n, self.steps = chat, trial, None, 0
+        self.proofread, self.pictures, self.shown_extra = {}, [], {}
+        self.asking = self.stop_work = self.entry = None
+        self.stopped = self.done = False
+
+    def edit(self, entry):
+        if self.trial:
+            raise Allowed()
+        self.entry = entry
+        self.chat.edit(entry)
+        raise Made()
+
+    def ask_aside(self, messages, schema, doing=""):
+        raise mind.MindError("The page does not ask Muse.")
+
+    def render(self, rec, state, out, default):
+        if self.trial:
+            raise Allowed()
+        return Job.render(self, rec, state, out, default)
+
+
+def _first_sentence(said):
+    """The first sentence of a tool's answer, for the page: the rest tells Muse what to do next."""
+    return SENTENCE_END.split(said.strip(), 1)[0].split("\n", 1)[0]
+
+
+def _grid_box(box):
+    """[x1, y1, x2, y2] on the 0-1000 grid of the clip's frame, from [x, y, w, h] in its pixels: add_title takes a
+    box this way and gives back the same pixels."""
+    x, y, w, h = box
+    return [x * 1000 / 1080, y * 1000 / 1920, (x + w) * 1000 / 1080, (y + h) * 1000 / 1920]
 
 
 def make_room(messages, need):
