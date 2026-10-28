@@ -84,13 +84,15 @@ def _hits(state):
 
 
 def ass(state, default="clean", behind=False):
-    """The path of the clip's ASS file (written once per content) with its titles, captions and big words, or None
-    when there are no words on screen. With behind=True it holds only the titles and big words that go behind the
-    person ("behind": True), and without it everything else."""
+    """The path of the clip's ASS file (written once per content) with its titles, captions, big words and the
+    channel's name (state['channel']: {"name", "spot"}, or None), or None when there are no words on screen. With
+    behind=True it holds only the titles and big words that go behind the person ("behind": True), and without it
+    everything else. The channel's name is in the captions' letters (text.channel_name), the whole clip long."""
     captions = None if behind else state.get("captions")
     titles = [t for t in state["titles"] if bool(t.get("behind")) == behind]
     words = [h for h in _hits(state) if h["kind"] == "word" and bool(h.get("behind")) == behind]
-    if not (titles or captions or words):
+    channel = None if behind else state.get("channel")
+    if not (titles or captions or words or channel):
         return None
     st = _styles(state, default)
     events = []
@@ -104,7 +106,11 @@ def ass(state, default="clean", behind=False):
                                     lit=captions.get("lit", False), pop=captions.get("pop", False))
     for h in words:
         events += text.big_word(h["word"], h["at"], WORD_SECONDS, h["centre"], st["big"])
-    body = text.document(list(st.values()), events)
+    styles = list(st.values())
+    if channel:
+        events += text.channel_name(channel["name"], 0, state["length"], st["caption"], channel.get("spot"))
+        styles.append(text.channel_style(st["caption"]))
+    body = text.document(styles, events)
     path = os.path.join(folder("ass"), hashlib.sha1(body.encode("utf-8")).hexdigest()[:16] + ".ass")
     if not os.path.isfile(path):
         part = _part(path)

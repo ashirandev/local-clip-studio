@@ -22,10 +22,10 @@ GREY = 128
 SEEN = 12
 
 
-def draw(ass_text, picks, folder, first=None, folder_fonts=text.FONTS):
-    """{frame number: the 1920x1080x3 frame} of the ASS text burned on a grey 30 fps clip, with libass given the
-    fonts in folder_fonts. The clip starts at frame first (the smallest pick when None), with its own timestamps, as
-    the preview draws a frame."""
+def draw(ass_text, picks, folder, first=None, folder_fonts=text.FONTS, ground="0x808080"):
+    """{frame number: the 1920x1080x3 frame} of the ASS text burned on a 30 fps clip of the ground colour (grey),
+    with libass given the fonts in folder_fonts. The clip starts at frame first (the smallest pick when None), with
+    its own timestamps, as the preview draws a frame."""
     import numpy as np
     path = os.path.join(folder, "words.ass")
     with open(path, "w", encoding="utf-8") as f:
@@ -35,7 +35,7 @@ def draw(ass_text, picks, folder, first=None, folder_fonts=text.FONTS):
     hi = max(picks) + 1
     full = "[0:v]trim=start_frame=%d:end_frame=%d,format=rgb24[src];%s" % (lo, hi, graph)
     run = subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i",
-                          "color=c=0x808080:s=1080x1920:r=30:d=%.3f" % (hi / 30 + 1), "-filter_complex", full,
+                          "color=c=%s:s=1080x1920:r=30:d=%.3f" % (ground, hi / 30 + 1), "-filter_complex", full,
                           "-map", "[outv]", "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
                          capture_output=True, timeout=120)
     if run.returncode != 0:
@@ -844,3 +844,82 @@ class BigWord(unittest.TestCase):
             text.big_word("POW", 1, 0.2, (540, 700), st)
         with self.assertRaisesRegex(ValueError, r"centre \(10, 700\) puts word 'POW' off the frame: use x from \d+"):
             text.big_word("POW", 1, 1, (10, 700), st)
+
+
+@unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")
+class ChannelName(unittest.TestCase):
+    def setUp(self):
+        self.folder = tempfile.mkdtemp(prefix="lcs channel ")
+        self.addCleanup(shutil.rmtree, self.folder, True)
+
+    def drawn_name(self, st, spot=None, ground="0x808080", name="@SineySociety"):
+        events = text.channel_name(name, 0, 2, st, spot)
+        return draw(doc(events, styles=[st, text.channel_style(st)]), [15], self.folder, ground=ground)[15]
+
+    def test_it_sits_in_its_spot_where_no_phone_covers_it_and_below_the_words_places(self):
+        from clipstudio import layouts
+        st = text.STYLES["clean"]
+        floor = layouts.SAFE_BOTTOM - text.CHANNEL_ROOM
+        for spot in text.CHANNEL_SPOTS + (None,):
+            x0, y0, x1, y1 = drawn(self.drawn_name(st, spot))
+            bx, by, bw, bh = text.channel_box("@SineySociety", st, spot)
+            for got, want in ((x0, bx), (y0, by), (x1, bx + bw), (y1, by + bh)):
+                self.assertLessEqual(abs(got - want), 2, "%s: drawn %s, box %s" % (spot, (x0, y0, x1, y1),
+                                                                                   (bx, by, bw, bh)))
+            self.assertTrue(floor - 3 <= y1 <= floor + 1, "%s: bottom %d" % (spot, y1))
+            self.assertGreaterEqual(y0, layouts.CAPTIONS[1] + layouts.CAPTIONS[3], spot)
+            self.assertGreaterEqual(x0, layouts.SAFE[0] - 1, spot)
+            self.assertLessEqual(x1, layouts.BUTTONS[0] - text.CHANNEL_ROOM + 1, spot)
+            where = {"bottom left": abs(x0 - layouts.SAFE[0]), "bottom middle": abs((x0 + x1) / 2 - 540),
+                     "bottom right": abs(x1 - (layouts.BUTTONS[0] - text.CHANNEL_ROOM))}[spot or "bottom left"]
+            self.assertLessEqual(where, 2, "%s: %s" % (spot, (x0, x1)))
+
+    def test_it_reads_on_white_and_on_black_footage_in_every_look(self):
+        for name in text.HOUSE_NAMES:
+            st = text.STYLES[name]
+            x, y, w, h = text.channel_box("@SineySociety", st)
+            for ground, value in (("white", 255), ("black", 0)):
+                area = self.drawn_name(st, ground=ground)[y - 2:y + h + 2, x - 2:x + w + 2].astype(int)
+                apart = int((abs(area - value).max(axis=2) > 100).sum())
+                self.assertGreater(apart, 800, "%s on %s: %d px stand out" % (name, ground, apart))
+
+    def test_it_is_the_captions_letters_at_two_thirds_of_their_size(self):
+        for name in text.HOUSE_NAMES:
+            st = text.STYLES[name]
+            small = text.channel_style(st)
+            self.assertEqual((small.fontname, small.colour, small.edge, small.box), (st.fontname, st.colour, st.edge,
+                                                                                    st.box))
+            _, top, _, bottom = text._draw_boxes(small, "title", ["H"], align=5)["H"]
+            _, ctop, _, cbottom = text._draw_boxes(st, "caption", ["H"], align=5)["H"]
+            self.assertTrue(0.55 <= (bottom - top) / float(cbottom - ctop) <= 0.75, name)
+
+    def test_it_shows_for_the_whole_clip_and_the_file_must_hold_its_style(self):
+        st = text.STYLES["clean"]
+        (event,) = text.channel_name("@SineySociety", 0, 18.25, st)
+        self.assertTrue(event.startswith("Dialogue: 0,0:00:00.00,0:00:18.25,clean_channel_title,"), event)
+        self.assertTrue(event.endswith("}@SineySociety"), event)
+        with self.assertRaisesRegex(ValueError, "event uses style 'clean_channel_title', which is not in styles"):
+            text.document([st], [event])
+
+    def test_what_cannot_be_drawn_says_what_to_send(self):
+        st = text.STYLES["clean"]
+        for name in ("", "  ", None):
+            with self.assertRaisesRegex(ValueError, "^name .* is empty: give the channel's name, such as "
+                                                    "@SineySociety\\.$"):
+                text.channel_name(name, 0, 2, st)
+        with self.assertRaisesRegex(ValueError, "^name '@a\\\\nb' has a line break: a channel name is one line\\.$"):
+            text.channel_name("@a\nb", 0, 2, st)
+        with self.assertRaisesRegex(ValueError, "^name '@a\\{b\\}' has \\{ \\}, which libass reads as a command"):
+            text.channel_name("@a{b}", 0, 2, st)
+        with self.assertRaisesRegex(ValueError, "^spot 'top left' is not a spot for the channel name: use one of "
+                                                "bottom left, bottom middle, bottom right, or None for bottom left\\.$"):
+            text.channel_name("@SineySociety", 0, 2, st, "top left")
+        long_name = "@" + "W" * 40
+        with self.assertRaisesRegex(ValueError, "^name '@W+' is \\d+ px wide at the channel name's size, and the "
+                                                "bottom middle spot holds 688 px: use a shorter name, or the bottom "
+                                                "left spot\\.$"):
+            text.channel_name(long_name, 0, 2, st, "bottom middle")
+        with self.assertRaisesRegex(ValueError, "the bottom left spot holds 828 px: use a shorter name\\.$"):
+            text.channel_name("@" + "W" * 60, 0, 2, st)
+        with self.assertRaisesRegex(ValueError, "^end 0 is not after start 0"):
+            text.channel_name("@SineySociety", 0, 0, st)

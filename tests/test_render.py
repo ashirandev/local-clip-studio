@@ -88,6 +88,27 @@ class Stages(unittest.TestCase):
         recording.WORK = cls.work
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
+    def test_the_channel_name_is_in_the_words_the_whole_clip_and_not_in_the_video_under_them(self):
+        from clipstudio import layer
+        named = dict(state(), channel={"do": "channel", "name": "@SineySociety", "spot": "bottom right"})
+        x, y, w, h = text.channel_box("@SineySociety", render._styles(named, "clean")["caption"], "bottom right")
+        with open(render.ass(named), encoding="utf-8") as f:
+            said = [line for line in f.read().splitlines() if line.startswith("Dialogue: ") and "_channel_" in line]
+        self.assertEqual(len(said), 1)
+        self.assertIn(",0:00:00.00,%s,clean_channel_title," % text._cs_clock(text._edge(4.0)), said[0])
+        self.assertIsNone(render.ass(named, behind=True), "the name never goes behind the person")
+        for t in (0.0, 3.9):
+            plain, with_name = drawn(state(), t), drawn(named, t)
+            found = changed(plain, with_name)
+            self.assertIsNotNone(found, "the name at %.1f s" % t)
+            self.assertTrue(inside(found, (x, y, w, h), slack=2), "only the name's box changed at %.1f s: %s"
+                            % (t, found))
+        self.assertIsNone(changed(drawn(state(), 1.0, words=False), drawn(named, 1.0, words=False)),
+                          "the video under the words has no name")
+        steps = layer.words(named)
+        self.assertEqual((steps[0]["from"], steps[-1]["to"]), (0.0, text._edge(4.0) / 100.0),
+                         "the words layer holds the name from the first frame to the last")
+
     def test_the_words_are_drawn_with_the_chosen_fonts_own_file(self):
         found = [f for f in text.fonts("กขค") if f["where"] == "computer" and f["free"]]
         if not found:

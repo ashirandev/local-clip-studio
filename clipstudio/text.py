@@ -42,7 +42,7 @@ import sys
 import tempfile
 import unicodedata
 
-from . import recording, thai
+from . import layouts, recording, thai
 from .effects import Fragment
 
 FRAME_W, FRAME_H, FPS = 1080, 1920, 30
@@ -1243,6 +1243,78 @@ def _karaoke(page, start):
             at = max(at, finish)
         out.append("".join(parts))
     return out
+
+
+# ---- the channel name --------------------------------------------------------------------------------------------
+
+# The channel's name (a handle such as @SineySociety) on every clip, in the captions' letters at CHANNEL_SHARE of
+# their size, so it reads as the channel's mark and not as words to follow (measured 10-28 in clean: a capital is 25
+# px of the 1080 px frame, about 9 pt on a phone 390 pt wide, where the captions' is 39 px; at half size it was 20 px,
+# 7 pt, smaller than a phone's own small print). It sits in the strip nothing the studio
+# places uses and no phone covers: below the captions' and titles' places, CHANNEL_ROOM px above what a phone covers
+# at the bottom (layouts.SAFE_BOTTOM), CHANNEL_ROOM px left of the like and share buttons (layouts.BUTTONS), inside
+# the sides a phone cuts (layouts.SAFE).
+CHANNEL_SPOTS = ("bottom left", "bottom middle", "bottom right")
+CHANNEL_SPOT = "bottom left"
+CHANNEL_SHARE = 0.65
+CHANNEL_ROOM = 16
+
+
+def channel_style(style):
+    """The style the channel name is drawn in: style's letters, colours and edges at CHANNEL_SHARE of the size of
+    its captions."""
+    _check_style(style)
+    small = max(1, int(round(_size(style, "caption") * CHANNEL_SHARE)))
+    return style._replace(name=style.name + "_channel", sizes=(small,) * len(KINDS))
+
+
+def _channel_strip():
+    """(left, right, bottom) of the strip the channel name's letters stay in, in pixels of the frame."""
+    return (layouts.SAFE[0], layouts.BUTTONS[0] - CHANNEL_ROOM, layouts.SAFE_BOTTOM - CHANNEL_ROOM)
+
+
+def channel_box(name, style, spot=None):
+    """(x, y, w, h) on the frame of the channel name's letters at spot (one of CHANNEL_SPOTS; None for
+    CHANNEL_SPOT), drawn in channel_style(style), so other words can be kept clear of them."""
+    x, y, (left, top, right, bottom) = _channel_place(name, style, spot)
+    return (int(math.floor(x + left)), int(math.floor(y + top)), int(math.ceil(right - left)),
+            int(math.ceil(bottom - top)))
+
+
+def _channel_place(name, style, spot):
+    """(x, y) of the name's anchor (its middle, \\an5) and its letters' box from the anchor."""
+    _check_style(style)
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("name %r is empty: give the channel's name, such as @SineySociety." % (name,))
+    if "\n" in name:
+        raise ValueError("name %r has a line break: a channel name is one line." % (name,))
+    if spot is None:
+        spot = CHANNEL_SPOT
+    if spot not in CHANNEL_SPOTS:
+        raise ValueError("spot %r is not a spot for the channel name: use one of %s, or None for %s."
+                         % (spot, ", ".join(CHANNEL_SPOTS), CHANNEL_SPOT))
+    small = channel_style(style)
+    _check_text(name, small, "name")
+    left, top, right, bottom = _draw_boxes(small, "title", [name.strip()], align=5)[name.strip()]
+    first, last, low = _channel_strip()
+    middle = FRAME_W / 2.0
+    room = 2 * min(middle - first, last - middle) if spot == "bottom middle" else last - first
+    if right - left > room:
+        raise ValueError("name %r is %d px wide at the channel name's size, and the %s spot holds %d px: use a "
+                         "shorter name%s." % (name, math.ceil(right - left), spot, room,
+                                              ", or the bottom left spot" if spot == "bottom middle" else ""))
+    x = {"bottom left": first - left, "bottom middle": middle - (left + right) / 2.0,
+         "bottom right": last - right}[spot]
+    return x, low - bottom, (left, top, right, bottom)
+
+
+def channel_name(name, start, end, style, spot=None):
+    """ASS events for the channel's name from start to end (seconds of the clip) at spot (see channel_box), drawn
+    in channel_style(style): pass that style to document() as well."""
+    a, b = _times(start, end, "the channel name")
+    x, y, _ = _channel_place(name, style, spot)
+    return ["Dialogue: 0,%s,%s,%s_title,,0,0,0,,{\\an5\\pos(%.2f,%.2f)}%s"
+            % (_cs_clock(a), _cs_clock(b), channel_style(style).name, x, y, name.strip())]
 
 
 # ---- the file ----------------------------------------------------------------------------------------------------
