@@ -1256,19 +1256,22 @@ class Tools(unittest.TestCase):
                         "volume='if(between(t,1,1.1)+between(t,3,6),1,0)':eval=frame", path], check=True)
         self.assertAlmostEqual(tools._first_sound(path), 3.0, delta=0.05)
 
-    def test_several_clips_are_refused_whole_when_a_name_is_spelled_another_way(self):
-        clips = [{"moment": 1, "title": "Egret one", "caption": "c1", "hashtags": ["#a"]},
+    def test_a_name_spelled_another_way_is_written_as_the_screen_writes_it(self):
+        clips = [{"moment": 1, "title": "Egret one", "caption": "Egret's c1", "hashtags": ["#Egret", "#a"]},
                  {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
         _, steps = self.several([call("make_clips", clips=clips, why="both")],
                                 [call("make_clips", clips=[clips[1], dict(clips[1], title="again")], why="twice")],
                                 "Done.")
-        misspelled, twice = steps[-2], steps[-1]
-        self.assertTrue(misspelled["refused"])
-        self.assertIn('Nothing was made. clip of moment 1: Spelled as the screen writes it? "Egret" is not on the '
-                      'screen, which shows "Eaglet".', misspelled["result"])
+        made, twice = steps[-2], steps[-1]
+        self.assertFalse(made["refused"], made["result"])
+        self.assertIn('The program wrote names as the screen shows them: clip of moment 1: "Egret" as "Eaglet".',
+                      made["result"])
+        ready = [e for e in self.chat.events if e["kind"] == "ready"]
+        self.assertEqual(ready[0]["title"], "Eaglet one")
+        self.assertIn("Eaglet's c1", ready[0]["caption"])
+        self.assertIn("#Eaglet", ready[0]["hashtags"])
         self.assertTrue(twice["refused"])
         self.assertIn("Each moment makes one clip; moment 2 is given twice.", twice["result"])
-        self.assertEqual([e for e in self.chat.events if e["kind"] == "ready"], [])
 
     def test_a_clip_whose_recipe_does_not_read_the_screen_is_not_read(self):
         asked = []

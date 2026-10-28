@@ -262,6 +262,7 @@ MONTAGE = "montage"
 MOST_CLIPS = 30
 CLIP_SIZE = 1_000_000_000
 SHORTEST_PIECE, LONGEST_PIECE = 1.0, 8.0
+SHORTEST_FIT = 2.0
 OVER_LENGTH = 1.25
 LINE_EVERY = 15.0
 
@@ -385,7 +386,7 @@ def arrange_clips(job, why, story, clips, left_out=None):
         problems.append("Clip%s %s %s neither used nor left out. Say for every clip whether it goes in, and why it "
                         "does not when it does not." % ("s" if len(missing) > 1 else "", ", ".join(map(str, missing)),
                                                         "are" if len(missing) > 1 else "is"))
-    pieces, lines = [], []
+    pieces, lines, fitted = [], [], []
     for k, c in enumerate(clips, 1):
         if c["clip"] not in known:
             continue
@@ -399,28 +400,36 @@ def arrange_clips(job, why, story, clips, left_out=None):
         elif b - a < min(SHORTEST_PIECE, rec["seconds"]) - 0.01:
             problems.append("Clip %d: %g-%g s is under %g s, too short to see. Keep more of it, or leave it out."
                             % (c["clip"], a, b, SHORTEST_PIECE))
-        elif b - a > LONGEST_PIECE + 0.01:
-            problems.append("Clip %d: %g-%g s is %g s; a piece is at most %g s. Give the start and the end of the "
-                            "seconds where it happens, from its pictures' times." % (
-                                c["clip"], a, b, round(b - a, 1), LONGEST_PIECE))
-        elif frozen:
-            problems.append("Clip %d: its picture does not move at %s, and a frozen screen never goes in. Keep only "
-                            "seconds outside that, or leave the clip out." % (
-                                c["clip"], ", ".join("%g-%g s" % s for s in frozen)))
+        else:
+            fit = _moving(a, b, known[c["clip"]]["stills"], LONGEST_PIECE, min(SHORTEST_PIECE, b - a))
+            if fit is None:
+                problems.append("Clip %d: its picture does not move at %s, and a frozen screen never goes in. Keep "
+                                "only seconds outside that, or leave the clip out." % (
+                                    c["clip"], ", ".join("%g-%g s" % s for s in frozen)))
+            elif abs(fit[0] - a) > 0.01 or abs(fit[1] - b) > 0.01:
+                fitted.append("clip %d: %g-%g s of the %g-%g s you gave (%s)" % (
+                    c["clip"], fit[0], fit[1], round(a, 2), round(b, 2), "its picture holds still at %s" % ", ".join(
+                        "%g-%g s" % s for s in frozen) if frozen else "a piece is at most %g s" % LONGEST_PIECE))
+                a, b = fit
         pieces.append({"rec": rec, "from": round(a, 2), "to": round(max(a, b), 2), "clip": c["clip"],
                        "why": c["why"]})
         if c.get("words"):
             lines.append({"piece": len(pieces), "text": c["words"]})
-    length = sum(min(p["to"] - p["from"], LONGEST_PIECE) for p in pieces)
-    most = min(LONGEST, job.chat.clip["length_s"] * OVER_LENGTH)
+    asked = job.chat.clip["length_s"]
+    most = min(LONGEST, asked * OVER_LENGTH)
+    length = sum(p["to"] - p["from"] for p in pieces)
+    if length > most:
+        target = min(asked, most)
+        _shortened(pieces, target)
+        now = sum(p["to"] - p["from"] for p in pieces)
+        if now < length - 0.05:
+            fitted.append("the pieces came to %g s, longer than the %g s asked, so the end of each was cut by the "
+                          "same share, keeping at least %g s of each" % (round(length, 1), target, SHORTEST_FIT))
+        length = now
     if not SHORTEST <= round(length) <= most:
-        longest = sorted(pieces, key=lambda p: p["from"] - p["to"])[:3]
-        problems.append("The pieces add up to %g s%s; this clip is %d to %d s (about %d s was asked). %s" % (
-            round(length, 1), " counting each at most %g s" % LONGEST_PIECE if any(
-                p["to"] - p["from"] > LONGEST_PIECE for p in pieces) else "", SHORTEST, most,
-            job.chat.clip["length_s"], "Keep fewer seconds of each, or fewer clips; the longest pieces: %s." % ", ".join(
-                "clip %d, %g s" % (p["clip"], round(p["to"] - p["from"], 1)) for p in longest) if length > most
-            else "Keep more seconds of each, or more clips."))
+        problems.append("The pieces add up to %g s; this clip is %d to %d s (about %d s was asked). %s" % (
+            round(length, 1), SHORTEST, most, asked, "Use fewer clips." if length > most else
+            "Keep more seconds of each, or more clips."))
     if clips and not clips[0].get("words"):
         problems.append("The first piece (clip %d) opens the clip: give it words that say where we are or what this "
                         "is." % clips[0]["clip"])
@@ -473,10 +482,38 @@ def arrange_clips(job, why, story, clips, left_out=None):
         said.append("%g s: clip %d, %g-%g s of it: %s" % (t, p["clip"], p["from"], p["to"], p["why"]))
     for c in left_out:
         said.append("Left out: clip %d: %s" % (c["clip"], c["why"]))
+    if fitted:
+        said.append("The program fitted the pieces: %s." % "; ".join(fitted))
     if spelling:
         said.append(spelling)
     made = make_clip(job, why, 1, "subject")
     return "\n".join(said) + "\n\n" + made
+
+
+def _moving(a, b, stills, longest, shortest):
+    """(start, end): the first stretch from a to b whose picture moves all through (stills: [[x, y]], where it holds
+    still), at least shortest s and at most longest s; None when there is none."""
+    t = a
+    for x, y in sorted(s for s in stills if s[0] < b and a < s[1]):
+        if x - t >= shortest - 0.01:
+            break
+        t = max(t, y)
+    else:
+        x = b
+    if min(x, b) - t < shortest - 0.01:
+        return None
+    return round(t, 2), round(min(x, b, t + longest), 2)
+
+
+def _shortened(pieces, target):
+    """Cuts the end of each piece by the same share of what it has over SHORTEST_FIT s, so they add up to about
+    target s; a piece of SHORTEST_FIT s or less is kept whole."""
+    total = sum(p["to"] - p["from"] for p in pieces)
+    room = sum(max(0.0, p["to"] - p["from"] - SHORTEST_FIT) for p in pieces)
+    share = min(1.0, max(0.0, total - target) / room) if room > 0 else 0.0
+    for p in pieces:
+        over = max(0.0, p["to"] - p["from"] - SHORTEST_FIT)
+        p["to"] = round(p["to"] - over * share, 2)
 
 
 def _fits_a_place(words, what, style):
@@ -1245,6 +1282,13 @@ def _misspelled(words, shown):
         if near and near[0] <= NEAR_NAME:
             out.append((w, long_[near[1]]))
     return out
+
+
+def _as_on_screen(words, wrong):
+    """words with each name in wrong ([(as written, as the screen writes it)]) written as the screen writes it."""
+    for w, right in wrong:
+        words = re.sub(r"(?<![A-Za-z0-9])%s(?![A-Za-z0-9])" % re.escape(w), right, words)
+    return words
 
 
 def _names_said(wrong, then):
@@ -2711,10 +2755,12 @@ def make_clips(job, why, clips, blur=None):
         m = moments[c["moment"] - 1]
         shown = _screen_words(job, rec, {"clip": {"pieces": [[m["start"], m["end"]]]}})
         wrong = _misspelled(" ".join([c["title"], c.get("words") or "", c["caption"]] + list(c["hashtags"])), shown)
-        spelled += ["clip of moment %d: %s" % (c["moment"], " ".join(_names_said(wrong, "write them so")))] if wrong \
-            else []
-    if spelled:
-        raise Refused("Nothing was made. " + " ".join(spelled) + " Fix the words and make the clips again.")
+        if wrong:
+            for key in ("title", "words", "caption"):
+                if c.get(key):
+                    c[key] = _as_on_screen(c[key], wrong)
+            c["hashtags"] = [_as_on_screen(h, wrong) for h in c["hashtags"]]
+            spelled.append("clip of moment %d: %s" % (c["moment"], ", ".join('"%s" as "%s"' % w for w in wrong)))
     recipe = (job.chat.clip or {}).get("recipe")
     if recipe == "game" and not blur:
         raise Refused("Nothing was made. A game stream's clips show its chat box with the viewers' names: give the "
@@ -2739,7 +2785,8 @@ def make_clips(job, why, clips, blur=None):
         job.show(clip=job.chat.clip_view())
     done = sum(1 for line in lines if " handed over" in line and "not handed over" not in line)
     return "\n".join(["Made %d clip%s, %d handed over; each is reported on its own:" % (
-        len(lines), "" if len(lines) == 1 else "s", done)] + lines + [
+        len(lines), "" if len(lines) == 1 else "s", done)] + lines + ([
+        "The program wrote names as the screen shows them: %s." % "; ".join(spelled)] if spelled else []) + [
         "Each clip's finished file comes next in %d pictures, as a viewer sees it: look at them as check_clip asks "
         "and say what you saw. When one shows something wrong, make that clip again with make_clip and fix it." %
         len(REVIEWED),
@@ -2976,7 +3023,10 @@ TOOLS = {t.name: t for t in [
     Tool("arrange_clips", "Put the clips in order",
          "Say which of the open clips go into the clip, in what order, which seconds of each, the words on screen "
          "over each, and why; and why each clip left out is left out. The program joins the pieces into one "
-         "recording in that order, makes the clip from it and puts the words on. Call it again to change anything.",
+         "recording in that order, makes the clip from it and puts the words on. A piece is at most %g s: the "
+         "program keeps that much of a longer one from its start, skips where the picture holds still, and cuts "
+         "the end of every piece by the same share when together they are longer than asked. Call it again to "
+         "change anything." % LONGEST_PIECE,
          {"story": {"type": "string", "maxLength": 300,
                     "description": "One line for the person, in their language: what the clip tells, from its first "
                                    "picture to its last."},

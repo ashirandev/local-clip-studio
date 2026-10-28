@@ -175,17 +175,20 @@ class Arrange(unittest.TestCase):
         self.assertIsNone(self.chat.clip)
 
     def test_every_clip_is_used_or_left_out_and_no_piece_holds_still(self):
-        piece = {"clip": 1, "why": "where we are"}
+        piece = {"clip": 1, "words": "At the station", "why": "where we are"}
         steps = self.run_job(*self.opened(), [call("arrange_clips", story="the trip", clips=[piece], why="order")],
-                             [call("arrange_clips", story="the trip", clips=[piece, {"clip": 3, "why": "the end"}],
-                                   left_out=[{"clip": 2, "why": "the same as clip 1"}], why="order")],
                              [call("arrange_clips", story="the trip", clips=[piece, {"clip": 1, "why": "again"}],
                                    left_out=[{"clip": 2, "why": "x"}, {"clip": 3, "why": "x"}], why="order")],
+                             [call("arrange_clips", story="the trip", clips=[piece, {"clip": 3, "why": "the end"}],
+                                   left_out=[{"clip": 2, "why": "the same as clip 1"}], why="order")],
                              "Done.")
         self.assertIn("Clips 2, 3 are neither used nor left out", steps[2]["result"])
-        self.assertIn("Clip 3: its picture does not move at", steps[3]["result"])
-        self.assertIn("Clip 1 named twice", steps[4]["result"])
-        self.assertIsNone(self.chat.recording, "nothing was joined")
+        self.assertIn("Clip 1 named twice", steps[3]["result"])
+        self.assertTrue(steps[2]["refused"] and steps[3]["refused"], "nothing is joined while anything is wrong")
+        self.assertFalse(steps[4]["refused"], steps[4]["result"])
+        self.assertRegex(steps[4]["result"], r"The program fitted the pieces: clip 3: 0-[12](\.\d+)? s of the 0-4 s you "
+                                             r"gave \(its picture holds still at ")
+        self.assertRegex(steps[4]["result"], r"4 s: clip 3, 0-[12](\.\d+)? s of it", "the frozen end is left out")
 
     def test_pieces_are_short_the_clip_near_its_length_and_the_words_tell_it(self):
         had = tools.LONGEST_PIECE, tools.OVER_LENGTH, tools.LINE_EVERY
@@ -207,13 +210,13 @@ class Arrange(unittest.TestCase):
                                  "Done.")
         finally:
             tools.LONGEST_PIECE, tools.OVER_LENGTH, tools.LINE_EVERY = had
-        self.assertIn("Clip 2: 0-2.9 s is 2.9 s; a piece is at most 2.5 s", steps[2]["result"])
+        self.assertIn("The program fitted the pieces: clip 2: 0-2.5 s of the 0-2.9 s you gave (a piece is at most "
+                      "2.5 s)", steps[2]["result"])
         self.assertIn("The first piece (clip 2) opens the clip: give it words", steps[3]["result"])
-        self.assertIn("The pieces add up to 4.9 s; this clip is 3 to 4 s (about 40 s was asked)", steps[4]["result"])
-        self.assertIn("the longest pieces: clip 2, 2 s, clip 3, 1.9 s, clip 1, 1 s", steps[4]["result"])
+        self.assertIn("The pieces add up to 4.9 s; this clip is 3 to 4 s (about 40 s was asked). Use fewer clips.",
+                      steps[4]["result"], "no piece is over 2 s, so none is cut")
         self.assertNotIn("lines of words", steps[4]["result"])
         self.assertIn("2 lines of words for 4.9 s: give at least 5", steps[5]["result"])
-        self.assertIsNone(self.chat.recording, "nothing was joined")
 
     def test_the_pieces_are_joined_in_order_and_each_line_stays_until_the_next(self):
         steps = self.run_job(*self.opened(), [call(
@@ -298,6 +301,21 @@ class Arrange(unittest.TestCase):
         self.assertIn('"We arrive" at the top from 1 to 3 s, the first part of its piece where it covers no face', said)
         self.assertEqual([(t["text"], t["start"], t["end"]) for t in self.chat.project.state()["titles"]],
                          [("We arrive", 1.0, 3.0), ("The end", 3.0, 4.9)])
+
+
+class Fit(unittest.TestCase):
+    def test_a_long_piece_keeps_the_moving_seconds_from_its_start(self):
+        self.assertEqual(tools._moving(0, 25, [], 8, 1), (0, 8))
+        self.assertEqual(tools._moving(0, 25, [[0, 3.5]], 8, 1), (3.5, 11.5))
+        self.assertEqual(tools._moving(0, 10, [[2, 4], [4.5, 10]], 8, 1), (0, 2))
+        self.assertEqual(tools._moving(0, 10, [[0.5, 4], [4.5, 10]], 8, 1), None)
+
+    def test_pieces_over_the_length_are_cut_by_the_same_share(self):
+        pieces = [{"from": 0, "to": 8}, {"from": 2, "to": 4}, {"from": 0, "to": 12}]
+        tools._shortened(pieces, 14)
+        self.assertEqual([round(p["to"] - p["from"], 2) for p in pieces], [5.0, 2.0, 7.0])
+        tools._shortened(pieces, 30)
+        self.assertEqual([round(p["to"] - p["from"], 2) for p in pieces], [5.0, 2.0, 7.0], "never longer")
 
 
 class Listing(unittest.TestCase):
