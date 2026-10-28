@@ -25,10 +25,12 @@ iPhone cuts 51 a side), and a line of text is about LINE times its font from its
 changes, the card holds where the most lines are (the highest such place, within TOP_NEAR of the most), its left
 edge at their start, so they read from the first word:
 showing the whole screen because nothing moved put 10 px words on Tarm's phone with a blank middle between them.
-When the lines carry the second they were read at, the card leaves a place once a reading finds no line left in it
-while the screen has lines elsewhere, for where the most lines are then (no sooner than HOLD after its last move): held
+When the lines carry the second they were read at, the card leaves a place once a reading finds in it under FEW of
+what the busiest place holds then, for where the most lines are then (no sooner than HOLD after its last move): held
 on the most lines of the whole clip, a model dialog, the card showed the blank page under it for 27 of 40 s when the
-dialog closed (Eaglet, 10-28).
+dialog closed (Eaglet, 10-28 round 8); and with "no line left" as the test, it held 7 s on two small chips left on an
+empty page (round 9). With FEW, that clip's card moves three more times and is near blank 2 s; the three other
+clips of that run, which never went blank, do not move more.
 The card still follows a change only where the change is one part of the screen, as above: followed at the readable
 size without that test, it chased a blinking button in the browser's corner (10-27).
 """
@@ -63,6 +65,7 @@ LINE = 1.2
 SMALLEST = 0.15
 TOP_NEAR = 0.95
 SURE = 0.9
+FEW = 0.25
 
 
 class FocusError(Exception):
@@ -292,14 +295,14 @@ def _on_lines(text, region, scale, small, ww, wh, banned):
 
 def _kept_on_lines(text, pieces, region, scale, small, ww, wh, banned, start, length):
     """The card's shots on a screen where no one part changes: from start, and to where the most lines are whenever a
-    reading finds none left in its place."""
+    reading finds its place holding under FEW of what the busiest place holds."""
     shots, since = [{"from": 0.0, "x": start[0], "y": start[1]}], 0.0
     for t, read in _readings(text, pieces):
         now = _text_map(read, region, scale, *small)
         if banned is not None:
             now = now * (1 - banned)
         place = (shots[-1]["x"], shots[-1]["y"])
-        if now.sum() <= 0 or _held(now, place[0], place[1], ww, wh) > 0:
+        if now.sum() <= 0 or _held(now, place[0], place[1], ww, wh) >= FEW * _best(now, ww, wh, banned)[0]:
             continue
         found = _on_lines(read, region, scale, small, ww, wh, banned)
         if found is None:

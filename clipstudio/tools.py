@@ -1235,7 +1235,7 @@ def _follow(rec, lay, pieces, span):
     if len(shots) == 1:
         moves = "holds one place, %s on your grid" % _grid([shots[0]["x"], shots[0]["y"]] + size, rec)
     elif plan.get("on") == "lines":
-        moves = "moves where the lines are when the place it holds has none left, %d places: %s" % (len(shots), "; ".join(
+        moves = "moves where the lines are when the place it holds has lost them, %d places: %s" % (len(shots), "; ".join(
             "%s on your grid from %g s" % (_grid([s["x"], s["y"]] + size, rec), s["from"]) for s in shots))
     else:
         moves = "moves to where the screen changes, %d places: %s" % (len(shots), "; ".join(
