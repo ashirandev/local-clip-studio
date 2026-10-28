@@ -30,7 +30,9 @@ After the clip, the viewer has felt the moment: what led up to it, the peak, and
 ## The clip
 
 - Layout: the game as a card across the middle, the face camera in a circle above it, the title on top.
-- The title says what happens, in the clip's language, without giving the ending away.
+- The title says what happens, in the clip's language, without giving the ending away and without the screen's
+  labels: "ตาย AGE 35 ตอนต่อสู้หลายคน" tells the ending and copies the screen; "โดนรุมทีเดียวหลายคน จะรอดไหม" makes
+  the viewer watch.
 - The post text tells what happens and how the streamer took it, in words a viewer would use: not the screen's
   labels and numbers ("AGE 22", "DEATH") copied out.
 - Look: vivid. One slow push on the build-up, ending on the peak.

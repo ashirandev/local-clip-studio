@@ -33,6 +33,10 @@ tells it best.
 - Say only what the pictures show or the people say. A name (a place, a brand, an event) goes in only as it is
   written on a sign, a banner or a screen in the pictures, or as it is said.
 - Write in the person's language, short enough to read in the time it is on.
+- Say it the way people who speak that language say it, never word by word from another language: handwriting is
+  เขียนด้วยมือ, not เขียนข้อมือ (a wrist). The same goes for the title, the post and your answer.
+- Read each line once more as a viewer who was not there. When it can mean something else, say it another way:
+  "Pokémon Café ปิดวัน" reads as the café closing; "จบวันที่ Pokémon Café" says the day ended there.
 
 ## Rules
 
