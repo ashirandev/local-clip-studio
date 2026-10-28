@@ -519,6 +519,26 @@ class Tools(unittest.TestCase):
         self.assertTrue(japanese["refused"])
         self.assertIn("The studio writes captions in English or Thai, the languages its fonts draw", japanese["result"])
 
+    def test_a_line_heard_unsure_that_the_fix_made_read_right_is_a_caption(self):
+        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "หรือว่ามันต้องเป็นไพ่", "sure": 0.85},
+                               {"from": 4.5, "to": 6.0, "text": "แ้ไพ่มันเข้าทาง", "sure": 0.85},
+                               {"from": 6.5, "to": 7.0, "text": "เลย", "sure": 0.44},
+                               {"from": 7.5, "to": 9.0, "text": "ใช่คือสิ่งที่ฉันแจกเอง", "sure": 0.95}]
+        script = self.to_moment()
+        _, steps = self.run_job(
+            *script[:2], [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the talk"}])],
+            '{"lines": ["หรือว่ามันต้องเป็นไพ่", "แ้ไพ่มันเข้าทาง", "เลย", "ใช่คือสิ่งที่ฉันแจกเอง"]}',
+            [call("make_clip", moment=1, layout="subject", why="the talk")],
+            [call("add_captions", why="say what they say")], "Done.")
+        caps = steps[-1]
+        self.assertFalse(caps["refused"], caps["result"])
+        shown = "".join(line["text"] for line in self.chat.project.state()["captions"]["lines"])
+        self.assertIn("หรือว่ามันต้องเป็นไพ่", shown, "talk clip 10-28: two people in a room are heard at 0.83-0.87")
+        self.assertIn("ใช่คือสิ่งที่ฉันแจกเอง", shown)
+        self.assertNotIn("แ้ไพ่", shown, "odd bits left after the fix: still not sure")
+        self.assertIn('Left out 2 lines the hearing was not sure of', caps["result"],
+                      "below READ_SURE a line is left out even when it reads as a word: at 0.44 it is a guess")
+
     def test_a_subtitle_sentence_never_joins_two_phrases_with_a_left_out_one_between(self):
         phrases = [{"from": 0.0, "to": 1.0, "text": "a", "n": 0}, {"from": 1.2, "to": 2.0, "text": "b", "n": 2},
                    {"from": 2.1, "to": 3.0, "text": "c", "n": 3}, {"from": 3.1, "to": 9.0, "text": "d", "n": 4}]
@@ -1174,7 +1194,7 @@ class Tools(unittest.TestCase):
                 [call("open_recording", path=self.clip, why="open it")],
                 [call("load_recipe", type="explain", why="a tutorial")],
                 [call("look_at_piece", start="0:30", end="0:50", why="the top stretch")],
-                [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the tone"}])],
+                [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "สาธิต Egret Settings"}])],
                 '{"lines": ["ดู Eaglet"]}',
                 [call("make_clip", moment=1, layout="card", why="the screen")],
                 [call("decide_people", keep=[1], why="it is him")],
@@ -1186,7 +1206,12 @@ class Tools(unittest.TestCase):
         finally:
             hearing.fix, screen.words, screen.readings, render.export = had
         titled = next(s for s in steps if s["tool"] == "add_title")
+        proposed = next(s for s in steps if s["tool"] == "propose_moments")
         refused, ready = steps[-2], steps[-1]
+        self.assertIn("(20 s, from look 1): สาธิต Eaglet Settings\n", proposed["result"])
+        self.assertIn('The program wrote the names in your reasons as the screen writes them: "Egret" as "Eaglet".',
+                      proposed["result"])
+        self.assertEqual(self.chat.moments[0]["reason"], "สาธิต Eaglet Settings", "2de1 10-28: the card said Egret")
         self.assertTrue(names and all(n == ["Eaglet", "Settings"] for n in names), names)
         self.assertEqual([line["text"] for line in self.chat.project.state()["captions"]["lines"]], ["ดู Eaglet"],
                          "heard unsure, but the screen wrote the name, so it is captioned")

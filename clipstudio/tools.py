@@ -941,6 +941,16 @@ def propose_moments(job, why, moments):
     except hearing.Stopped:
         return "Not proposed: the person pressed Stop."
     fixing = round(time.time() - started, 1)
+    renamed = []
+    if _reads_screen(job):
+        for p in picked:
+            try:
+                shown = screen.words(rec, p["start"], p["end"])
+            except screen.ScreenError:
+                continue
+            wrong = _misspelled(p["reason"], shown + [w for w in screen.sites(rec) if w not in shown])
+            p["reason"] = _as_on_screen(p["reason"], wrong)
+            renamed += [w for w in wrong if w not in renamed]
     for p in picked:
         p["preview"] = previews.cut(job.chat, job.n, rec, p["start"], p["end"])
     job.chat.moments = picked
@@ -954,6 +964,9 @@ def propose_moments(job, why, moments):
         if p["snapped"]:
             lines.append("   The program moved its edges: it %s." % p["snapped"])
         lines += ["   %s %s%s" % (clock(s["from"]), s["text"], " (as heard)" if s["kept"] else "") for s in p["said"]]
+    if renamed:
+        lines.append("The program wrote the names in your reasons as the screen writes them: %s."
+                     % "; ".join('"%s" as "%s"' % w for w in renamed))
     if len(picked) > 1:
         lines.append("Misheard words are fixed in moment 1's lines; the other moments show theirs as heard until a "
                      "clip is made from one of them.")
@@ -1942,13 +1955,25 @@ def set_music(job, why, music=None, start=0, level=render.MUSIC_LEVEL, duck=rend
 
 
 UNSURE = 0.88
+READ_SURE = 0.8
 
 
 def _unsure(phrase):
     """True for a phrase the hearing was not sure of. Measured 10-27 on Thai FLEURS, clean and mixed with game
     sound (141 garbled phrases, 399 good): below 0.88 are 73% of the garbled ones and 4% of the good ones. A phrase
-    whose fix took a name from the screen is sure: the screen wrote what the hearing could not."""
-    return phrase.get("sure", 1.0) < UNSURE and not phrase.get("named")
+    whose fix took a name from the screen is sure: the screen wrote what the hearing could not.
+
+    Two people talking in a room are heard less surely than FLEURS: in the talk clip of 10-28, 10 of 22 lines fell
+    below UNSURE and the captions went quiet from 0:00 to 0:14, though Muse's fix had made most of them read right.
+    So a Thai phrase from READ_SURE up, once fixed from the context and with no odd bits left, is sure enough. Of the
+    179 unsure Thai phrases of every chat (10-28), 51 are such phrases and 46 of them read right; below 0.75 most
+    were guesses, such as a number word made from a bit of a syllable."""
+    sure = phrase.get("sure", 1.0)
+    if sure >= UNSURE or phrase.get("named"):
+        return False
+    fixed = "heard" in phrase and phrase.get("kept") != LATER
+    return not (fixed and sure >= READ_SURE and re.search("[ก-๛]", phrase["text"])
+                and not words.odd_thai(phrase["text"]))
 
 
 def _in_clip(pieces, p, length):
