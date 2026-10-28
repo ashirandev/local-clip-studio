@@ -523,6 +523,21 @@ class Preview(Served):
             f.write(b"\x89PNG")
         self.assertEqual(self.fetch("/api/layer/../../outside.png")[0], 404)
 
+    def test_words_that_cannot_be_drawn_say_why(self):
+        self.make(SAID)
+        had = agent.layer.words
+
+        def words(state, default="clean"):
+            raise ValueError("key 'x' is not one of the title's words")
+
+        agent.layer.words = words
+        try:
+            status, answer = self.ask("GET", "/api/layer?chat=" + self.chat.id)
+        finally:
+            agent.layer.words = had
+        self.assertEqual((status, answer["error"]), (404, "The words could not be drawn: key 'x' is not one of the "
+                                                          "title's words"))
+
     def test_a_words_edit_keeps_the_base_and_a_look_change_makes_a_new_one(self):
         status, answer = self.ask("POST", "/api/base", {"chat": self.chat.id})
         self.assertEqual((status, answer["error"]), (404, "There is no clip yet. Ask Muse to make one first."))

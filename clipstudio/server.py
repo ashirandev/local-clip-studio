@@ -213,8 +213,11 @@ class Handler(BaseHTTPRequestHandler):
             if chat is None:
                 raise agent.Missing(GONE)
             steps = chat.layer()
-        except (agent.Missing, RuntimeError) as e:
+        except agent.Missing as e:
             self.send_json({"ok": False, "error": str(e)}, HTTPStatus.NOT_FOUND)
+            return
+        except (RuntimeError, ValueError) as e:
+            self.send_json({"ok": False, "error": "The words could not be drawn: %s" % e}, HTTPStatus.NOT_FOUND)
             return
         self.send_json({"ok": True, "size": list(layer.SIZE), "steps": [
             {"from": s["from"], "to": s["to"], "url": "/api/layer/" + os.path.basename(s["file"])} for s in steps]})
