@@ -373,19 +373,16 @@ class Chat:
         background without asking Muse, its progress shown as a render's is. render_clip's checks hold (nobody left
         undecided, nothing made when the file is already the clip as it is now), and its file is the one check_clip
         and hand_over take, as from Muse. Returns None once it has started, or the sentence why not."""
-        state = self._clip_now()
-        if self.busy():
-            return "Muse is working on the clip now. Wait until it is done, or press Stop."
-        if self.making:
-            return "The video is being made now."
-        if _undecided(state):
+        if _undecided(self._clip_now()):
             return "Decide about each person in the clip first: tap a face to blur it, and tap it again to show it."
         refused, _ = self.tap("render_clip", trial=True)
         if refused:
             return refused
         hand = Hand(self)
         with self.cond:
-            if self.busy() or self.making:
+            if self.making:
+                return "The video is being made now."
+            if self.busy():
                 return "Muse is working on the clip now. Wait until it is done, or press Stop."
             self.making = hand
         threading.Thread(target=self._make, args=(hand,), name="make-again", daemon=True).start()
