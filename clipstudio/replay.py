@@ -22,6 +22,7 @@ from . import __version__, agent, recording, server
 NAMED = re.compile(r"^[0-9a-f]{16}\.(?:jpg|mp4)$")
 FOLDER = re.compile(r'(?<![\w\\])(?:[A-Za-z]:\\{1,2}|\\{2,4})(?:[^\\\r\n"<>|:*?]+\\{1,2})+')
 API = '"/api/'
+BASE_SECONDS = 180
 SHIM = '<script src="replay.js"></script>\n<script src="app.js"></script>'
 
 
@@ -62,6 +63,40 @@ def _unfoldered(value):
     return value
 
 
+def _layer_and_base(get, chat_id):
+    """The clip's words layer and its base video as the studio answers the page for them ({} for a studio or a chat
+    without them), waiting while the base video is made."""
+    layer = json.loads(get("/api/layer?chat=" + chat_id) or b"{}")
+    until = time.time() + BASE_SECONDS
+    while True:
+        made = json.loads(get("/api/base", {"chat": chat_id}) or b"{}")
+        if not made.get("making") or made.get("url") or time.time() > until:
+            return (layer if layer.get("ok") else {}), (made if made.get("url") else {})
+        time.sleep(1)
+
+
+def _api_paths(value, out):
+    """Every address under /api/ the studio wrote into value, such as /api/layer/<name>.png."""
+    if isinstance(value, dict):
+        for v in value.values():
+            _api_paths(v, out)
+    elif isinstance(value, list):
+        for v in value:
+            _api_paths(v, out)
+    elif isinstance(value, str) and value.startswith("/api/"):
+        out.add(value)
+    return out
+
+
+def _relative(value):
+    """value with every /api/ address made relative, so the replay plays from any folder of a web host."""
+    if isinstance(value, dict):
+        return {k: _relative(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_relative(v) for v in value]
+    return value[1:] if isinstance(value, str) and value.startswith("/api/") else value
+
+
 def _card():
     """The graphics card of this computer, as nvidia-smi names it, or "" without one."""
     try:
@@ -92,9 +127,11 @@ def pack(chat_id, folder, card=None):
     threading.Thread(target=http.serve_forever, daemon=True).start()
     base = "http://127.0.0.1:%d" % http.server_port
 
-    def get(path):
+    def get(path, body=None):
+        req = urllib.request.Request(base + path, None if body is None else json.dumps(body).encode("utf-8"),
+                                     {"Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(base + path, timeout=300) as r:
+            with urllib.request.urlopen(req, timeout=300) as r:
                 return r.read()
         except urllib.error.HTTPError:
             return None
@@ -104,7 +141,14 @@ def pack(chat_id, folder, card=None):
             raise Refused("The studio could not open chat %s." % chat_id)
         panel = json.loads(get("/api/panel?chat=" + chat_id) or b'{"ok": false}')
         health = json.loads(get("/api/health"))
+        layer, made = _layer_and_base(get, chat_id)
         files, gone = {}, []
+        for path in sorted(_api_paths([layer, made], set())):
+            body = get(path)
+            if body is None:
+                gone.append(path)
+            else:
+                files[path[1:]] = body
         cards = {c["name"] + ".png" for c in panel.get("styles") or []}
         for name in sorted(_named([events, panel], cards)):
             if name.endswith(".png"):
@@ -135,7 +179,8 @@ def pack(chat_id, folder, card=None):
     began = {e["job"]: e["t"] for e in events if e["kind"] == "job"}
     took = round(sum(e["t"] - began[e["job"]] for e in events if e["kind"] == "end" and e["job"] in began))
     data = _unfoldered({
-        "chat": chat_id, "events": events, "panel": panel, "version": __version__,
+        "chat": chat_id, "events": events, "panel": panel, "version": __version__, "layer": _relative(layer),
+        "base": _relative(made),
         "health": dict(health, here=True),
         "listed": {"id": chat_id, "when": round(events[-1]["t"]) if events else 0, "first": said[0][:100] if said
                    else "", "messages": len(said), "recording": opened[-1] if opened else ""},

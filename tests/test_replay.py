@@ -73,6 +73,24 @@ class Pack(unittest.TestCase):
         self.assertEqual((data["chat"], data["took"], data["card"]), (CHAT, 241, "RTX 5070 Ti 16 GB"))
         self.assertEqual(done["events"], 6)
 
+    def test_the_words_layer_and_the_base_video_play_from_the_folder_as_the_studio_sent_them(self):
+        png, mp4 = "0123456789abcdef0123.png", "3123456789abcdef.mp4"
+        for folder, name, body in ((render.folder("layers"), png, b"layer"), (render.folder("bases"), mp4, b"base")):
+            with open(os.path.join(folder, name), "wb") as f:
+                f.write(body)
+        layer = {"ok": True, "size": [540, 960], "steps": [{"from": 0.0, "to": 2.5, "url": "/api/layer/" + png}]}
+        had = replay._layer_and_base
+        replay._layer_and_base = lambda get, chat: (layer, {"ok": True, "url": "/api/base/" + mp4, "from_cache": True})
+        try:
+            replay.pack(CHAT, self.out, card="")
+        finally:
+            replay._layer_and_base = had
+        self.assertEqual(self.read("api", "layer", png), b"layer")
+        self.assertEqual(self.read("api", "base", mp4), b"base")
+        data = json.loads(self.read("api", "replay.json"))
+        self.assertEqual(data["layer"]["steps"][0]["url"], "api/layer/" + png, "an address the page uses from any folder")
+        self.assertEqual(data["base"]["url"], "api/base/" + mp4)
+
     def test_no_folder_of_the_persons_computer_is_in_the_replay(self):
         replay.pack(CHAT, self.out, card="")
         data = self.read("api", "replay.json").decode("utf-8")
