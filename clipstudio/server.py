@@ -53,7 +53,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl
 
-from . import __version__, agent, hearing, layer, mind, previews, recording, render, text
+from . import __version__, agent, effects, hearing, layer, mind, previews, recording, render, text
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
@@ -70,6 +70,7 @@ NEWEST = 5
 FRAME = re.compile(r"^/api/frame/([0-9a-f]{16}\.jpg)$")
 PREVIEW = re.compile(r"^/api/preview/([0-9a-f]{16}\.mp4)$")
 CLIP = re.compile(r"^/api/clip/([0-9a-f]{16}\.mp4)$")
+MOVE = re.compile(r"^/api/move/([a-z]+)\.mp4$")
 POSTER = re.compile(r"^/api/clip/([0-9a-f]{16})\.jpg$")
 LOOK = re.compile(r"^/api/look/([0-9a-z]+)\.png$")
 LAYER = re.compile(r"^/api/layer/([0-9a-f]{20}\.png)$")
@@ -115,6 +116,8 @@ class Handler(BaseHTTPRequestHandler):
                             download=query.get("download") == "1")
         elif POSTER.match(path):
             self.send_poster(POSTER.match(path).group(1))
+        elif MOVE.match(path):
+            self.send_move(MOVE.match(path).group(1))
         elif path == "/api/clipframe":
             self.send_clip_frame(query)
         elif path == "/api/faces":
@@ -331,19 +334,25 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def send_clip_frame(self, query):
-        """The chat's clip drawn at second t, as it stands now."""
+        """The chat's clip drawn at second t, as it stands now; with look (one of agent.COLOUR_LOOKS), as it would be
+        in that colour look, for its choice beside the clip; width (120 to render.PREVIEW_WIDTH) makes it smaller."""
         chat = agent.find(str(query.get("chat") or ""))
+        look = query.get("look")
         try:
             t = float(query.get("t") or 0)
+            width = min(max(int(query.get("width") or render.PREVIEW_WIDTH), 120), render.PREVIEW_WIDTH)
         except ValueError:
-            t = -1.0
-        if chat is None or not chat.recording or t < 0:
-            self.send_json({"ok": False, "error": "Send a chat that has a clip, and a time from 0."},
-                           HTTPStatus.NOT_FOUND)
+            t, width = -1.0, render.PREVIEW_WIDTH
+        if chat is None or not chat.recording or t < 0 or look not in (None,) + agent.COLOUR_LOOKS:
+            self.send_json({"ok": False, "error": "Send a chat that has a clip, a time from 0 and a colour look of %s."
+                            % ", ".join(agent.COLOUR_LOOKS)}, HTTPStatus.NOT_FOUND)
             return
+        state = chat.project.state()
+        if look:
+            state = dict(state, look=None if look == "none" else look)
         try:
-            path = render.frame(chat.recording, chat.project.state(), t,
-                                chat.clip["style"] if chat.clip else "clean")
+            path = render.frame(chat.recording, state, t, chat.clip["style"] if chat.clip else "clean",
+                                width=width - width % 2)
         except render.NotDrawn as e:
             self.send_json({"ok": False, "error": str(e)}, HTTPStatus.NOT_FOUND)
             return
@@ -366,6 +375,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": "Send a chat and a time from 0."}, HTTPStatus.NOT_FOUND)
             return
         self.send_json({"ok": True, "faces": chat.faces(t), "size": [1080, 1920]})
+
+    def send_move(self, name):
+        """The looping sample of a flurry move (effects.moves()) for its tile in the Features menu, made once."""
+        if name not in effects.MOVES:
+            self.send_json({"ok": False, "error": "There is no move %s." % name}, HTTPStatus.NOT_FOUND)
+            return
+        clip = next(m["clip"] for m in effects.moves() if m["name"] == name)
+        self.send_video(os.path.dirname(clip), os.path.basename(clip), "move")
 
     def send_video(self, folder, name, what, download=False):
         """A video in the range the browser asks for. download asks the browser to save it as a file."""
@@ -543,8 +560,11 @@ def main():
     except OSError as e:
         sys.exit("Port %d on this computer is taken (%s). Set LCS_PORT to a free port and start again."
                  % (PORT, e.strerror))
+    keys = mind.load_keys()
     hearing.start()
     print("Local Clip Studio %s: http://127.0.0.1:%d/" % (__version__, PORT), flush=True)
+    if keys:
+        print("Keys read from LCS_KEYS: %s" % ", ".join(keys), flush=True)
     if not ipaddress.ip_address(HOST).is_loopback:
         print("On a phone on the same Wi-Fi, open http://<this computer's address>:%d/" % PORT, flush=True)
     try:

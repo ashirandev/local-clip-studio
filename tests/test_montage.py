@@ -368,6 +368,14 @@ class Crowd(unittest.TestCase):
                          "14 people (others: blur or keep decides everyone not named)")
         self.assertEqual(tools._people_named([2, 5]), "person 2 and 5")
 
+    def test_a_step_shows_the_clips_by_their_names(self):
+        opened = {"clips": [{"n": 3, "rec": {"name": "IMG_0003.MOV"}}, {"n": 4, "rec": {"name": "IMG_0004.MOV"}}]}
+        said = {"story": "s", "clips": [{"clip": 3, "why": "a"}, {"clip": 4, "why": "b"}], "left_out": [{"clip": 9}]}
+        self.assertEqual(agent._named(said, opened), {"story": "s", "left_out": [{"clip": 9}], "clips": [
+            {"clip": 3, "why": "a", "name": "IMG_0003.MOV"}, {"clip": 4, "why": "b", "name": "IMG_0004.MOV"}]},
+            "Tarm 10-28: the step read [object Object]")
+        self.assertEqual(agent._named(said, None), said)
+
 
 if __name__ == "__main__":
     unittest.main()

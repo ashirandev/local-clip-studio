@@ -31,6 +31,31 @@ LOAD_SECONDS = 120
 CHAT_TEMPERATURE = 0.7
 
 
+def load_keys(named=None):
+    """Puts the KEY=VALUE lines of the files LCS_KEYS names (separated by ; on Windows, : elsewhere) into this
+    process's environment, so a key can stay in a file of the person's own, outside the studio's folder; a key already
+    in the environment wins. Lines may start with "export " and values may be quoted; blank lines and # lines are left
+    out. Returns the names it set, never a value; a file that cannot be read is left out."""
+    done = []
+    for path in [p.strip() for p in (os.environ.get("LCS_KEYS", "") if named is None else named).split(os.pathsep)]:
+        try:
+            with open(path, encoding="utf-8-sig") as f:
+                lines = f.read().splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            name, eq, value = line.strip().removeprefix("export ").partition("=")
+            name, value = name.strip(), value.strip()
+            if not eq or not name or name.startswith("#") or not name.replace("_", "").isalnum():
+                continue
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+            if value and not os.environ.get(name):
+                os.environ[name] = value
+                done.append(name)
+    return done
+
+
 class MindError(Exception):
     """A sentence for the page: what went wrong and what to do about it."""
 
@@ -142,8 +167,8 @@ class Mind:
         """{ok, key, label, where, name} or {ok: False, ..., why} with a sentence. Never sends a question."""
         out = {"key": self.key, "label": self.label, "where": self.where, "url": self.url}
         if self.key_env and not self.secret():
-            return dict(out, ok=False, why="Set %s to your own Meta API key, then start the studio again."
-                                           % self.key_env)
+            return dict(out, ok=False, why="Set %s to your own Meta API key, or name a file that holds it in "
+                                           "LCS_KEYS, then start the studio again." % self.key_env)
         if self.key_env:
             return dict(out, ok=True, name=self.model_id)
         try:

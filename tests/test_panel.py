@@ -514,6 +514,21 @@ class Endpoints(Served):
         status, answer = self.ask("GET", "/api/panel?chat=nope")
         self.assertEqual((status, answer["error"]), (404, server.GONE))
 
+    def test_each_colour_look_choice_is_a_picture_of_the_clip_in_that_look(self):
+        self.make()
+        base = "/api/clipframe?chat=%s&t=1&width=160" % self.chat.id
+        got = {look: self.fetch(base + "&look=" + look) for look in agent.COLOUR_LOOKS}
+        self.assertEqual({k: (s, kind) for k, (s, kind, _) in got.items()},
+                         {k: (200, "image/jpeg") for k in agent.COLOUR_LOOKS})
+        state, default = self.chat.project.state(), self.chat.clip["style"] if self.chat.clip else "clean"
+        for look, (_, _, body) in got.items():
+            with open(render.frame(self.chat.recording, dict(state, look=None if look == "none" else look), 1,
+                                   default, width=160), "rb") as f:
+                self.assertEqual(body, f.read(), "the picture is the clip drawn in the %s look" % look)
+        self.assertEqual(got["none"][2], self.fetch(base)[2], "None is the clip with no look, as it stands now")
+        self.assertIsNone(self.chat.project.state()["look"], "a picture of a look changes nothing")
+        self.assertEqual(self.fetch(base + "&look=sepia")[0], 404)
+
     def test_each_tap_is_a_json_post_that_answers_ok_or_says_why(self):
         status, answer = self.ask("POST", "/api/style", {"chat": self.chat.id, "style": "pop"})
         self.assertEqual((status, answer["error"]), (404, "There is no clip yet. Ask Muse to make one first."))

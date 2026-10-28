@@ -6,7 +6,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import tools  # noqa: E402
+from clipstudio import effects, tools  # noqa: E402
 
 
 class Features(unittest.TestCase):
@@ -33,7 +33,10 @@ class Features(unittest.TestCase):
             page = f.read()
         drawn = set(re.findall(r'^  "?([a-z0-9-]+)"?: \{ parts:', page[page.index("const MINI = {"):], re.M))
         shows = [f["show"] for g in tools.features() for f in g["features"]]
-        self.assertEqual(sorted({s for s in shows if s not in drawn}), [], "a line whose picture the page lacks")
+        moves = [s[len("flurry-"):] for s in shows if s.startswith("flurry-")]
+        self.assertEqual([m for m in moves if m not in effects.MOVES], [], "a flurry tile plays the move's own sample")
+        self.assertEqual(sorted({s for s in shows if s not in drawn and not s.startswith("flurry-")}), [],
+                         "a line whose picture the page lacks")
         self.assertEqual(sorted(drawn - set(shows)), [], "a picture no line uses")
 
 if __name__ == "__main__":

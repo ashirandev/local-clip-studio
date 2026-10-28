@@ -1067,7 +1067,7 @@ class Job:
             why, step, clean = tool.check(_arguments(raw), len(self.plan))
         except Refused as e:
             return self.refuse(shown, name, str(e))
-        shown.update(why=why, input=clean, plan_step=step)
+        shown.update(why=why, input=_named(clean, self.chat.clips), plan_step=step)
         key = name + json.dumps(clean, sort_keys=True, ensure_ascii=False)
         seen = self.seen.get(key)
         if seen and seen["changed"] == self.chat.changed and seen["times"] >= 2:
@@ -1218,6 +1218,20 @@ class Hand(Job):
         if self.trial:
             raise Allowed()
         return Job.render(self, rec, state, out, default)
+
+
+def _named(value, opened):
+    """A step's input for the page, each {"clip": n} given the file name of clip n of the clips opened together, so
+    the step reads as their names (Tarm 10-28: it read "[object Object]")."""
+    names = {c["n"]: c["rec"]["name"] for c in (opened or {}).get("clips") or []}
+    if isinstance(value, list):
+        return [_named(v, opened) for v in value]
+    if not isinstance(value, dict):
+        return value
+    out = {k: _named(v, opened) for k, v in value.items()}
+    if value.get("clip") in names:
+        out["name"] = names[value["clip"]]
+    return out
 
 
 def _first_sentence(said):

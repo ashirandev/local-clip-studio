@@ -103,11 +103,20 @@ function fold(summary, body, cls) {
   return d;
 }
 
+function plainValue(v) {
+  if (v === null || v === undefined) return "none";
+  if (Array.isArray(v)) return v.map(plainValue).join(" / ");
+  if (typeof v === "object" && v.name) return String(v.name);
+  if (typeof v === "object" && v.clip !== undefined) return "clip " + v.clip;
+  if (typeof v === "object") return Object.entries(v).map(([k, w]) => k + " " + plainValue(w)).join(", ");
+  return String(v);
+}
+
 function inputLine(input) {
   if (!input) return "";
   if (typeof input === "string") return input;
   return Object.entries(input)
-    .map(([k, v]) => k + ": " + (Array.isArray(v) ? v.join(" / ") : v))
+    .map(([k, v]) => k + ": " + plainValue(v))
     .join(" · ");
 }
 
@@ -716,19 +725,15 @@ function baseFaces(v) {
   drawFaces(v.currentTime, made, room.facesAt);
 }
 
-function drawChoices(row, why, choices, act, card) {
+function drawChoices(row, why, choices, act, picture) {
   row.textContent = "";
+  row.classList.toggle("picture-row", Boolean(picture) && row.classList.contains("panel-row"));
   const off = {};
   choices.forEach((c) => {
-    const b = el("button", card ? "chip look-card" : "chip", card ? null : c.label);
+    const b = el("button", picture ? "chip look-card" : "chip", picture ? null : c.label);
     b.type = "button";
     b.setAttribute("aria-pressed", String(c.now));
-    if (card) {
-      const pic = el("img", "look-pic");
-      pic.src = "/api/look/" + c.name + ".png";
-      pic.alt = "";
-      b.append(pic, el("span", "look-name", c.label));
-    }
+    if (picture) b.append(picture(c), el("span", "look-name", c.label));
     if (c.why) {
       b.disabled = true;
       b.setAttribute("aria-describedby", why.id);
@@ -766,10 +771,23 @@ function drawPanel(d) {
   const langs = document.getElementById("langRow");
   const styles = document.getElementById("styleRow");
   const looks = document.getElementById("lookRow");
-  drawChoices(caps, document.getElementById("capsWhy"), d.captions, (c) => choose(caps, "/api/captions", { mode: c.name }), false);
-  drawChoices(langs, document.getElementById("langWhy"), d.languages, (c) => (c.say ? askMuse(langs, c) : choose(langs, "/api/captions", { language: c.name })), false);
-  drawChoices(styles, document.getElementById("styleWhy"), d.styles, (c) => choose(styles, "/api/style", { style: c.name }), true);
-  drawChoices(looks, document.getElementById("lookWhy"), d.looks, (c) => choose(looks, "/api/colour", { look: c.name }), false);
+  const at = Number(document.getElementById("clipAt").value) || 0;
+  const lookPic = (c) => {
+    const pic = el("img", "look-pic frame-pic");
+    pic.src = "/api/clipframe?chat=" + encodeURIComponent(room.chat) + "&t=" + at.toFixed(1) + "&look=" + c.name + "&width=240";
+    pic.alt = "";
+    return pic;
+  };
+  const stylePic = (c) => {
+    const pic = el("img", "look-pic");
+    pic.src = "/api/look/" + c.name + ".png";
+    pic.alt = "";
+    return pic;
+  };
+  drawChoices(caps, document.getElementById("capsWhy"), d.captions, (c) => choose(caps, "/api/captions", { mode: c.name }), (c) => mini("cap-" + c.name, c.label));
+  drawChoices(langs, document.getElementById("langWhy"), d.languages, (c) => (c.say ? askMuse(langs, c) : choose(langs, "/api/captions", { language: c.name })), null);
+  drawChoices(styles, document.getElementById("styleWhy"), d.styles, (c) => choose(styles, "/api/style", { style: c.name }), stylePic);
+  drawChoices(looks, document.getElementById("lookWhy"), d.looks, (c) => choose(looks, "/api/colour", { look: c.name }), lookPic);
   if (d.channels) drawChannels(d.channels);
 }
 
@@ -1355,13 +1373,26 @@ const MINI = {
   undo: { parts: "who ttl fx", fx: "↶" },
 };
 
+const PANEL_MINI = { "cap-off": { parts: "who" } };
+
 function mini(show, said) {
-  const m = MINI[show] || { parts: "fx", fx: "✨" };
+  const m = MINI[show] || PANEL_MINI[show] || { parts: "fx", fx: "✨" };
   const box = el("div", "mini");
   box.dataset.show = show;
   box.setAttribute("role", "img");
   box.setAttribute("aria-label", said);
   box.append(el("i", "sky"));
+  if (show.startsWith("flurry-")) {
+    const v = el("video", "move");
+    v.src = "/api/move/" + show.slice(7) + ".mp4";
+    v.muted = true;
+    v.loop = true;
+    v.playsInline = true;
+    v.autoplay = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+    v.preload = "metadata";
+    box.append(v);
+    return box;
+  }
   m.parts.split(" ").forEach((p) => {
     if (p === "cap") {
       const c = el("b", "cap");
