@@ -1137,6 +1137,7 @@ class Tools(unittest.TestCase):
                                                                        state["clip"]["layout"]["places"]["top"])])
         self.assertEqual(state["flurries"][1]["pngs"], [effects.sticker_png("red_heart")])
         self.assertLess(state["flurries"][1]["size"], tools.FLURRY_SIZE, "shrunk to move inside the top place")
+        self.assertIn("flurries: confetti burst at 3 s, red_heart rise at 18.8 s", self.chat.clip_line())
         plain = dict(state, flurries=[])
         for t in (3.7, 19.4):
             self.assertNotEqual(pixels(render.frame(self.chat.recording, plain, t))[2],
