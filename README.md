@@ -9,6 +9,9 @@ fixes what fails, and hands over a vertical clip ready to post. To change anythi
 - **Streamers and creators next.** It is the same engine, with a different recipe.
 - **Local first.** The agent runs on Muse Glimmer, Meta's open-weight model, on your own graphics card, through
   llama.cpp. The recordings never leave the computer.
+- **The program checks facts; the person keeps the taste.** Every check is one a program can prove on the finished
+  file: a caption is a word that was said, a number on screen was said, no viewer's name or private line can be
+  read. Whether a clip is funny or good is the person's call, so the studio gives no score for it.
 
 ## Quick start
 

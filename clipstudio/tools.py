@@ -18,7 +18,7 @@ import time
 
 import numpy as np
 
-from . import (effects, faces, focus, hearing, layouts, maps, mind, montage, pauses, person, previews, project,
+from . import (cutout, effects, faces, focus, hearing, layouts, maps, mind, montage, pauses, person, previews, project,
                recording, render, voices,
                screen, spoken, takes, talk, text, thai, tracks, words)
 from .recipes import RECIPES, SIGNALS
@@ -1803,9 +1803,17 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
         key, fixed = holding[0], 'The key "%s" is part of the word "%s", so that word is the key.' % (key, holding[0])
         text.title(words, start, end, band, st, key)
     drawn = [band[0] + (band[2] - size.w) / 2, band[1] + (band[3] - size.h) / 2, size.w, size.h]
+    crossed = None
+    if behind:
+        frames = _person_frames(state, start, end)
+        crossed = _crossing(frames, drawn, start, end)
+        if not _crosses(crossed, start, end):
+            raise Refused(_not_crossed(frames, drawn, place, start, end, crossed, lay, state, size))
     notes = _phone(drawn, lay, state, asked)
     times, every = _face_times(state, rec)
     hit = _covered(drawn, times, every, start, end)
+    if crossed is not None:
+        notes.append("Behind the person: they cross the words %s." % _when(crossed, start, end))
     if hit and behind:
         notes.append("It crosses a face at %s, and the person stands in front of it." % _spans(hit))
     elif hit and asked:
@@ -3051,9 +3059,12 @@ def hand_over(job, why, title, caption, hashtags, english=""):
              "english": english, "checks": checks, "work": job.chat.worked(job.n, job.steps)}
     job.emit("ready", **ready)
     job.show(ready=ready)
+    pieces = _clip_state(job)["clip"]["pieces"]
     return ("Handed over: the person sees the finished clip with its title, the post text and %d hashtags, a Copy all "
-            "button and a download. Tell them in one or two short lines; do not repeat the text, it is on the page."
-            % len(tags)) + (" " + spelling if spelling else "")
+            "button and a download. Tell them in one or two short lines; do not repeat the text, it is on the page. "
+            "The clip is %g s, from %s to %s of the recording: when you say its length or its times, say these, not "
+            "the ones asked for." % (len(tags), round(done["length"], 2), recording.clock(min(p[0] for p in pieces)),
+                                     recording.clock(max(p[1] for p in pieces)))) + (" " + spelling if spelling else "")
 
 
 LAYOUT_OF = {"explain": "card", "game": "card", "talk": "talk", "seller": "subject"}
@@ -3254,19 +3265,160 @@ def cut_out(job, why, look=None, start=None, end=None):
         said.append("SAM 3.1 found the person through the clip, %s to %s of the recording, %d pictures a second."
                     % (recording.clock(a), recording.clock(b), mask["fps"]))
     if look:
-        s = 0.0 if start is None else start
-        e = length if end is None else min(end, length)
+        s = 0.0 if start is None else length + start if start < 0 else start
+        e = length if end is None else length + end if end < 0 else min(end, length)
         if not 0 <= s < e:
             raise Refused("start %g s and end %g s do not make a time inside the clip, which is %g s long."
                           % (s, e, length))
-        job.edit({"do": "cutout", "look": look, "start": round(s, 2), "end": round(e, 2)})
-        said.append("The %s look is on from %g to %g s: %s." % (look, s, e, CUTOUT_LOOK_SAYS[look]))
-    said.append("A title put on with behind true now goes behind the person.")
+        s, e = round(s, 2), round(e, 2)
+        job.edit({"do": "cutout", "look": look, "start": s, "end": e})
+        said.append("The %s look is on from %g to %g s of the %g s clip%s: %s." % (
+            look, s, e, length, "" if e >= length - 0.05 else ", so the clip's last %g s are without it"
+            % round(length - e, 2), CUTOUT_LOOK_SAYS[look]))
+    said.append(_person_said(state))
     return "\n".join(said)
 
 
 CUTOUT_LOOK_SAYS = {"grey": "the footage around the person is black and white, and the person keeps their colour",
                     "outline": "a white edge goes around the person"}
+BEHIND_SHARE = 0.05
+PERSON_STEP = 5
+PERSON_SCALE = 8
+HEAD_AT = 0.2
+SAFE_ROWS = (250, 1520)
+LIKES_LEFT = 890
+FRAME = {"width": effects.FRAME_W, "height": effects.FRAME_H}
+
+
+def _person_frames(state, start, end):
+    """Where the clip shows the person from clip second start to end, read from the mask the renderer draws with
+    (cutout.frame_mask, made once): [pictures, rows, columns] of True, PERSON_STEP pictures a second at
+    1/PERSON_SCALE of the frame's size."""
+    clip = state["clip"]
+    try:
+        path = cutout.frame_mask(state["mask"], clip["pieces"], clip["layout"], state["length"],
+                                 state.get("pushes") or [])
+    except (ValueError, RuntimeError) as e:
+        raise Refused(str(e))
+    w, h = effects.FRAME_W // PERSON_SCALE, effects.FRAME_H // PERSON_SCALE
+    raw = subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-ss", "%.3f" % start, "-i", path, "-t",
+                          "%.3f" % max(end - start, 1.0 / PERSON_STEP), "-vf",
+                          "fps=%d,scale=%d:%d:flags=area" % (PERSON_STEP, w, h), "-f", "rawvideo", "-pix_fmt", "gray",
+                          "-"], capture_output=True, timeout=300).stdout
+    n = len(raw) // (w * h)
+    return np.frombuffer(raw[:n * w * h], np.uint8).reshape(n, h, w) > 127
+
+
+def _crossing(frames, box, start, end):
+    """The stretches of start-end (clip seconds, frames read from start) where the person covers at least
+    BEHIND_SHARE of box ([x, y, w, h] on the frame): [(from, to)]."""
+    k = PERSON_SCALE
+    x0, y0 = max(0, int(box[0] // k)), max(0, int(box[1] // k))
+    x1, y1 = int(math.ceil((box[0] + box[2]) / k)), int(math.ceil((box[1] + box[3]) / k))
+    inside = frames[:, y0:y1, x0:x1]
+    out = []
+    if not inside.size:
+        return out
+    for i, on in enumerate(inside.mean(axis=(1, 2)) >= BEHIND_SHARE):
+        if not on:
+            continue
+        lo, hi = start + i / PERSON_STEP, min(end, start + (i + 1) / PERSON_STEP)
+        if out and lo <= out[-1][1] + 1e-6:
+            out[-1] = (out[-1][0], hi)
+        else:
+            out.append((lo, hi))
+    return out
+
+
+def _crosses(spans, start, end):
+    """Whether the person crosses the words long enough to be seen in front of them: SHORTEST_WORDS, or the whole
+    time when that is shorter."""
+    return sum(b - a for a, b in spans) >= min(SHORTEST_WORDS, end - start) - 1e-6
+
+
+def _when(spans, start, end):
+    if sum(b - a for a, b in spans) >= end - start - 1.0 / PERSON_STEP:
+        return "from %g to %g s" % (start, end)
+    more = len(spans) - 4
+    return "at %s%s" % (_spans(spans[:4]), " and %d more times" % more if more > 0 else "")
+
+
+def _person_box(frames):
+    """[x, y, w, h] on the frame around where the person is in at least half the pictures (anywhere they are, when
+    they move too much for that), or None when no picture shows them."""
+    if not len(frames):
+        return None
+    for seen in (frames.mean(axis=0) >= 0.5, frames.any(axis=0)):
+        ys, xs = np.nonzero(seen)
+        if len(ys):
+            k = PERSON_SCALE
+            return [int(xs.min()) * k, int(ys.min()) * k, (int(xs.max()) + 1 - int(xs.min())) * k,
+                    (int(ys.max()) + 1 - int(ys.min())) * k]
+    return None
+
+
+def _behind_band(frames, lay, state, start, end, size=None):
+    """A band for words behind the person, [x, y, w, h] on the frame: as tall as the layout's first place for words
+    and as wide, or ending left of the like buttons when that is covered, its middle HEAD_AT of the way down the
+    person (their head, when they sit or stand), inside the rows a phone shows. None when the words in it (size, or
+    the whole band) would not cross the person, or a phone or the captions would cover them."""
+    who = _person_box(frames)
+    if not who:
+        return None
+    x, _y, w, h = next(iter(lay["places"].values()), [65, 0, 950, 190])
+    y = round(min(max(who[1] + HEAD_AT * who[3] - h / 2, SAFE_ROWS[0]), SAFE_ROWS[1] - h))
+    for band in ([x, y, w, h], [x, y, LIKES_LEFT - x, h]):
+        if size is not None and size.w > band[2]:
+            continue
+        drawn = band if size is None else [band[0] + (band[2] - size.w) / 2, y + (h - size.h) / 2, size.w, size.h]
+        if (_crosses(_crossing(frames, drawn, start, end), start, end)
+                and not _covers([round(v) for v in drawn], lay, state)):
+            return band
+    return None
+
+
+def _where_said(who):
+    return "%s on your grid (x %d to %d, y %d to %d on the frame)" % (
+        _grid(who, FRAME), who[0], who[0] + who[2], who[1], who[1] + who[3])
+
+
+def _person_said(state):
+    """Where the clip shows the person, and which places for words cross them, for Muse to put a title behind them."""
+    lay, length = state["clip"]["layout"], state["length"]
+    try:
+        frames = _person_frames(state, 0, length)
+    except Refused as e:
+        return ("A title put on with behind true goes behind the person; where they are on the frame could not be "
+                "read: %s" % e)
+    who = _person_box(frames)
+    if not who:
+        return ("No picture of the clip shows the person, so a title behind them would not go behind anyone: make "
+                "the clip again in a layout that shows them, then call cut_out.")
+    crossing = []
+    for name, box in lay["places"].items():
+        spans = _crossing(frames, box, 0, length)
+        if _crosses(spans, 0, length):
+            crossing.append("%s %s" % (name, _when(spans, 0, length)))
+    band = _behind_band(frames, lay, state, 0, length)
+    return "On the frame the person is at %s. A title goes behind them only where they cross it: %s%s." % (
+        _where_said(who), "the places for words that cross them: %s" % "; ".join(crossing) if crossing else
+        "no place for words crosses them, so give add_title a box", "" if not band else
+        "; for words across their head, a box such as %s" % _grid(band, FRAME))
+
+
+def _not_crossed(frames, drawn, place, start, end, spans, lay, state, size):
+    """Why a title put on with behind true is refused: the person does not cross its words long enough."""
+    who = _person_box(frames)
+    if not who:
+        return ("From %g to %g s no picture shows the person, so the title would go behind nobody: pick a time when "
+                "the clip shows them, or put it on without behind." % (start, end))
+    band = _behind_band(frames, lay, state, start, end, size)
+    return ("Behind the person, the title must cross them for at least %g s, and at the %s they cross its words (y %d "
+            "to %d) for %g s of %g to %g s; they are at %s. %s, or put it on without behind." % (
+                min(SHORTEST_WORDS, end - start), place, drawn[1], drawn[1] + drawn[3],
+                round(sum(b - a for a, b in spans), 1), start, end, _where_said(who),
+                "Give a box such as %s, across their head" % _grid(band, FRAME) if band else
+                "Give a box across those rows"))
 
 
 def describe(entry):
@@ -3596,8 +3748,9 @@ TOOLS = {t.name: t for t in [
                   "description": "One word of the title to draw in the style's key colour. Leave it out for none."},
           "behind": {"type": "boolean",
                      "description": "true puts the title behind the person, so their head and body cross in front of "
-                                    "the words, as on a magazine cover. It needs cut_out first. Then a title may "
-                                    "cross a face: the face stays in front."}},
+                                    "the words, as on a magazine cover. It needs cut_out first, whose result says "
+                                    "where the person is on the frame: the words must cross them there. Then a title "
+                                    "may cross a face: the face stays in front."}},
          ["words", "start", "end"], add_title, changes=True),
     Tool("cut_out", "Found the person",
          "Find the person through the whole clip with SAM 3.1, Meta's model that follows a person frame by frame, "
@@ -3609,10 +3762,11 @@ TOOLS = {t.name: t for t in [
                    "description": "grey: the footage around the person goes black and white, and the person keeps "
                                   "their colour. outline: a white edge around the person. Leave it out to only find "
                                   "the person, for a title behind them."},
-          "start": {"type": "number", "minimum": 0, "description": "When the look starts, in seconds of the clip. "
-                                                                   "Leave it out for the start."},
-          "end": {"type": "number", "minimum": 0, "description": "When the look ends, in seconds of the clip. Leave "
-                                                                 "it out for the end."}},
+          "start": {"type": "number", "description": "When the look starts, in seconds of the clip; a negative "
+                                                     "number counts back from the clip's end, so -5 is its last 5 "
+                                                     "seconds. Leave it out for the start."},
+          "end": {"type": "number", "description": "When the look ends, in seconds of the clip; a negative number "
+                                                   "counts back from the clip's end. Leave it out for the end."}},
          [], cut_out, changes=True),
     Tool("remove_title", "Took a title off",
          "Take a title off the clip, by its words.",
