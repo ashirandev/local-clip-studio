@@ -1338,6 +1338,29 @@ class Tools(unittest.TestCase):
         self.assertEqual(tools._speech({"sound_tracks": 0}, {}, [[30, 40]]), [], "no sound: nobody speaks")
         self.assertIsNone(tools._speech({"sound_tracks": 1}, {}, [[30, 40]]), "never heard: nobody knows")
 
+    def test_a_recording_shorter_than_a_clip_is_said_at_once_and_never_proposed_again(self):
+        short = os.path.join(self.videos, "short.mp4")
+        make_moment(short, seconds=7, busy=(0, 7), loud=(1, 6))
+        brain, steps = self.run_job(
+            [call("open_recording", path=short, why="the person's clip")],
+            [call("look_at_piece", start="0:00", end="0:07", why="all of it")],
+            [call("propose_moments", why="the whole", moments=[{"look": 1, "reason": "all of it"}])],
+            [call("open_recording", path=self.clip, why="a longer one")],
+            [call("look_at_piece", start="0:30", end="0:36", why="a bit")],
+            [call("propose_moments", why="that bit", moments=[{"look": 1, "reason": "the tone"}])],
+            "Done.")
+        opened, _, proposed, _, _, short_look = steps[-6:]
+        self.assertIn("It is only 7 s long, shorter than the 10 s a clip needs, so no part of it can be a clip on its "
+                      "own. Tell the person, and offer to join it with the other recordings of its folder",
+                      opened["result"])
+        self.assertTrue(proposed["refused"])
+        self.assertIn("short.mp4 is only 7 s long", proposed["result"])
+        self.assertIn("Do not propose it again.", proposed["result"])
+        self.assertNotIn("Give it a start and an end inside", proposed["result"], "no advice that cannot be followed")
+        self.assertTrue(short_look["refused"])
+        self.assertIn("Look 1 (0:30-0:36) is shorter than the 10 s a clip needs, so no moment fits inside it. Look at "
+                      "a stretch of 10 s or more first.", short_look["result"])
+
     def test_muse_mutes_a_part_of_the_clip_brings_it_back_and_the_captions_follow(self):
         self.worker.phrases = [{"from": 2, "to": 4.5, "text": "hello there", "sure": 0.99}]
         brain, steps = self.run_job(

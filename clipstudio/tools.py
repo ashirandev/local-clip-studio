@@ -250,7 +250,14 @@ def open_recording(job, why, path):
     if picture:
         job.attach(picture, "A picture from %s, a tenth of the way in." % rec["name"])
         head += "\nA picture from it comes next, so you can see what it is."
+    if round(rec["seconds"]) < SHORTEST:
+        head += "\n" + TOO_SHORT % ("It", round(rec["seconds"], 1), SHORTEST)
     return head + "\nThe recording is only read, never changed."
+
+
+TOO_SHORT = ("%s is only %g s long, shorter than the %d s a clip needs, so no part of it can be a clip on its own. Tell "
+             "the person, and offer to join it with the other recordings of its folder (open_clips), or to choose a "
+             "longer recording.")
 
 
 def _names_here(folders):
@@ -1022,6 +1029,12 @@ def propose_moments(job, why, moments):
                                                                    clock(look["start"]), clock(look["end"])))
         a, b = max(a, look["start"]), min(b, look["end"])
         a, b, snapped = _snapped(look, a, b)
+        if round(rec["seconds"]) < SHORTEST:
+            raise Refused(TOO_SHORT % (rec["name"], round(rec["seconds"], 1), SHORTEST) + " Do not propose it again.")
+        if round(look["end"] - look["start"]) < SHORTEST:
+            raise Refused("Look %d (%s-%s) is shorter than the %d s a clip needs, so no moment fits inside it. Look at "
+                          "a stretch of %d s or more first." % (look["n"], clock(look["start"]), clock(look["end"]),
+                                                               SHORTEST, SHORTEST))
         if not SHORTEST <= round(b - a) <= LONGEST:
             raise Refused("Moment %d is %d s long; a clip is %d to %d s. Give it a start and an end inside look %d "
                           "(%s-%s)." % (i, round(b - a), SHORTEST, LONGEST, look["n"], clock(look["start"]),
