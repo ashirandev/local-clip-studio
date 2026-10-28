@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -34,10 +35,10 @@ def state(kind="subject", **entries):
                 look=entries.get("look"), glass=entries.get("glass", []), flurries=entries.get("flurry", []))
 
 
-def drawn(st, t):
+def drawn(st, t, words=True):
     """The 1080x1920 frame at clip second t as an (h, w, 3) array, from render.after_source."""
     import numpy as np
-    graph, files = render.after_source(st, "src", "whole", 1)
+    graph, files = render.after_source(st, "src", "whole", 1, words=words)
     k = round(t * 30)
     cmd = [FFMPEG, "-v", "error", "-f", "lavfi", "-i", RECORDING % (k / 30 + 1)]
     for f in files:
@@ -228,6 +229,18 @@ class Stages(unittest.TestCase):
         self.assertGreater(int(edge.sum()), 500, "the title has a dark outline")
         self.assertGreater(int(c[edge].min(axis=1).mean()), 100, "the flash lights the outline")
         self.assertIsNone(changed(drawn(titled, 1.3), drawn(flashed, 1.3)), "the flash is over")
+
+    def test_without_words_the_picture_is_drawn_as_if_there_were_none_and_keeps_its_flash(self):
+        lines = text.caption_lines([{"from": 0.5, "to": 2.0, "text": "watch this now"}])
+        band = [layouts.CAPTIONS[1], layouts.CAPTIONS[3]]
+        flash = {"kind": "flash", "at": 1.0, "word": None, "centre": [540, 960]}
+        word = {"kind": "word", "at": 1.0, "word": "POW", "centre": [540, 960]}
+        bare = state("card", hit=[flash])
+        full = state("card", title=[TITLE], captions=[{"lines": lines, "band": band}], hit=[flash, word])
+        for t in (1.0, 1.4):
+            self.assertIsNone(changed(drawn(bare, t), drawn(full, t, words=False)), "at %s s" % t)
+        self.assertIsNotNone(changed(drawn(bare, 1.4), drawn(full, 1.4)), "with words they are drawn")
+        self.assertIsNotNone(changed(drawn(state("card"), 1.0), drawn(full, 1.0, words=False)), "the flash stays")
 
     def test_the_camera_moves_the_picture_and_the_words_hold_still(self):
         titled = state("card", title=[ON_CARD])
@@ -517,6 +530,71 @@ def apart(a, b):
     """The mean difference of two grey frames, sampled."""
     picks = range(0, len(a), 997)
     return sum(abs(a[i] - b[i]) for i in picks) / len(picks)
+
+
+@unittest.skipUnless(FFMPEG and shutil.which("ffprobe") and HAS_NUMPY, "needs ffmpeg, ffprobe and numpy")
+class Base(unittest.TestCase):
+    """The page's video of a 3 s card clip with a title and captions: made once, without the words."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.work, recording.WORK = recording.WORK, os.path.join(cls.tmp, "work")
+        path = os.path.join(cls.tmp, "stream.mp4")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", MOVING, "-f", "lavfi", "-i",
+                        "sine=frequency=440:sample_rate=48000:duration=6", "-af", "volume=-20dB", "-c:v", "libx264",
+                        "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", path], check=True)
+        cls.rec = recording.probe(path)
+        lines = text.caption_lines([{"from": 0.2, "to": 2.8, "text": "watch this now"}])
+        p = project.Project([{"do": "clip", "moment": 1, "pieces": [[0.5, 2.0], [3.0, 4.5]],
+                              "layout": layouts.make("card", (640, 360), [560, 280, 60, 60])},
+                             {"do": "title", "text": "Boss down", "start": 0.2, "end": 2.8, "place": "top",
+                              "box": layouts.TOP, "key": None},
+                             {"do": "captions", "lines": lines, "band": [layouts.CAPTIONS[1], layouts.CAPTIONS[3]]}])
+        cls.state = p.state()
+        cls.made = render.base(cls.rec, cls.state)
+
+    @classmethod
+    def tearDownClass(cls):
+        recording.WORK = cls.work
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def frame(self, path, n):
+        import numpy as np
+        w, h = render.BASE_SIZE
+        raw = subprocess.run([FFMPEG, "-v", "error", "-i", path, "-vf", "select='eq(n\\,%d)'" % n, "-fps_mode",
+                              "passthrough", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                             capture_output=True, check=True).stdout
+        return np.frombuffer(raw, np.uint8).reshape(h, w, 3).astype(int)
+
+    def test_the_page_video_is_small_at_30_fps_with_sound_and_without_the_words(self):
+        streams = probe(self.made)
+        video = streams["video"]
+        self.assertEqual((video["width"], video["height"], video["r_frame_rate"], int(video["nb_frames"])),
+                         (540, 960, "30/1", 90))
+        self.assertIn("audio", streams, "it plays with its sound")
+        worded = render.export(self.rec, self.state, os.path.join(self.tmp, "worded.mp4"), size=render.BASE_SIZE,
+                               preset=render.BASE_PRESET, crf=render.BASE_CRF)
+        a, b = self.frame(self.made, 30), self.frame(worded, 30)
+        x, y, w, h = [v // 2 for v in layouts.TOP]
+        self.assertGreater(abs(a - b)[y:y + h, x:x + w].max(), 100, "the title is not in it")
+        cy, ch = layouts.CAPTIONS[1] // 2, layouts.CAPTIONS[3] // 2
+        self.assertGreater(abs(a - b)[cy:cy + ch].max(), 100, "nor the captions")
+        rest = abs(a - b).max(axis=2)
+        rest[y:y + h, x:x + w] = 0
+        rest[cy:cy + ch] = 0
+        self.assertLess(rest.mean(), 3.0, "and the rest of the picture is the same (both are lossy: measured 1.2)")
+
+    def test_it_is_made_once_and_again_only_when_the_picture_changes(self):
+        with mock.patch.object(render.subprocess, "Popen", wraps=subprocess.Popen) as popen, \
+                mock.patch.object(render.subprocess, "run", wraps=subprocess.run) as run:
+            self.assertEqual(render.base(self.rec, self.state), self.made)
+            fixed = dict(self.state, titles=[dict(self.state["titles"][0], text="Boss beaten")],
+                         captions=dict(self.state["captions"], pop=True))
+            self.assertEqual(render.base(self.rec, fixed), self.made, "a change to the words: the same video")
+        self.assertEqual(popen.call_count + run.call_count, 0, "nothing made")
+        flashed = dict(self.state, hits=[{"kind": "flash", "at": 1.0, "word": None, "centre": [540, 960]}])
+        self.assertNotEqual(render.base(self.rec, flashed), self.made, "a change to the picture: made again")
 
 
 @unittest.skipUnless(FFMPEG and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")

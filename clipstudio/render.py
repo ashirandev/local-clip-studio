@@ -30,6 +30,8 @@ HIT_KINDS = ("flash", "shake", "punch", "word")
 FPS, RATE = 30, 48000
 LUFS, PEAK, RANGE = -14, -1.5, 11
 PRESET, CRF = "medium", 19
+# the page's video without words (base): veryfast 24 measured as sharp as ultrafast 24 with a file 2 to 4 times smaller
+BASES, BASE_SIZE, BASE_PRESET, BASE_CRF = 1, (540, 960), "veryfast", 24
 EXPORT_SECONDS = 600
 MUSIC_LEVEL, MUSIC_LEVELS, MUSIC_DUCK = -6, (-30, 0), -12
 MUSIC_IN, MUSIC_OUT = 0.3, 1.5
@@ -133,7 +135,7 @@ def settle(part, path):
             raise
 
 
-def after_source(state, src, out, first_input, default="clean"):
+def after_source(state, src, out, first_input, default="clean", words=True):
     """(graph text from [src] to [out], extra files) in three stages:
     - source stage, on the recording's picture: the blurs (a fixed box, or a face's track of [t, x, y, w, h] points in
       clip seconds), so a blurred box stays blurred wherever the layout shows it, the card's blurred background
@@ -149,6 +151,8 @@ def after_source(state, src, out, first_input, default="clean"):
       {"pngs", "at", "box", "move", "count", "length", "size"}, see effects.flurry), then the words (titles, captions
       and big words, one ASS file), so the words hold still while the picture moves and stay on top of a sticker, a
       flurry or a glass box, then the flashes last, so a flash lights the words too.
+    With words=False the titles, captions and big words over the picture are left out (the page lays layer.words()
+    over it); the words behind the person and the flashes stay, as they are part of the picture.
     A drawing that cannot be made raises ValueError with the sentence for Muse."""
     blurs = state.get("blurs") or []
     blurs = (effects.blur_tracks([b["track"] for b in blurs if b.get("track")]) +
@@ -169,9 +173,9 @@ def after_source(state, src, out, first_input, default="clean"):
     fragments += [effects.sticker(k["png"], k["at"], k["length"], k["box"]) for k in state.get("stickers") or []]
     fragments += [effects.flurry(f["pngs"], f["at"], f["box"], f.get("move", "burst"), f.get("count", 8),
                                  f.get("length"), f.get("size", 150)) for f in state.get("flurries") or []]
-    words = ass(state, default)
-    if words:
-        fragments.append(text.burn(words, text.fonts_folder(*_styles(state, default).values())))
+    path = ass(state, default) if words else None
+    if path:
+        fragments.append(text.burn(path, text.fonts_folder(*_styles(state, default).values())))
     fragments += [effects.flash(h["at"]) for h in hits if h["kind"] == "flash"]
     stage, more = effects.join(fragments, "drawn", out, first_input + len(files))
     return ";".join((seen, lay, stage)), files + more
@@ -413,7 +417,34 @@ def _mix_gain(rec, state, measured, music_measured):
     return LUFS - whole if whole > SILENT else 0.0
 
 
-def export(rec, state, out_path, on_progress=None, on_start=None, default="clean"):
+def base(rec, state, on_progress=None, on_start=None, default="clean"):
+    """The page's video: the clip without the words over the picture (layer.words() draws those), at BASE_SIZE,
+    made by export() with x264 BASE_PRESET at BASE_CRF and kept in work/bases, named by what it shows (the
+    recording, the pieces, the drawing without words, the sounds and music). A change to the words alone gives the
+    same name, so the same file comes back at once; only a change to the picture or the sound makes it again.
+    Measured 10-28 on four 45 s clips (game, talk, explain card, montage): 8.5 to 16.5 s to make it, about what the
+    finished export takes, since the drawing at 1080x1920 is the cost, not the encoder (SSIM 0.97 to 0.995 against the
+    full-size picture)."""
+    clip = state["clip"]
+    if not clip:
+        raise NotDrawn("There is no clip yet, so there is nothing to make.")
+    try:
+        drawn, files = after_source(state, "src", "fin", len(clip["pieces"]), default, words=False)
+    except ValueError as e:
+        raise NotDrawn(str(e))
+    key = hashlib.sha1(json.dumps([BASES, rec["path"], rec["size"], rec["mtime"], clip["pieces"], drawn, files,
+                                   state.get("music"), state.get("sounds"), state.get("speech"), BASE_SIZE,
+                                   BASE_PRESET, BASE_CRF], ensure_ascii=False, sort_keys=True, default=str)
+                       .encode("utf-8")).hexdigest()[:16]
+    path = os.path.join(folder("bases"), key + ".mp4")
+    if os.path.isfile(path):
+        return path
+    return export(rec, state, path, on_progress, on_start, default, words=False, size=BASE_SIZE, preset=BASE_PRESET,
+                  crf=BASE_CRF)
+
+
+def export(rec, state, out_path, on_progress=None, on_start=None, default="clean", words=True, size=None,
+           preset=PRESET, crf=CRF):
     """Makes the finished clip at out_path and returns out_path once the file is there: H.264 and AAC, 30 fps,
     1080x1920, the sound at -14 LUFS, the index at the front of the file so it plays while it downloads. The pieces
     are joined, then drawn by the same stages as the preview frame; the sounds (state['sounds']: {"kind", "at",
@@ -421,7 +452,8 @@ def export(rec, state, out_path, on_progress=None, on_start=None, default="clean
     someone speaks, state['speech']: [[start, end]] in clip seconds) are added to the levelled sound. The file is
     written next to out_path and only replaces it when FFmpeg has finished. on_progress(seconds done) follows FFmpeg;
     on_start(stop) is given a function that ends FFmpeg at once, after which export raises Stopped and leaves no
-    file."""
+    file. words=False leaves the words over the picture out (see after_source), size (w, h) scales the finished
+    frame down to that size, and preset / crf are x264's: base() uses all three for the page's video."""
     clip = state["clip"]
     if not clip:
         raise NotDrawn("There is no clip yet, so there is nothing to make.")
@@ -429,7 +461,9 @@ def export(rec, state, out_path, on_progress=None, on_start=None, default="clean
     count = len(pieces)
     sound = rec.get("sound_tracks")
     try:
-        drawn, files = after_source(state, "src", "fin", count, default)
+        drawn, files = after_source(state, "src", "full" if size else "fin", count, default, words)
+        if size:
+            drawn += ";[full]scale=%d:%d:flags=area[fin]" % tuple(size)
         music = _music(state)
         added = bool(music or state.get("sounds"))
         music_measured = music_loudness(music, length) if music else None
@@ -459,7 +493,7 @@ def export(rec, state, out_path, on_progress=None, on_start=None, default="clean
     if music:
         cmd += _music_input(music)
     cmd += ["-/filter_complex", script, "-map", "[fin]"] + (["-map", "[snd]"] if sound or added else []) + [
-        "-t", "%.3f" % length, "-c:v", "libx264", "-preset", PRESET, "-crf", str(CRF), "-pix_fmt", "yuv420p",
+        "-t", "%.3f" % length, "-c:v", "libx264", "-preset", preset, "-crf", str(crf), "-pix_fmt", "yuv420p",
         "-r", str(FPS), "-c:a", "aac", "-b:a", "192k", "-ar", str(RATE), "-movflags", "+faststart", "-f", "mp4",
         part]
     stopped = threading.Event()
