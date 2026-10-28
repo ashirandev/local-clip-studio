@@ -4,370 +4,423 @@
   "group": "Layout",
   "name": "Card layout",
   "says": "Your screen or game sits as a card across the middle, your face in a circle above it, and the captions between them, so nothing covers the picture.",
-  "ask": "Put the game in the middle and my face on top."
+  "ask": "Put the game in the middle and my face on top.",
+  "show": "card"
  },
  {
   "tool": "make_clip",
   "group": "Layout",
   "name": "Stacked layout",
   "says": "Your face on top and the game or screen below it, for a stream where your reaction matters as much as the game.",
-  "ask": "Show my face on top and the game below it."
+  "ask": "Show my face on top and the game below it.",
+  "show": "stack"
  },
  {
   "tool": "make_clip",
   "group": "Layout",
   "name": "Full face",
   "says": "Your face fills the whole frame, for a story or a sit-down talk.",
-  "ask": "Make it just me talking, full screen."
+  "ask": "Make it just me talking, full screen.",
+  "show": "face"
  },
  {
   "tool": "make_clip",
   "group": "Layout",
   "name": "Follow the subject",
   "says": "One part of the picture fills the frame, such as the product in your hand or the action.",
-  "ask": "Keep the product in the middle of the frame."
+  "ask": "Keep the product in the middle of the frame.",
+  "show": "subject"
  },
  {
   "tool": "move_part",
   "group": "Layout",
   "name": "Move a part",
   "says": "Puts the face circle, the card or another part exactly where you want it, and says what a phone would cover there.",
-  "ask": "Move my face circle to the bottom right."
+  "ask": "Move my face circle to the bottom right.",
+  "show": "move"
  },
  {
   "tool": "set_style",
-  "group": "Look of the words",
+  "group": "Text and titles",
   "name": "Clean words",
   "says": "Clear white letters with a thin dark outline that read on any picture.",
-  "ask": "Use simple, clean text."
+  "ask": "Use simple, clean text.",
+  "show": "style-clean"
  },
  {
   "tool": "set_style",
-  "group": "Look of the words",
+  "group": "Text and titles",
   "name": "Bold pop words",
   "says": "Bold letters with a black outline and a shadow that stand out on busy game footage.",
-  "ask": "Make the words bold so they pop on the game."
+  "ask": "Make the words bold so they pop on the game.",
+  "show": "style-pop"
  },
  {
   "tool": "set_style",
-  "group": "Look of the words",
+  "group": "Text and titles",
   "name": "Sticker words",
   "says": "Dark letters on a white box, like a sticker on the clip.",
-  "ask": "Put the words on white boxes like stickers."
+  "ask": "Put the words on white boxes like stickers.",
+  "show": "style-sticker"
  },
  {
   "tool": "set_style",
-  "group": "Look of the words",
+  "group": "Text and titles",
   "name": "Glowing script",
   "says": "Handwritten-style letters with a warm orange glow, for the one word that matters.",
-  "ask": "Make the title glow."
+  "ask": "Make the title glow.",
+  "show": "style-glow"
  },
  {
   "tool": "set_style",
-  "group": "Look of the words",
+  "group": "Text and titles",
   "name": "3D words",
   "says": "Heavy white letters with a deep orange edge and shadow, so they look raised off the clip.",
-  "ask": "Make the title look 3D."
+  "ask": "Make the title look 3D.",
+  "show": "style-3d"
  },
  {
   "tool": "set_style",
-  "group": "Look of the words",
+  "group": "Text and titles",
   "name": "Classic italic",
   "says": "Elegant serif italic letters for short, calm words.",
-  "ask": "Use an elegant italic font for the title."
+  "ask": "Use an elegant italic font for the title.",
+  "show": "style-classic"
  },
  {
   "tool": "set_style",
-  "group": "Look of the words",
+  "group": "Text and titles",
   "name": "Your font and colours",
   "says": "A font from the studio or from your computer, and your own colours; a colour that would be hard to read gets an outline that makes it readable.",
-  "ask": "Use Kanit for the captions and make the title yellow."
+  "ask": "Use Kanit for the captions and make the title yellow.",
+  "show": "style-font"
  },
  {
   "tool": "add_title",
-  "group": "Look of the words",
+  "group": "Text and titles",
   "name": "Title on screen",
   "says": "Puts your words on screen for as long as you say, measured as they will be drawn, never over a face or where a phone covers the clip.",
-  "ask": "Put 'Boss down' at the top for the first 3 seconds."
+  "ask": "Put 'Boss down' at the top for the first 3 seconds.",
+  "show": "title"
  },
  {
   "tool": "add_title",
-  "group": "The person",
+  "group": "Cut-out",
   "name": "Words behind you",
   "says": "The title passes behind your head and body, so you stand in front of the words, and enough of them stays readable.",
-  "ask": "Put the title behind me."
+  "ask": "Put the title behind me.",
+  "show": "behind"
  },
  {
   "tool": "add_captions",
   "group": "Captions",
   "name": "Plain captions",
   "says": "Captions of what was said, a few words a line, with every number exactly as said, so the eye stays on the picture.",
-  "ask": "Add captions."
+  "ask": "Add captions.",
+  "show": "cap-plain"
  },
  {
   "tool": "add_captions",
   "group": "Captions",
   "name": "Lit-up captions",
   "says": "Each word lights up in colour at the moment it is said, like karaoke.",
-  "ask": "Make each word light up as I say it."
+  "ask": "Make each word light up as I say it.",
+  "show": "cap-lit"
  },
  {
   "tool": "add_captions",
   "group": "Captions",
   "name": "Pop-in captions",
   "says": "Each word pops in at its place as it is said and stays, so the line builds up with the speech.",
-  "ask": "Make the captions pop in word by word."
+  "ask": "Make the captions pop in word by word.",
+  "show": "cap-pop"
  },
  {
   "tool": "add_hit",
   "group": "Effects",
   "name": "White flash",
   "says": "A short white flash on the moment something lands.",
-  "ask": "Flash the screen when the boss goes down."
+  "ask": "Flash the screen when the boss goes down.",
+  "show": "flash"
  },
  {
   "tool": "add_hit",
   "group": "Effects",
   "name": "Screen shake",
   "says": "The picture shakes for a moment and settles, like an impact.",
-  "ask": "Shake the screen on the hit."
+  "ask": "Shake the screen on the hit.",
+  "show": "shake"
  },
  {
   "tool": "add_hit",
   "group": "Effects",
   "name": "Quick punch-in",
   "says": "A quick zoom in and back out, to punch a reaction.",
-  "ask": "Zoom in fast on my reaction."
+  "ask": "Zoom in fast on my reaction.",
+  "show": "punch"
  },
  {
   "tool": "add_hit",
   "group": "Effects",
   "name": "Big word",
   "says": "A big word such as POW pops in on the moment, grows past its size and settles, then fades.",
-  "ask": "Put a big WOW when I win."
+  "ask": "Put a big WOW when I win.",
+  "show": "word"
  },
  {
   "tool": "slow_push",
   "group": "Effects",
   "name": "Slow push in",
   "says": "The picture moves slowly closer, like a camera pushing in, for the build-up before the peak.",
-  "ask": "Slowly zoom in before the big moment."
+  "ask": "Slowly zoom in before the big moment.",
+  "show": "push"
  },
  {
   "tool": "add_sticker",
   "group": "Effects",
   "name": "Emoji sticker",
   "says": "A 3D emoji pops in, holds and fades out, such as fire on the peak or a money bag on a price.",
-  "ask": "Add a fire emoji when I win."
+  "ask": "Add a fire emoji when I win.",
+  "show": "sticker"
  },
  {
   "tool": "add_glass",
   "group": "Effects",
   "name": "Frosted glass box",
   "says": "A rounded frosted-glass panel, light or dark, for a title, a price or a list to stand on so the words read over a busy picture.",
-  "ask": "Put the price on a glass box."
+  "ask": "Put the price on a glass box.",
+  "show": "glass"
  },
  {
   "tool": "set_look",
   "group": "Colour",
   "name": "Vivid colour",
   "says": "More contrast and richer greens and blues, with skin and reds kept as they are: for games and flat footage.",
-  "ask": "Make the colours more vivid."
+  "ask": "Make the colours more vivid.",
+  "show": "look-vivid"
  },
  {
   "tool": "set_look",
   "group": "Colour",
   "name": "Warm colour",
   "says": "Warmer middle tones with black and white kept, so a white product stays white: for faces, food and products.",
-  "ask": "Make it look warmer."
+  "ask": "Make it look warmer.",
+  "show": "look-warm"
  },
  {
   "tool": "set_look",
   "group": "Colour",
   "name": "Soft film look",
   "says": "Soft blacks and whites and calmer colour, for a quiet, calm clip.",
-  "ask": "Give it a soft film look."
+  "ask": "Give it a soft film look.",
+  "show": "look-film"
  },
  {
   "tool": "cut_out",
-  "group": "The person",
+  "group": "Cut-out",
   "name": "Black and white world",
   "says": "The footage around you turns black and white while you keep your colour; Meta's SAM 3.1 finds you frame by frame on this computer.",
-  "ask": "Make everything black and white except me for the last 5 seconds."
+  "ask": "Make everything black and white except me for the last 5 seconds.",
+  "show": "cut-bw"
  },
  {
   "tool": "cut_out",
-  "group": "The person",
+  "group": "Cut-out",
   "name": "Outline around you",
   "says": "A white edge follows your outline as you move, found by SAM 3.1 on this computer.",
-  "ask": "Put a white outline around me when I laugh."
+  "ask": "Put a white outline around me when I laugh.",
+  "show": "cut-outline"
  },
  {
   "tool": "add_sound",
   "group": "Sound",
   "name": "Hit sounds",
   "says": "A short sound on a moment: a deep thump, a whoosh, a pop or a small ding, used only on the hits that matter.",
-  "ask": "Add a whoosh on the flash."
+  "ask": "Add a whoosh on the flash.",
+  "show": "sound"
  },
  {
   "tool": "set_music",
   "group": "Sound",
   "name": "Your music",
   "says": "Your own music under the clip; it goes down while someone speaks, loops if short, and fades in and out.",
-  "ask": "Put my song under the clip, quietly."
+  "ask": "Put my song under the clip, quietly.",
+  "show": "music"
  },
  {
   "tool": "blur_box",
-  "group": "Privacy",
+  "group": "Blur",
   "name": "Blur a box",
   "says": "Blurs one part of the picture so nothing in it can be read, such as the chat with viewers' names or a phone number.",
-  "ask": "Blur the chat box."
+  "ask": "Blur the chat box.",
+  "show": "blur-box"
  },
  {
   "tool": "find_recordings",
-  "group": "Finding the moments",
+  "group": "Clips",
   "name": "Find your videos",
   "says": "Lists the recordings on this computer, newest first, and finds one by a word in its name, folder or day.",
-  "ask": "Find the stream I recorded on Monday."
+  "ask": "Find the stream I recorded on Monday.",
+  "show": "find"
  },
  {
   "tool": "open_recording",
-  "group": "Finding the moments",
+  "group": "Clips",
   "name": "Open a long video",
   "says": "Opens one recording, such as a two-hour stream or a selling live, and reads its length, picture and sound.",
-  "ask": "Open my newest stream."
+  "ask": "Open my newest stream.",
+  "show": "open"
  },
  {
   "tool": "load_recipe",
-  "group": "Finding the moments",
+  "group": "Clips",
   "name": "Knows the kind of video",
   "says": "Muse picks the way to cut it for the kind of video it is: a tutorial, a game stream, a talk, a product review or trip clips. Its guesses show as buttons, so you change one with a tap.",
-  "ask": "This is a product review."
+  "ask": "This is a product review.",
+  "show": "recipe"
  },
  {
   "tool": "map_recording",
-  "group": "Finding the moments",
+  "group": "Clips",
   "name": "Map the whole video",
   "says": "Measures every second of a long recording for loud moments and picture changes, so Muse knows where to look first. About half a minute for each hour of video, and only once.",
-  "ask": "Find the best moments in this two-hour stream."
+  "ask": "Find the best moments in this two-hour stream.",
+  "show": "map"
  },
  {
   "tool": "look_at_piece",
-  "group": "Finding the moments",
+  "group": "Clips",
   "name": "Watch and listen",
   "says": "Muse looks at pictures from a stretch and reads what is said there before it chooses.",
-  "ask": "Look around 1:20:00, where I won the round."
+  "ask": "Look around 1:20:00, where I won the round.",
+  "show": "watch"
  },
  {
   "tool": "propose_moments",
-  "group": "Finding the moments",
+  "group": "Clips",
   "name": "Suggest moments",
   "says": "Shows the best moments as cards, each with Muse's reason, a picture, what is said and a rough video. Tap another card to make that one instead.",
-  "ask": "Show me the funniest moments."
+  "ask": "Show me the funniest moments.",
+  "show": "moments"
  },
  {
   "tool": "set_plan",
-  "group": "How Muse works",
+  "group": "Clips",
   "name": "A plan you can see",
   "says": "For a bigger request Muse writes a short plan first and ticks each step as it works through it.",
-  "ask": "Make three clips with English subtitles."
+  "ask": "Make three clips with English subtitles.",
+  "show": "plan"
  },
  {
   "tool": "undo",
-  "group": "How Muse works",
+  "group": "Check and post",
   "name": "Undo",
   "says": "Takes the last change to the clip back. The Undo button under the clip does the same.",
-  "ask": "Undo that."
+  "ask": "Undo that.",
+  "show": "undo"
  },
  {
   "tool": "make_clips",
-  "group": "Making clips",
+  "group": "Clips",
   "name": "Many clips at once",
   "says": "Makes a clip from each moment in one go, each with its captions, title, post text and checks, and says which are ready and why any is not.",
-  "ask": "Make a clip of every product I sold."
+  "ask": "Make a clip of every product I sold.",
+  "show": "many"
  },
  {
   "tool": "open_clips",
-  "group": "Making clips",
+  "group": "Clips",
   "name": "Clips from a folder",
   "says": "Opens every short video in one folder, such as a day out shot on your phone, to make one clip from them.",
-  "ask": "Make one clip from my Japan folder."
+  "ask": "Make one clip from my Japan folder.",
+  "show": "folder"
  },
  {
   "tool": "arrange_clips",
-  "group": "Making clips",
+  "group": "Clips",
   "name": "Tell it as a story",
   "says": "Puts the short videos in the order that tells the story best, keeps the best seconds of each, says why, and says why any was left out.",
-  "ask": "Put my trip videos in a good order."
+  "ask": "Put my trip videos in a good order.",
+  "show": "story"
  },
  {
   "tool": "change_shot",
-  "group": "Making clips",
+  "group": "Layout",
   "name": "Who is on screen",
   "says": "In a talk between people, shows one person or everyone for a stretch, such as when someone reacts.",
-  "ask": "Show her face when she laughs."
+  "ask": "Show her face when she laughs.",
+  "show": "shot"
  },
  {
   "tool": "list_fonts",
-  "group": "Look of the words",
+  "group": "Text and titles",
   "name": "Fonts that fit",
   "says": "Lists the fonts that can write every letter of your words, Thai included, and whether each is free to use in a video you post.",
-  "ask": "Which fonts can write Thai?"
+  "ask": "Which fonts can write Thai?",
+  "show": "fonts"
  },
  {
   "tool": "remove_title",
-  "group": "Look of the words",
+  "group": "Text and titles",
   "name": "Take a title off",
   "says": "Takes a title off the clip by its words.",
-  "ask": "Take the title off."
+  "ask": "Take the title off.",
+  "show": "untitle"
  },
  {
   "tool": "show_people",
-  "group": "Privacy",
+  "group": "Blur",
   "name": "Find someone in the clip",
   "says": "Shows the clip with a number on every face, so you can say who to blur by where they stand.",
-  "ask": "Blur the man in white at 12 seconds."
+  "ask": "Blur the man in white at 12 seconds.",
+  "show": "people"
  },
  {
   "tool": "decide_people",
-  "group": "Privacy",
+  "group": "Blur",
   "name": "Blur or keep people",
   "says": "You decide who is blurred and who is kept; a blurred face is followed as it moves. A clip with someone not yet decided is not made into a video.",
-  "ask": "Blur the people behind me."
+  "ask": "Blur the people behind me.",
+  "show": "blur-faces"
  },
  {
   "tool": "render_clip",
-  "group": "Checks and posting",
+  "group": "Check and post",
   "name": "Make the video",
   "says": "Makes the finished vertical video, 1080 by 1920, on your computer.",
-  "ask": "Make the video."
+  "ask": "Make the video.",
+  "show": "render"
  },
  {
   "tool": "check_clip",
-  "group": "Checks and posting",
+  "group": "Check and post",
   "name": "Checks the facts",
   "says": "Checks the finished video for what a program can prove: captions are words that were said, numbers on screen were said, no viewer's name or private line can be read, it does not start black or silent, and it fits a Reel. The program checks facts; you keep the taste.",
-  "ask": "Check the clip before I post it."
+  "ask": "Check the clip before I post it.",
+  "show": "check"
  },
  {
   "tool": "hand_over",
-  "group": "Checks and posting",
+  "group": "Check and post",
   "name": "Ready to post",
   "says": "Gives you the video with a title, post text and hashtags, a Copy all button and a download.",
-  "ask": "Write the post text for TikTok."
+  "ask": "Write the post text for TikTok.",
+  "show": "post"
  },
  {
   "tool": "save_channel_look",
   "group": "Channel",
   "name": "Your channel's look",
   "says": "Keeps this clip's text style, colour, captions, title spot and your channel's name, so every new clip starts in it. Save it under Channel beside the clip, or ask Muse.",
-  "ask": "Save this look for my channel Siney Society."
+  "ask": "Save this look for my channel Siney Society.",
+  "show": "channel"
  },
  {
   "tool": "use_channel_look",
   "group": "Channel",
   "name": "Switch channel",
   "says": "Puts one of your saved channel looks on the clip, or none.",
-  "ask": "Use my Siney Society look."
+  "ask": "Use my Siney Society look.",
+  "show": "channel-switch"
  }
 ]

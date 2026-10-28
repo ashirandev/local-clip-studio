@@ -4273,16 +4273,18 @@ TOOLS = {t.name: t for t in [
 ]}
 SCHEMAS = [t.schema() for t in TOOLS.values()]
 FEATURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "features.json")
-FEATURE_GROUPS = ("Finding the moments", "Making clips", "Layout", "Look of the words", "Captions", "Effects",
-                  "Colour", "The person", "Sound", "Privacy", "Channel", "Checks and posting", "How Muse works")
+FEATURE_GROUPS = ("Clips", "Layout", "Captions", "Text and titles", "Effects", "Colour", "Blur", "Cut-out", "Sound",
+                  "Channel", "Check and post")
 
 
 def features():
     """Everything the studio can do, for the page's Features menu: [{"name": a group, "features": [{"tool", "name",
-    "says", "ask"}]}], groups in FEATURE_GROUPS order, from features.json, which has a line or more for every tool
-    Muse has (a test holds it to TOOLS, so the menu cannot fall behind the tools)."""
+    "says", "ask", "show"}]}], groups by the kind of work in FEATURE_GROUPS order, from features.json, which has a
+    line or more for every tool Muse has (a test holds it to TOOLS, so the menu cannot fall behind the tools). show
+    names the small moving picture the page draws for it, so a person sees what it does before reading (Tarm 10-28:
+    "people use their eyes first")."""
     with open(FEATURES, encoding="utf-8") as f:
         rows = json.load(f)
     groups = FEATURE_GROUPS + tuple(sorted({r["group"] for r in rows} - set(FEATURE_GROUPS)))
-    return [{"name": g, "features": [{k: r[k] for k in ("tool", "name", "says", "ask")} for r in rows
+    return [{"name": g, "features": [{k: r[k] for k in ("tool", "name", "says", "ask", "show")} for r in rows
                                      if r["group"] == g]} for g in groups if any(r["group"] == g for r in rows)]

@@ -1299,28 +1299,124 @@ newButton.addEventListener("click", async () => {
 const features = document.getElementById("features");
 const featuresList = document.getElementById("featuresList");
 
+const MINI = {
+  find: { parts: "rows fx", fx: "🔎" },
+  open: { parts: "scr fx", fx: "▶️" },
+  recipe: { parts: "rows fx", fx: "🏷️" },
+  map: { parts: "wave fx", fx: "📈" },
+  watch: { parts: "scr fx", fx: "👀" },
+  moments: { parts: "wave fx", fx: "⭐" },
+  plan: { parts: "rows" },
+  many: { parts: "reel" },
+  folder: { parts: "reel fx", fx: "📁" },
+  story: { parts: "reel" },
+  card: { parts: "scr ring cap" },
+  stack: { parts: "ring scr" },
+  face: { parts: "who cap" },
+  subject: { parts: "box fx", fx: "👟" },
+  move: { parts: "scr ring" },
+  shot: { parts: "two who" },
+  "cap-plain": { parts: "who cap" },
+  "cap-lit": { parts: "who cap" },
+  "cap-pop": { parts: "who cap" },
+  "style-clean": { parts: "who ttl" },
+  "style-pop": { parts: "who ttl" },
+  "style-sticker": { parts: "who ttl" },
+  "style-glow": { parts: "who ttl" },
+  "style-3d": { parts: "who ttl" },
+  "style-classic": { parts: "who ttl" },
+  "style-font": { parts: "who ttl cap" },
+  title: { parts: "who ttl" },
+  fonts: { parts: "ttl", ttl: "Aa กข" },
+  untitle: { parts: "who ttl" },
+  flash: { parts: "who" },
+  shake: { parts: "who" },
+  punch: { parts: "who" },
+  word: { parts: "who fx", fx: "WOW" },
+  push: { parts: "who" },
+  sticker: { parts: "who fx", fx: "🔥" },
+  glass: { parts: "who box ttl", ttl: "฿990" },
+  "look-vivid": { parts: "who" },
+  "look-warm": { parts: "who" },
+  "look-film": { parts: "who" },
+  behind: { parts: "ttl who", ttl: "WOW" },
+  "cut-bw": { parts: "who" },
+  "cut-outline": { parts: "who" },
+  sound: { parts: "who wave fx", fx: "💥" },
+  music: { parts: "who wave fx", fx: "🎵" },
+  "blur-box": { parts: "rows box" },
+  people: { parts: "two who fx", fx: "2" },
+  "blur-faces": { parts: "two who" },
+  channel: { parts: "who tag" },
+  "channel-switch": { parts: "who tag", tag: "@sineysociety" },
+  render: { parts: "scr bar" },
+  check: { parts: "rows" },
+  post: { parts: "tag fx", tag: "#fyp #game", fx: "📋" },
+  undo: { parts: "who ttl fx", fx: "↶" },
+};
+
+function mini(show, said) {
+  const m = MINI[show] || { parts: "fx", fx: "✨" };
+  const box = el("div", "mini");
+  box.dataset.show = show;
+  box.setAttribute("role", "img");
+  box.setAttribute("aria-label", said);
+  box.append(el("i", "sky"));
+  m.parts.split(" ").forEach((p) => {
+    if (p === "cap") {
+      const c = el("b", "cap");
+      ["we", "did", "it"].forEach((w, k) => c.append(k ? " " : "", el("span", null, w)));
+      box.append(c);
+    } else if (p === "rows" || p === "wave" || p === "reel") {
+      const r = el("i", p);
+      for (let k = 0; k < (p === "wave" ? 9 : 3); k += 1) r.append(el("i"));
+      box.append(r);
+    } else {
+      const words = { ttl: m.ttl || "Boss down", fx: m.fx, tag: m.tag || "@yourchannel" }[p];
+      box.append(el(words === undefined ? "i" : "b", p, words));
+    }
+  });
+  return box;
+}
+
+function featureTile(f) {
+  const ask = el("button", "chip feature-ask", "Try");
+  ask.type = "button";
+  ask.title = f.ask;
+  ask.setAttribute("aria-label", "Try: " + f.ask);
+  ask.addEventListener("click", () => {
+    text.value = f.ask;
+    features.open = false;
+    text.focus();
+  });
+  const item = el("div", "feature");
+  item.append(mini(f.show, f.name + ": " + f.says), el("b", null, f.name), ask);
+  return item;
+}
+
 features.addEventListener("toggle", async () => {
   if (!features.open || features.dataset.loaded) return;
   featuresList.replaceChildren(el("p", "earlier-empty", "Looking…"));
   try {
     const r = await fetch("/api/features", { cache: "no-store" });
     const d = await r.json();
-    featuresList.textContent = "";
+    const tabs = el("div", "feature-tabs");
+    tabs.setAttribute("role", "group");
+    tabs.setAttribute("aria-label", "Kinds of work");
+    const grid = el("div", "feature-grid");
+    const pick = (g, chip) => {
+      tabs.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", String(c === chip)));
+      grid.replaceChildren(...g.features.map(featureTile));
+      featuresList.scrollTop = 0;
+    };
     d.groups.forEach((g) => {
-      featuresList.appendChild(el("p", "pop-head", g.name));
-      g.features.forEach((f) => {
-        const ask = el("button", "chip feature-ask", "Try: " + f.ask);
-        ask.type = "button";
-        ask.addEventListener("click", () => {
-          text.value = f.ask;
-          features.open = false;
-          text.focus();
-        });
-        const item = el("div", "feature");
-        item.append(el("b", null, f.name), el("p", "feature-says", f.says), ask);
-        featuresList.appendChild(item);
-      });
+      const chip = el("button", "chip", g.name);
+      chip.type = "button";
+      chip.addEventListener("click", () => pick(g, chip));
+      tabs.append(chip);
     });
+    featuresList.replaceChildren(tabs, grid);
+    if (d.groups.length) pick(d.groups[0], tabs.firstChild);
     features.dataset.loaded = "1";
   } catch (err) {
     featuresList.replaceChildren(el("p", "earlier-empty", "The studio is not answering."));
