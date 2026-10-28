@@ -254,6 +254,8 @@ class Chat:
             return None, hand.entry
         except Refused as e:
             said = str(e)
+        except Exception as e:
+            said = "The studio broke while trying that (%s)." % e
         return _first_sentence(said), None
 
     def panel(self):

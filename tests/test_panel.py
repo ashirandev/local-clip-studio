@@ -173,6 +173,22 @@ class Panel(Clip):
         self.assertEqual(self.chat.project.entries, had)
         self.assertEqual(self.chat.told, [])
 
+    def test_a_tool_that_breaks_is_a_sentence_and_the_panel_still_shows(self):
+        self.make()
+
+        def broken(job, why, look):
+            raise KeyError("look")
+
+        had = tools.TOOLS["set_look"].run
+        tools.TOOLS["set_look"].run = broken
+        try:
+            self.assertEqual(self.chat.set_look("warm"), "The studio broke while trying that ('look').")
+            looks = self.chat.panel()["looks"]
+        finally:
+            tools.TOOLS["set_look"].run = had
+        self.assertEqual([c["why"] for c in looks][1:], ["The studio broke while trying that ('look')."] * 3)
+        self.assertEqual(self.chat.told, [])
+
     def test_before_there_is_a_clip_a_tap_is_told_there_is_none(self):
         for tap in (lambda: self.chat.set_captions("lit"), lambda: self.chat.set_style("pop"),
                     lambda: self.chat.set_look("warm"), lambda: self.chat.make_again(),
