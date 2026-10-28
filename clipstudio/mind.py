@@ -1,12 +1,14 @@
 """The mind: one way to ask Muse a question, whichever Muse it is.
 
-Two minds, one request format (the OpenAI chat API):
+Three minds, one request format (the OpenAI chat API):
 - local: Muse Glimmer, Meta's open-weight model, on this computer through llama.cpp's own server (llama-server).
   The address is one setting, LCS_MIND_URL, so any server that runs an eligible Muse model works. Each question names
   the model, LCS_MIND_MODEL (muse-glimmer): a router llama-server sends it to that model, and one that serves a
   single model ignores the name.
 - spark: Muse Spark on Meta's hosted API, with the person's own key in META_API_KEY. The key is read from the
   environment when a question is asked and is never written anywhere.
+- modal: Muse Spark Open, the open-weight Spark, on a Modal shared endpoint of the person's own workspace, with their
+  proxy token in MODAL_KEY and MODAL_SECRET (LCS_MODAL_MODEL names the endpoint's model).
 
 Every answer is streamed, so Muse's thinking can be shown while it is written, and a question in flight can be
 cancelled at once: Asking.cancel() shuts the connection, and llama-server drops the work ("stop: cancel task" in its
@@ -14,6 +16,7 @@ log). Every answer comes back with its engine numbers: how much of the question 
 from the question before, and how fast it read and wrote (llama-server's own timings; the hosted API gives token
 counts).
 """
+import hashlib
 import http.client
 import io
 import json
@@ -29,6 +32,14 @@ import urllib.request
 TIMEOUT = 900
 LOAD_SECONDS = 120
 CHAT_TEMPERATURE = 0.7
+PRICES = {
+    "muse-spark-1.3": (1.25, 0.15, 4.25),
+    "muse-wonder-1.0": (4.00, 0.20, 20.00),
+    "meta-models/Muse-Spark-Open-816B-A42B": (1.25, 0.15, 4.25),
+}
+HOSTED_ROOM = 16384
+PRICED = ("Meta's price list (dev.meta.ai/docs/pricing-rate-limits) and Modal's for Muse Spark Open, both read on "
+          "28 Oct 2026")
 
 
 def load_keys(named=None):
@@ -151,7 +162,25 @@ class Mind:
     def secret(self):
         return os.environ.get(self.key_env, "").strip() if self.key_env else ""
 
-    def headers(self):
+    def missing(self):
+        return ("Set %s to your own Meta API key, or name a file that holds it in LCS_KEYS, then start the studio "
+                "again." % self.key_env)
+
+    def price(self):
+        """US dollars per million tokens (read new, read from the provider's cache, written) by the provider's price
+        list; nothing for a mind on this computer, and None for a hosted model whose price the studio does not know."""
+        return PRICES.get(self.model_id) if self.key_env else (0.0, 0.0, 0.0)
+
+    def cost(self, numbers):
+        """What one answer cost in US dollars, or None when its price or its token counts are not known: never a
+        guess."""
+        price = self.price()
+        if not price or numbers["read_new"] is None or numbers["written"] is None:
+            return None
+        new, cached, written = price
+        return (numbers["read_new"] * new + (numbers["reused"] or 0) * cached + numbers["written"] * written) / 1e6
+
+    def headers(self, messages=()):
         headers = {"Content-Type": "application/json"}
         if self.key_env:
             headers["Authorization"] = "Bearer " + self.secret()
@@ -167,8 +196,7 @@ class Mind:
         """{ok, key, label, where, name} or {ok: False, ..., why} with a sentence. Never sends a question."""
         out = {"key": self.key, "label": self.label, "where": self.where, "url": self.url}
         if self.key_env and not self.secret():
-            return dict(out, ok=False, why="Set %s to your own Meta API key, or name a file that holds it in "
-                                           "LCS_KEYS, then start the studio again." % self.key_env)
+            return dict(out, ok=False, why=self.missing())
         if self.key_env:
             return dict(out, ok=True, name=self.model_id)
         try:
@@ -235,7 +263,7 @@ class Mind:
         tokens), because the thinking it wrote is not sent back.
         """
         if self.key_env and not self.secret():
-            raise MindError("Set %s to your own Meta API key to use %s." % (self.key_env, self.label))
+            raise MindError(self.missing())
         self.on_card()
         msgs = list(messages)
         if self.reasoning_line:
@@ -250,15 +278,15 @@ class Mind:
         if tools:
             body["tools"] = tools
         if max_tokens:
-            body["max_tokens"] = max_tokens
+            body["max_tokens"] = max(max_tokens, HOSTED_ROOM) if self.key_env else max_tokens
         if schema:
-            body["response_format"] = {"type": "json_schema",
-                                       "json_schema": {"name": "answer", "strict": True, "schema": schema}}
+            body["response_format"] = {"type": "json_schema", "json_schema": {
+                "name": "answer", "strict": True, "schema": _closed(schema) if self.key_env else schema}}
         asking = asking or Asking()
         text, thinking, calls, finish, tail = [], [], {}, None, {}
         t0 = time.time()
         try:
-            for chunk in asking.stream(self.url + "/chat/completions", body, self.headers()):
+            for chunk in asking.stream(self.url + "/chat/completions", body, self.headers(msgs)):
                 for key in ("timings", "usage"):
                     if chunk.get(key):
                         tail[key] = chunk[key]
@@ -289,6 +317,7 @@ class Mind:
         except (OSError, http.client.HTTPException, ValueError) as e:
             raise MindError(self.unreachable(e))
         numbers = engine(tail, time.time() - t0)
+        numbers["usd"] = self.cost(numbers)
         if finish == "length" and numbers["written"] is not None and (not max_tokens or
                                                                       numbers["written"] < max_tokens):
             asked = (numbers["read_new"] or 0) + (numbers["reused"] or 0) + numbers["written"]
@@ -307,6 +336,62 @@ class Mind:
                 "engine": numbers}
 
 
+class Shared(Mind):
+    """A model on a Modal shared endpoint. Modal's proxy token is a key and a secret joined by a dot; the model must be
+    one the workspace has made an endpoint for, or every question is refused as an unknown model; and each
+    conversation is kept on one machine (Modal-Routing-Affinity-Key), so the part it has read before is reused, which
+    Modal bills at an eighth of the price."""
+
+    def secret(self):
+        parts = [os.environ.get(name, "").strip() for name in self.key_env]
+        return ".".join(parts) if all(parts) else ""
+
+    def missing(self):
+        return ("Set %s to the key and the secret of your Modal proxy token, or name a file that holds them in "
+                "LCS_KEYS, then start the studio again." % " and ".join(self.key_env))
+
+    def headers(self, messages=()):
+        headers = Mind.headers(self)
+        if messages:
+            first = json.dumps(list(messages)[:2], sort_keys=True, ensure_ascii=False).encode("utf-8")
+            headers["Modal-Routing-Affinity-Key"] = hashlib.sha256(first).hexdigest()[:32]
+        return headers
+
+    def status(self):
+        out = {"key": self.key, "label": self.label, "where": self.where, "url": self.url}
+        if not self.secret():
+            return dict(out, ok=False, why=self.missing())
+        try:
+            got = self._call("/models")
+        except urllib.error.HTTPError as e:
+            return dict(out, ok=False, why="Modal refused the proxy token (HTTP %d). Make a new one in Modal's "
+                                           "settings and put it in your key file." % e.code)
+        except (OSError, ValueError) as e:
+            return dict(out, ok=False, why=self.unreachable(e))
+        if self.model_id not in [m.get("id", "") for m in got.get("data") or []]:
+            return dict(out, ok=False, why="Your Modal workspace has no shared endpoint for %s yet. Make one in "
+                                           "Modal's dashboard, under Endpoints." % self.model_id)
+        return dict(out, ok=True, name=self.model_id)
+
+    def unreachable(self, e):
+        return "Modal did not answer at %s (%s)." % (self.url, _reason(e))
+
+
+def _closed(schema):
+    """The schema as a hosted API's strict mode takes it: every object closed to properties it does not name, and
+    every property it names required. Meta's API refuses any other (10-28: "'additionalProperties' is required to be
+    supplied and to be false"), and every question with a schema had failed there."""
+    if isinstance(schema, list):
+        return [_closed(v) for v in schema]
+    if not isinstance(schema, dict):
+        return schema
+    out = {k: _closed(v) for k, v in schema.items()}
+    if out.get("type") == "object" and isinstance(schema.get("properties"), dict):
+        out["additionalProperties"] = False
+        out["required"] = list(schema["properties"])
+    return out
+
+
 def _full(said):
     """(tokens asked, tokens that fit) from llama-server's refusal of a question longer than its memory, else None."""
     try:
@@ -323,10 +408,14 @@ def _full(said):
 
 
 def engine(got, seconds):
-    """The engine numbers of one answer: llama-server's timings, or the usage block of a hosted API."""
+    """The engine numbers of one answer: llama-server's timings, or the usage block of a hosted API, whose prompt
+    tokens include those it served from its cache (billed at the cached price) and whose written tokens include its
+    thinking (billed as written)."""
     t, usage = got.get("timings") or {}, got.get("usage") or {}
-    return {"read_new": t.get("prompt_n", usage.get("prompt_tokens")),
-            "reused": t.get("cache_n"),
+    cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens")
+    prompt = usage.get("prompt_tokens")
+    return {"read_new": t.get("prompt_n", None if prompt is None else prompt - (cached or 0)),
+            "reused": t.get("cache_n", cached),
             "read_per_s": round(t["prompt_per_second"]) if t.get("prompt_per_second") else None,
             "written": t.get("predicted_n", usage.get("completion_tokens")),
             "write_per_s": round(t["predicted_per_second"], 1) if t.get("predicted_per_second") else None,
@@ -337,14 +426,24 @@ def _reason(e):
     return str(getattr(e, "reason", None) or e)
 
 
-MINDS = {
-    "local": Mind("local", "Muse Glimmer", os.environ.get("LCS_MIND_URL", "http://127.0.0.1:8863/v1"),
-                  model=os.environ.get("LCS_MIND_MODEL", "muse-glimmer"), reasoning_line="Reasoning strength: low",
-                  where="on this computer"),
-    "spark": Mind("spark", "Muse Spark", os.environ.get("LCS_SPARK_URL", "https://api.meta.ai/v1"),
-                  model=os.environ.get("LCS_SPARK_MODEL", "muse-spark-1.3"), key_env="META_API_KEY",
-                  where="on Meta's servers, with your own key"),
-}
+def minds():
+    """The minds as the environment sets them now: made again once the key files are read, so a setting kept in a key
+    file counts as much as one set before the studio starts."""
+    return {
+        "local": Mind("local", "Muse Glimmer", os.environ.get("LCS_MIND_URL", "http://127.0.0.1:8863/v1"),
+                      model=os.environ.get("LCS_MIND_MODEL", "muse-glimmer"), reasoning_line="Reasoning strength: low",
+                      where="on this computer"),
+        "spark": Mind("spark", "Muse Spark", os.environ.get("LCS_SPARK_URL", "https://api.meta.ai/v1"),
+                      model=os.environ.get("LCS_SPARK_MODEL", "muse-spark-1.3"), key_env="META_API_KEY",
+                      where="on Meta's servers, with your own key"),
+        "modal": Shared("modal", "Muse Spark Open",
+                        os.environ.get("LCS_MODAL_URL", "https://inference.us-west.modal.direct/v1"),
+                        model=os.environ.get("LCS_MODAL_MODEL", "meta-models/Muse-Spark-Open-816B-A42B"),
+                        key_env=("MODAL_KEY", "MODAL_SECRET"), where="on Modal's servers, with your own token"),
+    }
+
+
+MINDS = minds()
 DEFAULT = "local"
 
 

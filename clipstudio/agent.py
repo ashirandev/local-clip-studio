@@ -28,7 +28,7 @@ import threading
 import time
 import traceback
 
-from . import channels, faces, hearing, layer, maps, mind, previews, project, recording, render, text, words
+from . import channels, faces, hearing, layer, maps, mind, previews, project, recording, render, spent, text, words
 from .tools import (CAPTION_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, STYLES, TOOLS, Refused, _spoken, _subtitles,
                     _undecided, channel_entries, channel_unfit, describe, faces_at, features, look_of, look_said)
 
@@ -874,12 +874,17 @@ class Job:
         self.working(doing)
         self.started_work(asking.cancel)
         try:
-            return self.brain.ask(messages, temperature=0.2, max_tokens=hearing.FIX_TOKENS, asking=asking,
-                                  schema=schema)["text"]
+            return self.paid(self.brain.ask(messages, temperature=0.2, max_tokens=hearing.FIX_TOKENS, asking=asking,
+                                            schema=schema))["text"]
         except mind.Cancelled:
             raise hearing.Stopped()
         finally:
             self.done_working()
+
+    def paid(self, got):
+        """Writes what an answer cost into the studio's ledger (spent.py) and gives the answer back."""
+        spent.add(os.path.join(WORK, "spent.jsonl"), self.chat.id, self.n, self.brain, got["engine"])
+        return got
 
     def started_work(self, stop):
         """A tool's work that takes a while has begun: Stop ends it with stop(), at once if Stop came first."""
@@ -1005,8 +1010,9 @@ class Job:
         tries = 0
         while True:
             try:
-                return self.brain.ask(self.chat.messages, tools=SCHEMAS, temperature=AGENT_TEMPERATURE,
-                                      max_tokens=AGENT_MAX_TOKENS, on_delta=self.on_delta, asking=self.asking)
+                return self.paid(self.brain.ask(self.chat.messages, tools=SCHEMAS, temperature=AGENT_TEMPERATURE,
+                                                max_tokens=AGENT_MAX_TOKENS, on_delta=self.on_delta,
+                                                asking=self.asking))
             except mind.TooLong as e:
                 tries += 1
                 with self.chat.cond:
@@ -1063,8 +1069,8 @@ class Job:
                 return
             self.chat.spelling = asking
         try:
-            fixed, _ = words.spelled(lambda m, s: self.brain.ask(m, temperature=0.2, max_tokens=SPELL_TOKENS,
-                                                                 asking=asking, schema=s)["text"], texts)
+            fixed, _ = words.spelled(lambda m, s: self.paid(self.brain.ask(
+                m, temperature=0.2, max_tokens=SPELL_TOKENS, asking=asking, schema=s))["text"], texts)
         except (mind.Cancelled, mind.MindError):
             return
         finally:

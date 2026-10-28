@@ -4,11 +4,13 @@ Standard library only. It listens on 127.0.0.1, so the recordings it opens never
 lets a phone on the same Wi-Fi use it too; then anyone on that network can open the videos in the folders.
 Two guards hold either way: a request must name the studio by an address or "localhost" (a web page cannot reach it
 through a name it owns), and a POST must be JSON (another web page cannot send JSON here without asking first).
-- GET /api/health: the two minds and whether each can answer, whether the hearing worker is ready, and whether
+- GET /api/health: the minds and whether each can answer, whether the hearing worker is ready, and whether
   the page is on this computer
 - GET /api/chat[?id=<chat>]: the chat the page shows (or an earlier one, opened again), and whether Muse is working
 - POST /api/chat/new: a new, empty chat
 - GET /api/chats: the earlier chats, newest first
+- GET /api/spent?chat=<id>&currency=<code>: what Muse cost, in US dollars by the providers' list prices: each
+  message of the chat, the chat, today, this month, each mind; and the day's rate for the person's own money
 - POST /api/say {chat, message, mind}: the person's message. It starts a job, or cuts in on the job running now
 - POST /api/stop {chat}: stops the job running now, at once
 - GET /api/recordings: the newest recordings, to open with one tap
@@ -54,7 +56,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl
 
-from . import __version__, agent, effects, hearing, layer, mind, previews, recording, render, text
+from . import __version__, agent, effects, hearing, layer, mind, previews, recording, render, spent, text
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
@@ -129,6 +131,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"ok": False, "error": GONE}, HTTPStatus.NOT_FOUND)
             else:
                 self.send_json(dict(chat.panel(), ok=True))
+        elif path == "/api/spent":
+            got = spent.totals(os.path.join(agent.WORK, "spent.jsonl"), query.get("chat"))
+            self.send_json(dict(got, ok=True, prices=mind.PRICED, rate=spent.rate(
+                query.get("currency"), os.path.join(agent.WORK, "rates.json"))))
         elif path == "/api/layer":
             self.send_layer(agent.find(query.get("chat", "")))
         elif LAYER.match(path):
@@ -566,6 +572,7 @@ def main():
         sys.exit("Port %d on this computer is taken (%s). Set LCS_PORT to a free port and start again."
                  % (PORT, e.strerror))
     keys = mind.load_keys()
+    mind.MINDS.update(mind.minds())
     hearing.start()
     print("Local Clip Studio %s: http://127.0.0.1:%d/" % (__version__, PORT), flush=True)
     if keys:

@@ -57,9 +57,9 @@ recordings in your folders. Two guards hold either way: the studio answers only 
 to a web name (so a web page cannot reach it through a name it owns), and it takes only JSON posts (so another web
 page cannot send it anything without asking first).
 
-## The mind: two ways to run Muse
+## The mind: three ways to run Muse
 
-Settings has a switch for the two. With Show how Muse works on, every answer shows which one answered, with its
+Settings has a switch for the three. With Show how Muse works on, every answer shows which one answered, with its
 engine numbers: tokens read new, tokens reused from the question before, reading and writing speed, and seconds.
 
 **1. Muse Glimmer on your own graphics card (the default).** This is Meta's open-weight model, run by llama.cpp's
@@ -104,6 +104,24 @@ that runs one model without a preset works too, but then nothing that needs SAM 
 **2. Muse Spark on Meta's API.** This route needs no graphics card. Set `META_API_KEY` to your own key before
 starting the studio. `LCS_SPARK_MODEL` picks the model (default `muse-spark-1.3`). The key is read from the
 environment and is never written anywhere.
+
+**3. Muse Spark Open on a Modal shared endpoint.** The open-weight Spark (`meta-models/Muse-Spark-Open-816B-A42B`) on
+Modal's machines, paid per token, with no graphics card of your own. Make a shared endpoint for it in your Modal
+workspace (Endpoints), make a proxy token, and set `MODAL_KEY` and `MODAL_SECRET` to its two parts. `LCS_MODAL_MODEL`
+and `LCS_MODAL_URL` change the model and the address (default `https://inference.us-west.modal.direct/v1`). Each
+conversation stays on one Modal machine, so what it read before is billed at the cached price. Settings says so when
+the workspace has no endpoint for the model yet.
+
+Keys can stay in a file of your own, outside the studio's folder: name it in `LCS_KEYS` (`KEY=VALUE` lines; several
+files separated by `;` on Windows, `:` elsewhere). The studio prints the names it read, never a value.
+
+**What it costs.** The Cost menu says what Muse cost: each message, the chat, today and this month, at the
+providers' list prices in US dollars per million tokens (Muse Spark 1.3: $1.25 read new, $0.15 read from the
+provider's cache, $4.25 written, thinking included; Muse Spark Open on Modal the same). Glimmer on your own card
+costs nothing. Every answer's line in Show how Muse works carries its cost too. Amounts are shown in the money of the
+browser's language (US dollars for English, baht for Thai), at the day's rate from open.er-api.com, fetched at most
+twice a day and carrying nothing of yours. A question cut short by Stop is not counted: a provider says what an
+answer cost only at its end.
 
 **SAM 3.1, for the cut-out looks (optional).** SAM finds the person frame by frame, so words can sit behind them. It
 runs in its own Python as a worker, and Glimmer steps off the graphics card while it works, then comes back. A
@@ -272,6 +290,7 @@ Each piece is listed with its licence. The Status column says whether this build
 |---|---|---|---|
 | [Muse Glimmer 30B](https://huggingface.co/meta-models/Muse-Glimmer-30B) (Meta) | the agent's mind, on your own graphics card | Apache-2.0 | used |
 | Muse Spark (Meta API) | the same mind without a graphics card, with your own key | Meta's API terms | used |
+| [Muse Spark Open](https://huggingface.co/meta-models/Muse-Spark-Open-816B-A42B) (Meta) on a Modal shared endpoint | the same mind on Modal's machines, with your own token | Meta's model licence; Modal's terms | wired, not run yet |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) (llama-server) | runs Glimmer locally | MIT | used |
 | [FFmpeg](https://ffmpeg.org/) | reads each recording (ffprobe) and takes pictures from it; later cuts and renders the clip | LGPL-2.1+ (GPL for some builds) | used |
 | [Omnilingual ASR](https://github.com/facebookresearch/omnilingual-asr) (Meta), CTC 1B v2 | writes down what is said, in many languages, with the time of every phrase | Apache-2.0 | used |

@@ -25,9 +25,16 @@ TOOL_CALL = [
 
 class Fake(BaseHTTPRequestHandler):
     chunks, pause, status, asked, models, states, loads = TOOL_CALL, 0, 200, [], [], {}, []
+    listing, seen = 200, []
     refusal = b'{"error": "the request exceeds the available context size"}'
 
     def do_GET(self):
+        if self.listing != 200:
+            self.send_response(self.listing)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+            return
         body = json.dumps({"data": [dict({"id": m}, **({"status": {"value": self.states[m]}} if m in self.states
                                                           else {})) for m in self.models]}).encode()
         self.send_response(200)
@@ -47,6 +54,7 @@ class Fake(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"{}")
             return
+        self.seen.append(dict(self.headers))
         self.asked.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
         self.send_response(self.status)
         self.send_header("Content-Type", "text/event-stream" if self.status == 200 else "application/json")
@@ -71,6 +79,7 @@ class Fake(BaseHTTPRequestHandler):
 class Stream(unittest.TestCase):
     def setUp(self):
         Fake.chunks, Fake.pause, Fake.status, Fake.refusal = TOOL_CALL, 0, 200, Fake.refusal
+        Fake.listing, Fake.seen = 200, []
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.mind = mind.Mind("test", "Test mind", "http://127.0.0.1:%d/v1" % self.server.server_port)
@@ -174,6 +183,89 @@ class Stream(unittest.TestCase):
         with self.assertRaises(mind.MindError) as e:
             self.mind.ask([{"role": "user", "content": "hi"}], max_tokens=4096)
         self.assertIn("4096 tokens without reaching an answer", str(e.exception))
+
+
+class Modal(unittest.TestCase):
+    NAMES = ("LCS_TEST_MODAL_KEY", "LCS_TEST_MODAL_SECRET", "LCS_MODAL_MODEL")
+
+    def setUp(self):
+        Fake.chunks, Fake.pause, Fake.status, Fake.listing, Fake.seen, Fake.models = TOOL_CALL, 0, 200, 200, [], []
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.had = {n: os.environ.pop(n, None) for n in self.NAMES}
+        self.mind = mind.Shared("modal", "Muse Spark Open", "http://127.0.0.1:%d/v1" % self.server.server_port,
+                                model="meta-models/m", key_env=self.NAMES[:2], where="on Modal's servers")
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        for n, v in self.had.items():
+            os.environ.pop(n, None)
+            if v is not None:
+                os.environ[n] = v
+
+    def test_the_token_is_its_key_and_its_secret_and_both_are_needed(self):
+        why = ("Set LCS_TEST_MODAL_KEY and LCS_TEST_MODAL_SECRET to the key and the secret of your Modal proxy token, "
+               "or name a file that holds them in LCS_KEYS, then start the studio again.")
+        self.assertEqual(self.mind.status()["why"], why)
+        os.environ["LCS_TEST_MODAL_KEY"] = "wk-made-up"
+        self.assertEqual(self.mind.status()["why"], why, "a key without its secret is no token")
+        with self.assertRaises(mind.MindError) as e:
+            self.mind.ask([{"role": "user", "content": "hi"}])
+        self.assertEqual(str(e.exception), why)
+        self.assertEqual(Fake.seen, [], "nothing is sent without the whole token")
+        os.environ["LCS_TEST_MODAL_SECRET"] = "ws-made-up"
+        self.mind.ask([{"role": "user", "content": "hi"}])
+        self.assertEqual(Fake.seen[-1]["Authorization"], "Bearer wk-made-up.ws-made-up")
+
+    def test_ready_only_when_the_workspace_has_an_endpoint_for_the_model(self):
+        os.environ["LCS_TEST_MODAL_KEY"], os.environ["LCS_TEST_MODAL_SECRET"] = "wk-a", "ws-b"
+        self.assertEqual(self.mind.status()["why"], "Your Modal workspace has no shared endpoint for meta-models/m "
+                                                    "yet. Make one in Modal's dashboard, under Endpoints.")
+        Fake.models = ["another/model", "meta-models/m"]
+        self.assertEqual((self.mind.status()["ok"], self.mind.status()["name"]), (True, "meta-models/m"))
+        Fake.listing = 401
+        self.assertIn("Modal refused the proxy token (HTTP 401)", self.mind.status()["why"])
+
+    def test_one_conversation_stays_on_one_machine_and_another_need_not(self):
+        os.environ["LCS_TEST_MODAL_KEY"], os.environ["LCS_TEST_MODAL_SECRET"] = "wk-a", "ws-b"
+        start = [{"role": "system", "content": "You edit clips."}, {"role": "user", "content": "Clip the yeti."}]
+        self.mind.ask(start)
+        self.mind.ask(start + [{"role": "assistant", "content": "Looking."}, {"role": "user", "content": "Go on."}])
+        self.mind.ask([start[0], {"role": "user", "content": "Clip the trip."}])
+        keys = [h.get("Modal-Routing-Affinity-Key") for h in Fake.seen]
+        self.assertTrue(keys[0] and keys[0] == keys[1], "the same conversation, the same machine")
+        self.assertNotEqual(keys[2], keys[0])
+        self.assertEqual(Fake.asked[-1]["model"], "meta-models/m")
+        plain = mind.Mind("local", "Muse Glimmer", self.mind.url, model="muse-glimmer")
+        plain.ask(start)
+        self.assertNotIn("Modal-Routing-Affinity-Key", Fake.seen[-1])
+
+    def test_a_hosted_mind_gets_its_schema_closed_and_room_to_think(self):
+        os.environ["LCS_TEST_MODAL_KEY"], os.environ["LCS_TEST_MODAL_SECRET"] = "wk-a", "ws-b"
+        Fake.chunks = [{"choices": [{"delta": {"content": "{\"lines\": [\"ok\"]}"}}]},
+                       {"choices": [{"delta": {}, "finish_reason": "stop"}]}]
+        schema = {"type": "object", "required": ["lines"], "properties": {
+            "lines": {"type": "array", "items": {"type": "object", "required": ["text"], "properties": {
+                "text": {"type": "string"}, "kept": {"type": "string"}}}}}}
+        self.mind.ask([{"role": "user", "content": "fix"}], max_tokens=3000, schema=schema)
+        sent = Fake.asked[-1]
+        closed = sent["response_format"]["json_schema"]["schema"]
+        self.assertEqual((closed["additionalProperties"], closed["required"]), (False, ["lines"]))
+        item = closed["properties"]["lines"]["items"]
+        self.assertEqual((item["additionalProperties"], item["required"]), (False, ["text", "kept"]),
+                         "Meta refuses a schema with an object left open (HTTP 400, 10-28)")
+        self.assertEqual(sent["max_tokens"], mind.HOSTED_ROOM, "Spark thought 6,050 tokens to fix 3 lines")
+        local = mind.Mind("local", "Muse Glimmer", self.mind.url, model="muse-glimmer")
+        local.ask([{"role": "user", "content": "fix"}], max_tokens=3000, schema=schema)
+        self.assertEqual((Fake.asked[-1]["response_format"]["json_schema"]["schema"], Fake.asked[-1]["max_tokens"]),
+                         (schema, 3000), "llama-server takes the schema and the room as they are")
+
+    def test_a_model_named_in_a_key_file_counts_once_the_minds_are_made_again(self):
+        self.assertEqual(mind.minds()["modal"].model_id, "meta-models/Muse-Spark-Open-816B-A42B")
+        os.environ["LCS_MODAL_MODEL"] = "meta-models/another"
+        self.assertEqual(mind.minds()["modal"].model_id, "meta-models/another")
+        self.assertEqual(mind.minds()["modal"].key_env, ("MODAL_KEY", "MODAL_SECRET"))
 
 
 if __name__ == "__main__":

@@ -12,6 +12,10 @@ const earlierList = document.getElementById("earlierList");
 const mindsBox = document.getElementById("minds");
 const machineBox = document.getElementById("machine");
 const settings = document.getElementById("settings");
+const costMenu = document.getElementById("cost");
+const costBox = document.getElementById("costBox");
+const MONEY = { TH: "THB", JP: "JPY", KR: "KRW", CN: "CNY", TW: "TWD", HK: "HKD", SG: "SGD", MY: "MYR", ID: "IDR", VN: "VND", PH: "PHP", IN: "INR", GB: "GBP", AU: "AUD", NZ: "NZD", CA: "CAD", CH: "CHF", BR: "BRL", MX: "MXN" };
+const EURO = ["AT", "BE", "CY", "DE", "EE", "ES", "FI", "FR", "GR", "HR", "IE", "IT", "LT", "LU", "LV", "MT", "NL", "PT", "SI", "SK"];
 const detailsBox = document.getElementById("details");
 const darkBox = document.getElementById("dark");
 const phone = window.matchMedia("(max-width: 760px)");
@@ -48,7 +52,7 @@ const fileInput = document.getElementById("file");
 const dropCover = document.getElementById("dropCover");
 const idle = text.placeholder;
 
-const room = { mind: localStore("mind") || "local", minds: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false } };
+const room = { mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false } };
 
 function localStore(key, value) {
   try {
@@ -94,7 +98,57 @@ function engineLine(e, label) {
   if (e.read_per_s) parts.push("reading " + number(e.read_per_s) + "/s");
   if (e.write_per_s) parts.push("writing " + e.write_per_s + "/s");
   parts.push(e.seconds + " s");
+  if (e.usd) parts.push(money(e.usd));
   return parts.join(" · ");
+}
+
+function myCurrency() {
+  try {
+    const region = new Intl.Locale(navigator.language || "en").maximize().region;
+    return MONEY[region] || (EURO.includes(region) ? "EUR" : "USD");
+  } catch (err) {
+    return "USD";
+  }
+}
+
+function money(usd) {
+  const r = room.rate;
+  const v = usd * r.per_usd;
+  const shown = new Intl.NumberFormat(navigator.language || "en-US", { style: "currency", currency: r.currency, minimumFractionDigits: 2, maximumFractionDigits: v && Math.abs(v) < 1 ? 4 : 2 }).format(v);
+  return r.currency === "USD" ? shown : shown + " ($" + usd.toFixed(usd && usd < 1 ? 4 : 2) + ")";
+}
+
+function costRow(what, usd, more) {
+  const row = el("div", "cost-row");
+  const name = el("span", "what", what);
+  if (more) name.appendChild(el("small", null, more));
+  row.append(name, el("span", "amount", money(usd)));
+  return row;
+}
+
+function drawCost(d) {
+  room.rate = d.rate;
+  const rows = [el("p", "pop-head", "What Muse cost")];
+  if (room.chat) rows.push(costRow("This chat", d.chat));
+  d.jobs.forEach((j) => rows.push(costRow("Message " + j.job, j.usd, j.minds.join(", ") + " · " + plural(j.answers, "answer"))));
+  rows.push(costRow("Today", d.today), costRow("This month", d.month));
+  rows.push(el("p", "pop-head", "Each Muse, in all"));
+  room.minds.forEach((m) => rows.push(costRow(m.label, d.minds[m.label] || 0, m.key === "local" ? "On your own graphics card: free" : m.where.charAt(0).toUpperCase() + m.where.slice(1))));
+  const notes = ["Each answer is priced by " + d.prices + ". A question cut short by Stop or by new words is not counted: the provider says what an answer cost only at its end."];
+  if (d.unpriced) notes.push(plural(d.unpriced, "answer") + " had no known price and " + (d.unpriced === 1 ? "is" : "are") + " not counted.");
+  if (d.rate.source) notes.push(d.rate.currency + " at " + d.rate.per_usd.toFixed(2) + " to the US dollar, the rate of " + d.rate.day + " from " + d.rate.source + ".");
+  else if (d.rate.why) notes.push(d.rate.why);
+  rows.push(el("p", "cost-note", notes.join(" ")));
+  costBox.replaceChildren(...rows);
+}
+
+async function refreshCost() {
+  try {
+    const r = await fetch("/api/spent?currency=" + myCurrency() + (room.chat ? "&chat=" + encodeURIComponent(room.chat) : ""), { cache: "no-store" });
+    drawCost(await r.json());
+  } catch (err) {
+    costBox.replaceChildren(el("p", "earlier-empty", "The studio is not answering."));
+  }
 }
 
 function fold(summary, body, cls) {
@@ -1165,6 +1219,7 @@ function on(e) {
     j.foot.hidden = false;
     room.open.delete(e.job);
     setBusy();
+    if (costMenu.open) refreshCost();
   }
   scrollDown();
 }
@@ -1284,6 +1339,7 @@ async function health() {
     }
     document.body.classList.toggle("away", d.here === false);
     drawMinds();
+    refreshCost();
   } catch (e) {
     statusLine.textContent = "The studio is not answering. Start it again with: python app.py";
   }
@@ -1518,6 +1574,10 @@ features.addEventListener("toggle", async () => {
   } catch (err) {
     featuresList.replaceChildren(el("p", "earlier-empty", "The studio is not answering."));
   }
+});
+
+costMenu.addEventListener("toggle", () => {
+  if (costMenu.open) refreshCost();
 });
 
 earlier.addEventListener("toggle", async () => {
