@@ -4,6 +4,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -88,6 +89,19 @@ class Loop(unittest.TestCase):
         self.assertEqual((events[-1]["steps"], events[-1]["why"]), (3, "answered"))
         with open(self.chat.log_path, encoding="utf-8") as f:
             self.assertEqual([json.loads(line)["id"] for line in f], [e["id"] for e in self.chat.events])
+
+    def test_a_recording_is_found_by_the_day_it_was_recorded_as_a_person_says_it(self):
+        day = time.mktime((2026, 10, 12, 14, 17, 28, 0, 0, -1))
+        os.utime(os.path.join(self.videos, "sifu", "sifu_run.mkv"), (day, day))
+        os.utime(os.path.join(self.videos, "review.mp4"), (day + 86400, day + 86400))
+        asked = ["12 ตุลาคม", "2026-10-12", "12 Oct", "october 12", "sifu monday"]
+        brain = ScriptedMind(*[[call("find_recordings", words=w, why="the day")] for w in asked], "Found it.")
+        _, events = self.run_job(brain)
+        steps = [e for e in events if e["kind"] == "step"]
+        self.assertEqual(len(steps), len(asked))
+        for words, step in zip(asked, steps):
+            self.assertIn("sifu_run.mkv", step["result"], "%s: tutorial 5561 10-28 took 11 searches" % words)
+            self.assertNotIn("review.mp4", step["result"], words)
 
     def test_a_full_memory_takes_out_the_oldest_pictures_and_asks_again(self):
         picture = {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AA=="}}

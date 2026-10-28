@@ -1466,6 +1466,38 @@ class Tools(unittest.TestCase):
         self.assertEqual([c["ok"] for c in shown["checks"]], [None, None, True, None, True, True])
         self.assertEqual(agent.Chat.load(self.chat.id).checks, self.chat.checks)
 
+    def test_a_game_clip_passes_the_names_check_only_when_the_names_read_on_the_screen_are_under_a_blur(self):
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        chat = {"text": "@viewer_one ผมว่าดีครับ", "box": [130, 10, 60, 12], "sure": 0.95}
+        had = screen.readings, getattr(render, "export", None)
+        screen.readings = lambda rec, a, b, on_start=None: [{"at": a + 1, "lines": [chat]}, {"at": b - 1, "lines": [chat]}]
+        render.export = export
+        try:
+            _, steps = self.run_job(
+                *self.to_moment(), [call("load_recipe", type="game", why="a stream")],
+                [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("decide_people", keep=[1], why="it is him")],
+                [call("blur_box", box=[400, 500, 600, 1000], why="the chat")],
+                [call("blur_box", box=[400, 300, 600, 450], why="the chat, lower")],
+                [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
+                [call("blur_box", box=[380, 0, 620, 200], why="the names")],
+                [call("render_clip", why="again")], [call("check_clip", why="again")], "Done.")
+        finally:
+            screen.readings, render.export = had
+        on_face, low = [s for s in steps if s["tool"] == "blur_box"][:2]
+        first, second = [s for s in steps if s["tool"] == "check_clip"]
+        self.assertTrue(on_face["refused"])
+        self.assertIn("The viewers' names were read on the screen at [394, 33, 606, 144] on your grid.",
+                      on_face["result"], "game afc1 10-28: Muse moved the box down four times, away from the chat")
+        self.assertFalse(low["refused"], low["result"])
+        self.assertIn("- FAILED: No viewer's name can be read (names can be read at [394, 33, 606, 144] on your grid "
+                      "from 0 to ", first["result"], "a blur over the whole clip in the wrong place passed before")
+        self.assertIn("- passed: No viewer's name can be read (1 line with a name, under a blur for as long as it "
+                      "shows)", second["result"])
+
     def test_only_the_first_moment_is_fixed_before_the_cards_and_another_when_its_clip_is_made(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "first heard", "sure": 0.95},
                                {"from": 12.0, "to": 14.0, "text": "second heard", "sure": 0.95}]

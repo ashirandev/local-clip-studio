@@ -35,8 +35,15 @@ def folders():
     return [os.path.realpath(f) for f in found if os.path.isdir(f)]
 
 
+THAI_MONTHS = ("มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน",
+               "ตุลาคม", "พฤศจิกายน", "ธันวาคม")
+
+
 def walk(words=""):
-    """Every recording in the folders whose path holds all the words: [(mtime, size, path)], newest first."""
+    """Every recording in the folders whose path or recorded day holds all the words: [(mtime, size, path)], newest
+    first. The day is written the ways a person asks for it (2026-10-12, 12 Oct, October 12, ตุลาคม, Monday): Muse
+    sees "recorded Mon 12 Oct" in every list, and on 10-28 it took 11 searches to find a recording by its day when
+    only the names were searched."""
     wanted = words.lower().split()
     found, looked = [], 0
     for top in folders():
@@ -47,11 +54,12 @@ def walk(words=""):
                 if not name.lower().endswith(VIDEO_TYPES):
                     continue
                 path = os.path.join(here, name)
-                if wanted and not all(w in os.path.relpath(path, top).lower() for w in wanted):
-                    continue
                 try:
                     st = os.stat(path)
                 except OSError:
+                    continue
+                if wanted and not all(w in os.path.relpath(path, top).lower() + " " + _day(st.st_mtime)
+                                      for w in wanted):
                     continue
                 if st.st_size >= SMALLEST:
                     found.append((st.st_mtime, st.st_size, path))
@@ -59,6 +67,11 @@ def walk(words=""):
                 break
     found.sort(reverse=True)
     return found
+
+
+def _day(mtime):
+    t = time.localtime(mtime)
+    return (time.strftime("%Y-%m-%d %d %b %B %b %d %B %d %a %A", t) + " " + THAI_MONTHS[t.tm_mon - 1]).lower()
 
 
 MUSIC_TYPES = (".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus", ".wma") + VIDEO_TYPES

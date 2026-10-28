@@ -201,7 +201,7 @@ def find_recordings(job, why, words="", newest=5):
     found = recording.walk(words)
     where = ", ".join(folders)
     if not found:
-        about = 'has "%s" in its name or folders' % words if words.split() else "is there"
+        about = 'has "%s" in its name, folders or recorded day' % words if words.split() else "is there"
         return "No recording %s in %s.%s" % (about, where, _names_here(folders))
     shown = found[:newest]
     about = ' for "%s"' % words if words.split() else ""
@@ -1350,19 +1350,57 @@ def _private_lines(job, rec, lay, pieces, span=None):
                                                             _private_spans(shown))}
 
 
-def _private_check(job, rec, state):
-    """(ok, found) for the check that every private line the clip shows is hidden for as long as it shows."""
-    lay = state["clip"]["layout"]
+def _shown_private(job, rec, state):
+    """(the private lines the clip's picture shows, None), or (None, why the screen could not be read)."""
     job.working("Reading the screen for anything private")
     try:
         found = screen.hidden(rec, state["clip"]["pieces"], on_start=job.started_work, span=state["clip"].get("span"))
     except screen.Stopped:
-        return False, "not read: the person pressed Stop"
+        return None, "not read: the person pressed Stop"
     except screen.ScreenError as e:
-        return False, "the screen could not be read (%s)" % e
+        return None, "the screen could not be read (%s)" % e
     finally:
         job.done_working()
-    shown = [f for f in found if layouts.to_frame(lay, f["box"])]
+    return [f for f in found if layouts.to_frame(state["clip"]["layout"], f["box"])], None
+
+
+NAME_LINE = "a person's handle"
+
+
+def _names_check(job, rec, state):
+    """(ok, found) for the check that no viewer's name can be read in a game stream's clip: every line read on the
+    screen with a handle is under a blur for as long as it shows, and one blur stays for the whole clip, as the chat
+    box does (a name read without its @ is not known to be a name). Game afc1 10-28: the check passed on a blur over
+    the whole clip that lay under the face, while the chat at the top right showed."""
+    shown, why = _shown_private(job, rec, state)
+    if shown is None:
+        return False, why
+    names = [f for f in shown if f["kind"] == NAME_LINE]
+    bare = [f for f in names if not screen.covered(f, state["blurs"])]
+    if bare:
+        return False, "names can be read at %s on your grid from %g to %g s, not under a blur" % (
+            _grid(_around(bare), rec), min(f["start"] for f in bare), max(f["end"] for f in bare))
+    whole = [b for b in state["blurs"] if b.get("box") and b["start"] <= 0.1 and b["end"] >= state["length"] - 0.1]
+    if not whole:
+        return False, "no blur covers the whole clip, so the chat box shows"
+    return True, ("%d line%s with a name, under a blur for as long as it shows" % (
+        len(names), "" if len(names) == 1 else "s") if names else
+        "%d blur over the whole clip; no name read on the screen" % len(whole))
+
+
+def _around(lines):
+    """The box [x, y, w, h] around the boxes of lines."""
+    x1, y1 = min(f["box"][0] for f in lines), min(f["box"][1] for f in lines)
+    x2 = max(f["box"][0] + f["box"][2] for f in lines)
+    y2 = max(f["box"][1] + f["box"][3] for f in lines)
+    return [x1, y1, x2 - x1, y2 - y1]
+
+
+def _private_check(job, rec, state):
+    """(ok, found) for the check that every private line the clip shows is hidden for as long as it shows."""
+    shown, why = _shown_private(job, rec, state)
+    if shown is None:
+        return False, why
     bare = [f for f in shown if not screen.covered(f, state["blurs"])]
     if bare:
         return False, "not hidden: %s" % _private_spans(bare)
@@ -2421,9 +2459,12 @@ def blur_box(job, why, box, start=None, end=None, person_said=None):
     px = _pixels("box", box, rec)
     face = lay.get("face")
     if face and _share(face, px) > BLUR_FACE_SHARE and not asked:
+        shown = _shown_private(job, rec, state)[0] if (job.chat.clip or {}).get("recipe") == "game" else None
+        names = [f for f in shown or [] if f["kind"] == NAME_LINE]
         raise Refused("That box covers the face at %s on your grid, the face the clip shows, and the face is the point "
-                      "of the clip. Give a box around the chat or the names only, leaving the face out." %
-                      _grid(face, rec))
+                      "of the clip. Give a box around the chat or the names only, leaving the face out.%s" % (
+                          _grid(face, rec), " The viewers' names were read on the screen at %s on your grid." %
+                          _grid(_around(names), rec) if names else ""))
     shown = layouts.to_frame(lay, px)
     if not shown:
         raise Refused("The box %s is not in the clip's picture (the %s layout leaves that part out), so nothing in it "
@@ -2745,10 +2786,7 @@ def check_clip(job, why):
     else:
         check("Numbers on screen were said", None, "numbers can come from what the screen shows")
     if kind == "game":
-        whole = [b for b in state["blurs"] if b.get("box") and b["start"] <= 0.1 and b["end"] >= state["length"] - 0.1]
-        check("No viewer's name can be read", bool(whole),
-              "%d blur over the whole clip" % len(whole) if whole else "no blur covers the whole clip, so the chat box "
-                                                                      "shows")
+        check("No viewer's name can be read", *_names_check(job, rec, state))
     else:
         check("No viewer's name can be read", None, "a handle on the screen is checked with the private lines"
               if _reads_screen(job) else "no chat box in this kind of clip")
@@ -3146,11 +3184,12 @@ TOOLS = {t.name: t for t in [
          ["steps"], set_plan),
     Tool("find_recordings", "Looked for your videos",
          "List the recordings on this computer, newest first, with their size, time and full path. Words narrow the "
-         "list to files whose name or folder holds every word, in upper or lower case. It only reads the folder "
-         "lists, never the files.",
+         "list to files whose name, folder or recorded day holds every word, in upper or lower case. It only reads "
+         "the folder lists, never the files.",
          {"words": {"type": "string", "maxLength": 200,
-                    "description": "Words that must all be in the file name or its folders, such as a game or a date. "
-                                   "Leave empty for the newest recordings."},
+                    "description": "Words that must all be in the file name, its folders or the day it was recorded, "
+                                   "such as a game, or a day written 2026-10-12, 12 Oct or 12 ตุลาคม. Leave empty for "
+                                   "the newest recordings."},
           "newest": {"type": "integer", "minimum": 1, "maximum": 20,
                      "description": "How many to list, newest first (1 to 20, default 5)."}},
          [], find_recordings),
