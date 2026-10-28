@@ -217,7 +217,7 @@ class Words(Clip):
         self.assertEqual(self.chat.undo()["text"], "The boss is down")
         self.assertEqual([t["text"] for t in self.chat.project.state()["titles"]], ["Boss down"])
 
-    def test_a_title_in_a_box_keeps_its_box(self):
+    def test_a_title_in_a_box_keeps_its_box_and_its_key_word_while_the_words_hold_it(self):
         self.make(SAID)
         self.chat.edit({"do": "title", "text": "Look", "start": 1.0, "end": 3.0, "place": "box at 100, 400",
                         "box": [100, 400, 400, 200], "key": "Look"})
@@ -225,6 +225,8 @@ class Words(Clip):
         titles = self.chat.project.state()["titles"]
         self.assertEqual([(t["text"], t["place"], t["box"], t["key"]) for t in titles],
                          [("Look here", "box at 100, 400", [100, 400, 400, 200], "Look")])
+        self.assertIsNone(self.chat.set_words("title", 0, "Look here", "See here"))
+        self.assertEqual([(t["text"], t["key"]) for t in self.chat.project.state()["titles"]], [("See here", None)])
 
     def test_words_a_title_would_refuse_are_refused_with_its_own_reason(self):
         self.make(SAID, call("add_title", words="Boss down", start=0, end=3, place="top", why="the hook"))

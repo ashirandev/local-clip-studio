@@ -59,15 +59,52 @@
       <h2 id="clipTitle">Your clip</h2>
       <button type="button" class="ghost clip-back" id="clipBack">Back to the chat</button>
     </div>
-    <div class="stage">
-      <div class="frame" id="frame">
-        <p class="hint">Your clip shows here while Muse makes it.</p>
+    <div class="studio">
+      <div class="stage">
+        <div class="frame" id="frame">
+          <p class="hint">Your clip shows here while Muse makes it.</p>
+        </div>
+      </div>
+      <div class="panel" id="panel" hidden>
+        <div class="panel-group" role="group" aria-labelledby="capsHead">
+          <p class="panel-head" id="capsHead">Captions</p>
+          <div class="panel-row" id="capsRow"></div>
+          <p class="panel-why" id="capsWhy" hidden></p>
+        </div>
+        <div class="panel-group" role="group" aria-labelledby="styleHead">
+          <p class="panel-head" id="styleHead">Text style</p>
+          <div class="panel-cards" id="styleRow"></div>
+          <p class="panel-why" id="styleWhy" hidden></p>
+        </div>
+        <div class="panel-group" role="group" aria-labelledby="lookHead">
+          <p class="panel-head" id="lookHead">Colour look</p>
+          <div class="panel-row" id="lookRow"></div>
+          <p class="panel-why" id="lookWhy" hidden></p>
+        </div>
+        <p class="panel-note" id="panelNote" role="status"></p>
       </div>
     </div>
     <div class="clip-tools" id="clipTools" hidden>
       <input type="range" id="clipAt" min="0" max="20" step="0.1" value="0" aria-label="Where in the clip">
       <span class="clip-at" id="clipAtLine">0.0 s</span>
       <button type="button" class="ghost" id="clipUndo">Undo</button>
+    </div>
+    <div class="words" id="words" hidden>
+      <p class="words-head">Words on the clip <span>Tap one to see it and change it.</span></p>
+      <div class="lanes" id="lanes"></div>
+      <form class="word-edit" id="wordEdit" hidden>
+        <label class="word-label" for="wordText" id="wordLabel">Words</label>
+        <textarea id="wordText" rows="2"></textarea>
+        <div class="word-actions">
+          <button type="submit" class="chip" id="wordSave">Save</button>
+          <button type="button" class="chip" id="wordCancel">Cancel</button>
+        </div>
+        <p class="word-note" id="wordNote" role="status"></p>
+      </form>
+    </div>
+    <div class="again" id="again" hidden>
+      <button type="button" class="pick" id="againButton">Make the video again</button>
+      <p class="again-line" id="againLine" role="status"></p>
     </div>
     <p class="clip-line" id="clipLine"></p>
     <button type="button" class="clip-open" id="clipOpen" aria-label="Open the preview"></button>
