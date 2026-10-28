@@ -72,6 +72,7 @@ own server. This is the exact setup the demo runs on:
 | SHA-256 | `820d18e00c59376331eba62dd716a6bcdcaa305c2316f5da3a2fab36c7c37e15` |
 | Server | llama.cpp `llama-server`, build b11716 |
 | Graphics card | NVIDIA RTX 5070 Ti, 16 GB |
+| Context | 49,152 tokens: 13.6 GB of the card in use, the same speed as at 32,768 (measured 10-28) |
 
 Start it in router mode, from a preset file, so the studio can ask it to step off the graphics card while SAM cuts a
 person out, and load it again after. `glimmer.ini` (use full paths to your files):
@@ -81,7 +82,7 @@ version = 1
 
 [muse-glimmer]
 model = Muse-Glimmer-30B-UD-Q3_K_XL.gguf
-c = 32768
+c = 49152
 parallel = 1
 jinja = true
 fit = on
