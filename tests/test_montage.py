@@ -180,7 +180,8 @@ class Arrange(unittest.TestCase):
                              [call("arrange_clips", story="the trip", clips=[piece, {"clip": 1, "why": "again"}],
                                    left_out=[{"clip": 2, "why": "x"}, {"clip": 3, "why": "x"}], why="order")],
                              [call("arrange_clips", story="the trip", clips=[piece, {"clip": 3, "why": "the end"}],
-                                   left_out=[{"clip": 2, "why": "the same as clip 1"}], why="order")],
+                                   left_out=[{"clip": 2, "why": "the same as clip 1"},
+                                             {"clip": 2, "why": "the same as clip 1"}], why="order")],
                              "Done.")
         self.assertIn("Clips 2, 3 are neither used nor left out", steps[2]["result"])
         self.assertIn("Clip 1 named twice", steps[3]["result"])

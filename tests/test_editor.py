@@ -474,6 +474,10 @@ class Tools(unittest.TestCase):
                 dict(w, text=w["text"].replace("990", "99")) for w in ln["words"]]) for ln in caps["lines"]]))
             _, again = self.run_job([call("render_clip", why="make the file")], [call("check_clip", why="check it")],
                                     "Done.")
+            _, fixed = self.run_job([call("add_captions", language="English", why="the check")],
+                                    '{"lines": ["Setting it up is so easy.", "It costs 990 baht."]}',
+                                    [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
+                                    "Done.")
         finally:
             render.export = had
         caps, _, _, checked = steps[-5:-1]
@@ -494,11 +498,15 @@ class Tools(unittest.TestCase):
         self.assertIn("- passed: Translated captions keep the numbers (2 of 2 sentences keep every number said)",
                       checked["result"])
         self.assertIn('- FAILED: Translated captions keep the numbers (1 of 2 sentences keep every number said; not '
-                      'kept: "It costs 99 baht." for "ราคา 990 บาท")', wrong["result"])
+                      'kept: "It costs 99 baht." for "ราคา 990 บาท"; put the captions on again and those lines are '
+                      'translated again)', wrong["result"])
+        self.assertIn("- passed: Translated captions keep the numbers (2 of 2 sentences keep every number said)",
+                      fixed[-1]["result"], "Eaglet 10-28: the same translation was kept and the clip was never handed "
+                                           "over")
         captions = self.chat.project.state()["captions"]
         self.assertEqual(captions["language"], "English")
         self.assertEqual("".join(line["text"] for line in captions["lines"]),
-                         "Setting it up is so easy.It costs 99 baht.")
+                         "Setting it up is so easy.It costs 990 baht.")
         self.assertEqual({line["said"] for line in captions["lines"]}, {"ตั้งค่าเครื่อง ง่ายมาก", "ราคา 990 บาท"})
 
     def test_english_captions_that_do_not_line_up_are_asked_once_more_then_left_as_said(self):
@@ -545,6 +553,17 @@ class Tools(unittest.TestCase):
         self.assertNotIn("แ้ไพ่", shown, "odd bits left after the fix: still not sure")
         self.assertIn('Left out 2 lines the hearing was not sure of', caps["result"],
                       "below READ_SURE a line is left out even when it reads as a word: at 0.44 it is a guess")
+
+    def test_a_translated_line_keeps_the_numbers_said_as_a_thai_speaker_says_them(self):
+        differ = tools._numbers_differ
+        self.assertFalse(differ("กลับมาเป็นแสนหนึ่งและนะครับ", "It's back to one hundred thousand now."),
+                         "Eaglet 10-28: แสนหนึ่ง is said for 100,000")
+        self.assertFalse(differ("นะครับ สามารถเข้าไปดูได้ใน", "Okay, you can go check it in"), "สามารถ holds no three")
+        self.assertFalse(differ("ราคา 990 บาท", "It costs 990 baht."))
+        self.assertFalse(differ("ได้สามสิบห้าคน หนึ่งวัน", "35 people in a day."))
+        self.assertTrue(differ("ราคา 990 บาท", "It costs 99 baht."), "a number lost")
+        self.assertTrue(differ("สามคน", "Two people."), "a number changed")
+        self.assertTrue(differ("ได้ห้าสิบ", "We got fifty, plus 7."), "a number made up")
 
     def test_a_subtitle_sentence_never_joins_two_phrases_with_a_left_out_one_between(self):
         phrases = [{"from": 0.0, "to": 1.0, "text": "a", "n": 0}, {"from": 1.2, "to": 2.0, "text": "b", "n": 2},

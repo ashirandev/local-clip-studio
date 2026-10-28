@@ -226,8 +226,8 @@ python -m unittest discover -s tests
 
 ## Built during the hackathon (Oct 26 - Nov 4, 2026)
 
-Every line in this repository was written during the Meta AI Developer Hackathon. The first commit is dated
-Oct 26, 2026, after kickoff, and the commit history shows how it grew, one working step at a time.
+Every line of code in this repository was written during the Meta AI Developer Hackathon. The first commit is
+dated Oct 26, 2026, after kickoff, and the commit history shows how it grew, one working step at a time.
 
 Built with help from AI coding assistants.
 

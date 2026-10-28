@@ -370,7 +370,11 @@ def arrange_clips(job, why, story, clips, left_out=None):
     known = {c["n"]: c for c in opened["clips"]}
     used = [c["clip"] for c in clips]
     both = sorted({c["clip"] for c in left_out or []} & set(used))
-    left_out = [c for c in left_out or [] if c["clip"] not in both]
+    out = {}
+    for c in left_out or []:
+        if c["clip"] not in both:
+            out.setdefault(c["clip"], c)
+    left_out = list(out.values())
     named = used + [c["clip"] for c in left_out]
     problems = []
     twice = sorted({n for n in named if named.count(n) > 1})
@@ -2069,8 +2073,9 @@ def _sentences(phrases):
 def _translated(job, rec, state, units, language, said_in):
     """Muse's subtitle in language for each unit, asked apart from the job, or None when twice the lines it wrote
     did not line up one for one with the units. When the clip's captions already hold each sentence in language,
-    translated from the same words, they are kept: a tap on the page (Plain, Lit, Pop) never asks Muse, and Muse
-    putting the same captions on lit is not asked to translate them again."""
+    translated from the same words and keeping its numbers, they are kept: a tap on the page (Plain, Lit, Pop) never
+    asks Muse, and Muse putting the same captions on lit is not asked to translate them again. A line that lost a
+    number is asked again, so putting the captions on again is how Muse fixes the check that found it."""
     caps = (state["captions"] or {}).get("lines") or []
     held = {}
     if (state["captions"] or {}).get("language") == language:
@@ -2079,7 +2084,7 @@ def _translated(job, rec, state, units, language, said_in):
             held[(round(mine[0]["from"], 2), round(mine[-1]["to"], 2), mine[0].get("said"))] = \
                 "".join(line["text"] for line in mine).strip()
     kept = [held.get((u["from"], u["to"], u["text"])) for u in units]
-    if all(kept):
+    if all(kept) and not any(_numbers_differ(u["text"], s) for u, s in zip(units, kept)):
         return kept
     kind = (job.chat.clip or {}).get("title") or "a video"
     names = [w for w in dict.fromkeys(_screen_words(job, rec, state)) if len(w) >= 4][:SCREEN_NAMES]
@@ -2099,9 +2104,32 @@ def _translated(job, rec, state, units, language, said_in):
     return None
 
 
-def _said_numbers(words):
-    """The numbers words says, leaving out 1, which one language says as a number and another as "a"."""
-    return spoken.values(words) - {1}
+def _said_numbers(said):
+    """[{the values one number may be}] for each number said, leaving out 1, which one language says as a number
+    and another as "a". A Thai number word counts only where it stands as a word of its own, and one that ends in
+    หนึ่ง after a unit is said for both readings. Eaglet 10-28: the check failed two right translations, "Okay, you can
+    go check it in" for สามารถ... (สามารถ, can, starts with สาม, three) and "It's back to one hundred thousand now" for
+    แสนหนึ่ง (said for 100,000 as often as for 100,001)."""
+    from pythainlp.tokenize import word_tokenize
+    out = [{v} for v in spoken.digits(said) | spoken.english(said)]
+    if re.search("[ก-๛]", said):
+        words.odd_thai(said)
+        bounds, at = {0}, 0
+        for w in word_tokenize(said, engine="newmm", keep_whitespace=True, custom_dict=words._WORDS[1]):
+            at += len(w)
+            bounds.add(at)
+        for m in thai.NUMBER.finditer(said):
+            if m.group(0)[:1].isdigit() or m.start() not in bounds or m.end() not in bounds:
+                continue
+            v = thai.value(m.group(0))
+            out.append({v, v - 1} if m.group(0).endswith("หนึ่ง") and m.group(0) != "หนึ่ง" else {v})
+    return [c for c in out if c != {1}]
+
+
+def _numbers_differ(said, translated):
+    """True when the translated line loses a number said or says one that was not."""
+    heard, told = _said_numbers(said), spoken.values(translated) - {1}
+    return any(not c & told for c in heard) or bool(told - set().union(*heard))
 
 
 def add_captions(job, why, on=True, lit=False, pop=False, language=""):
@@ -2809,10 +2837,11 @@ def check_clip(job, why):
             sentences.setdefault(line["phrase"], [line["said"], ""])[1] += line["text"]
     if sentences:
         off = ['"%s" for "%s"' % (t.strip(), s) for s, t in sentences.values()
-               if _said_numbers(s) != _said_numbers(t)]
+               if _numbers_differ(s, t)]
         check("Translated captions keep the numbers", not off,
               "%d of %d sentences keep every number said" % (len(sentences) - len(off), len(sentences)) +
-              ("; not kept: %s" % "; ".join(off[:3]) if off else ""))
+              ("; not kept: %s; put the captions on again and those lines are translated again"
+               % "; ".join(off[:3]) if off else ""))
     if kind == "seller":
         wrong = [n for t in state["titles"] for n in _not_said(t["text"], said)]
         unread = _numbers_unread(job, said) if wrong else None
