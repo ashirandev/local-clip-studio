@@ -211,7 +211,16 @@ the result and the engine numbers.
   shown off with the tool's reason, and the page and Muse never disagree. Undo takes a tap back, and Muse is told
   before it answers next. Caption words the person types are kept as typed, also when the captions go on again, and
   the check on captions passes them as the person's own words. When the clip has changed since its video was made,
-  Make the video again renders it as Muse's render does.
+  Make the video again renders it as Muse's render does. Under Captions, As said puts them back in the words as
+  said at a tap; English is a tap that asks Muse, which writes the translation.
+- **The preview changes at once.** The page plays the clip without its words (a base video, made once for each
+  picture) and lays the words over it, drawn as see-through pictures by the same libass as the export. A change of
+  words shows in about a second (0.55 s measured on the test clip, 10-28); only a change to the picture or the sound
+  makes the base again, in the background, and the clip's frame shows until it is ready.
+- **Ready to post says how little the person did:** how long Muse worked on the job, the messages the person typed
+  and their taps, and Muse's steps.
+- **The checks read red to green.** Each check of the finished file says Passed, FAILED or Not needed; one that
+  failed on the clip's last check and passes now says Fixed.
 - **A clip is ready only when its file is.** Render returns when the file exists. Hand-over takes only a file made
   from the clip as it is now: a change after the render makes the file old, and the state Muse reads says so in
   words, so it cannot tell the person a clip is ready when it is not.
