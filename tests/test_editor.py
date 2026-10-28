@@ -519,8 +519,8 @@ class Tools(unittest.TestCase):
                 raise tools.person.PersonError("Muse Glimmer could not step off the graphics card for SAM (refused).")
             path = os.path.join(self.tmp, "person.mkv")
             subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=320x180:r=10:d=%g"
-                            % (end - start), "-vf", "drawbox=x=130:y=110:w=60:h=70:color=white:t=fill,drawbox=x=130:"
-                            "y=0:w=60:h=180:color=white:t=fill:enable='between(t,5,10)',format=gray", "-c:v", "ffv1",
+                            % (end - start), "-vf", "drawbox=x=130:y=110:w=60:h=70:color=white:t=fill,drawbox=x=140:"
+                            "y=38:w=40:h=142:color=white:t=fill:enable='between(t,5,10)',format=gray", "-c:v", "ffv1",
                             path], check=True)
             return {"path": path, "person": "main", "fps": 10, "size": [320, 180], "from": start, "to": end}
 
@@ -534,11 +534,12 @@ class Tools(unittest.TestCase):
                 [call("cut_out", look="outline", start=2, end=4, why="an edge")],
                 [call("cut_out", look="grey", start=-5, why="the last 5 seconds")],
                 [call("add_title", words="Boss down", start=12, end=16, place="top", behind=True, why="cover")],
-                [call("add_title", words="Still here", start=12, end=16, box=[60, 629, 940, 751], behind=True,
-                      why="across his head")],
+                [call("add_title", words="Still here", start=12, end=16, box=[60, 546, 940, 668], behind=True,
+                      why="on his head")],
+                [call("add_title", words="Boss down", start=5, end=9, place="middle", behind=True, why="cover")],
                 [call("add_title", words="Boss down", start=5, end=9, place="top", behind=True, why="cover")],
                 [call("cut_out", look="glow", why="a glow")], "Done.")
-            early, grey, outline, last, missed, moved, title, glow = steps[-8:]
+            early, grey, outline, last, missed, moved, hidden, title, glow = steps[-9:]
             pieces = self.chat.project.state()["clip"]["pieces"]
             face = self.chat.project.state()["clip"]["layout"].get("face")
             state = self.chat.project.state()
@@ -554,9 +555,11 @@ class Tools(unittest.TestCase):
                       grey["result"])
         self.assertIn("The grey look is on from 0 to 20 s of the 20 s clip:", grey["result"])
         self.assertIn("On the frame the person is at [215, 612, 807, 1000] on your grid (x 232 to 872, y 1176 to 1920 "
-                      "on the frame). A title goes behind them only where they cross it: the places for words that "
-                      "cross them: top at 5-10.2 s; middle at 5-10.2 s; for words across their head, a box such as "
-                      "[60, 629, 824, 751].", grey["result"], "the mask stands up from 5 to 10 s, low the rest")
+                      "on the frame). A title goes behind them only where they cross it, and it must still be read, so "
+                      "the top of their head should cut only the bottom of the letters: the places for words that "
+                      "cross them: top at 5-10.2 s; middle at 5-10.2 s; for one line of words on top of their head, a "
+                      "box such as [60, 546, 824, 668].", grey["result"],
+                      "the mask stands up from 5 to 10 s, low the rest")
         self.assertIn("The person was already found for this clip, so SAM did not run again.", outline["result"])
         self.assertIn("The outline look is on from 2 to 4 s of the 20 s clip, so the clip's last 16 s are without it",
                       outline["result"])
@@ -566,16 +569,23 @@ class Tools(unittest.TestCase):
         self.assertIn("Behind the person, the title must cross them for at least 1 s, and at the top they cross its "
                       "words (y 377 to 428) for 0 s of 12 to 16 s; they are at [215, 612, 807, 1000] on your grid",
                       missed["result"], "lane 5 10-28: a behind title above the face circle went behind nobody")
-        self.assertIn("Give a box such as [60, 629, 940, 751], across their head", missed["result"])
+        self.assertIn("Give a box such as [60, 546, 940, 668], on top of their head", missed["result"])
         self.assertFalse(moved["refused"], moved["result"])
-        self.assertIn("Behind the person: they cross the words from 12 to 16 s.", moved["result"],
-                      "the box the refusal names is one that crosses them")
+        self.assertIn("Behind the person: they cross the words from 12 to 16 s and hide about 0% of their width.",
+                      moved["result"], "the box the refusal names is one that crosses them and can be read")
+        self.assertTrue(hidden["refused"])
+        self.assertIn('Behind the person, the words must still be read, and at the middle the person hides more than '
+                      'a third of their width for 4 s of 5 to 9 s (about 100% most of the time), so a viewer cannot '
+                      'read "Boss down". Put it higher, so the top of their head cuts only the bottom of the letters: '
+                      'a box such as [60, 146, 940, 268]', hidden["result"],
+                      "lane 5 10-28: the head hid half the title for the whole clip")
         self.assertEqual(asked[0], (min(p[0] for p in pieces), max(p[1] for p in pieces), face))
         self.assertEqual(state["mask"]["path"], os.path.join(self.tmp, "person.mkv"))
         self.assertEqual([(c["look"], c["start"], c["end"]) for c in state["cutouts"]],
                          [("outline", 2, 4), ("grey", 15, 20)], "a look at an overlapping time replaces the one before")
         self.assertFalse(title["refused"], title["result"])
-        self.assertIn("Behind the person: they cross the words from 5 to 9 s.", title["result"])
+        self.assertIn("Behind the person: they cross the words from 5 to 9 s and hide about 0% of their width.",
+                      title["result"])
         self.assertIn("It crosses a face at", title["result"])
         self.assertIn("the person stands in front of it", title["result"])
         self.assertTrue([t for t in state["titles"] if t["text"] == "Boss down"][0]["behind"])
@@ -1410,9 +1420,10 @@ class Tools(unittest.TestCase):
         self.assertNotIn("follows the action", cropped["result"])
         self.assertFalse(any(p.get("follow") for p in self.chat.project.state()["clip"]["layout"]["parts"]))
 
-    def several(self, *clips_calls, black=False, recipe="explain", quiet=0):
-        """A tutorial with two moments proposed, then the given calls; screen and render are faked, the render black
-        and silent at its start when black, and moment 2's first render silent for its first quiet seconds."""
+    def several(self, *clips_calls, black=False, recipe="explain", quiet=0, shown=("Eaglet",)):
+        """A tutorial with two moments proposed, then the given calls; screen and render are faked (the screen shows
+        the words in shown), the render black and silent at its start when black, and moment 2's first render silent
+        for its first quiet seconds."""
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "one heard", "sure": 0.95}]
         quieted = []
 
@@ -1425,7 +1436,7 @@ class Tools(unittest.TestCase):
             return out
 
         had = screen.words, screen.readings, focus.plan, getattr(render, "export", None)
-        screen.words = lambda rec, a, b: ["Eaglet"]
+        screen.words = lambda rec, a, b: list(shown)
         screen.readings = lambda rec, a, b, on_start=None: [{"at": a, "lines": []}]
         focus.plan, render.export = (lambda *a, **k: None), export
         try:
@@ -1555,6 +1566,23 @@ class Tools(unittest.TestCase):
         self.assertIn("#Eaglet", ready[0]["hashtags"])
         self.assertTrue(twice["refused"])
         self.assertIn("Each moment makes one clip; moment 2 is given twice.", twice["result"])
+
+    def test_a_name_in_capitals_the_screen_does_not_show_stops_the_clips_once_whatever_the_recipe(self):
+        clips = [{"moment": 1, "title": "ASTI pack", "caption": "ASTI c", "hashtags": ["#ASTI", "#SineySociety"]},
+                 {"moment": 2, "title": "PDRN pack", "caption": "c", "hashtags": ["#b"]}]
+        fixed = dict(clips[0], title="Jabs pack", caption="Jabs c", hashtags=["#Jabs"])
+        _, steps = self.several([call("make_clips", clips=clips, why="both")],
+                                [call("make_clips", clips=[fixed, clips[1]], why="as the pack says")], "Done.",
+                                recipe="seller", shown=["Jabs", "PDRN", "ASTAXANTHIN"])
+        asked, made = steps[-2], steps[-1]
+        self.assertTrue(asked["refused"])
+        self.assertEqual(asked["result"], 'Nothing was made. Clip of moment 1: "ASTI", "SineySociety" are not on the '
+                                          'screen there, not said and not written by the person; the screen there '
+                                          'shows Jabs, PDRN, ASTAXANTHIN. Write each name as the screen shows it, or '
+                                          'leave it out; if the person gave you the name, make the clips again '
+                                          'unchanged.', "EP81 10-28: the pack said Jabs, three clips said ASTI")
+        self.assertFalse(made["refused"], made["result"])
+        self.assertEqual([e["title"] for e in self.chat.events if e["kind"] == "ready"], ["Jabs pack", "PDRN pack"])
 
     def test_a_clip_whose_recipe_does_not_read_the_screen_is_not_read(self):
         asked = []

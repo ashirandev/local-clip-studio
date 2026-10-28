@@ -1326,6 +1326,45 @@ def _names_said(wrong, then):
         "; ".join('"%s" is not on the screen, which shows "%s"' % pair for pair in wrong), then)]
 
 
+CAPITAL_NAME = re.compile(r"[A-Z0-9]{3,}|[A-Za-z0-9]*[a-z][A-Z][A-Za-z0-9]*")
+SHOWN_WORDS = 12
+UNSEEN_THEN = "Write each name as the screen shows it, or leave it out; if the person gave you the name, %s unchanged."
+
+
+def _unseen_names(job, rec, a, b, text, said=()):
+    """([names], [the screen's words from a to b]): the names in text written in capitals (ASTI) or with a capital
+    inside (SineySociety) that the screen does not show from a to b (recording seconds), that were not said (said:
+    the lines heard there) and that the person did not write, whatever the recipe (a tap on the page, a job with no
+    number, is the person's own words and is not asked). Seen 10-28 on a travel show's
+    sponsor read: the pack showed Jabs, PDRN and ASTAXANTHIN, Muse wrote ASTI on three clips' titles and posts, and
+    every check passed. ([], []) when the screen cannot be read."""
+    names = [w for w in dict.fromkeys(screen.NAME.findall(text)) if CAPITAL_NAME.fullmatch(w)]
+    if not names or job.n is None:
+        return [], []
+    try:
+        shown = screen.words(rec, a, b)
+    except screen.ScreenError:
+        return [], []
+    known = " ".join([rec["name"]] + list(said) + [e["text"] for e in job.chat.events if e["kind"] == "person"])
+    seen = {w.lower() for w in shown + screen.sites(rec) + screen.NAME.findall(known)}
+    return [n for n in names if not any(n.lower() == s or n.lower() in s or len(s) >= 4 and s in n.lower()
+                                        for s in seen)], shown
+
+
+def _unseen_said(names, shown):
+    return '%s %s not on the screen there, not said and not written by the person; the screen there shows %s' % (
+        ", ".join('"%s"' % n for n in names), "is" if len(names) == 1 else "are",
+        ", ".join(shown[:SHOWN_WORDS]) if shown else "no words")
+
+
+def _told_once(job, kind):
+    """True when this job was already refused for kind; else marks that it is, and False."""
+    if any(e["kind"] == kind and e.get("job") == job.n for e in job.chat.events):
+        return True
+    job.emit(kind)
+    return False
+
+
 def _private_spans(lines):
     return "; ".join("%s at %g-%g s" % (f["kind"], f["start"], f["end"]) for f in lines)
 
@@ -1767,6 +1806,11 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
         (words,), spelling = _spell(job, [words])
     except hearing.Stopped:
         return "Not put on: the person pressed Stop."
+    pieces = state["clip"]["pieces"]
+    names, shown = _unseen_names(job, rec, min(p[0] for p in pieces), max(p[1] for p in pieces), words,
+                                 _said(job, state))
+    if names and not _told_once(job, "unseen"):
+        raise Refused("%s. %s" % (_unseen_said(names, shown), UNSEEN_THEN % "put the title on again"))
     length, lay = state["length"], state["clip"]["layout"]
     if not 0 <= start < length:
         raise Refused("start %g s is outside the clip, which is %g s long: use a start from 0 to %g, in seconds of "
@@ -1809,11 +1853,15 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
         crossed = _crossing(frames, drawn, start, end)
         if not _crosses(crossed, start, end):
             raise Refused(_not_crossed(frames, drawn, place, start, end, crossed, lay, state, size))
+        hidden = _hidden(frames, drawn)
+        if (hidden > HIDDEN_MOST).mean() > 0.5:
+            raise Refused(_too_hidden(frames, place, start, end, hidden, words, lay, state, size))
     notes = _phone(drawn, lay, state, asked)
     times, every = _face_times(state, rec)
     hit = _covered(drawn, times, every, start, end)
     if crossed is not None:
-        notes.append("Behind the person: they cross the words %s." % _when(crossed, start, end))
+        notes.append("Behind the person: they cross the words %s and hide about %d%% of their width." % (
+            _when(crossed, start, end), round(100 * float(np.median(hidden)))))
     if hit and behind:
         notes.append("It crosses a face at %s, and the person stands in front of it." % _spans(hit))
     elif hit and asked:
@@ -3033,12 +3081,17 @@ def hand_over(job, why, title, caption, hashtags, english=""):
     if failed and rounds < CHECK_ROUNDS:
         raise Refused("These checks failed on the finished file: %s. Fix them, render again and check again; after "
                       "%d rounds you may hand it over and say what still fails." % ("; ".join(failed), CHECK_ROUNDS))
-    wrong = _misspelled(" ".join([title, caption, english or ""] + list(hashtags)),
-                        _screen_words(job, _open(job, "hand over"), _clip_state(job)))
+    rec, state = _open(job, "hand over"), _clip_state(job)
+    wrong = _misspelled(" ".join([title, caption, english or ""] + list(hashtags)), _screen_words(job, rec, state))
     if wrong and not any(e["kind"] == "misspelled" and e.get("job") == job.n for e in job.chat.events):
         job.emit("misspelled", words=[w for w, _ in wrong])
         raise Refused(" ".join(_names_said(wrong, "write them as the screen does")) + " If the speaker said them as "
                       "you wrote them, hand over again unchanged.")
+    pieces = state["clip"]["pieces"]
+    names, shown = _unseen_names(job, rec, min(p[0] for p in pieces), max(p[1] for p in pieces), " ".join(
+        [title, caption, english or ""] + list(hashtags)), _said(job, state))
+    if names and not _told_once(job, "unseen"):
+        raise Refused("%s. %s" % (_unseen_said(names, shown), UNSEEN_THEN % "hand over again"))
     if (job.chat.clip or {}).get("recipe") == "seller":
         said = _said(job, _clip_state(job))
         wrong = _not_said(" ".join([title, caption, english or ""]), said)
@@ -3096,6 +3149,16 @@ def make_clips(job, why, clips, blur=None):
                     c[key] = _as_on_screen(c[key], wrong)
             c["hashtags"] = [_as_on_screen(h, wrong) for h in c["hashtags"]]
             spelled.append("clip of moment %d: %s" % (c["moment"], ", ".join('"%s" as "%s"' % w for w in wrong)))
+    unseen = []
+    for c in clips:
+        m = moments[c["moment"] - 1]
+        names, shown = _unseen_names(job, rec, m["start"], m["end"], " ".join(
+            [c["title"], c.get("words") or "", c["caption"]] + list(c["hashtags"])), [p["text"] for p in m.get("said")
+                                                                                       or []])
+        if names:
+            unseen.append("Clip of moment %d: %s." % (c["moment"], _unseen_said(names, shown)))
+    if unseen and not _told_once(job, "unseen"):
+        raise Refused("Nothing was made. %s %s" % (" ".join(unseen), UNSEEN_THEN % "make the clips again"))
     recipe = (job.chat.clip or {}).get("recipe")
     if recipe == "game" and not blur:
         raise Refused("Nothing was made. A game stream's clips show its chat box with the viewers' names: give the "
@@ -3275,16 +3338,17 @@ def cut_out(job, why, look=None, start=None, end=None):
         said.append("The %s look is on from %g to %g s of the %g s clip%s: %s." % (
             look, s, e, length, "" if e >= length - 0.05 else ", so the clip's last %g s are without it"
             % round(length - e, 2), CUTOUT_LOOK_SAYS[look]))
-    said.append(_person_said(state))
+    said.append(_person_said(state, render.style_of(state, job.chat.clip["style"] if job.chat.clip else "clean")))
     return "\n".join(said)
 
 
 CUTOUT_LOOK_SAYS = {"grey": "the footage around the person is black and white, and the person keeps their colour",
                     "outline": "a white edge goes around the person"}
 BEHIND_SHARE = 0.05
+HIDDEN_MOST = 1 / 3.0
 PERSON_STEP = 5
 PERSON_SCALE = 8
-HEAD_AT = 0.2
+HAIR = 0.3
 SAFE_ROWS = (250, 1520)
 LIKES_LEFT = 890
 FRAME = {"width": effects.FRAME_W, "height": effects.FRAME_H}
@@ -3309,13 +3373,27 @@ def _person_frames(state, start, end):
     return np.frombuffer(raw[:n * w * h], np.uint8).reshape(n, h, w) > 127
 
 
-def _crossing(frames, box, start, end):
-    """The stretches of start-end (clip seconds, frames read from start) where the person covers at least
-    BEHIND_SHARE of box ([x, y, w, h] on the frame): [(from, to)]."""
+def _cells(frames, box):
+    """frames inside box ([x, y, w, h] on the frame): [pictures, rows, columns]."""
     k = PERSON_SCALE
     x0, y0 = max(0, int(box[0] // k)), max(0, int(box[1] // k))
     x1, y1 = int(math.ceil((box[0] + box[2]) / k)), int(math.ceil((box[1] + box[3]) / k))
-    inside = frames[:, y0:y1, x0:x1]
+    return frames[:, y0:y1, x0:x1]
+
+
+def _hidden(frames, box):
+    """How much of box's width the person hides in each picture, 0 to 1: the share of its columns they cover at
+    least half of, where the letters there cannot be read."""
+    inside = _cells(frames, box)
+    if not inside.size:
+        return np.zeros(len(frames))
+    return (inside.mean(axis=1) >= 0.5).mean(axis=1)
+
+
+def _crossing(frames, box, start, end):
+    """The stretches of start-end (clip seconds, frames read from start) where the person covers at least
+    BEHIND_SHARE of box ([x, y, w, h] on the frame): [(from, to)]."""
+    inside = _cells(frames, box)
     out = []
     if not inside.size:
         return out
@@ -3357,21 +3435,25 @@ def _person_box(frames):
     return None
 
 
-def _behind_band(frames, lay, state, start, end, size=None):
+def _behind_band(frames, lay, state, start, end, tall, wide=None):
     """A band for words behind the person, [x, y, w, h] on the frame: as tall as the layout's first place for words
-    and as wide, or ending left of the like buttons when that is covered, its middle HEAD_AT of the way down the
-    person (their head, when they sit or stand), inside the rows a phone shows. None when the words in it (size, or
-    the whole band) would not cross the person, or a phone or the captions would cover them."""
+    and as wide, or ending left of the like buttons when that is covered, with a line of words tall px high and wide
+    px wide (the band's width when None) in its middle sitting on the person's head, so the top of the head cuts the
+    lower HAIR of the letters and the words can still be read; inside the rows a phone shows. None when such words
+    would not cross the person, would be hidden too much, or a phone or the captions would cover them."""
     who = _person_box(frames)
     if not who:
         return None
     x, _y, w, h = next(iter(lay["places"].values()), [65, 0, 950, 190])
-    y = round(min(max(who[1] + HEAD_AT * who[3] - h / 2, SAFE_ROWS[0]), SAFE_ROWS[1] - h))
+    top = who[1] - (1 - HAIR) * tall
+    y = round(min(max(top - (h - tall) / 2, SAFE_ROWS[0]), SAFE_ROWS[1] - h))
     for band in ([x, y, w, h], [x, y, LIKES_LEFT - x, h]):
-        if size is not None and size.w > band[2]:
+        line = band[2] if wide is None else wide
+        if line > band[2]:
             continue
-        drawn = band if size is None else [band[0] + (band[2] - size.w) / 2, y + (h - size.h) / 2, size.w, size.h]
+        drawn = [band[0] + (band[2] - line) / 2, y + (h - tall) / 2, line, tall]
         if (_crosses(_crossing(frames, drawn, start, end), start, end)
+                and (_hidden(frames, drawn) > HIDDEN_MOST).mean() <= 0.5
                 and not _covers([round(v) for v in drawn], lay, state)):
             return band
     return None
@@ -3382,8 +3464,9 @@ def _where_said(who):
         _grid(who, FRAME), who[0], who[0] + who[2], who[1], who[1] + who[3])
 
 
-def _person_said(state):
-    """Where the clip shows the person, and which places for words cross them, for Muse to put a title behind them."""
+def _person_said(state, style):
+    """Where the clip shows the person, and which places for words cross them, for Muse to put a title behind them
+    (style: the title's text style, for the height of one line)."""
     lay, length = state["clip"]["layout"], state["length"]
     try:
         frames = _person_frames(state, 0, length)
@@ -3399,11 +3482,12 @@ def _person_said(state):
         spans = _crossing(frames, box, 0, length)
         if _crosses(spans, 0, length):
             crossing.append("%s %s" % (name, _when(spans, 0, length)))
-    band = _behind_band(frames, lay, state, 0, length)
-    return "On the frame the person is at %s. A title goes behind them only where they cross it: %s%s." % (
-        _where_said(who), "the places for words that cross them: %s" % "; ".join(crossing) if crossing else
-        "no place for words crosses them, so give add_title a box", "" if not band else
-        "; for words across their head, a box such as %s" % _grid(band, FRAME))
+    band = _behind_band(frames, lay, state, 0, length, text.measure("Title", style, "title", effects.FRAME_W).h)
+    return ("On the frame the person is at %s. A title goes behind them only where they cross it, and it must still "
+            "be read, so the top of their head should cut only the bottom of the letters: %s%s." % (
+                _where_said(who), "the places for words that cross them: %s" % "; ".join(crossing) if crossing else
+                "no place for words crosses them, so give add_title a box", "" if not band else
+                "; for one line of words on top of their head, a box such as %s" % _grid(band, FRAME)))
 
 
 def _not_crossed(frames, drawn, place, start, end, spans, lay, state, size):
@@ -3412,13 +3496,25 @@ def _not_crossed(frames, drawn, place, start, end, spans, lay, state, size):
     if not who:
         return ("From %g to %g s no picture shows the person, so the title would go behind nobody: pick a time when "
                 "the clip shows them, or put it on without behind." % (start, end))
-    band = _behind_band(frames, lay, state, start, end, size)
+    band = _behind_band(frames, lay, state, start, end, size.h, size.w)
     return ("Behind the person, the title must cross them for at least %g s, and at the %s they cross its words (y %d "
             "to %d) for %g s of %g to %g s; they are at %s. %s, or put it on without behind." % (
                 min(SHORTEST_WORDS, end - start), place, drawn[1], drawn[1] + drawn[3],
                 round(sum(b - a for a, b in spans), 1), start, end, _where_said(who),
-                "Give a box such as %s, across their head" % _grid(band, FRAME) if band else
+                "Give a box such as %s, on top of their head" % _grid(band, FRAME) if band else
                 "Give a box across those rows"))
+
+
+def _too_hidden(frames, place, start, end, hidden, words, lay, state, size):
+    """Why a title put on with behind true is refused: the person hides so much of its words they cannot be read."""
+    band = _behind_band(frames, lay, state, start, end, size.h, size.w)
+    return ('Behind the person, the words must still be read, and at the %s the person hides more than a third of '
+            'their width for %g s of %g to %g s (about %d%% most of the time), so a viewer cannot read "%s". %s, or '
+            'put it on without behind.' % (
+                place, round(float((hidden > HIDDEN_MOST).sum()) / PERSON_STEP, 1), start, end,
+                round(100 * float(np.median(hidden))), words,
+                "Put it higher, so the top of their head cuts only the bottom of the letters: a box such as %s"
+                % _grid(band, FRAME) if band else "Put it where the person crosses only the bottom of the letters"))
 
 
 def describe(entry):
