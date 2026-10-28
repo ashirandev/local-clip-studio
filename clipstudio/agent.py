@@ -29,7 +29,7 @@ import time
 import traceback
 
 from . import channels, faces, hearing, layer, maps, mind, previews, project, recording, render, spent, text, words
-from .tools import (CAPTION_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, STYLES, TOOLS, Refused, _spoken, _subtitles,
+from .tools import (CAPTION_LETTERS, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, STYLES, TOOLS, Refused, _spoken, _subtitles,
                     _undecided, channel_entries, channel_unfit, describe, faces_at, features, look_of, look_said)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -486,7 +486,7 @@ class Chat:
             caps = state["captions"]
             mine = [ln for ln in caps["lines"] if ln["phrase"] == n]
             typed = text.caption_lines([{"from": mine[0]["from"], "to": mine[-1]["to"], "text": words}],
-                                       CAPTION_LETTERS)
+                                       ONE_LETTERS if caps.get("one") else CAPTION_LETTERS)
             for ln in typed:
                 ln.update(phrase=n, typed=True)
                 for key in ("who", "said"):
@@ -867,15 +867,16 @@ class Job:
         finally:
             self.done_working()
 
-    def ask_aside(self, messages, schema, doing="Fixing misheard words from the context"):
+    def ask_aside(self, messages, schema, doing="Fixing misheard words from the context", room=None):
         """Asks Muse apart from this job's conversation (the conversation and its cache stay as they are) and
-        returns the words of the answer. Stop cancels it (hearing.Stopped)."""
+        returns the words of the answer, in at most room tokens (hearing.FIX_TOKENS when None). Stop cancels it
+        (hearing.Stopped)."""
         asking = mind.Asking()
         self.working(doing)
         self.started_work(asking.cancel)
         try:
-            return self.paid(self.brain.ask(messages, temperature=0.2, max_tokens=hearing.FIX_TOKENS, asking=asking,
-                                            schema=schema))["text"]
+            return self.paid(self.brain.ask(messages, temperature=0.2, max_tokens=room or hearing.FIX_TOKENS,
+                                            asking=asking, schema=schema))["text"]
         except mind.Cancelled:
             raise hearing.Stopped()
         finally:
@@ -1237,7 +1238,7 @@ class Hand(Job):
         self.chat.edit(entry)
         raise Made()
 
-    def ask_aside(self, messages, schema, doing=""):
+    def ask_aside(self, messages, schema, doing="", room=None):
         raise mind.MindError("The page does not ask Muse.")
 
     def render(self, rec, state, out, default):
@@ -1410,7 +1411,10 @@ def find(chat_id):
 
 
 def earlier(limit=CHATS_LISTED):
-    """The newest chats on disk that have at least one message: [{id, when, first, messages}]."""
+    """The newest chats on disk that have at least one message: [{id, when, first, messages, recording, title,
+    minds}], title being the title of its newest finished clip ("" before one), minds each Muse that answered in it,
+    [{label, local}], local when it runs on this computer (no key). Tarm 10-28: the list read "yeti-c149d0193c.mp4"
+    eight times over."""
     folder = os.path.join(WORK, "chats")
     try:
         names = [n for n in os.listdir(folder) if n.endswith(".events.jsonl") and CHAT_ID.match(n[:-13])]
@@ -1423,8 +1427,13 @@ def earlier(limit=CHATS_LISTED):
         said = [e["text"] for e in events if e["kind"] == "person"]
         opened = [e["recording"]["name"] for e in events if e["kind"] == "opened"]
         if said:
+            minds = list(dict.fromkeys(e["mind"] for e in events if e["kind"] == "job" and e.get("mind")))
+            titles = [e["title"] for e in events if e["kind"] == "ready" and e.get("title")]
             out.append({"id": name[:-13], "when": round(os.path.getmtime(os.path.join(folder, name))),
-                        "first": said[0][:100], "messages": len(said), "recording": opened[-1] if opened else ""})
+                        "first": said[0][:100], "messages": len(said), "recording": opened[-1] if opened else "",
+                        "title": titles[-1] if titles else "",
+                        "minds": [{"label": m, "local": not any(x.label == m and x.key_env for x in
+                                                                 mind.MINDS.values())} for m in minds]})
         if len(out) >= limit:
             break
     return out

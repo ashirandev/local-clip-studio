@@ -345,6 +345,43 @@ class Stages(unittest.TestCase):
         self.assertEqual(str(e.exception), "hit kind 'wobble' is not a hit: use one of flash, shake, punch, word.")
 
 
+class OneLine(unittest.TestCase):
+    def test_captions_one_line_at_a_time_are_drawn_big_unless_the_person_chose_a_size(self):
+        st = state()
+        self.assertEqual(render._caption_style(st, "clean").size, render.ONE_SIZE)
+        self.assertEqual(render._caption_style(st, "clean").name[:3], "pop",
+                         "with no look chosen, the heavy letters and thick outline of the reviews Tarm follows")
+        plain = text.look("pop", sizes={"caption": render.ONE_SIZE})["caption"].sizes[1]
+        lines = text.caption_lines([{"from": 0.0, "to": 3.0, "text": "ราคาไม่ถึงสองพันเลย"}], 12)
+        grown = render._caption_style(st, "clean", lines, layouts.CAPTIONS[3]).sizes[1]
+        self.assertGreater(grown, plain * 1.2, "a short line is drawn well past size 5, about half the frame wide")
+        wide = text.caption_lines([{"from": 0.0, "to": 3.0, "text": "WWWWWWWWWWWW"}], 12)
+        self.assertLessEqual(text.measure(wide[0]["text"], render._caption_style(st, "clean", wide, 400), "caption",
+                                          4000).w, layouts.CAPTIONS[2], "a line too wide to grow is not grown past "
+                                                                       "the band")
+        st["style"] = {"name": "pop"}
+        self.assertEqual((render._caption_style(st, "clean").size, render._caption_style(st, "clean").name[:3]),
+                         (render.ONE_SIZE, "pop"))
+        st["style"] = {"name": "pop", "sizes": {"caption": 2}}
+        self.assertEqual(render._caption_style(st, "clean").size, 2)
+        st["style"] = {"name": "pop", "size": 4}
+        self.assertEqual(render._caption_style(st, "clean").size, 4)
+
+    @unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg, and numpy for the pixel checks")
+    def test_one_line_captions_are_drawn_bigger_in_their_band(self):
+        """Seen 10-28: the big style was not in the file's styles, and the yeti review would not render."""
+        lines = text.caption_lines([{"from": 0.0, "to": 3.0, "text": "ราคาไม่ถึงสองพันเลย"}], 14)
+        band = [layouts.CAPTIONS[1], layouts.CAPTIONS[3]]
+        found = {}
+        for chosen in (None, {"name": "clean", "sizes": {"caption": text.TUNED_SIZE}}):
+            st = state(captions=[{"lines": lines, "band": band, "one": True, "lit": False, "pop": False}])
+            st["style"] = chosen
+            found[bool(chosen)] = changed(drawn(st, 1.0), drawn(st, 1.0, words=False))
+        self.assertTrue(inside(found[False], [0, band[0], 1080, layouts.SAFE_BOTTOM - band[0]], slack=4),
+                        "%s: never above the band, where the face is, nor in the bottom a phone covers" % (found[False],))
+        self.assertGreater(found[False][2] - found[False][0], (found[True][2] - found[True][0]) * 1.2,
+                           "one line at a time is drawn bigger than the usual size the person can still choose")
+
 @unittest.skipUnless(FFMPEG and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class Preview(unittest.TestCase):
     """The preview frame Muse sees is drawn by the same stages."""

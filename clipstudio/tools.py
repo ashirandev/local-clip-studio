@@ -19,7 +19,7 @@ import time
 import numpy as np
 
 from . import (channels, cutout, effects, faces, focus, hearing, layouts, maps, mind, montage, pauses, person, previews,
-               project, recording, render, voices,
+               project, recording, render, review, voices,
                screen, spoken, takes, talk, text, thai, tracks, words)
 from .recipes import RECIPES, SIGNALS
 
@@ -285,6 +285,10 @@ SHORTEST_PIECE, LONGEST_PIECE = 1.0, 8.0
 SHORTEST_FIT = 2.0
 OVER_LENGTH = 1.25
 LINE_EVERY = 15.0
+# A montage whose pieces are this much talk is told by its captions: no line of words is asked for each part, and a
+# line stays over its own piece only, the way the reviews Tarm follows put a hook on the first seconds and nothing
+# more (Extreme IT, 10-28). C's yeti cut kept its hook over 12 s and a title over every part.
+TALKED = 0.6
 
 
 def open_clips(job, why, folder):
@@ -393,19 +397,40 @@ def _clip_lines(c):
     elif not c["said"]:
         lines.append("   No words heard.")
     else:
-        sure = [p for p in c["said"] if not _unsure(p)]
-        cuts = _take_cuts(c) if _talking(c) and rec["seconds"] > LONGEST_PIECE else None
+        listed, cuts = _listed(c)
         if cuts is not None:
             lines.append("   Someone talks through it: give each piece of it a start and an end around the lines you "
                          "keep. The program cuts the stretches marked cut here, and silences over %g s." % DEAD_AIR)
-        rows = [(p["from"], "   %g s %s" % (round(p["from"], 1), p["text"])) for p in sure
-                if not any(x <= p["from"] < y for x, y, _ in cuts or [])]
+        if any(less for _, less in listed):
+            lines.append("   A line marked ~ was heard less surely: some of its words may be misheard.")
+        rows = [(p["from"], "   %g s %s%s" % (round(p["from"], 1), "~ " if less else "", p["text"]))
+                for p, less in listed]
         rows += [(x, "   %g-%g s cut: %s" % (round(x, 1), round(y, 1), why)) for x, y, why in cuts or []]
         lines += [r for _, r in sorted(rows, key=lambda r: r[0])]
-        if len(sure) < len(c["said"]):
+        held = sum(1 for p in c["said"] if _unsure(p)) - sum(1 for _, less in listed if less)
+        if held > 0:
             lines.append("   %d more line%s heard but not sure, such as voices around the camera: left out." % (
-                len(c["said"]) - len(sure), "" if len(c["said"]) - len(sure) == 1 else "s"))
+                held, "" if held == 1 else "s"))
     return lines
+
+
+def _listed(c):
+    """([(phrase, less sure)] of clip c (open_clips) shown to Muse, the take cuts of it or None): its sure lines, and in
+    a clip someone talks through also those heard from READ_SURE up, outside the take cuts. Seen 10-28 in Tarm's yeti
+    review: his verdict and the price ("ราคาไม่ถึงสองพัน", heard 0.83 to 0.86) were among 14 lines of IMG_3376 held
+    back as not sure, so neither Muse ever saw the price; the voices around the camera in those clips were all heard
+    below 0.8."""
+    talking = _talking(c)
+    cuts = _take_cuts(c) if talking and c["rec"]["seconds"] > LONGEST_PIECE else None
+    out = []
+    for p in c["said"] or []:
+        if any(x <= p["from"] < y for x, y, _ in cuts or []):
+            continue
+        if not _unsure(p):
+            out.append((p, False))
+        elif talking and p.get("sure", 1.0) >= READ_SURE:
+            out.append((p, True))
+    return out, cuts
 
 
 TAKE_CUT = {"again": "a take given up at a clap, said again after it",
@@ -424,12 +449,17 @@ def _take_cuts(c):
     return sorted(x["cut"] + [TAKE_CUT[x["why"]]] for x in clapped + again)
 
 
-def arrange_clips(job, why, story, clips, left_out=None):
+def arrange_clips(job, why, story, clips, left_out=None, hook=""):
     opened = job.chat.clips
     if not opened:
         raise Refused("No clips are open. Open a folder of clips with open_clips first.")
     if (job.chat.clip or {}).get("recipe") != MONTAGE:
         raise Refused("Load the %s recipe first: it says how to choose and order the clips." % MONTAGE)
+    hook = " ".join((hook or "").split())
+    if not clips:
+        clips, left_out = _the_cut(opened, hook, left_out)
+    elif hook and not clips[0].get("words"):
+        clips = [dict(clips[0], words=hook)] + list(clips[1:])
     known = {c["n"]: c for c in opened["clips"]}
     used = [c["clip"] for c in clips]
     both = sorted({c["clip"] for c in left_out or []} & set(used))
@@ -496,7 +526,7 @@ def arrange_clips(job, why, story, clips, left_out=None):
             pieces += [{"rec": rec, "from": round(x, 2), "to": round(y, 2), "clip": c["clip"], "why": c["why"],
                         "talk": True, "focus": c.get("focus"), "whole": c.get("whole")} for x, y in parts]
             if c.get("words"):
-                lines.append({"piece": first, "text": c["words"]})
+                lines.append({"piece": first, "last": len(pieces), "text": c["words"]})
             continue
         else:
             fit = _moving(a, b, known[c["clip"]]["stills"], LONGEST_PIECE, min(SHORTEST_PIECE, b - a))
@@ -512,7 +542,7 @@ def arrange_clips(job, why, story, clips, left_out=None):
         pieces.append({"rec": rec, "from": round(a, 2), "to": round(max(a, b), 2), "clip": c["clip"],
                        "why": c["why"], "focus": c.get("focus"), "whole": c.get("whole")})
         if c.get("words"):
-            lines.append({"piece": len(pieces), "text": c["words"]})
+            lines.append({"piece": len(pieces), "last": len(pieces), "text": c["words"]})
     middled = set()
     for p in pieces:
         if not montage.fills(p["rec"]["width"], p["rec"]["height"]) and not p.get("whole"):
@@ -546,7 +576,8 @@ def arrange_clips(job, why, story, clips, left_out=None):
     if clips and not clips[0].get("words"):
         problems.append("The first piece (clip %d) opens the clip: give it words that say where we are or what this "
                         "is." % clips[0]["clip"])
-    if len(lines) < round(length / LINE_EVERY):
+    talked = said_length >= TALKED * length
+    if not talked and len(lines) < round(length / LINE_EVERY):
         problems.append("%d line%s of words for %g s: give at least %d, one for each part of the story, so the "
                         "viewer knows what each part is." % (len(lines), "" if len(lines) == 1 else "s",
                                                              round(length, 1), round(length / LINE_EVERY)))
@@ -578,11 +609,16 @@ def arrange_clips(job, why, story, clips, left_out=None):
     except recording.NotOpened as e:
         return "The joined clips could not be read back: %s Tell the person." % e
     job.chat.open(rec, job=job.n)
+    if job.chat.clip is not None:
+        job.chat.clip["talked"] = talked
     at = montage.starts(pieces)
     for ln in lines:
         k = ln["piece"] - 1
-        later = [x for x in lines if x["piece"] > ln["piece"]]
-        ln["start"], ln["end"] = at[k], (at[later[0]["piece"] - 1] if later else round(rec["seconds"], 2))
+        later = [x["piece"] for x in lines if x["piece"] > ln["piece"]]
+        if talked:
+            later = [ln.pop("last") + 1] if ln["last"] < len(pieces) else []
+        ln.pop("last", None)
+        ln["start"], ln["end"] = at[k], (at[later[0] - 1] if later else round(rec["seconds"], 2))
     look, moment = _montage_moment(job, rec, pieces, at, story, lines)
     job.chat.looks.append(look)
     job.chat.moments = [moment]
@@ -604,7 +640,28 @@ def arrange_clips(job, why, story, clips, left_out=None):
     if spelling:
         said.append(spelling)
     made = make_clip(job, why, 1, "subject")
+    if talked:
+        try:
+            made += "\n\nCaptions put on by the program, as a talked review has them, one line at a time: take them off " \
+                    "only if the person asks.\n" + add_captions(job, why, on=True)
+        except Refused:
+            pass
     return "\n".join(said) + "\n\n" + made
+
+
+def _the_cut(opened, hook, left_out):
+    """(clips, left_out) for arrange_clips from the cut the program made of a review (_review_cut), hook over its first
+    piece; Muse's own reasons for leaving a clip out are kept. Refused when there is no cut or no hook."""
+    cut = (opened.get("review") or {}).get("cut")
+    if not cut:
+        raise Refused("Give the clips that go in, in order: the program made no cut of these clips for you to use.")
+    if not hook:
+        raise Refused("Give hook: the words over the first piece of the program's cut, 2 to 6 words from what is said "
+                      "in it, such as the question the clip answers.")
+    clips = [dict({"clip": p["clip"], "start": p["start"], "end": p["end"], "why": review.SAYS[p["job"]]},
+                  **({"words": hook} if k == 0 else {})) for k, p in enumerate(cut["clips"])]
+    mine = {c["clip"]: c for c in left_out or []}
+    return clips, [mine.get(c["clip"], c) for c in cut["left_out"]]
 
 
 def _upright_centre(rec, a, b, focus):
@@ -2083,6 +2140,9 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
 
 
 CAPTION_LETTERS = 16
+# Captions over a talked review: one line at a time, of 2 or 3 Thai words, drawn big (render._caption_style), as in
+# the reviews Tarm follows (Extreme IT, 10-28); 12 Thai letters at that size measure about 575 of the band's 830 px.
+ONE_LETTERS = 12
 SUBTITLES = {"English": ("english", "en", "eng", "อังกฤษ", "ภาษาอังกฤษ"), "Thai": ("thai", "th", "ไทย", "ภาษาไทย")}
 SENTENCE_GAP = 0.7
 SENTENCE_SHORT = 1.5
@@ -2518,7 +2578,8 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
     typed = _typed(state["captions"])
     for piece in shown:
         piece["text"] = typed.get((piece["from"], piece["to"]), piece["text"])
-    lines = text.caption_lines(shown, CAPTION_LETTERS)
+    one = bool((job.chat.clip or {}).get("talked"))
+    lines = text.caption_lines(shown, ONE_LETTERS if one else CAPTION_LETTERS)
     for line in lines:
         if translated:
             line["said"] = units[line["phrase"]]["text"]
@@ -2530,6 +2591,8 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
         first = [u["first"] for u in units]
     band = clip["layout"]["captions"]
     entry = {"do": "captions", "lines": lines, "band": [band[1], band[3]], "lit": bool(lit), "pop": bool(pop)}
+    if one:
+        entry["one"] = True
     if translated:
         entry["language"] = target
     bands, voiced = clip["layout"].get("bands"), clip.get("voices")
@@ -3364,6 +3427,11 @@ def _tag(word):
     return "#" + word if word else ""
 
 
+# A folder or file of this computer, as a drive (H:\Phone), a share (\\host) or a home folder; not a web address,
+# whose "s://" a letter comes before. Seen 10-28: Glimmer's post read "จากโฟลเดอร์ H:\Phone\yeti".
+PLACES = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/](?!/)\S*|\\\\[^\s\\]+\S*|(?:/Users|/home)/\S+")
+
+
 def hand_over(job, why, title, caption, hashtags, english=""):
     _clip_state(job)
     done = job.chat.finished()
@@ -3379,6 +3447,10 @@ def hand_over(job, why, title, caption, hashtags, english=""):
         raise Refused("These checks failed on the finished file: %s. Fix them, render again and check again; after "
                       "%d rounds you may hand it over and say what still fails." % ("; ".join(failed), CHECK_ROUNDS))
     rec, state = _open(job, "hand over"), _clip_state(job)
+    where = [m.group(0) for m in PLACES.finditer(" ".join([title, caption, english or ""] + list(hashtags)))]
+    if where:
+        raise Refused("The post names %s, a place on this computer: viewers must never see where the files are kept. "
+                      "Write the title and the post without it." % ", ".join('"%s"' % w for w in where))
     wrong = _misspelled(" ".join([title, caption, english or ""] + list(hashtags)), _screen_words(job, rec, state))
     if wrong and not any(e["kind"] == "misspelled" and e.get("job") == job.n for e in job.chat.events):
         job.emit("misspelled", words=[w for w, _ in wrong])
@@ -4024,7 +4096,69 @@ def load_recipe(job, why, type, length_s=None, style=None, language="", brief=""
         lines.append("Clips from a folder are open, so this is the %s recipe, not the %s one you asked for: the clips "
                      "are joined first, with arrange_clips. A %s told over several takes is joined the same way, by "
                      "its lines." % (MONTAGE, asked["name"], asked["title"][0].lower() + asked["title"][1:]))
-    return "\n".join(lines) + "\n\n" + recipe["body"]
+    cut = _review_cut(job) if recipe["name"] == MONTAGE and _a_review(job, asked) else []
+    return "\n".join(lines) + "\n\n" + recipe["body"] + ("\n\n" + "\n".join(cut) if cut else "")
+
+
+# Spark wrote 13,869 tokens, its thinking with them, labelling the 170 lines of the yeti takes (10-28), and in the
+# studio the same question at 16,384 came back empty.
+REVIEW_TOKENS = 32000
+
+
+REVIEW_WORDS = re.compile(r"รีวิว|แกะกล่อง|ป้ายยา|review|unbox", re.IGNORECASE)
+
+
+def _a_review(job, asked):
+    """True when the clips are a product review: Muse loaded the seller recipe, or the person's own words in this chat
+    say review. Which recipe Muse loads for the same folder changes from run to run; the person's words do not."""
+    return bool(asked and asked["name"] == "seller") or any(
+        e["kind"] == "person" and REVIEW_WORDS.search(e.get("text") or "") for e in job.chat.events)
+
+
+def _review_cut(job):
+    """Sentences for Muse with the cut the program makes of a product review told over several takes (review.py):
+    Muse is asked aside what each line does in a review, and the program puts the lines in the review order inside
+    the length. [] when no take is talked through."""
+    opened = job.chat.clips
+    lines, clips = [], []
+    for c in opened["clips"]:
+        talking = _talking(c) and c["rec"]["seconds"] > LONGEST_PIECE
+        clips.append({"n": c["n"], "talking": talking})
+        for p, _ in _listed(c)[0] if talking else []:
+            if not pauses.filler(p["text"]):
+                lines.append({"n": len(lines) + 1, "clip": c["n"], "from": p["from"], "to": p["to"],
+                              "text": p["text"]})
+    if not lines:
+        return []
+    yourself = ("so arrange the takes yourself, in the review order: open on the line that shows it working, then "
+                "what it is, the one thing it does well, what it works with, what there is to see, the verdict and "
+                "the price, and the ask to comment.")
+    messages, schema = review.question(lines)
+    try:
+        read = review.read(job.ask_aside(messages, schema, "Reading what each line of the review does",
+                                         REVIEW_TOKENS), lines)
+    except hearing.Stopped:
+        return ["The person pressed Stop while the program read the lines, " + yourself]
+    except (mind.MindError, ValueError, KeyError, TypeError, AttributeError) as e:
+        return ["The program could not learn what each line does (%s), %s" % (str(e).rstrip(".") or "no answer",
+                                                                                yourself)]
+    cut = review.draft(clips, lines, read["jobs"], job.chat.clip["length_s"], read["hook"])
+    if not cut["clips"] or not review.is_review(read["jobs"]):
+        return ["No line said in the takes reads as part of a review (what it is, what it does, the verdict), " +
+                yourself]
+    opened["review"] = dict(read, cut=cut)
+    said = {ln["n"]: ln["text"] for ln in lines}
+    out = ["The program asked what each of the %d lines said in the takes does in a review, and made the cut in the "
+           "review order (show it working, what it is, its best point, what it works with, what there is to see, "
+           "the verdict and the price, the ask), %g s of lines:" % (len(lines), cut["length"])]
+    out += ["%d. clip %d, %g-%g s, %s: %s" % (k, p["clip"], p["start"], p["end"], p["job"], " ".join(
+        said[n] for n in p["lines"])) for k, p in enumerate(cut["clips"], 1)]
+    out += ["Left out: clip %d, %s." % (c["clip"], c["why"]) for c in cut["left_out"]]
+    out.append("To make it, call arrange_clips with clips left empty ([]) and hook: the words over its first piece, 2 "
+               "to 6 words from what is said in it, such as the question the clip answers. The program puts the "
+               "pieces and the left out clips in as listed. Give clips of your own only where the person asked for "
+               "something else.")
+    return out
 
 
 def _joining(job):
@@ -4099,8 +4233,9 @@ TOOLS = {t.name: t for t in [
          {"story": {"type": "string", "maxLength": 300,
                     "description": "One line for the person, in their language: what the clip tells, from its first "
                                    "picture to its last."},
-          "clips": {"type": "array", "minItems": 1, "maxItems": MOST_CLIPS,
-                    "description": "The clips that go in, in the order they are shown.",
+          "clips": {"type": "array", "minItems": 0, "maxItems": MOST_CLIPS,
+                    "description": "The clips that go in, in the order they are shown. Leave it empty ([]) to use "
+                                   "the cut the program made of a review, as it is.",
                     "items": {"type": "object", "properties": {
                         "clip": {"type": "integer", "minimum": 1, "maximum": MOST_CLIPS,
                                  "description": "The clip's number."},
@@ -4134,7 +4269,11 @@ TOOLS = {t.name: t for t in [
                                     "description": "The clip's number."},
                            "why": {"type": "string", "maxLength": 200,
                                    "description": "One line for the person, in their language: why it is left out."}},
-                                 "required": ["clip", "why"]}}},
+                                 "required": ["clip", "why"]}},
+          "hook": {"type": "string", "maxLength": 80,
+                   "description": "The words over the first piece, in the person's language: with clips left empty, "
+                                  "over the first piece of the program's cut. 2 to 6 words that make someone scrolling "
+                                  "past stay."}},
          ["story", "clips"], arrange_clips, changes=True),
     Tool("load_recipe", "Picked the kind of clip",
          "Read the recipe for this kind of video before you plan the clip, and give your guesses for it. The page "

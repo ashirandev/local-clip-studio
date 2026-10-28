@@ -28,6 +28,8 @@ tells it best.
 - When someone talks to the camera through the clips (a review or a talk told over several takes), what is said
   is the story: choose the lines that tell it, from each clip's list, and give each piece the seconds around them.
   One clip can give several pieces. Open on the line that says what this is; never use a stretch the list marks cut.
+- A product review told over several takes comes with a cut the program made in the review order. Use it as it is,
+  with words over its first piece, unless the person asked for something else.
 
 ## The words on screen
 

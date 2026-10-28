@@ -1867,11 +1867,14 @@ class Tools(unittest.TestCase):
                 [call("blur_box", box=[400, 0, 600, 300], why="the chat")],
                 [call("render_clip", why="again")],
                 [call("check_clip", why="again")],
+                [call("hand_over", title="t", caption="clips from H:/Phone/yeti", hashtags=["#a"], why="where")],
                 [call("hand_over", title="t", caption="c", hashtags=["#a"], why="post")],
                 "Done.")
         finally:
             render.export = had
-        unchecked, first, failed, _, _, second, ready = steps[-7:]
+        unchecked, first, failed, _, _, second, where, ready = steps[-8:]
+        self.assertTrue(where["refused"], "Glimmer's post named the folder of the clips (10-28)")
+        self.assertIn('The post names "H:/Phone/yeti", a place on this computer', where["result"])
         self.assertTrue(unchecked["refused"])
         self.assertIn("Check the finished file first, with check_clip", unchecked["result"])
         self.assertFalse(first["refused"], first["result"])

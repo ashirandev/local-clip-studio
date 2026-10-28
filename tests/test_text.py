@@ -689,6 +689,15 @@ class Captions(unittest.TestCase):
         for (a, b), (c, d) in zip(spans, spans[1:]):
             self.assertLessEqual(b, c)
 
+    def test_one_line_at_a_time_when_asked_even_when_two_fit(self):
+        """Over a talked review the captions go one short line at a time (Extreme IT, 10-28)."""
+        events = text.captions(text.caption_lines(SAID, most=10), text.STYLES["pop"], (1350, 400), one=True)
+        starts = [tuple(e.split(",")[1:3]) for e in events]
+        self.assertEqual(len(starts), len(set(starts)), "every page holds one line")
+        self.assertGreater(len(events), 1)
+        with self.assertRaises(ValueError):
+            text.captions(text.caption_lines(SAID), text.STYLES["pop"], (1350, 400), one="yes")
+
     def test_captions_are_drawn_inside_their_band(self):
         band = (1400, 320)
         st = text.STYLES["sticker"]

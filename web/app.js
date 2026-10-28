@@ -12,8 +12,6 @@ const earlierList = document.getElementById("earlierList");
 const mindsBox = document.getElementById("minds");
 const machineBox = document.getElementById("machine");
 const settings = document.getElementById("settings");
-const costMenu = document.getElementById("cost");
-const costBox = document.getElementById("costBox");
 const MONEY = { TH: "THB", JP: "JPY", KR: "KRW", CN: "CNY", TW: "TWD", HK: "HKD", SG: "SGD", MY: "MYR", ID: "IDR", VN: "VND", PH: "PHP", IN: "INR", GB: "GBP", AU: "AUD", NZ: "NZD", CA: "CAD", CH: "CHF", BR: "BRL", MX: "MXN" };
 const EURO = ["AT", "BE", "CY", "DE", "EE", "ES", "FI", "FR", "GR", "HR", "IE", "IT", "LT", "LU", "LV", "MT", "NL", "PT", "SI", "SK"];
 const detailsBox = document.getElementById("details");
@@ -52,7 +50,7 @@ const fileInput = document.getElementById("file");
 const dropCover = document.getElementById("dropCover");
 const idle = text.placeholder;
 
-const room = { mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false } };
+const room = { mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false } };
 
 function localStore(key, value) {
   try {
@@ -118,6 +116,12 @@ function money(usd) {
   return r.currency === "USD" ? shown : shown + " ($" + usd.toFixed(usd && usd < 1 ? 4 : 2) + ")";
 }
 
+function moneyShort(usd) {
+  const r = room.rate;
+  const v = usd * r.per_usd;
+  return new Intl.NumberFormat(navigator.language || "en-US", { style: "currency", currency: r.currency, minimumFractionDigits: 2, maximumFractionDigits: v && Math.abs(v) < 0.1 ? 3 : 2 }).format(v);
+}
+
 function costRow(what, usd, more) {
   const row = el("div", "cost-row");
   const name = el("span", "what", what);
@@ -126,9 +130,11 @@ function costRow(what, usd, more) {
   return row;
 }
 
-function drawCost(d) {
+function drawCost(d, box, job) {
   room.rate = d.rate;
+  const mine = d.jobs.find((j) => j.job === job);
   const rows = [el("p", "pop-head", "What Muse cost")];
+  if (mine) rows.push(costRow("This clip", mine.usd, mine.minds.join(", ") + " · " + plural(mine.answers, "answer")));
   if (room.chat) rows.push(costRow("This chat", d.chat));
   d.jobs.forEach((j) => rows.push(costRow("Message " + j.job, j.usd, j.minds.join(", ") + " · " + plural(j.answers, "answer"))));
   rows.push(costRow("Today", d.today), costRow("This month", d.month));
@@ -139,15 +145,27 @@ function drawCost(d) {
   if (d.rate.source) notes.push(d.rate.currency + " at " + d.rate.per_usd.toFixed(2) + " to the US dollar, the rate of " + d.rate.day + " from " + d.rate.source + ".");
   else if (d.rate.why) notes.push(d.rate.why);
   rows.push(el("p", "cost-note", notes.join(" ")));
-  costBox.replaceChildren(...rows);
+  box.replaceChildren(...rows);
 }
 
-async function refreshCost() {
+function costLabel(d, job) {
+  const mine = d.jobs.find((j) => j.job === job);
+  if (!mine) return "$";
+  return mine.usd > 0 ? moneyShort(mine.usd) : "Free";
+}
+
+async function refreshCost(job) {
+  const tags = room.costs.filter((c) => job === undefined || c.job === job);
+  if (!tags.length) return;
   try {
     const r = await fetch("/api/spent?currency=" + myCurrency() + (room.chat ? "&chat=" + encodeURIComponent(room.chat) : ""), { cache: "no-store" });
-    drawCost(await r.json());
+    const d = await r.json();
+    tags.forEach((c) => {
+      c.tag.textContent = costLabel(d, c.job);
+      drawCost(d, c.box, c.job);
+    });
   } catch (err) {
-    costBox.replaceChildren(el("p", "earlier-empty", "The studio is not answering."));
+    tags.forEach((c) => c.box.replaceChildren(el("p", "earlier-empty", "The studio is not answering.")));
   }
 }
 
@@ -578,8 +596,18 @@ function drawReady(j, e) {
   });
   const save = el("a", "chip", "Download the clip");
   save.href = "/api/clip/" + e.file + "?download=1";
+  const cost = el("details", "menu ready-cost");
+  const tag = el("summary", "chip cost-chip", "$");
+  tag.setAttribute("aria-label", "What Muse cost for this clip");
+  const box = el("div", "pop cost-box");
+  cost.append(tag, box);
+  cost.addEventListener("toggle", () => {
+    if (cost.open) refreshCost(e.job);
+  });
+  room.costs.push({ job: e.job, tag, box });
+  refreshCost(e.job);
   const row = el("div", "ready-actions");
-  row.append(copy, save);
+  row.append(copy, save, cost);
   body.appendChild(row);
   div.append(v, body);
   j.flow.appendChild(div);
@@ -1219,7 +1247,7 @@ function on(e) {
     j.foot.hidden = false;
     room.open.delete(e.job);
     setBusy();
-    if (costMenu.open) refreshCost();
+    refreshCost(e.job);
   }
   scrollDown();
 }
@@ -1352,6 +1380,7 @@ function show(chatId) {
   room.last = -1;
   room.jobs = {};
   room.open = new Set();
+  room.costs = [];
   room.cut = {};
   room.showing = null;
   room.work = { video: false, preview: false };
@@ -1576,10 +1605,6 @@ features.addEventListener("toggle", async () => {
   }
 });
 
-costMenu.addEventListener("toggle", () => {
-  if (costMenu.open) refreshCost();
-});
-
 earlier.addEventListener("toggle", async () => {
   if (!earlier.open) return;
   earlierList.replaceChildren(el("p", "earlier-empty", "Looking…"));
@@ -1591,7 +1616,9 @@ earlier.addEventListener("toggle", async () => {
     d.chats.forEach((c) => {
       const b = el("button", "earlier-chat" + (c.id === room.chat ? " here" : ""));
       b.type = "button";
-      b.append(el("span", "first", c.recording || c.first), el("span", "meta", when(c.when)));
+      const meta = el("span", "meta", when(c.when));
+      (c.minds || []).forEach((m) => meta.appendChild(el("span", "mind-tag" + (m.local ? "" : " api"), m.label.replace(/^Muse /, "") + " · " + (m.local ? "local" : "API"))));
+      b.append(el("span", "first", c.title || c.first || c.recording), meta);
       b.addEventListener("click", () => {
         earlier.open = false;
         connect(c.id);

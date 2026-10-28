@@ -115,13 +115,13 @@ the workspace has no endpoint for the model yet.
 Keys can stay in a file of your own, outside the studio's folder: name it in `LCS_KEYS` (`KEY=VALUE` lines; several
 files separated by `;` on Windows, `:` elsewhere). The studio prints the names it read, never a value.
 
-**What it costs.** The Cost menu says what Muse cost: each message, the chat, today and this month, at the
-providers' list prices in US dollars per million tokens (Muse Spark 1.3: $1.25 read new, $0.15 read from the
-provider's cache, $4.25 written, thinking included; Muse Spark Open on Modal the same). Glimmer on your own card
-costs nothing. Every answer's line in Show how Muse works carries its cost too. Amounts are shown in the money of the
-browser's language (US dollars for English, baht for Thai), at the day's rate from open.er-api.com, fetched at most
-twice a day and carrying nothing of yours. A question cut short by Stop is not counted: a provider says what an
-answer cost only at its end.
+**What it costs.** Each finished clip carries a $ chip with what Muse cost to make it (Free on your own card); tap it
+for the chat, today and this month, at the providers' list prices in US dollars per million tokens (Muse Spark 1.3:
+$1.25 read new, $0.15 read from the provider's cache, $4.25 written, thinking included; Muse Spark Open on Modal the
+same). Glimmer on your own card costs nothing. Every answer's line in Show how Muse works carries its cost too.
+Amounts are shown in the money of the browser's language (US dollars for English, baht for Thai), at the day's rate
+from open.er-api.com, fetched at most twice a day and carrying nothing of yours. A question cut short by Stop is not
+counted: a provider says what an answer cost only at its end.
 
 **SAM 3.1, for the cut-out looks (optional).** SAM finds the person frame by frame, so words can sit behind them. It
 runs in its own Python as a worker, and Glimmer steps off the graphics card while it works, then comes back. A
@@ -234,6 +234,15 @@ the result and the engine numbers.
   from the first line and the first word. Muse is told how big the words come out on a phone.
 - **Captions never cover the picture.** In the card layout the captions sit between the face and the card, where
   they read as what the face says and cover neither; every word stays above y 1250, clear of an ad's button.
+- **A review told over several takes is cut in the review order, and Muse only says what each line does.** Asked to
+  arrange eight takes of a mic review itself, the local Muse was refused eleven times in a row and the hosted one
+  opened on a count-in. So the program asks one small question: what does each line do in a review (shows it working,
+  says what it is, its best point, what it works with, what there is to see, the verdict and price, the ask), and
+  which line should open the clip. It then builds the cut from whole lines in that order, inside the length asked:
+  open on the proof, close on the verdict and the ask. On that mic review both Muses named the line a hand edit
+  opened on, and the cut held 7 of its 8 pieces, in its order. Lines the hearing was less sure of are shown in a take
+  someone talks through, marked, because the verdict and the price were among them. Over a talked review the hook
+  stays on its own piece and the captions go one big line at a time.
 - **Several clips in one go, each reported on its own.** When the person asks for every good moment, Muse proposes
   up to eight and gives each its title and post text; the program makes, checks and hands over each clip. Names are
   checked against the screen for every clip before any is made, a clip that fails a check is not handed over, and the

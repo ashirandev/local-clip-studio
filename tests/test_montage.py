@@ -1,5 +1,6 @@
 """Many short clips made into one, on small videos made by ffmpeg: python -m unittest discover -s tests"""
 import datetime
+import json
 import os
 import shutil
 import subprocess
@@ -443,6 +444,59 @@ class Talking(unittest.TestCase):
         self.assertNotIn("ขอโทษอันนี้จะเป็น", said, "the take he gave up is not in the clip")
         self.assertAlmostEqual(self.chat.recording["seconds"], (6.5 - 2.5) + (23.5 - 17.14) + 3.0, delta=0.3)
 
+    def test_a_reviews_takes_are_cut_by_what_each_line_does_and_the_hook_stays_on_its_piece(self):
+        """Tarm's yeti review (10-28): Glimmer was refused eleven times arranging the takes itself. Muse says what each
+        line does; the program gives the cut, which goes through as it is."""
+        jobs = json.dumps({"lines": [{"n": 1, "job": "what"}, {"n": 2, "job": "what"}, {"n": 3, "job": "other"},
+                                     {"n": 4, "job": "point"}, {"n": 5, "job": "point"}]})
+        opened = [[call("open_clips", folder=self.folder, why="the review's takes")],
+                  [call("load_recipe", type="seller", why="a mic review")], jobs]
+        steps = Arrange.run_job(self, *opened, [call("arrange_clips", story="the review", why="the cut", clips=[])],
+                                [call("arrange_clips", story="the review", why="the program's cut", clips=[],
+                                      hook="This mic", left_out=[{"clip": 2, "why": "the desk"}])], "Done.")
+        loaded, no_hook, joined = steps[1]["result"], steps[2], steps[3]
+        self.assertIn("The program asked what each of the 5 lines said in the takes does in a review", loaded)
+        self.assertIn("1. clip 1, 2.82-6.08 s, what: ", loaded)
+        self.assertIn("2. clip 1, 17.75-23.23 s, point: ", loaded)
+        self.assertIn("Left out: clip 2, no one talks through it", loaded)
+        self.assertIn("call arrange_clips with clips left empty ([]) and hook", loaded)
+        asked = self.chat.job.brain.sent[2][-1]["content"]
+        self.assertIn("3. take 1, 17.4 s: เอาละ", asked, "a line heard less surely is asked about too")
+        self.assertTrue(no_hook["refused"])
+        self.assertIn("Give hook: the words over the first piece of the program's cut", no_hook["result"])
+        self.assertFalse(joined["refused"], joined["result"] + joined.get("fault", ""))
+        self.assertIn("0 s: clip 1, 2.82-", joined["result"])
+        self.assertIn("s: clip 1, 17.75-", joined["result"])
+        arranged = [e for e in self.chat.events if e.get("arranged")][-1]["arranged"]
+        self.assertEqual(arranged["left_out"], [{"clip": 2, "why": "the desk"}], "Muse's own reason is kept")
+        self.assertEqual([p["why"] for p in arranged["pieces"]][:1], ["says what it is"])
+        lines = self.chat.moments[0]["lines"]
+        self.assertEqual([ln["text"] for ln in lines], ["This mic"])
+        self.assertLess(lines[0]["end"], self.chat.recording["seconds"] - 4,
+                        "over a talked review the hook stays over its own piece, not to the next words or the end")
+        self.assertAlmostEqual(lines[0]["end"], 6.08 - 2.82, delta=0.4)
+        self.assertIn("Captions put on by the program, as a talked review has them", joined["result"])
+        captions = self.chat.project.state()["captions"]
+        self.assertIs(captions.get("one"), True, "a talked review's captions go one line at a time")
+        self.assertTrue(all(tools.text._letters(ln["text"].strip()) <= tools.ONE_LETTERS for ln in captions["lines"]))
+
+    def test_the_cut_is_made_when_the_person_said_review_whichever_recipe_muse_loads(self):
+        """Which recipe Muse loads for the same folder changes from run to run; the person's words do not."""
+        opened = [[call("open_clips", folder=self.folder, why="the takes")],
+                  [call("load_recipe", type="montage", why="clips")]]
+        trip = Arrange.run_job(self, *opened, "Done.")[1]["result"]
+        self.assertNotIn("The program asked", trip, "a trip someone talks through costs no question")
+        self.chat.emit("person", job=self.chat.jobs + 1, text="ช่วยตัดคลิปรีวิวไมค์ให้หน่อย")
+        jobs = json.dumps({"lines": [{"n": 1, "job": "what"}, {"n": 4, "job": "verdict"}], "hook": 1})
+        said = Arrange.run_job(self, *opened, jobs, "Done.")[1]["result"]
+        self.assertIn("made the cut in the review order", said)
+        self.assertIn("1. clip 1, 2.82-4.84 s, proof: ", said, "the hook Muse named opens the cut")
+        talk = json.dumps({"lines": [{"n": 1, "job": "look"}, {"n": 4, "job": "other"}], "hook": 1})
+        other = Arrange.run_job(self, *opened, talk, "Done.")[1]["result"]
+        self.assertIn("No line said in the takes reads as part of a review", other,
+                      "lines that never say what the product is make no review, whatever the person called it")
+        self.assertNotIn("made the cut in the review order", other)
+
 
 class Listing(unittest.TestCase):
     def test_lines_the_hearing_was_not_sure_of_are_counted_not_listed(self):
@@ -464,6 +518,21 @@ class Listing(unittest.TestCase):
         self.assertTrue(listed[0].startswith("   Someone talks through it: give each piece of it a start and an end"))
         self.assertEqual(listed[1:5], ["   1.3 s ตั้งเสียงประมาณนี้", "   2.7-15.1 s cut: talk off the script before a clap",
                                        "   15.4 s แต่สำหรับใครที่แบบ", "   16.5 s แต่สำหรับใครนะครับที่แบบอยากจะลองใช้"])
+
+    def test_a_clip_someone_talks_through_lists_lines_heard_less_surely_marked(self):
+        """The verdict and the price of Tarm's yeti review were heard 0.83 to 0.86 and never shown to Muse (10-28)."""
+        said = [{"from": 1.0 + 3 * k, "to": 3.5 + 3 * k, "text": "line %d" % k, "sure": 0.95} for k in range(3)] + [
+            {"from": 10.0, "to": 12.0, "text": "ราคาไม่ถึงสองพันเลย", "sure": 0.84},
+            {"from": 12.5, "to": 13.0, "text": "losa", "sure": 0.6}]
+        c = {"n": 7, "rec": {"name": "IMG_3376.MOV", "seconds": 14.0, "width": 1920, "height": 1080},
+             "when": "shot 22:50", "stills": [], "unheard": None, "said": said, "claps": []}
+        listed = tools._clip_lines(c)[1:]
+        self.assertIn("   A line marked ~ was heard less surely: some of its words may be misheard.", listed)
+        self.assertIn("   10 s ~ ราคาไม่ถึงสองพันเลย", listed)
+        self.assertEqual(listed[-1], "   1 more line heard but not sure, such as voices around the camera: left out.")
+        c["said"] = said[:1] + said[3:]
+        self.assertNotIn("ราคาไม่ถึงสองพันเลย", "\n".join(tools._clip_lines(c)),
+                         "in a clip nobody talks through, a less sure line is a voice around the camera")
 
 
 class Crowd(unittest.TestCase):

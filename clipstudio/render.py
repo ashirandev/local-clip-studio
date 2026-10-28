@@ -73,6 +73,33 @@ def style_of(state, default="clean", kind="title"):
     return text.STYLES.get(default) or text.STYLES["clean"]
 
 
+ONE_SIZE = 5
+ONE_GROW = 1.6
+ONE_LOOK = "pop"
+
+
+def _caption_style(state, default, lines=(), band_h=None):
+    """The style of captions shown one line at a time (a talked review): ONE_LOOK's heavy letters and thick outline
+    when the person chose no look (the recipe's guess is not a choice), at ONE_SIZE grown ONE_GROW times, shrunk back
+    as far as needed (never below ONE_SIZE) for the widest of lines to fit the caption band's width, and the tallest,
+    with its outline and shadow, its height band_h; the person's own size for the captions or for all the words
+    wins. Measured 10-28 on Tarm's screen recordings of Extreme IT: a line of
+    two or three words is about 55% of the frame wide, in bold white with a black outline; at size 5 the studio's
+    were 30%."""
+    e = state["style"] or {}
+    if e.get("size") or (e.get("sizes") or {}).get("caption"):
+        return style_of(state, default, "caption")
+    st = text.look(e.get("name") or ONE_LOOK, e.get("font"), e.get("colour"), e.get("fonts"), None,
+                   dict(e.get("sizes") or {}, caption=ONE_SIZE), e.get("colours"), e.get("part_colours"))["caption"]
+    sizes = [text.measure(line["text"].strip(), st, "caption", 4 * layouts.W) for line in lines]
+    widest = max([m.w for m in sizes] or [0])
+    tallest = max([m.h for m in sizes] or [0]) + (2 * st.edge_ratio + st.shadow_ratio) * st.sizes[1]
+    grow = min(ONE_GROW, layouts.CAPTIONS[2] / float(widest) if widest else ONE_GROW,
+               band_h / float(tallest) if band_h and tallest else ONE_GROW)
+    grow = max(1.0, grow)
+    return st._replace(name="%s-one%d" % (st.name, round(grow * 100)), sizes=tuple(int(s * grow) for s in st.sizes))
+
+
 def _styles(state, default):
     """The clip's style for each part of its words, {kind: Style}."""
     return {kind: style_of(state, default, kind) for kind in text.KINDS}
@@ -101,15 +128,19 @@ def ass(state, default="clean", behind=False):
     events = []
     for t in titles:
         events += text.title(t["text"], t["start"], t["end"], t["box"], st["title"], t.get("key"))
+    styles = list(st.values())
     if captions:
         bands = captions.get("bands") or {}
+        said = _caption_style(state, default, captions["lines"], captions["band"][1]) if captions.get("one") else \
+            st["caption"]
+        if said is not st["caption"]:
+            styles.append(said)
         for who in sorted({str(line.get("who")) for line in captions["lines"]}):
             lines = [line for line in captions["lines"] if str(line.get("who")) == who]
-            events += text.captions(lines, st["caption"], bands.get(who) or captions["band"],
-                                    lit=captions.get("lit", False), pop=captions.get("pop", False))
+            events += text.captions(lines, said, bands.get(who) or captions["band"], lit=captions.get("lit", False),
+                                    pop=captions.get("pop", False), one=bool(captions.get("one")))
     for h in words:
         events += text.big_word(h["word"], h["at"], WORD_SECONDS, h["centre"], st["big"])
-    styles = list(st.values())
     if channel:
         events += text.channel_name(channel["name"], 0, state["length"], st["caption"], channel.get("spot"))
         styles.append(text.channel_style(st["caption"]))

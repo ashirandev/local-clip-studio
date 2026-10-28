@@ -1110,9 +1110,9 @@ def _check_line(k, line):
         raise ValueError("line %d is not a caption line: pass what caption_lines() returned." % k)
 
 
-def captions(lines, style, band, lit=False, pop=False):
+def captions(lines, style, band, lit=False, pop=False, one=False):
     """ASS events for caption lines (from caption_lines) inside band (y, h) of the 1080x1920 frame, two lines at a
-    time when two fit the band and one at a time when they do not, in the style's colour. With lit=True each word lights up in the style's key colour as it is said
+    time when two fit the band and one at a time when they do not or one is True, in the style's colour. With lit=True each word lights up in the style's key colour as it is said
     (libass \\kf): for words over the picture that nobody on screen is saying, such as a voice-over or a song, since
     a lit word pulls the eye away from a person explaining on camera. With pop=True each word grows in at its own
     place in the line as it is said and stays to the page's end, so the page builds up word by word and, once its
@@ -1138,9 +1138,11 @@ def captions(lines, style, band, lit=False, pop=False):
     for k, line in enumerate(lines):
         _check_line(k, line)
         _check_text(line["text"], style, "line %d" % k)
+    if not isinstance(one, bool):
+        raise ValueError("one %r is not True or False: use True to show the captions one line at a time." % (one,))
     pages, k = [], 0
     while k < len(lines):
-        two = k + 1 < len(lines) and 0 <= lines[k + 1]["from"] - lines[k]["to"] <= PAIR_GAP
+        two = not one and k + 1 < len(lines) and 0 <= lines[k + 1]["from"] - lines[k]["to"] <= PAIR_GAP
         pages.append(lines[k:k + 2] if two else lines[k:k + 1])
         k += 2 if two else 1
     shown = [line["text"].strip() for line in lines]
