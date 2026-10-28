@@ -2042,6 +2042,7 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
     if _thai_for_english(job, [words]):
         raise Refused("The person asked for the words on the clip in English, so a viewer who reads no Thai can "
                       "follow: write \"%s\" in English." % words)
+    _other_apps(words)
     try:
         (words,), spelling = _spell(job, [words])
     except hearing.Stopped:
@@ -3430,6 +3431,21 @@ def _tag(word):
 # A folder or file of this computer, as a drive (H:\Phone), a share (\\host) or a home folder; not a web address,
 # whose "s://" a letter comes before. Seen 10-28: Glimmer's post read "จากโฟลเดอร์ H:\Phone\yeti".
 PLACES = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/](?!/)\S*|\\\\[^\s\\]+\S*|(?:/Users|/home)/\S+")
+# Another company's short-video app, or a tag that belongs to one (#fyp is TikTok's For You page). The studio makes clips
+# for Reels on Instagram and Facebook, so Muse's post and its words on the clip name none (Tarm 10-28: "# ไม่ควรมี
+# tiktok", "Reel IG Facebook ใช้ได้"). Words the speaker said are theirs: captions are not checked.
+OTHER_APPS = re.compile(r"(?i)tik\s*-?\s*tok|ต[ิี][๊๋]?ก\s*-?\s*ต[็๊๋]?อ[็๊๋]?ก|ท[ิี][๊๋]?ก\s*ท[็๊๋]?อ[็๊๋]?ก|douyin|"
+                        r"you\s*tube|ยูทู[บป]|#\s*(?:yt)?shorts\b|capcut|snapchat|kuaishou|\bkwai\b|likee|lemon8|"
+                        r"#\s*fyp\w*|#\s*foryou(?:page)?\b")
+
+
+def _other_apps(*texts):
+    """Refused naming another company's app in texts, or nothing."""
+    named = list(dict.fromkeys(m.group(0) for m in OTHER_APPS.finditer(" ".join(t for t in texts if t))))
+    if named:
+        raise Refused("This names %s, which belongs to another company's app. The studio makes clips for Reels on "
+                      "Instagram and Facebook, so the title, the post and the hashtags name no other app and use none "
+                      "of its tags. Write them without it." % ", ".join('"%s"' % n for n in named))
 
 
 def hand_over(job, why, title, caption, hashtags, english=""):
@@ -3451,6 +3467,7 @@ def hand_over(job, why, title, caption, hashtags, english=""):
     if where:
         raise Refused("The post names %s, a place on this computer: viewers must never see where the files are kept. "
                       "Write the title and the post without it." % ", ".join('"%s"' % w for w in where))
+    _other_apps(title, caption, english, *[_tag(h) for h in hashtags])
     wrong = _misspelled(" ".join([title, caption, english or ""] + list(hashtags)), _screen_words(job, rec, state))
     if wrong and not any(e["kind"] == "misspelled" and e.get("job") == job.n for e in job.chat.events):
         job.emit("misspelled", words=[w for w, _ in wrong])

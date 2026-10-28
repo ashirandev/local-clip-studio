@@ -791,6 +791,15 @@ class Tools(unittest.TestCase):
         self.assertEqual(len([m for m in brain.sent if len(m) == 1 and "subtitle" in m[0]["content"]]), 1,
                          "captions said in Thai and asked for in Thai are not translated")
 
+    def test_words_on_the_clip_name_no_other_companys_app(self):
+        brain, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("add_title", words="คลิปเด็ดลงติ๊กต็อก", start=0, end=3, place="top", why="the hook")],
+            [call("add_title", words="คลิปเด็ดลง Reels", start=0, end=3, place="top", why="the hook")], "Done.")
+        self.assertTrue(steps[-2]["refused"])
+        self.assertIn("This names \"ติ๊กต็อก\", which belongs to another company's app.", steps[-2]["result"])
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+
     def test_captions_blurs_and_hits_go_on_the_clip_and_muse_is_told_what_they_cover(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "this is the moment"},
                                {"from": 5.0, "to": 8.0, "text": "watch him fall down now"}]
@@ -1868,13 +1877,17 @@ class Tools(unittest.TestCase):
                 [call("render_clip", why="again")],
                 [call("check_clip", why="again")],
                 [call("hand_over", title="t", caption="clips from H:/Phone/yeti", hashtags=["#a"], why="where")],
-                [call("hand_over", title="t", caption="c", hashtags=["#a"], why="post")],
+                [call("hand_over", title="t", caption="c", hashtags=["#reels", "fyp", "TikTokThailand"], why="tags")],
+                [call("hand_over", title="t", caption="c", hashtags=["#reels", "#instagram", "#facebook"], why="post")],
                 "Done.")
         finally:
             render.export = had
-        unchecked, first, failed, _, _, second, where, ready = steps[-8:]
+        unchecked, first, failed, _, _, second, where, other, ready = steps[-9:]
         self.assertTrue(where["refused"], "Glimmer's post named the folder of the clips (10-28)")
         self.assertIn('The post names "H:/Phone/yeti", a place on this computer', where["result"])
+        self.assertTrue(other["refused"], "Tarm 10-28: no #tiktok, the studio makes Reels for Instagram and Facebook")
+        self.assertIn("This names \"#fyp\", \"TikTok\", which belongs to another company's app.", other["result"])
+        self.assertFalse(ready["refused"], ready["result"])
         self.assertTrue(unchecked["refused"])
         self.assertIn("Check the finished file first, with check_clip", unchecked["result"])
         self.assertFalse(first["refused"], first["result"])
