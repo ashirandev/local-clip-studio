@@ -25,6 +25,10 @@ iPhone cuts 51 a side), and a line of text is about LINE times its font from its
 changes, the card holds where the most lines are (the highest such place, within TOP_NEAR of the most), its left
 edge at their start, so they read from the first word:
 showing the whole screen because nothing moved put 10 px words on Tarm's phone with a blank middle between them.
+When the lines carry the second they were read at, the card leaves a place once a reading finds no line left in it
+while the screen has lines elsewhere, for where the most lines are then (no sooner than HOLD after its last move): held
+on the most lines of the whole clip, a model dialog, the card showed the blank page under it for 27 of 40 s when the
+dialog closed (Eaglet, 10-28).
 The card still follows a change only where the change is one part of the screen, as above: followed at the readable
 size without that test, it chased a blinking button in the browser's corner (10-27).
 """
@@ -248,21 +252,87 @@ def plan(rec, pieces, region, aspect, avoid=None, text=None, shown=None):
         zoom = round(ww / float(sw), 3)
     size = [int(round(ww * scale)) // 2 * 2, int(round(wh * scale)) // 2 * 2]
     if not follow:
-        lines = _text_map(text, region, scale, sw, sh)
-        if banned is not None:
-            lines = lines * (1 - banned)
-        held, x, y = _best(lines, ww, wh, banned, near=TOP_NEAR)
-        if held <= 0:
+        start = _on_lines(text, region, scale, (sw, sh), ww, wh, banned)
+        if start is None:
             return None
-        starts = [int((line["box"][0] - x0) / scale) for line in text if line.get("sure", 0) >= SURE
-                  and x <= (line["box"][0] - x0) / scale < x + ww and y <= (line["box"][1] - y0) / scale < y + wh]
-        nx = max(0, min(starts or [x]) - 2)
-        if banned is None or banned[y:y + wh, nx:nx + ww].sum() == 0:
-            x = min(nx, sw - ww)
-        return {"zoom": zoom, "size": size, "letters": round(on_phone(height, size[0], shown), 1), "on": "lines",
-                "shots": [{"from": 0.0, "to": round(length, 2),
-                           "x": min(int(round(x0 + x * scale)), int(x0 + w - size[0])) // 2 * 2,
-                           "y": min(int(round(y0 + y * scale)), int(y0 + h - size[1])) // 2 * 2}]}
+        shots = _kept_on_lines(text, pieces, region, scale, (sw, sh), ww, wh, banned, start, length)
+    else:
+        shots = _followed(maps, sw, sh, ww, wh, banned)
+    if not shots:
+        return None
+    for k, s in enumerate(shots):
+        s["to"] = shots[k + 1]["from"] if k + 1 < len(shots) else round(length, 2)
+        s["x"] = min(int(round(x0 + s["x"] * scale)), int(x0 + w - size[0])) // 2 * 2
+        s["y"] = min(int(round(y0 + s["y"] * scale)), int(y0 + h - size[1])) // 2 * 2
+    out = {"zoom": zoom, "size": size, "letters": round(on_phone(height, size[0], shown), 1) if height else None,
+           "shots": [{"from": s["from"], "to": s["to"], "x": s["x"], "y": s["y"]} for s in shots]}
+    if not follow:
+        out["on"] = "lines"
+    return out
+
+
+def _on_lines(text, region, scale, small, ww, wh, banned):
+    """(x, y) in small pixels: the window over the most lines of text (the highest within TOP_NEAR of the most), its
+    left edge at their start; None when no window holds a line."""
+    x0, y0 = region[:2]
+    sw, sh = small
+    lines = _text_map(text, region, scale, sw, sh)
+    if banned is not None:
+        lines = lines * (1 - banned)
+    held, x, y = _best(lines, ww, wh, banned, near=TOP_NEAR)
+    if held <= 0:
+        return None
+    starts = [int((line["box"][0] - x0) / scale) for line in text if line.get("sure", 0) >= SURE
+              and x <= (line["box"][0] - x0) / scale < x + ww and y <= (line["box"][1] - y0) / scale < y + wh]
+    nx = max(0, min(starts or [x]) - 2)
+    if banned is None or banned[y:y + wh, nx:nx + ww].sum() == 0:
+        x = min(nx, sw - ww)
+    return x, y
+
+
+def _kept_on_lines(text, pieces, region, scale, small, ww, wh, banned, start, length):
+    """The card's shots on a screen where no one part changes: from start, and to where the most lines are whenever a
+    reading finds none left in its place."""
+    shots, since = [{"from": 0.0, "x": start[0], "y": start[1]}], 0.0
+    for t, read in _readings(text, pieces):
+        now = _text_map(read, region, scale, *small)
+        if banned is not None:
+            now = now * (1 - banned)
+        place = (shots[-1]["x"], shots[-1]["y"])
+        if now.sum() <= 0 or _held(now, place[0], place[1], ww, wh) > 0:
+            continue
+        found = _on_lines(read, region, scale, small, ww, wh, banned)
+        if found is None:
+            continue
+        if len(shots) == 1 and t < HOLD:
+            shots[0].update(x=found[0], y=found[1])
+            continue
+        move = round(max(t, since + HOLD), 2)
+        if move >= length:
+            break
+        shots.append({"from": move, "x": found[0], "y": found[1]})
+        since = move
+    return shots
+
+
+def _readings(text, pieces):
+    """[(clip second, the lines read then)] in order, for the lines that carry the second they were read at; a reading
+    before a piece is the screen at that piece's start."""
+    out = {}
+    for line in text or []:
+        if line.get("at") is None:
+            continue
+        at_ = 0.0
+        for a, b in pieces:
+            if line["at"] < b:
+                out.setdefault(round(at_ + max(0.0, line["at"] - a), 2), []).append(line)
+                break
+            at_ += b - a
+    return sorted(out.items())
+
+
+def _followed(maps, sw, sh, ww, wh, banned):
+    """The card's shots following the change in one part of the screen (the module's note)."""
     shots, place, since, streak = [], None, 0.0, None
     for t, m, before, after in maps:
         if m.sum() < QUIET * sw * sh:
@@ -286,14 +356,7 @@ def plan(rec, pieces, region, aspect, avoid=None, text=None, shown=None):
             place, since = (x, y), move
             shots.append({"from": round(move, 2), "x": x, "y": y})
             streak = None
-    if not shots:
-        return None
-    for k, s in enumerate(shots):
-        s["to"] = shots[k + 1]["from"] if k + 1 < len(shots) else round(length, 2)
-        s["x"] = min(int(round(x0 + s["x"] * scale)), int(x0 + w - size[0])) // 2 * 2
-        s["y"] = min(int(round(y0 + s["y"] * scale)), int(y0 + h - size[1])) // 2 * 2
-    return {"zoom": zoom, "size": size, "letters": round(on_phone(height, size[0], shown), 1) if height else None,
-            "shots": [{"from": s["from"], "to": s["to"], "x": s["x"], "y": s["y"]} for s in shots]}
+    return shots
 
 
 def readable(height, shown):

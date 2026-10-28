@@ -137,6 +137,22 @@ class Readable(unittest.TestCase):
         self.assertTrue(shot["y"] <= 300 and shot["y"] + plan["size"][1] >= 300 + 18, "it holds the lines from the "
                         "first: %s" % plan)
 
+    def test_the_card_leaves_a_place_whose_lines_are_gone(self):
+        rec = screen(os.path.join(self.tmp, "s.mp4"), spots=())
+        dialog = [dict(line, at=t) for t in (0.0, 1.0, 2.0, 3.0) for line in lines(x=700, y=300, n=10, width=300)]
+        page = [dict(line, at=t) for t in (0.0, 2.0, 5.0) for line in lines(x=40, y=40, n=3)]
+        later = [dict(line, at=5.0) for line in lines(x=40, y=400, n=8, width=300)]
+        plan = focus.plan(rec, [[0, 12]], [0, 0, 1280, 720], 16 / 9.0, text=dialog + page + later, shown=960)
+        self.assertEqual(plan["on"], "lines")
+        first, second = plan["shots"]
+        self.assertTrue(inside([first["x"], first["y"]] + plan["size"], 700, 300, 300, 18), "on the dialog: %s" % plan)
+        self.assertEqual((second["from"], first["to"]), (5.0, 5.0), "it stays while the dialog is there, round 8")
+        self.assertTrue(inside([second["x"], second["y"]] + plan["size"], 40, 400, 300, 18), "then where the lines "
+                        "are: %s" % plan)
+        held = focus.plan(rec, [[0, 12]], [0, 0, 1280, 720], 16 / 9.0, text=[{k: v for k, v in line.items() if k != "at"}
+                                                                              for line in dialog + page + later], shown=960)
+        self.assertEqual(len(held["shots"]), 1, "lines read without their second are held as before")
+
     def test_a_blink_that_is_not_one_part_of_the_screen_is_not_chased(self):
         rec = screen(os.path.join(self.tmp, "n.mp4"), spots=(), whole=(0, 12), area=(1100, 620))
         plan = focus.plan(rec, [[0, 12]], [0, 0, 1280, 720], 16 / 9.0, text=lines(x=700, y=300), shown=960)

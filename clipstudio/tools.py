@@ -1215,7 +1215,7 @@ def _follow(rec, lay, pieces, span):
     card = next(p for p in lay["parts"] if p["name"] == "card")
     whole = card["src"][2]
     try:
-        text = [line for r in screen.readings(rec, span[0], span[1]) for line in r["lines"]]
+        text = [dict(line, at=r["at"]) for r in screen.readings(rec, span[0], span[1]) for line in r["lines"]]
     except screen.ScreenError:
         text = None
     try:
@@ -1234,6 +1234,9 @@ def _follow(rec, lay, pieces, span):
     size, shots = plan["size"], plan["shots"]
     if len(shots) == 1:
         moves = "holds one place, %s on your grid" % _grid([shots[0]["x"], shots[0]["y"]] + size, rec)
+    elif plan.get("on") == "lines":
+        moves = "moves where the lines are when the place it holds has none left, %d places: %s" % (len(shots), "; ".join(
+            "%s on your grid from %g s" % (_grid([s["x"], s["y"]] + size, rec), s["from"]) for s in shots))
     else:
         moves = "moves to where the screen changes, %d places: %s" % (len(shots), "; ".join(
             "%s on your grid from %g s" % (_grid([s["x"], s["y"]] + size, rec), s["from"]) for s in shots))
