@@ -272,6 +272,15 @@ class Arrange(unittest.TestCase):
         self.assertNotIn("person 2", shown["result"])
         self.assertFalse(decided["refused"], decided["result"])
         self.assertEqual([q["blur"] for q in self.chat.project.state()["people"]], [True, False])
+        faces = self.chat.faces(1.0)
+        self.assertEqual([(f["n"], f["blur"]) for f in faces], [(1, True)], "the page sees who shows at 1 s")
+        self.assertTrue(all(0 <= v <= 1920 for v in faces[0]["box"]), "in frame pixels")
+        self.assertEqual(self.chat.faces(9.0), [])
+        self.assertTrue(self.chat.set_person(1, False), "the person taps the blurred face")
+        self.assertFalse(self.chat.set_person(9, True), "there is no person 9")
+        self.assertEqual([q["blur"] for q in self.chat.project.state()["people"]], [False, False])
+        self.assertIn("the person kept person 1 by tapping their face", self.chat.told)
+        self.assertEqual(self.chat.clip_view()["people"], 2)
 
     def test_a_line_that_would_cover_a_face_goes_up_where_it_covers_none(self):
         had = tools._face_times

@@ -407,7 +407,7 @@ function showClip(e) {
   const titles = clip.titles.length;
   clipTitle.textContent = "Your clip";
   clipPill.textContent = "Show your clip";
-  clipLine.textContent = "Moment " + clip.moment + " · " + clip.length + " s · the " + clip.layout + " layout · " + (titles ? titles + (titles === 1 ? " title" : " titles") : "no words yet") + ". Slide to see any second of it.";
+  clipLine.textContent = "Moment " + clip.moment + " · " + clip.length + " s · the " + clip.layout + " layout · " + (titles ? titles + (titles === 1 ? " title" : " titles") : "no words yet") + ". Slide to see any second of it." + (clip.people ? " Tap a face to blur it, and tap it again to show it." : "");
   clipTools.hidden = false;
   popClip();
 }
@@ -491,6 +491,42 @@ function drawClipFrame() {
   img.src = "/api/clipframe?chat=" + encodeURIComponent(room.chat) + "&t=" + t.toFixed(2) + "&v=" + made.version;
   img.alt = "Your clip at " + t.toFixed(1) + " seconds";
   frameBox.replaceChildren(img);
+  room.facesAt = made.version + "@" + t.toFixed(2);
+  if (made.clip.people) drawFaces(t, made, room.facesAt);
+}
+
+async function drawFaces(t, made, asked) {
+  let d;
+  try {
+    const r = await fetch("/api/faces?chat=" + encodeURIComponent(room.chat) + "&t=" + t.toFixed(2), { cache: "no-store" });
+    d = await r.json();
+  } catch (err) {
+    return;
+  }
+  if (!d.ok || !d.faces.length || room.made !== made || room.facesAt !== asked) return;
+  const layer = el("div", "faces");
+  d.faces.forEach((f) => {
+    const b = el("button", "face" + (f.blur ? " blurred" : ""));
+    b.type = "button";
+    b.style.left = (100 * f.box[0] / d.size[0]) + "%";
+    b.style.top = (100 * f.box[1] / d.size[1]) + "%";
+    b.style.width = (100 * f.box[2] / d.size[0]) + "%";
+    b.style.height = (100 * f.box[3] / d.size[1]) + "%";
+    b.setAttribute("aria-label", (f.blur ? "Show the face of person " : "Blur person ") + f.n);
+    b.appendChild(el("span", "face-n", String(f.n)));
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        const res = await post("/api/person", { chat: room.chat, n: f.n, blur: !f.blur });
+        if (!res.ok) clipLine.textContent = res.error || "That face could not be changed.";
+      } catch (err) {
+        clipLine.textContent = "The studio is not answering. Start it again with: python app.py";
+      }
+      b.disabled = false;
+    });
+    layer.appendChild(b);
+  });
+  frameBox.appendChild(layer);
 }
 
 clipAt.addEventListener("input", () => {

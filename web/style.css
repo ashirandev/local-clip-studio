@@ -591,6 +591,39 @@ h2 { margin: 0 0 12px; font-size: 15px; }
 
 .frame img, .frame video { width: 100%; height: 100%; object-fit: contain; }
 
+.frame { position: relative; }
+
+.faces { position: absolute; inset: 0; }
+
+.face {
+  position: absolute;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 2px #161616;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.face.blurred { border-style: dashed; }
+
+.face:focus-visible { outline: 3px solid #ffffff; outline-offset: 3px; }
+
+.face-n {
+  position: absolute;
+  left: -2px;
+  top: -24px;
+  padding: 1px 7px;
+  background: #161616;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 20px;
+  border-radius: 4px;
+}
+
 .clip-line { margin: 10px 0 0; color: var(--muted); font-size: 14px; text-align: center; overflow-wrap: anywhere; }
 
 .clip-tools { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; }

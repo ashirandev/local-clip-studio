@@ -2145,6 +2145,20 @@ def show_people(job, why, at):
     return "\n".join(lines)
 
 
+def faces_at(state, t):
+    """The other people's faces at clip second t, where the clip's frame shows them: [{"n", "box" (frame pixels),
+    "blur"}], for the page, where the person taps a face to blur it."""
+    if not state["clip"]:
+        return []
+    out = []
+    for p in state["people"]:
+        point = min(p["points"], key=lambda q: abs(q[0] - t))
+        shown = layouts.to_frame(state["clip"]["layout"], point[1:], t) if abs(point[0] - t) <= NEAR else []
+        if shown:
+            out.append({"n": p["n"], "box": [round(v) for v in shown[0]], "blur": p["blur"]})
+    return out
+
+
 def _people_picture(rec, at, seen, name):
     """The recording's picture at `at` with a numbered box around each face in seen ({"n", "box"} in recording
     pixels), 896 px on its long side; the jpg's path in work/people, or None."""

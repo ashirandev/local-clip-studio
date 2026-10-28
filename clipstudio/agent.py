@@ -29,7 +29,7 @@ import time
 import traceback
 
 from . import faces, hearing, maps, mind, previews, project, recording, render, words
-from .tools import SCHEMAS, TOOLS, Refused, describe
+from .tools import SCHEMAS, TOOLS, Refused, describe, faces_at
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = os.environ.get("LCS_WORK") or os.path.join(ROOT, "work")
@@ -209,6 +209,19 @@ class Chat:
         self.emit("edit", job=job, entry=entry, clip=self.clip_view(), said=describe(entry))
         return self.project.state()
 
+    def set_person(self, n, blur):
+        """The person's tap on a face: person n blurred, or kept as they are, and told to Muse before its next job.
+        False when the clip has no person n."""
+        if not any(p["n"] == n for p in self.project.state()["people"]):
+            return False
+        self.edit({"do": "people", "blur": [n] if blur else [], "keep": [] if blur else [n]})
+        with self.cond:
+            self.told.append("the person %s person %d by tapping their face" % ("blurred" if blur else "kept", n))
+        return True
+
+    def faces(self, t):
+        return faces_at(self.project.state(), t)
+
     def undo(self, job=None):
         """Takes the last change back, or returns None when there is none. The person's undo is told to Muse
         before its next job (or in the state line of the job running now)."""
@@ -237,7 +250,7 @@ class Chat:
         return {"length": state["length"], "layout": state["clip"]["layout"]["kind"],
                 "moment": state["clip"]["moment"],
                 "titles": [{"text": t["text"], "start": t["start"], "end": t["end"]} for t in state["titles"]],
-                "changes": len(self.project.entries)}
+                "people": len(state["people"]), "changes": len(self.project.entries)}
 
     def clip_line(self):
         """One line on the clip for Muse's state: what it is made of, or that none is made."""

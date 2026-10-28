@@ -94,6 +94,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_poster(POSTER.match(path).group(1))
         elif path == "/api/clipframe":
             self.send_clip_frame(query)
+        elif path == "/api/faces":
+            self.send_faces(query)
         elif LOOK.match(path):
             self.send_look(LOOK.match(path).group(1))
         elif path.startswith("/api/"):
@@ -105,7 +107,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.named_well():
             return
         path = self.path.split("?", 1)[0]
-        if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/open", "/api/undo"):
+        if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/open", "/api/undo", "/api/person"):
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
             return
         body = self.read_json()
@@ -127,6 +129,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"ok": True, "undone": agent.describe(entry)})
         elif path == "/api/open":
             self.open_recording(chat, body)
+        elif path == "/api/person":
+            n = body.get("n")
+            if not isinstance(n, int) or isinstance(n, bool) or not chat.set_person(n, bool(body.get("blur"))):
+                self.send_json({"ok": False, "error": "The clip has no person %s." % n}, HTTPStatus.NOT_FOUND)
+            else:
+                self.send_json({"ok": True})
         else:
             words = str(body.get("message") or "").strip()
             if not words:
@@ -228,6 +236,18 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(body)
+
+    def send_faces(self, query):
+        """The other people's faces at second t of the chat's clip, in frame pixels, for the page to tap."""
+        chat = agent.find(str(query.get("chat") or ""))
+        try:
+            t = float(query.get("t") or 0)
+        except ValueError:
+            t = -1.0
+        if chat is None or t < 0:
+            self.send_json({"ok": False, "error": "Send a chat and a time from 0."}, HTTPStatus.NOT_FOUND)
+            return
+        self.send_json({"ok": True, "faces": chat.faces(t), "size": [1080, 1920]})
 
     def send_video(self, folder, name, what, download=False):
         """A video in the range the browser asks for. download asks the browser to save it as a file."""
