@@ -2852,8 +2852,13 @@ def check_clip(job, why):
         check("No blurred face can be found", not seen,
               "; ".join("person %d at %s" % (n, recording.clock(t)) for n, t in seen) if seen else
               "the face finder found no face under any blur")
+    moment = state["clip"]["moment"]
+    failed = {c["name"] for c in _checked_before(job, moment) if c["ok"] is False}
+    for c in checks:
+        if c["ok"] and c["name"] in failed:
+            c["fixed"] = True
     job.chat.checks[done["name"]] = checks
-    job.emit("checked", file=done["name"], checks=checks)
+    job.emit("checked", file=done["name"], moment=moment, checks=checks)
     due = [c for c in checks if c["ok"] is not None]
     failed = [c for c in due if not c["ok"]]
     out = ["Checked %d of %d on the finished file %s:" % (len(due) - len(failed), len(due), done["name"])]
@@ -2875,6 +2880,17 @@ def check_clip(job, why):
     else:
         out.append("Hand it over next.")
     return "\n".join(out)
+
+
+def _checked_before(job, moment):
+    """The checks of the last time this recording's clip from moment was checked, or []: a check that failed then
+    and passes now is marked fixed, so the page shows a red line turn green."""
+    for e in reversed(job.chat.events):
+        if e["kind"] == "opened":
+            return []
+        if e["kind"] == "checked" and e.get("moment") == moment:
+            return e["checks"]
+    return []
 
 
 REVIEWED = (0.12, 0.37, 0.62, 0.87)
@@ -2942,7 +2958,7 @@ def hand_over(job, why, title, caption, hashtags, english=""):
     if not tags:
         raise Refused("Give at least one hashtag, such as #gaming.")
     ready = {"file": done["name"], "length": done["length"], "title": title, "caption": caption, "hashtags": tags,
-             "english": english, "checks": checks}
+             "english": english, "checks": checks, "work": job.chat.worked(job.n, job.steps)}
     job.emit("ready", **ready)
     job.show(ready=ready)
     return ("Handed over: the person sees the finished clip with its title, the post text and %d hashtags, a Copy all "
