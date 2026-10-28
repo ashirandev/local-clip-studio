@@ -81,13 +81,16 @@ def odd_thai(words):
 
 
 TONES = "่้๊๋"
-PATH = re.compile(r"[\\/]")
+PATH = re.compile(r"\\|(?<!\d)/|/(?!\d)")
 
 
 def mend(text):
     """text with Glimmer's slips taken out where the dictionary says so (seen 10-27 in Muse's reasons on the talk
     clip, where each step copied the one before and added a letter: ชั้่นส่วน, ชั้่นสส่วน, ชั้่นสสส่วน, ชั้่นสสสส่วน).
-    Only deletions, so no word is made up, and text with a path in it is left as it is. Only where Thai cannot be
+    Only deletions, and a mark written one letter late moved back (_swaps), so no word is made up; text with a path
+    in it is left as it is (a / between two numbers, 4/4, is not a path). A vowel written after its tone mark is put
+    before it first (ต้ัง is ตั้ง), as Thai always writes them, whatever the dictionary says, unless the same vowel
+    stands before the mark too (เลื่ือก, below). Only where Thai cannot be
     written so: a tone mark after another tone mark, after ็ or after ์ (ชั้่น, เป็่น), a vowel written again around
     a tone mark (เพื่ือ), and a letter written twice (มมุม), each kept only when fewer bits of the text are no word;
     and three or more of one letter (สสส่วน), cut to one when that is no worse and leaves the text in fewer words. As
@@ -97,12 +100,13 @@ def mend(text):
     when it left fewer words) changed 21 lines that were right, such as เล็กกว่า to เล็กว่า."""
     if not isinstance(text, str) or not THAI.search(text) or PATH.search(text):
         return text
+    text = TONE_FIRST.sub(lambda m: m.group(0) if m.group(1) == m.group(3) else m.group(1) + m.group(3) + m.group(2),
+                          text)
     odd, count = _odd(text)
     while True:
-        for gone, run in _tries(text):
-            better = "".join(ch for k, ch in enumerate(text) if k not in gone)
+        for better, run in _mended(text):
             n, c = _odd(better)
-            if n < odd or (run and n <= odd and c < count):
+            if (n < odd and (run is not None or c <= count)) or (run and n <= odd and c < count):
                 text, odd, count = better, n, c
                 break
         else:
@@ -110,9 +114,38 @@ def mend(text):
     return text
 
 
+def _mended(text):
+    """Each text a slip taken out would leave, with whether it cut a run of one letter: the deletions first, then
+    each mark written one letter late put back a letter earlier."""
+    for gone, run in _tries(text):
+        yield "".join(ch for k, ch in enumerate(text) if k not in gone), run
+    for i in _swaps(text):
+        yield text[:i - 1] + text[i] + text[i - 1] + text[i + 1:], None
+
+
+def _swaps(text):
+    """[i]: a vowel or tone mark inside a bit that is no word, right after a letter it may belong before. Glimmer
+    writes a mark one letter late, and in a long chat it copies the slips already there: 10-28, Tarm's question after
+    an answer with ขอ้ got ไดเ้, ใหเ้, ตอ้ง, ตัง้ and ปรบั, about 5 in 100 Thai letters, against 0.6 when that one word
+    was spelled right (lane 0, n=10 each). The answer is mended before Muse reads it back. A swap is kept only when
+    it leaves fewer bits that are no word and no more words. Measured 10-28 with the order fix in mend: they mended 98
+    of the 1,858 Thai texts Muse wrote in the studio (bits that are no word 183 to 91) and changed 5 of 34,665 lines
+    of the team's own notes, 3 of them wrongly, loanwords the dictionary lacks (นิสต์, คอนทราสต์). Letting a swap
+    split the text into more words had turned สกิล into สิกล."""
+    from pythainlp.tokenize import word_tokenize
+    out, at = [], 0
+    for w in word_tokenize(text, engine="newmm", keep_whitespace=True, custom_dict=_WORDS[1]):
+        base = w.strip().rstrip("ๆ").strip()
+        if THAI.search(base) and base not in _WORDS[0]:
+            out += [i for i in range(max(at, 2), at + len(w)) if text[i] in MARKS and THAI.match(text[i - 1])]
+        at += len(w)
+    return out
+
+
 MEND_REACH = 4
 MARKS = "ัิีึืฺุู็" + TONES + "์ํ๎"
 NO_TONE_AFTER = TONES + "\u0e47\u0e4c"
+TONE_FIRST = re.compile("(.)([%s])([\u0e31\u0e34\u0e35\u0e36\u0e37\u0e38\u0e39])" % TONES)
 
 
 def _tries(text):

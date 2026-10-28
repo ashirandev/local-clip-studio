@@ -1635,6 +1635,17 @@ class Tools(unittest.TestCase):
                          "what Muse writes is mended before it is read back, so the slip is not copied")
         self.assertEqual(tools.words.tidy("สู่พื้�นที่งาน"), "สู่พื้นที่งาน", "half a letter is taken out")
 
+    def test_a_mark_glimmer_wrote_one_letter_late_is_moved_back_before_muse_reads_it_again(self):
+        mend = tools.words.mend
+        self.assertEqual(mend("ทุกคลิปผ่านการตรวจสอบ 4/4 ขอ้"), "ทุกคลิปผ่านการตรวจสอบ 4/4 ข้อ",
+                         "2de1 10-28: the next answer copied the slip, 5 in 100 letters; a / between numbers is no path")
+        self.assertEqual(mend("ตอ้งตัง้ค่าใหม่ให้ปรบัจากที่ใช้ไดเ้ลย"), "ต้องตั้งค่าใหม่ให้ปรับจากที่ใช้ได้เลย")
+        self.assertEqual(mend("เรนเดอร์คลิปส้ันแนวต้ังท้ังหมด"), "เรนเดอร์คลิปสั้นแนวตั้งทั้งหมด", "a vowel after its tone mark")
+        self.assertEqual(mend("เปิดคลิปในโฟลเดอรน์ั้น"), "เปิดคลิปในโฟลเดอร์นั้น")
+        for right in ("อัปสกิลใหม่ ทดสอบพิน บิลลิ่ง อิมพลีเมนต์ เรซูเม่", "ใช้งานง่ายและผ่านการตรวจ"):
+            self.assertEqual(mend(right), right, "a loanword the dictionary lacks stays as written")
+        self.assertEqual(mend("work/chats ขอ้"), "work/chats ขอ้", "a path is never changed")
+
     def test_a_spelling_fix_is_kept_only_when_it_is_only_a_spelling_fix(self):
         def answer(*texts):
             asked = []
