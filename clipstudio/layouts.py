@@ -54,12 +54,16 @@ MIDDLE = [65, 905, 830, 170]
 CAPTIONS = [65, 1090, 830, 160]
 CIRCLE, RING = 400, 8
 CIRCLE_SMALLEST = 300
-CARD_TITLE = [65, 270, 950, 190]
+CARD_TITLE = [65, 256, 950, 190]
 CARD_Y = 890
 CARD_X = 60
 CARD_W = W - 2 * CARD_X
 CARD_RADIUS = 30
 CARD_LOWEST, CARD_TALLEST = 480, 630
+# Down the card's column: CARD_GAP between the face circle, the captions' band and the card (the captions sit in the
+# middle of their band, so the words stand further off), and CARD_GAP_TOP under the title's place, which keeps the
+# title 20 px off the circle.
+CARD_GAP, CARD_GAP_TOP = 8, 20
 STACK_TOP = 760
 SEAM = 8
 GROUND = "0x101014"
@@ -68,6 +72,11 @@ HEAD_UP, HEAD_SIDE = 0.4, 0.15
 GAP = 24
 UNDER = 200
 SAFE_BOTTOM = 1520
+# The channel's name (text.channel_name) has the bottom NAME_ROW px of what a phone shows to itself, so it sits in
+# the same spot on every clip and on nothing the studio placed: the card, the face circle, the captions and the
+# places for words end at NAME_TOP or above it. The pictures that fill the frame run on under it.
+NAME_ROW = 64
+NAME_TOP = SAFE_BOTTOM - NAME_ROW
 SAFE = [56, 250, 968, SAFE_BOTTOM - 250]
 BUTTONS = [900, 1080, 180, 780]
 SAFE_SAID = ("Phones cover the clip's top 250 px (the status bar and the app's header), everything below y %d (the "
@@ -115,7 +124,7 @@ def make(kind, size, face=None, crop=None):
             crop = _leave_out(crop, away, notes)
         else:
             notes.append("No face was given or found, so the card has no circle.")
-        crop, height = _card(crop, notes, _CARD_ROOM - CIRCLE_SMALLEST - GAP if face else CARD_TALLEST)
+        crop, height = _card(crop, notes, _CARD_ROOM - CIRCLE_SMALLEST - CARD_GAP if face else CARD_TALLEST)
         circle, captions, card = _card_column(height, bool(face))
         parts.append({"name": "card", "src": crop, "dst": card})
         if face:
@@ -255,8 +264,10 @@ def _head(face, part):
 def _around_the_head(head, notes):
     """(places, caption band) for words clear of the head: the title on top when the head leaves room under it,
     otherwise just under the chin (a recording that is already vertical often has the face high, with nothing above
-    it to show), and the captions under the chin or under that title, above the phone apps' own words at the bottom;
-    when the face sits too low for that, the captions go between the title and the head."""
+    it to show), and the captions under the chin or under that title, above the channel's name (NAME_TOP);
+    when the face sits too low for that, the captions go between the title and the head, and when there is no room
+    there either, as low as the name leaves room for, with a title under the chin moved up to the chin (GAP / 3 off
+    it) and made shorter, so it ends where the captions start."""
     top, chin = head[1], head[1] + head[3]
     tall = CAPTIONS[3]
     if top - GAP >= TOP[1] + TOP[3]:
@@ -266,12 +277,16 @@ def _around_the_head(head, notes):
         places = {"middle": [65, y, 950 if y + UNDER <= BUTTONS[1] else BUTTONS[0] - 65 - 5, UNDER]}
         below = chin + GAP + UNDER + GAP
     y = max(CAPTIONS[1], _even(below))
-    if y + tall > SAFE_BOTTOM:
+    if y + tall > NAME_TOP:
         y = TOP[1] + TOP[3] + GAP
         if "top" not in places or y + tall + GAP > top:
-            y = SAFE_BOTTOM - tall
-            notes.append("The face fills the picture, so the captions are as low as phone apps leave room for and "
-                         "may touch the chin.")
+            y = NAME_TOP - tall
+            notes.append("The face fills the picture, so the captions are as low as the channel's name leaves room "
+                         "for and may touch the chin.")
+            if "middle" in places:
+                title = places["middle"]
+                title[1] = min(title[1], max(_even(chin + GAP / 3.0), y - UNDER))
+                title[3] = min(UNDER, y - title[1])
     return places, [65, y, 830, tall]
 
 
@@ -366,21 +381,21 @@ def _leave_out(crop, away, notes, size=None):
     return best
 
 
-_CARD_TOP = CARD_TITLE[1] + CARD_TITLE[3] + GAP
-_CARD_ROOM = SAFE_BOTTOM - _CARD_TOP - CAPTIONS[3] - GAP
+_CARD_TOP = CARD_TITLE[1] + CARD_TITLE[3] + CARD_GAP_TOP
+_CARD_ROOM = NAME_TOP - _CARD_TOP - CAPTIONS[3] - CARD_GAP
 
 
 def _card_column(height, face):
     """(circle box or None, caption band, card box) down the frame under the title: the face circle, the captions
-    under it, the card under them, centred in the room the phone leaves. The captions cover neither the face nor the
+    under it, the card under them, centred in the room above the channel's name. The captions cover neither the face nor the
     picture, and they end above y 1250 as an ad needs; the circle is as big as the card leaves room for, up to
     CIRCLE."""
-    d = min(CIRCLE, _even(_CARD_ROOM - height - GAP)) if face else 0
-    y = _even(_CARD_TOP + (_CARD_ROOM - height - (d + GAP if face else 0)) / 2)
+    d = min(CIRCLE, _even(_CARD_ROOM - height - CARD_GAP)) if face else 0
+    y = _even(_CARD_TOP + (_CARD_ROOM - height - (d + CARD_GAP if face else 0)) / 2)
     circle = [(W - d) // 2, y, d, d] if face else None
-    y += d + GAP if face else 0
+    y += d + CARD_GAP if face else 0
     band = [65, y, 950, CAPTIONS[3]]
-    return circle, band, [CARD_X, y + CAPTIONS[3] + GAP, CARD_W, height]
+    return circle, band, [CARD_X, y + CAPTIONS[3] + CARD_GAP, CARD_W, height]
 
 
 def _card(crop, notes, tallest=CARD_TALLEST):

@@ -846,6 +846,10 @@ class BigWord(unittest.TestCase):
             text.big_word("POW", 1, 1, (10, 700), st)
 
 
+# A name with the letters that stand tallest: Thai with marks above and below, and a tone mark over a vowel.
+TALL_NAME = "@\u0e1b\u0e31\u0e49\u0e19\u0e08\u0e31\u0e48\u0e19\u0e0d\u0e39"
+
+
 @unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")
 class ChannelName(unittest.TestCase):
     def setUp(self):
@@ -856,10 +860,11 @@ class ChannelName(unittest.TestCase):
         events = text.channel_name(name, 0, 2, st, spot)
         return draw(doc(events, styles=[st, text.channel_style(st)]), [15], self.folder, ground=ground)[15]
 
-    def test_it_sits_in_its_spot_where_no_phone_covers_it_and_below_the_words_places(self):
+    def test_it_sits_in_its_spot_in_the_row_the_layouts_keep_for_it_where_no_phone_covers_it(self):
         from clipstudio import layouts
         st = text.STYLES["clean"]
-        floor = layouts.SAFE_BOTTOM - text.CHANNEL_ROOM
+        floor = layouts.SAFE_BOTTOM - text.CHANNEL_FLOOR
+        ceiling = layouts.NAME_TOP + text.CHANNEL_GAP
         for spot in text.CHANNEL_SPOTS + (None,):
             x0, y0, x1, y1 = drawn(self.drawn_name(st, spot))
             bx, by, bw, bh = text.channel_box("@SineySociety", st, spot)
@@ -867,12 +872,16 @@ class ChannelName(unittest.TestCase):
                 self.assertLessEqual(abs(got - want), 2, "%s: drawn %s, box %s" % (spot, (x0, y0, x1, y1),
                                                                                    (bx, by, bw, bh)))
             self.assertTrue(floor - 3 <= y1 <= floor + 1, "%s: bottom %d" % (spot, y1))
-            self.assertGreaterEqual(y0, layouts.CAPTIONS[1] + layouts.CAPTIONS[3], spot)
+            self.assertGreaterEqual(y0, ceiling - 1, spot)
             self.assertGreaterEqual(x0, layouts.SAFE[0] - 1, spot)
             self.assertLessEqual(x1, layouts.BUTTONS[0] - text.CHANNEL_ROOM + 1, spot)
             where = {"bottom left": abs(x0 - layouts.SAFE[0]), "bottom middle": abs((x0 + x1) / 2 - 540),
                      "bottom right": abs(x1 - (layouts.BUTTONS[0] - text.CHANNEL_ROOM))}[spot or "bottom left"]
             self.assertLessEqual(where, 2, "%s: %s" % (spot, (x0, x1)))
+        for name in text.HOUSE_NAMES:
+            _, y0, _, y1 = drawn(self.drawn_name(text.STYLES[name], name=TALL_NAME))
+            self.assertTrue(ceiling - 1 <= y0 and y1 <= floor + 1, "%s: %s drawn from y %d to %d, its row %d to %d"
+                            % (name, TALL_NAME, y0, y1, ceiling, floor))
 
     def test_it_reads_on_white_and_on_black_footage_in_every_look(self):
         for name in text.HOUSE_NAMES:
@@ -887,10 +896,10 @@ class ChannelName(unittest.TestCase):
         for name in text.HOUSE_NAMES:
             st = text.STYLES[name]
             small = text.channel_style(st)
-            self.assertEqual((small.fontname, small.colour, small.edge, small.box), (st.fontname, st.colour, st.edge,
-                                                                                    st.box))
+            self.assertEqual((small.fontname, small.colour, small.edge), (st.fontname, st.colour, st.edge))
+            self.assertFalse(small.box, "%s: a box is a whole line tall, so a box look's name is cut-out letters" % name)
             _, top, _, bottom = text._draw_boxes(small, "title", ["H"], align=5)["H"]
-            _, ctop, _, cbottom = text._draw_boxes(st, "caption", ["H"], align=5)["H"]
+            _, ctop, _, cbottom = text._draw_boxes(st._replace(box=False), "caption", ["H"], align=5)["H"]
             self.assertTrue(0.55 <= (bottom - top) / float(cbottom - ctop) <= 0.75, name)
 
     def test_it_shows_for_the_whole_clip_and_the_file_must_hold_its_style(self):
@@ -923,3 +932,8 @@ class ChannelName(unittest.TestCase):
             text.channel_name("@" + "W" * 60, 0, 2, st)
         with self.assertRaisesRegex(ValueError, "^end 0 is not after start 0"):
             text.channel_name("@SineySociety", 0, 0, st)
+        big = st._replace(name="big", sizes=tuple(2 * v for v in st.sizes))
+        with self.assertRaisesRegex(ValueError, "^name '@SineySociety' stands \\d+ px tall in Google Sans SemiBold at "
+                                                "the channel name's size \\(124 px\\), and the row kept for it holds "
+                                                "50 px: use a smaller size or another font for the captions\\.$"):
+            text.channel_name("@SineySociety", 0, 2, big)

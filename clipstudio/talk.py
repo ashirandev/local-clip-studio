@@ -317,7 +317,8 @@ def make(size, persons, shots_, seats=False):
 
 def split(size, persons):
     """The split layout for a recording of size (w, h) with two people: the one on the left in the top half, the
-    other in the lower half, a dark seam between them, for the whole clip. Each face is about SPLIT_FACE px tall, at
+    other in the lower half, a dark seam between them, for the whole clip. Each face is about SPLIT_FACE px tall (less
+    when its hair and its captions would not fit between its half's top and the channel's name, layouts.NAME_TOP), at
     SPLIT_FACE_Y, clear of what a phone covers, with a band for captions under each face (layout["bands"]), so
     what each one says is written under them (Tarm, 10-27: "caption คุณอีฟพูด ก็อยู่ล่างคุณอีฟ ผมพูดก็อยู่ใต้ภาพผม").
     The captions' own band, for a line whose speaker is not known, is the one under the top face. The lower half ends
@@ -333,10 +334,11 @@ def split(size, persons):
     seam = layouts.SEAM // 2
     panels = [[0, 0, W, SPLIT_SEAM - seam], [0, SPLIT_SEAM + seam, W, SPLIT_END - SPLIT_SEAM - seam]]
     gap, tall = layouts.GAP, layouts.CAPTIONS[3]
-    for p, dst, at, bottom in zip(persons, panels, SPLIT_FACE_Y, (panels[0][3], layouts.SAFE_BOTTOM)):
+    for p, dst, at, bottom in zip(persons, panels, SPLIT_FACE_Y, (panels[0][3], layouts.NAME_TOP)):
         fx, fy, fw, fh = p["box"]
         lo, hi = _side(p["box"], next(q["box"] for q in persons if q is not p), room)
-        k = max(SPLIT_FACE / fh, dst[2] / (hi - lo), dst[3] / h)
+        most = (bottom - dst[1] - tall - gap - 4) / (1 + layouts.HEAD_UP)
+        k = max(min(SPLIT_FACE, most) / fh, dst[2] / (hi - lo), dst[3] / h)
         at = min(at, bottom - tall - gap - fh * k / 2 - 4)
         src = layouts._place(fx + fw / 2, fy + fh / 2 - (at - dst[1] - dst[3] / 2) / k, dst[2] / k, dst[3] / k,
                              [lo, 0, hi - lo, h])
@@ -346,15 +348,15 @@ def split(size, persons):
     places, bands = {}, {}
     if heads[0][1] - gap - SPLIT_TITLE_Y >= 120:
         places["top"] = [65, SPLIT_TITLE_Y, 950, layouts._even(heads[0][1] - gap - SPLIT_TITLE_Y)]
-    for p, head, bottom in zip(persons, heads, (panels[0][3], layouts.SAFE_BOTTOM)):
+    for p, head, bottom in zip(persons, heads, (panels[0][3], layouts.NAME_TOP)):
         y = layouts._even(head[1] + head[3] + gap)
         if y + tall <= bottom:
             bands[str(p["n"])] = [65, y, 830, tall]
         else:
             notes.append("Person %d's face fills their half, so their captions go under the other face." % p["n"])
     if not bands:
-        bands[str(persons[0]["n"])] = [65, layouts.SAFE_BOTTOM - tall, 830, tall]
-        notes.append("Both faces fill their halves, so the captions are as low as phone apps leave room for.")
+        bands[str(persons[0]["n"])] = [65, layouts.NAME_TOP - tall, 830, tall]
+        notes.append("Both faces fill their halves, so the captions are as low as the channel's name leaves room for.")
     y = (bands.get(str(persons[0]["n"])) or next(iter(bands.values())))[1]
     if not places:
         notes.append("Both faces fill their halves, so there is no place for a title on the picture: put the title in "

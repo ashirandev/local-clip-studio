@@ -62,7 +62,7 @@ class Layouts(unittest.TestCase):
             self.assertFalse(overlap(box, lay["captions"]), name)
             self.assertGreaterEqual(min(abs(box[1] + box[3] - circle[1]), abs(circle[1] + circle[3] - box[1])), 20,
                                     name)
-        self.assertTrue(all(65 <= b[0] and b[0] + b[2] <= 1015 and 270 <= b[1] and b[1] + b[3] <= 1250
+        self.assertTrue(all(65 <= b[0] and b[0] + b[2] <= 1015 and layouts.SAFE[1] <= b[1] and b[1] + b[3] <= 1250
                             for b in list(lay["places"].values()) + [lay["captions"]]), "inside the phone's safe zone")
 
     def test_a_vertical_recording_fills_the_frame_instead_of_a_card(self):

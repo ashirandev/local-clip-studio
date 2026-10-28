@@ -1250,27 +1250,31 @@ def _karaoke(page, start):
 # The channel's name (a handle such as @SineySociety) on every clip, in the captions' letters at CHANNEL_SHARE of
 # their size, so it reads as the channel's mark and not as words to follow (measured 10-28 in clean: a capital is 25
 # px of the 1080 px frame, about 9 pt on a phone 390 pt wide, where the captions' is 39 px; at half size it was 20 px,
-# 7 pt, smaller than a phone's own small print). It sits in the strip nothing the studio
-# places uses and no phone covers: below the captions' and titles' places, CHANNEL_ROOM px above what a phone covers
-# at the bottom (layouts.SAFE_BOTTOM), CHANNEL_ROOM px left of the like and share buttons (layouts.BUTTONS), inside
-# the sides a phone cuts (layouts.SAFE).
+# 7 pt, smaller than a phone's own small print). It sits in the row the layouts keep for it (layouts.NAME_TOP to
+# layouts.SAFE_BOTTOM), where nothing the studio places goes and no phone covers: its letters from CHANNEL_GAP px
+# under the row's top to CHANNEL_FLOOR px above what a phone covers at the bottom, CHANNEL_ROOM px left of the like
+# and share buttons (layouts.BUTTONS), inside the sides a phone cuts (layouts.SAFE). A look whose words stand on a
+# box (sticker) draws the name as cut-out letters, its box's colour as their edge: the box is a whole line tall, 74
+# px against the 31 to 48 px other looks' names stand (measured 10-28, with marks above and below Thai letters).
 CHANNEL_SPOTS = ("bottom left", "bottom middle", "bottom right")
 CHANNEL_SPOT = "bottom left"
 CHANNEL_SHARE = 0.65
 CHANNEL_ROOM = 16
+CHANNEL_FLOOR = 8
+CHANNEL_GAP = 6
 
 
 def channel_style(style):
     """The style the channel name is drawn in: style's letters, colours and edges at CHANNEL_SHARE of the size of
-    its captions."""
+    its captions, without a box."""
     _check_style(style)
     small = max(1, int(round(_size(style, "caption") * CHANNEL_SHARE)))
-    return style._replace(name=style.name + "_channel", sizes=(small,) * len(KINDS))
+    return style._replace(name=style.name + "_channel", sizes=(small,) * len(KINDS), box=False)
 
 
 def _channel_strip():
     """(left, right, bottom) of the strip the channel name's letters stay in, in pixels of the frame."""
-    return (layouts.SAFE[0], layouts.BUTTONS[0] - CHANNEL_ROOM, layouts.SAFE_BOTTOM - CHANNEL_ROOM)
+    return (layouts.SAFE[0], layouts.BUTTONS[0] - CHANNEL_ROOM, layouts.SAFE_BOTTOM - CHANNEL_FLOOR)
 
 
 def channel_box(name, style, spot=None):
@@ -1303,6 +1307,11 @@ def _channel_place(name, style, spot):
         raise ValueError("name %r is %d px wide at the channel name's size, and the %s spot holds %d px: use a "
                          "shorter name%s." % (name, math.ceil(right - left), spot, room,
                                               ", or the bottom left spot" if spot == "bottom middle" else ""))
+    tall = low - (layouts.NAME_TOP + CHANNEL_GAP)
+    if bottom - top > tall:
+        raise ValueError("name %r stands %d px tall in %s at the channel name's size (%d px), and the row kept for it "
+                         "holds %d px: use a smaller size or another font for the captions."
+                         % (name, math.ceil(bottom - top), style.fontname, small.sizes[0], tall))
     x = {"bottom left": first - left, "bottom middle": middle - (left + right) / 2.0,
          "bottom right": last - right}[spot]
     return x, low - bottom, (left, top, right, bottom)

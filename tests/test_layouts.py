@@ -205,6 +205,8 @@ class Places(unittest.TestCase):
                                  ((1080, 1920), [474.7, 292.3, 345.1, 454.4], "a vertical recording, the face high"),
                                  ((1080, 1920), [400, 450, 280, 360], "a vertical recording, the hair just under "
                                   "the title's place"),
+                                 ((1080, 1920), [400, 458, 280, 360], "a vertical recording, the chin just above "
+                                  "the title's room"),
                                  ((1080, 1920), [380, 900, 300, 380], "a vertical recording, the face low"),
                                  ((1080, 1920), [380, 1300, 300, 380], "a vertical recording, the face at the bottom")):
             lay = layouts.make("face", size, face)
@@ -215,7 +217,8 @@ class Places(unittest.TestCase):
             for name, box in boxes:
                 self.assertFalse(overlap(box, head), "%s: the %s place %s is on the head %s"
                                  % (what, name, box, [round(v) for v in head]))
-                self.assertLessEqual(box[1] + box[3], layouts.SAFE_BOTTOM, "%s: %s" % (what, name))
+                self.assertLessEqual(box[1] + box[3], layouts.NAME_TOP, "%s: %s is on the channel's name"
+                                     % (what, name))
                 self.assertGreaterEqual(box[1], 200, "%s: %s is below the phone's own bar" % (what, name))
             (_, title), (_, captions) = boxes
             self.assertFalse(overlap(title, captions), what)
@@ -290,6 +293,27 @@ class Phones(unittest.TestCase):
                     self.assertGreaterEqual(parts["circle"][2], layouts.CIRCLE_SMALLEST, what)
                     self.assertLess(parts["circle"][1], band[1], "%s: the captions read under the face" % what)
                 self.assertLess(band[1], parts["card"][1], what)
+
+    def test_nothing_the_studio_places_reaches_the_row_of_the_channels_name(self):
+        for size, face, what in list(RECORDINGS) + [((1920, 1080), None, "no face"), ((2560, 1080), FACE, "ultrawide"),
+                                                    ((1440, 1080), FACE, "4:3"),
+                                                    ((1080, 1920), [380, 1300, 300, 380], "the face at the bottom")]:
+            for kind in layouts.KINDS:
+                for crop in (None, [600, 0, 700, 1080], [0, 300, 1920, 500]):
+                    try:
+                        lay = layouts.make(kind, size, face, crop)
+                    except ValueError:
+                        continue
+                    boxes = list(lay["places"].items()) + [("captions", lay["captions"])]
+                    if lay["kind"] == "card":
+                        boxes += [(p["name"], p["dst"]) for p in lay["parts"]]
+                    for name, box in boxes:
+                        self.assertLessEqual(box[1] + box[3], layouts.NAME_TOP, "%s, %s, crop %s: the %s %s"
+                                             % (what, lay["kind"], crop, name, box))
+        lay = layouts.make("card", SIZE, FACE)
+        parts = {p["name"]: p["dst"] for p in lay["parts"]}
+        self.assertEqual(parts["card"][3], 514, "a 16:9 screen with a face camera: the card gave 14 px to the name")
+        self.assertEqual(parts["circle"][2], layouts.CIRCLE_SMALLEST, "and the face circle none")
 
     def test_a_subject_shows_whole_between_the_header_and_the_name(self):
         for crop in ([800, 300, 400, 500], [300, 400, 300, 300], [1400, 100, 350, 400]):

@@ -199,10 +199,11 @@ class Talk(unittest.TestCase):
             band = lay["bands"][n]
             self.assertTrue(head[1] + head[3] <= band[1] <= head[1] + head[3] + 2 * layouts.GAP,
                             "person %s's captions sit right under their face" % n)
-            self.assertLessEqual(band[1] + band[3], layouts.SAFE_BOTTOM)
+            self.assertLessEqual(band[1] + band[3], layouts.NAME_TOP, "person %s's captions stay above the channel's name" % n)
             for other in heads:
                 self.assertFalse(layouts._overlap(band, other), "a caption band covers no face")
         self.assertGreaterEqual(heads[0][1] + 0.4 * heads[0][3] / 1.4, layouts.SAFE[1], "no face under the header")
+        self.assertGreaterEqual(heads[1][1], low["dst"][1] - 1, "person 2's hair is in their half, not cut at the seam")
         for part, other in ((top, RIGHT), (low, LEFT)):
             self.assertFalse(layouts._overlap(part["src"], other), "each half leaves the other face out")
         self.assertEqual(self.colour(1.0, lay, 125, 100), "red", "person 1 above")
@@ -210,6 +211,15 @@ class Talk(unittest.TestCase):
         with self.assertRaises(ValueError) as e:
             talk.split((1280, 720), persons() + [{"n": 3, "box": [600, 200, 160, 160], "seen": 10, "of": 10}])
         self.assertIn("found 3", str(e.exception))
+
+    def test_the_split_layouts_captions_stay_above_the_channels_name_when_a_face_sits_low(self):
+        for left, right, what in ((LEFT, [920, 400, 160, 160], "the lower face low in the recording"),
+                                  ([200, 560, 160, 160], [920, 560, 160, 160], "both faces at its bottom")):
+            people = [{"n": 1, "box": list(left), "seen": 10, "of": 10},
+                      {"n": 2, "box": list(right), "seen": 10, "of": 10}]
+            lay = talk.split((1280, 720), people)
+            for name, band in list(lay["bands"].items()) + [("captions", lay["captions"])]:
+                self.assertLessEqual(band[1] + band[3], layouts.NAME_TOP, "%s: band %s %s" % (what, name, band))
 
 
 if __name__ == "__main__":
