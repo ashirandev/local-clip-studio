@@ -14,7 +14,7 @@ from http.server import ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, faces, hearing, mind, recording, render, server, tools  # noqa: E402
+from clipstudio import agent, channels, faces, hearing, mind, recording, render, server, tools  # noqa: E402
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_editor import found  # noqa: E402
 from test_hearing import Worker  # noqa: E402
@@ -253,6 +253,76 @@ class Words(Clip):
                          [("Look here", "box at 100, 400", [100, 400, 400, 200], "Look")])
         self.assertIsNone(self.chat.set_words("title", 0, "Look here", "See here"))
         self.assertEqual([(t["text"], t["key"]) for t in self.chat.project.state()["titles"]], [("See here", None)])
+
+    def test_a_channel_look_saved_on_the_page_goes_on_every_new_clip_and_what_the_person_changes_stays(self):
+        self.make(SAID, call("set_style", style="pop", why="bold"), call("set_look", look="warm", why="warm"),
+                  call("add_captions", lit=True, why="lit"),
+                  call("add_title", words="Boss down", start=0, end=3, place="top", why="the hook"))
+        self.assertEqual(self.chat.save_channel("", ""), "Give the channel a name of 1 to 40 letters.")
+        self.assertIsNone(self.chat.save_channel("Siney Society", "@sineysociety"))
+        look = channels.in_use()
+        self.assertEqual((look["name"], look["handle"], look["style"]["name"], look["look"], look["captions"],
+                          look["title_place"]), ("Siney Society", "@sineysociety", "pop", "warm", "lit", "top"))
+        self.assertEqual(self.chat.project.state()["channel"]["name"], "@sineysociety", "drawn on this clip at once")
+        self.assertEqual(self.chat.set_channel_spot("top"), "Choose where the name goes: bottom left, bottom middle, "
+                                                            "bottom right.")
+        self.assertIsNone(self.chat.set_channel_spot("bottom right"))
+        shown = self.chat.panel()["channels"]
+        self.assertEqual((shown["in_use"], shown["handle"], [s["name"] for s in shown["spots"] if s["now"]]),
+                         ("Siney Society", "@sineysociety", ["bottom right"]))
+        self.assertEqual("the pop style, the warm colour look, lit captions, titles at the top, the name "
+                         "@sineysociety drawn on the clip", shown["saved"][0]["says"], "no tool names for the person")
+        self.assertEqual(channels.in_use()["spot"], "bottom right", "the spot is kept with the look")
+
+        self.chat = agent.Chat()
+        agent.CHATS[self.chat.id] = self.chat
+        made = self.make(SAID)[-1]
+        state = self.chat.project.state()
+        self.assertEqual((state["style"]["name"], state["look"], state["channel"]),
+                         ("pop", "warm", {"do": "channel", "name": "@sineysociety", "spot": "bottom right"}),
+                         "a new clip in a new chat starts in the look by itself")
+        self.assertIn('The clip is in the "Siney Society" channel look the person saved:', made["result"])
+        self.assertIsNone(self.chat.set_style("clean"))
+        _, again = self.run_job([call("make_clip", moment=1, layout="subject", why="again")], "Done.")
+        self.assertFalse(again[-1]["refused"], again[-1]["result"])
+        self.assertEqual(self.chat.project.state()["style"]["name"], "clean", "what the person chose on the clip stays")
+        self.assertIsNone(self.chat.use_channel(""))
+        self.assertIsNone(channels.in_use())
+        self.assertIsNone(self.chat.project.state()["channel"], "None takes the drawn name off this clip")
+        self.assertEqual(self.chat.use_channel("Nobody"), "There is no channel look called Nobody. Saved looks: "
+                                                          "Siney Society.")
+        self.assertIsNone(self.chat.use_channel("Siney Society"))
+        self.assertEqual(self.chat.project.state()["style"]["name"], "pop", "picking a look puts all of it on")
+
+    def test_a_channel_name_the_clip_cannot_draw_is_refused_before_anything_is_kept_and_the_clip_still_renders(self):
+        wide = "@" + "W" * 29
+        self.make(SAID, call("set_style", style="clean", why="plain"))
+        self.assertIsNone(self.chat.save_channel("Wide", wide), "758 px fits the bottom left's 828 in clean")
+        spots = {s["name"]: s["why"] for s in self.chat.panel()["channels"]["spots"]}
+        self.assertIsNone(spots["bottom left"])
+        self.assertIn("the bottom middle spot holds 688 px", spots["bottom middle"], "the chip says why it is off")
+        self.assertIn("would not fit on the clip then", self.chat.set_channel_spot("bottom middle"))
+        self.assertIsNone(self.chat.project.state()["channel"]["spot"], "the name stays where it fits")
+        styles = {s["name"]: s["why"] for s in self.chat.panel()["styles"]}
+        self.assertIn("853 px wide", styles["classic"], "the style chip that would push the name off says so")
+        self.assertIn("853 px wide", self.chat.set_style("classic"))
+        self.assertEqual(self.chat.project.state()["style"]["name"], "clean")
+        self.assertTrue(render.ass(self.chat.project.state(), "clean"), "the clip with its name still draws")
+
+        self.assertIsNone(self.chat.use_channel(None))
+        self.assertIsNone(self.chat.set_style("classic"), "with no name on the clip, any style goes")
+        self.assertIn("Nothing was saved: name '%s' is 853 px wide" % wide, self.chat.save_channel("Wider", wide) or "")
+        self.assertIsNone(channels.get("Wider"))
+        channels.use(channels.save(dict(channels.get("Wide"), style={"name": "classic", "font": None}))["name"])
+        self.chat = agent.Chat()
+        agent.CHATS[self.chat.id] = self.chat
+        made = self.make(SAID)[-1]
+        self.assertFalse(made["refused"], made["result"])
+        self.assertIn("The name %s is not drawn on this clip: name '%s' is 853 px wide" % (wide, wide), made["result"])
+        state = self.chat.project.state()
+        self.assertEqual((state["style"]["name"], state["channel"]), ("classic", None),
+                         "a look saved before the check still goes on; only the name it cannot draw stays off")
+        render.ass(state, "clean")
 
     def test_words_a_title_would_refuse_are_refused_with_its_own_reason(self):
         self.make(SAID, call("add_title", words="Boss down", start=0, end=3, place="top", why="the hook"))

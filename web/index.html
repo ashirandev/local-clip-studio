@@ -16,7 +16,11 @@
         <p class="sub">Long videos into short clips, on your own computer</p>
       </div>
       <div class="actions">
-        <button type="button" class="ghost" id="new">New chat</button>
+        <button type="button" class="ghost" id="new">New<span class="word"> chat</span></button>
+        <details class="menu" id="features">
+          <summary class="ghost">Features</summary>
+          <div class="pop features-list" id="featuresList"></div>
+        </details>
         <details class="menu" id="earlier">
           <summary class="ghost"><span class="word">Earlier c</span><span class="short">C</span>hats</summary>
           <div class="pop earlier-list" id="earlierList"></div>
@@ -42,6 +46,7 @@
           <li><b>Say what you want</b> in the box at the bottom, if you like: "a funny 20-second clip".</li>
           <li><b>Get your clip</b>, ready to post.</li>
         </ol>
+        <p class="see-all"><button type="button" class="ghost" id="seeFeatures">See everything Muse can do</button></p>
         <p class="pick-row"><button type="button" class="pick">Choose a video…</button> <span>or drag a video file onto this page</span></p>
         <p class="newest-head">Your newest videos</p>
         <div class="newest"></div>
@@ -70,6 +75,7 @@
           <button type="button" class="chip" data-show="caps" aria-pressed="true">Captions</button>
           <button type="button" class="chip" data-show="look" aria-pressed="false">Colour</button>
           <button type="button" class="chip" data-show="style" aria-pressed="false">Style</button>
+          <button type="button" class="chip" data-show="channel" aria-pressed="false">Channel</button>
           <button type="button" class="chip" data-show="words" aria-pressed="false">Words</button>
         </div>
         <div class="panel-group" role="group" aria-labelledby="capsHead" data-part="caps">
@@ -88,6 +94,23 @@
           <p class="panel-head" id="lookHead">Colour look</p>
           <div class="panel-row" id="lookRow"></div>
           <p class="panel-why" id="lookWhy" hidden></p>
+        </div>
+        <div class="panel-group" role="group" aria-labelledby="channelHead" data-part="channel">
+          <p class="panel-head" id="channelHead">Channel look</p>
+          <div class="panel-row" id="channelRow"></div>
+          <p class="panel-why" id="channelWhy" hidden></p>
+          <p class="channel-says" id="channelSays"></p>
+          <div class="panel-row panel-sub" id="spotRow" role="group" aria-label="Where the channel's name goes" hidden></div>
+          <p class="panel-why" id="spotWhy" hidden></p>
+          <form class="word-edit" id="channelSave">
+            <label class="word-label" for="channelName">Save this clip's look for a channel</label>
+            <input class="channel-input" id="channelName" maxlength="40" placeholder="Channel name" autocomplete="off">
+            <label class="word-label" for="channelHandle">Name drawn on every clip (you can leave it empty)</label>
+            <input class="channel-input" id="channelHandle" maxlength="30" placeholder="@yourchannel" autocomplete="off">
+            <div class="word-actions">
+              <button type="submit" class="chip">Save</button>
+            </div>
+          </form>
         </div>
         <p class="panel-note" id="panelNote" role="status"></p>
       </div>

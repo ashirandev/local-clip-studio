@@ -757,10 +757,11 @@ partTabs.addEventListener("click", (e) => {
 
 function drawPanel(d) {
   panelBox.hidden = false;
-  const wordsTab = partTabs.querySelector('[data-show="words"]');
-  wordsTab.hidden = !d.words.length;
+  partTabs.querySelector('[data-show="words"]').hidden = !d.words.length;
+  partTabs.querySelector('[data-show="channel"]').hidden = !d.channels;
   const part = room.part || localStore("part") || "caps";
-  showPart(wordsTab.hidden && part === "words" ? "caps" : part);
+  const tab = partTabs.querySelector('[data-show="' + part + '"]');
+  showPart(tab && !tab.hidden ? part : "caps");
   const caps = document.getElementById("capsRow");
   const langs = document.getElementById("langRow");
   const styles = document.getElementById("styleRow");
@@ -769,7 +770,38 @@ function drawPanel(d) {
   drawChoices(langs, document.getElementById("langWhy"), d.languages, (c) => (c.say ? askMuse(langs, c) : choose(langs, "/api/captions", { language: c.name })), false);
   drawChoices(styles, document.getElementById("styleWhy"), d.styles, (c) => choose(styles, "/api/style", { style: c.name }), true);
   drawChoices(looks, document.getElementById("lookWhy"), d.looks, (c) => choose(looks, "/api/colour", { look: c.name }), false);
+  if (d.channels) drawChannels(d.channels);
 }
+
+const channelSave = document.getElementById("channelSave");
+const channelName = document.getElementById("channelName");
+const channelHandle = document.getElementById("channelHandle");
+
+function drawChannels(c) {
+  const row = document.getElementById("channelRow");
+  const spots = document.getElementById("spotRow");
+  const looks = [{ name: "", label: "None", now: !c.in_use, why: null }].concat(c.saved.map((s) => ({ name: s.name, label: s.name, now: s.name === c.in_use, why: null })));
+  drawChoices(row, document.getElementById("channelWhy"), looks, (x) => choose(row, "/api/channel", { name: x.name }), false);
+  const using = c.saved.find((s) => s.name === c.in_use);
+  document.getElementById("channelSays").textContent = using ? "New clips start in this look: " + using.says + "." : c.saved.length ? "No channel look is in use: new clips start in Muse's guesses." : "No channel look yet. Make a clip look the way your channel does, then save it here.";
+  spots.hidden = !c.handle;
+  drawChoices(spots, document.getElementById("spotWhy"), c.spots.map((s) => Object.assign({ why: null }, s)), (x) => choose(spots, "/api/channel", { spot: x.name }), false);
+  if (using && document.activeElement !== channelName && document.activeElement !== channelHandle && !channelName.value) {
+    channelName.value = using.name;
+    channelHandle.value = using.handle;
+  }
+}
+
+channelSave.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const name = channelName.value.trim();
+  if (!name) {
+    panelNote.textContent = "Give the channel a name first.";
+    channelName.focus();
+    return;
+  }
+  choose(channelSave, "/api/channel/save", { name: name, handle: channelHandle.value.trim() });
+});
 
 async function askMuse(row, c) {
   row.querySelectorAll("button").forEach((b) => (b.disabled = true));
@@ -1138,8 +1170,8 @@ detailsBox.addEventListener("change", () => {
 });
 
 document.addEventListener("click", (e) => {
-  [settings, earlier].forEach((menu) => {
-    if (menu.open && !menu.contains(e.target)) menu.open = false;
+  [settings, earlier, features].forEach((menu) => {
+    if (menu.open && !menu.contains(e.target) && !e.target.closest("#seeFeatures")) menu.open = false;
   });
 });
 
@@ -1264,6 +1296,37 @@ newButton.addEventListener("click", async () => {
   text.focus();
 });
 
+const features = document.getElementById("features");
+const featuresList = document.getElementById("featuresList");
+
+features.addEventListener("toggle", async () => {
+  if (!features.open || features.dataset.loaded) return;
+  featuresList.replaceChildren(el("p", "earlier-empty", "Looking…"));
+  try {
+    const r = await fetch("/api/features", { cache: "no-store" });
+    const d = await r.json();
+    featuresList.textContent = "";
+    d.groups.forEach((g) => {
+      featuresList.appendChild(el("p", "pop-head", g.name));
+      g.features.forEach((f) => {
+        const ask = el("button", "chip feature-ask", "Try: " + f.ask);
+        ask.type = "button";
+        ask.addEventListener("click", () => {
+          text.value = f.ask;
+          features.open = false;
+          text.focus();
+        });
+        const item = el("div", "feature");
+        item.append(el("b", null, f.name), el("p", "feature-says", f.says), ask);
+        featuresList.appendChild(item);
+      });
+    });
+    features.dataset.loaded = "1";
+  } catch (err) {
+    featuresList.replaceChildren(el("p", "earlier-empty", "The studio is not answering."));
+  }
+});
+
 earlier.addEventListener("toggle", async () => {
   if (!earlier.open) return;
   earlierList.replaceChildren(el("p", "earlier-empty", "Looking…"));
@@ -1327,6 +1390,7 @@ function openFile(file) {
 
 log.addEventListener("click", (e) => {
   if (e.target.closest(".pick")) fileInput.click();
+  if (e.target.closest("#seeFeatures")) features.open = true;
 });
 
 fileInput.addEventListener("change", () => {

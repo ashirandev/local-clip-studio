@@ -43,7 +43,7 @@ import hashlib
 import json
 
 DOES = ("clip", "style", "title", "captions", "blur", "hit", "sticker", "people", "look", "push", "layout", "untitle",
-        "sound", "music", "glass", "mask", "cutout")
+        "sound", "music", "glass", "mask", "cutout", "channel")
 
 
 class Project:
@@ -67,11 +67,13 @@ class Project:
         clip], "glass": [glass entries inside the clip], "look": the colour look's name or None, "pushes": [push entries inside the clip], "people": the clip's
         people, each with "blur" True, False or None when not decided, "sounds": [sound entries inside the clip],
         "music": the last music entry with a path or None, "speech": the clip's speech spans or None, "mask": the last
-        mask entry or None, "cutouts": [cutout entries inside the clip]}. A blurred person's track is one of the
-        blurs. A new clip entry keeps the words and effects; what starts after its end is not drawn."""
+        mask entry or None, "cutouts": [cutout entries inside the clip], "channel": the last channel entry, the
+        channel's name drawn on the clip ({"name", "spot"}), or None when its name is empty}. A blurred person's
+        track is one of the blurs. A new clip entry keeps the words and effects; what starts after its end is not
+        drawn."""
         clip = style = captions = None
         titles, blurs, hits, stickers, pushes, sounds, glass, cutouts = [], [], [], [], [], [], [], []
-        look = music = mask = None
+        look = music = mask = channel = None
         decided = {}
         for e in self.entries:
             if e["do"] == "clip":
@@ -109,6 +111,8 @@ class Project:
                 decided.update({n: False for n in e["keep"]})
             elif e["do"] == "mask":
                 mask = e
+            elif e["do"] == "channel":
+                channel = e if e.get("name") else None
             elif e["do"] == "cutout":
                 cutouts = [c for c in cutouts if not (c["start"] < e["end"] and e["start"] < c["end"])]
                 cutouts += [e] if e["look"] else []
@@ -131,6 +135,7 @@ class Project:
                 "music": music if clip else None,
                 "speech": clip.get("speech") if clip else None,
                 "mask": mask if clip else None,
+                "channel": channel if clip else None,
                 "cutouts": sorted([c for c in cutouts if inside(c["start"])], key=lambda c: c["start"])}
 
 

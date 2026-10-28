@@ -15,7 +15,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, effects, faces, focus, hearing, layouts, mind, project, recording, render, screen, talk, text, tools, words  # noqa: E402,E501
+from clipstudio import agent, channels, effects, faces, focus, hearing, layouts, mind, project, recording, render, screen, talk, text, tools, words  # noqa: E402,E501
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_hearing import Worker  # noqa: E402
 from test_map import make_moment  # noqa: E402
@@ -201,6 +201,21 @@ class Projects(unittest.TestCase):
         self.assertEqual([(q["start"], q["end"]) for q in p.state()["pushes"]], [(2, 6), (12, 16)])
         p.add({"do": "look", "name": None})
         self.assertIsNone(p.state()["look"])
+
+    def test_the_last_channel_name_is_drawn_and_an_empty_one_takes_it_off(self):
+        p = project.Project()
+        p.add({"do": "channel", "name": "@early", "spot": None})
+        self.assertIsNone(p.state()["channel"], "no clip yet")
+        p.add({"do": "clip", "moment": 1, "pieces": [[30, 50]], "layout": {"kind": "card"}})
+        self.assertEqual(p.state()["channel"]["name"], "@early")
+        p.add({"do": "channel", "name": "@SineySociety", "spot": None})
+        self.assertEqual(p.state()["channel"], {"do": "channel", "name": "@SineySociety", "spot": None})
+        p.add({"do": "channel", "name": "", "spot": None})
+        self.assertIsNone(p.state()["channel"])
+        p.undo()
+        self.assertEqual(p.state()["channel"]["name"], "@SineySociety")
+        self.assertEqual(tools.describe({"do": "channel", "name": "@SineySociety", "spot": None}),
+                         "the channel name @SineySociety on the clip")
 
     def test_clip_seconds_and_recording_seconds(self):
         pieces = [[100, 110], [200, 205]]
@@ -1566,6 +1581,32 @@ class Tools(unittest.TestCase):
         self.assertIn("#Eaglet", ready[0]["hashtags"])
         self.assertTrue(twice["refused"])
         self.assertIn("Each moment makes one clip; moment 2 is given twice.", twice["result"])
+
+    def test_clips_made_in_a_channel_look_get_its_style_captions_name_and_hashtag(self):
+        channels.use(channels.save({"name": "Siney Society", "handle": "@sineysociety", "look": "warm",
+                                    "style": {"name": "pop", "font": None}, "captions": "lit"})["name"])
+        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        _, steps = self.several([call("make_clips", clips=clips, why="both")],
+                                [call("save_channel_look", channel="Travel", why="the person asked")],
+                                [call("use_channel_look", channel="", why="the person asked for none")], "Done.")
+        made, saved, none = steps[-3:]
+        self.assertFalse(made["refused"], made["result"])
+        self.assertIn('Every clip is in the "Siney Society" channel look the person saved: the pop style, the warm '
+                      'colour look, lit captions (add_captions with lit true), the name @sineysociety drawn on the '
+                      'clip.', made["result"])
+        state = self.chat.project.state()
+        self.assertEqual((state["style"]["name"], state["look"], state["captions"]["lit"]), ("pop", "warm", True))
+        self.assertIn({"do": "channel", "name": "@sineysociety", "spot": None}, self.chat.project.entries)
+        ready = [e for e in self.chat.events if e["kind"] == "ready"][0]
+        self.assertEqual(ready["hashtags"], ["#a", "#sineysociety"], "the channel's name joins the post's hashtags")
+        self.assertFalse(saved["refused"], saved["result"])
+        self.assertIn('Saved the "Travel" channel look: the pop style, the warm colour look, lit captions',
+                      saved["result"])
+        self.assertEqual(channels.get("Travel")["look"], "warm")
+        self.assertEqual(none["result"], "No channel look is in use now: new clips start in the recipe's guesses.")
+        self.assertIsNone(channels.in_use())
+        self.assertIsNone(self.chat.project.state()["channel"], "the drawn name came off this clip")
 
     def test_a_name_in_capitals_the_screen_does_not_show_stops_the_clips_once_whatever_the_recipe(self):
         clips = [{"moment": 1, "title": "ASTI pack", "caption": "ASTI c", "hashtags": ["#ASTI", "#SineySociety"]},

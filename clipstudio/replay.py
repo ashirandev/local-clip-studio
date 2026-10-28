@@ -185,7 +185,7 @@ def pack(chat_id, folder, card=None):
         "listed": {"id": chat_id, "when": round(events[-1]["t"]) if events else 0, "first": said[0][:100] if said
                    else "", "messages": len(said), "recording": opened[-1] if opened else ""},
         "made": time.strftime("%d %b %Y", time.localtime(events[0]["t"])).lstrip("0") if events else "",
-        "took": took, "card": _card() if card is None else card})
+        "took": took, "card": _card() if card is None else card, "features": agent.features()})
     files["api/replay.json"] = json.dumps(data, ensure_ascii=False).encode("utf-8")
     for name in sorted(os.listdir(server.WEB)):
         with open(os.path.join(server.WEB, name), "rb") as f:

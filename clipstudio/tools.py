@@ -18,8 +18,8 @@ import time
 
 import numpy as np
 
-from . import (cutout, effects, faces, focus, hearing, layouts, maps, mind, montage, pauses, person, previews, project,
-               recording, render, voices,
+from . import (channels, cutout, effects, faces, focus, hearing, layouts, maps, mind, montage, pauses, person, previews,
+               project, recording, render, voices,
                screen, spoken, takes, talk, text, thai, tracks, words)
 from .recipes import RECIPES, SIGNALS
 
@@ -1185,8 +1185,12 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
                       "speech": _speech(rec, job.chat.looks[m["look"] - 1], pieces)})
     for f in private["shown"]:
         state = job.edit({"do": "blur", "box": f["box"], "start": f["start"], "end": f["end"], "private": f["kind"]})
+    channel = _channel_on(job)
+    state = job.chat.project.state()
     lines = ["Made the clip from moment %d (%s-%s, %g s) in the %s layout." % (
         moment, recording.clock(a), recording.clock(b), state["length"], lay["kind"]), face_line] + lay["notes"]
+    if channel:
+        lines.append(channel)
     if cut:
         lines.append(cut)
     if following:
@@ -3108,6 +3112,9 @@ def hand_over(job, why, title, caption, hashtags, english=""):
     tags = list(dict.fromkeys(t for t in (_tag(w) for w in tags) if t))
     if not tags:
         raise Refused("Give at least one hashtag, such as #gaming.")
+    mine = _tag(((channels.in_use() or {}).get("handle") or "").lstrip("@"))
+    if mine and mine.lower() not in {t.lower() for t in tags}:
+        tags.append(mine)
     ready = {"file": done["name"], "length": done["length"], "title": title, "caption": caption, "hashtags": tags,
              "english": english, "checks": checks, "work": job.chat.worked(job.n, job.steps)}
     job.emit("ready", **ready)
@@ -3182,8 +3189,11 @@ def make_clips(job, why, clips, blur=None):
         job.chat.project = project.Project(first)
         job.show(clip=job.chat.clip_view())
     done = sum(1 for line in lines if " handed over" in line and "not handed over" not in line)
+    look = channels.in_use()
     return "\n".join(["Made %d clip%s, %d handed over; each is reported on its own:" % (
         len(lines), "" if len(lines) == 1 else "s", done)] + lines + ([
+        'Every clip is in the "%s" channel look the person saved: %s.' % (look["name"], look_said(look))] if look
+                                                                          else []) + ([
         "The program wrote names as the screen shows them: %s." % "; ".join(spelled)] if spelled else []) + [
         "Each clip's finished file comes next in %d pictures, as a viewer sees it: look at them as check_clip asks "
         "and say what you saw. When one shows something wrong, make that clip again with make_clip and fix it." %
@@ -3241,12 +3251,13 @@ def _one_clip(job, rec, k, c, layout, blur, opened=None):
             decide_people(job, BATCH_WHY, keep=others)
             notes.append("kept %d other face%s as %s" % (len(others), "" if len(others) == 1 else "s",
                                                           "they are" if len(others) > 1 else "it is"))
+        look = channels.in_use() or {}
         try:
-            add_captions(job, BATCH_WHY)
+            add_captions(job, BATCH_WHY, lit=look.get("captions") == "lit", pop=look.get("captions") == "pop")
         except Refused as e:
             notes.append("no captions: %s" % e)
         words, why_not = c.get("words") or c["title"], ""
-        for place in ("top", "middle"):
+        for place in dict.fromkeys(([look["title_place"]] if look.get("title_place") else []) + ["top", "middle"]):
             try:
                 add_title(job, BATCH_WHY, words, 0, _clip_state(job)["length"], place=place)
                 break
@@ -3517,6 +3528,117 @@ def _too_hidden(frames, place, start, end, hidden, words, lay, state, size):
                 % _grid(band, FRAME) if band else "Put it where the person crosses only the bottom of the letters"))
 
 
+def look_of(state, default, name, handle=""):
+    """A channel look made from the clip as it is now (state), for channels.save: its style entry or the house style
+    default, its colour look, how its captions show, the place of its first title and its drawn name's spot."""
+    style, caps = state["style"], state["captions"]
+    places = state["clip"]["layout"]["places"]
+    return {"name": name, "handle": handle,
+            "style": {k: v for k, v in style.items() if k != "do"} if style else {"name": default, "font": None},
+            "look": state["look"],
+            "captions": None if not caps else "lit" if caps.get("lit") else "pop" if caps.get("pop") else "plain",
+            "title_place": next((t["place"] for t in state["titles"] if t["place"] in places), None),
+            "spot": (state["channel"] or {}).get("spot")}
+
+
+def channel_entries(look, entries, every=False):
+    """The project entries that put look on a clip whose entries so far are entries: its style, its colour look and
+    its drawn name, each only where the clip has no entry of that kind yet, so what the person chose on this clip
+    stays; with every, all of them (the person picked the look for this clip)."""
+    has = set() if every else {e["do"] for e in entries}
+    out = []
+    if look.get("style") and "style" not in has:
+        out.append(dict(look["style"], do="style"))
+    if "look" not in has and (look.get("look") or every):
+        out.append({"do": "look", "name": look.get("look")})
+    if "channel" not in has and (look.get("handle") or every):
+        out.append({"do": "channel", "name": look.get("handle") or "", "spot": look.get("spot")})
+    return out
+
+
+def channel_unfit(state, default):
+    """The sentence why the clip's channel name (state["channel"]) cannot be drawn in its captions' letters at its
+    spot (text.channel_box: letters the font lacks, or wider than the spot), or None when it can or there is none."""
+    channel = state["channel"]
+    if not channel:
+        return None
+    try:
+        text.channel_box(channel["name"], render.style_of(state, default, "caption"), channel.get("spot"))
+    except ValueError as e:
+        return str(e)
+    return None
+
+
+def look_said(look, muse=True):
+    """What a channel look puts on a clip: for Muse, with the call that puts its captions on; else for the person."""
+    parts = [describe(dict(look["style"], do="style"))] if look.get("style") else []
+    parts += ["the %s colour look" % look["look"]] if look.get("look") else []
+    hint = "" if not muse else " (add_captions%s)" % (" with %s true" % look["captions"]
+                                                      if look.get("captions") != "plain" else "")
+    parts += ["%s captions%s" % (look["captions"], hint)] if look.get("captions") else []
+    parts += ["titles at the %s" % look["title_place"]] if look.get("title_place") else []
+    parts += ["the name %s drawn on the clip" % look["handle"]] if look.get("handle") else []
+    return ", ".join(parts) or "nothing yet"
+
+
+def _channel_on(job):
+    """Puts the channel look in use on the clip just made, each part the clip has no entry of yet: the sentence for
+    Muse, or None when no look is in use."""
+    look = channels.in_use()
+    entries = channel_entries(look, job.chat.project.entries) if look else []
+    unfit = job.chat.unfit(*entries)
+    name = next((e["name"] for e in entries if e["do"] == "channel"), (job.chat.project.state()["channel"] or {}).get(
+        "name"))
+    if unfit:
+        entries = [{"do": "channel", "name": "", "spot": None}] + [e for e in entries if e["do"] != "channel"]
+    for entry in entries:
+        job.edit(entry)
+    said = ['The clip is in the "%s" channel look the person saved: %s. Keep to it unless the person asks for '
+            'something else; what they changed on this clip themselves stays.' % (look["name"], look_said(look))
+            ] if look else []
+    said += ["The name %s is not drawn on this clip: %s" % (name, unfit)] if unfit else []
+    return " ".join(said) or None
+
+
+def save_channel_look(job, why, channel, handle=""):
+    state = _clip_state(job)
+    drawn = " ".join((handle or "").split())
+    unfit = drawn and job.chat.unfit({"do": "channel", "name": drawn, "spot": (state["channel"] or {}).get("spot")})
+    if unfit:
+        raise Refused("Nothing was saved: %s" % unfit)
+    try:
+        look = channels.save(look_of(state, job.chat.clip["style"] if job.chat.clip else "clean", channel, handle))
+        channels.use(look["name"])
+    except ValueError as e:
+        raise Refused(str(e))
+    if look["handle"] and (state["channel"] or {}).get("name") != look["handle"]:
+        job.edit({"do": "channel", "name": look["handle"], "spot": look["spot"]})
+    job.show(clip=job.chat.clip_view())
+    return ('Saved the "%s" channel look: %s. Every new clip starts in it, in this chat and the next ones, until the '
+            'person picks another look or none on the page.' % (look["name"], look_said(look)))
+
+
+def use_channel_look(job, why, channel):
+    _clip_state(job)
+    look = channels.get(channel) if channel else None
+    unfit = look and job.chat.unfit(*channel_entries(look, [], every=True))
+    if unfit:
+        raise Refused('The "%s" look was not put on: %s' % (channel, unfit))
+    try:
+        channels.use(channel or None)
+    except ValueError as e:
+        raise Refused(str(e))
+    if not channel:
+        if _clip_state(job)["channel"]:
+            job.edit({"do": "channel", "name": "", "spot": None})
+        return "No channel look is in use now: new clips start in the recipe's guesses."
+    look = channels.get(channel)
+    for entry in channel_entries(look, [], every=True):
+        job.edit(entry)
+    job.show(clip=job.chat.clip_view())
+    return 'The clip and every new clip are in the "%s" channel look: %s.' % (channel, look_said(look))
+
+
 def describe(entry):
     if entry["do"] == "mask":
         return "finding the person with SAM 3.1"
@@ -3550,6 +3672,9 @@ def describe(entry):
         return 'taking the title "%s" off' % entry["text"]
     if entry["do"] == "look":
         return "the %s look" % entry["name"] if entry["name"] else "taking the look off"
+    if entry["do"] == "channel":
+        return "the channel name %s on the clip" % entry["name"] if entry["name"] else \
+            "taking the channel name off the clip"
     if entry["do"] == "push":
         return "the slow push at %g-%g s" % (entry["start"], entry["end"])
     if entry["do"] == "sound":
@@ -3864,6 +3989,22 @@ TOOLS = {t.name: t for t in [
           "end": {"type": "number", "description": "When the look ends, in seconds of the clip; a negative number "
                                                    "counts back from the clip's end. Leave it out for the end."}},
          [], cut_out, changes=True),
+    Tool("save_channel_look", "Saved the channel look",
+         "Save the clip's look as the person's channel look: the words' style, the colour look, how the captions "
+         "show, where the title goes, and the channel's name drawn on the clip. Every new clip, in this chat and the "
+         "next ones, starts in it. Use it only when the person asks to keep this look for their channel.",
+         {"channel": {"type": "string", "maxLength": channels.LONGEST_NAME,
+                      "description": "The channel's name, as the person says it, such as Siney Society."},
+          "handle": {"type": "string", "maxLength": channels.LONGEST_HANDLE,
+                     "description": "The name to draw small on every clip, such as @sineysociety, when the person "
+                                    "gives one. Leave it out for none."}},
+         ["channel"], save_channel_look, changes=True),
+    Tool("use_channel_look", "Chose the channel look",
+         "Put one of the person's saved channel looks on the clip and on every new clip, or none. Use it when the "
+         "person names a channel whose look they saved.",
+         {"channel": {"type": "string", "maxLength": channels.LONGEST_NAME,
+                      "description": "The saved look's name; an empty name means no channel look."}},
+         ["channel"], use_channel_look, changes=True),
     Tool("remove_title", "Took a title off",
          "Take a title off the clip, by its words.",
          {"words": {"type": "string", "maxLength": 80, "description": "The title's words, as on the clip."}},
@@ -4092,3 +4233,17 @@ TOOLS = {t.name: t for t in [
          {}, [], undo, changes=True),
 ]}
 SCHEMAS = [t.schema() for t in TOOLS.values()]
+FEATURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "features.json")
+FEATURE_GROUPS = ("Finding the moments", "Making clips", "Layout", "Look of the words", "Captions", "Effects",
+                  "Colour", "The person", "Sound", "Privacy", "Channel", "Checks and posting", "How Muse works")
+
+
+def features():
+    """Everything the studio can do, for the page's Features menu: [{"name": a group, "features": [{"tool", "name",
+    "says", "ask"}]}], groups in FEATURE_GROUPS order, from features.json, which has a line or more for every tool
+    Muse has (a test holds it to TOOLS, so the menu cannot fall behind the tools)."""
+    with open(FEATURES, encoding="utf-8") as f:
+        rows = json.load(f)
+    groups = FEATURE_GROUPS + tuple(sorted({r["group"] for r in rows} - set(FEATURE_GROUPS)))
+    return [{"name": g, "features": [{k: r[k] for k in ("tool", "name", "says", "ask")} for r in rows
+                                     if r["group"] == g]} for g in groups if any(r["group"] == g for r in rows)]

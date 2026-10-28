@@ -77,7 +77,8 @@ BASE = re.compile(r"^/api/base/([0-9a-f]{16}\.mp4)$")
 POSTER_AT = 1.0
 READ_TRIES, READ_WAIT = 10, 0.05
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
-CHANGES = ("/api/captions", "/api/style", "/api/colour", "/api/words", "/api/remake")
+CHANGES = ("/api/captions", "/api/style", "/api/colour", "/api/words", "/api/remake", "/api/channel",
+           "/api/channel/save")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -91,6 +92,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self.send_json({"ok": True, "version": __version__, "default": mind.DEFAULT, "here": self.here(),
                             "minds": [m.status() for m in mind.MINDS.values()], "hearing": hearing.status()})
+        elif path == "/api/features":
+            self.send_json({"ok": True, "groups": agent.features()})
         elif path == "/api/chat":
             chat = agent.open_chat(query["id"]) if query.get("id") else agent.current()
             if chat is None:
@@ -194,6 +197,12 @@ class Handler(BaseHTTPRequestHandler):
                 why = chat.set_look(str(body.get("look") or ""))
             elif path == "/api/remake":
                 why = chat.make_again()
+            elif path == "/api/channel" and "spot" in body:
+                why = chat.set_channel_spot(str(body.get("spot") or ""))
+            elif path == "/api/channel":
+                why = chat.use_channel(str(body.get("name") or ""))
+            elif path == "/api/channel/save":
+                why = chat.save_channel(str(body.get("name") or ""), str(body.get("handle") or ""))
             elif body.get("kind") not in ("title", "caption") or not isinstance(body.get("n"), int) or \
                     isinstance(body.get("n"), bool):
                 why = "Send which words to change: a title or a caption, and its number."

@@ -19,6 +19,7 @@
     if (at[1] === "chats") return answer({ ok: true, chats: [d.listed] });
     if (at[1] === "recordings") return answer({ ok: true, folders: [], recordings: [] });
     if (at[1] === "panel") return answer(d.panel);
+    if (at[1] === "features") return answer({ ok: true, groups: d.features || [] });
     if (at[1] === "faces") return answer({ ok: true, faces: [], size: [1080, 1920] });
     return realFetch(url, opts);
   };

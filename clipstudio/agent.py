@@ -28,9 +28,9 @@ import threading
 import time
 import traceback
 
-from . import faces, hearing, layer, maps, mind, previews, project, recording, render, text, words
+from . import channels, faces, hearing, layer, maps, mind, previews, project, recording, render, text, words
 from .tools import (CAPTION_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, STYLES, TOOLS, Refused, _spoken, _subtitles,
-                    _undecided, describe, faces_at)
+                    _undecided, channel_entries, channel_unfit, describe, faces_at, features, look_of, look_said)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = os.environ.get("LCS_WORK") or os.path.join(ROOT, "work")
@@ -227,9 +227,27 @@ class Chat:
         stopped = bool(making and making.stop()) or stopped
         return bool(basing and basing.stop()) or stopped
 
+    def unfit(self, *entries):
+        """Why the clip's channel name could not be drawn on it after entries (tools.channel_unfit): a sentence, or
+        None."""
+        after = project.Project(self.project.entries + list(entries)).state()
+        return channel_unfit(after, self.clip["style"] if self.clip else "clean")
+
+    def refusal(self, entry):
+        """Why entry may not go on the clip, or None: a style or channel entry that would leave a channel name the
+        clip cannot draw, so a clip's render never fails on it."""
+        if entry.get("do") not in ("channel", "style") or self.unfit():
+            return None
+        unfit = self.unfit(entry)
+        return unfit and "The channel's name would not fit on the clip then: %s" % unfit
+
     def edit(self, entry, job=None):
-        """Adds one change to the clip's project list; the page redraws the clip. Returns the clip's state."""
+        """Adds one change to the clip's project list; the page redraws the clip. Returns the clip's state. Refused
+        when self.refusal(entry) says why not."""
         with self.cond:
+            said = self.refusal(entry)
+            if said:
+                raise Refused(said)
             self.project.add(entry)
             self.changed += 1
         self.emit("edit", job=job, entry=entry, clip=self.clip_view(), said=describe(entry))
@@ -289,7 +307,19 @@ class Chat:
                                   lambda n: {"style": n}),
                 "looks": choices("look", COLOUR_LOOKS, str.capitalize, "set_look", lambda n: {"look": n}),
                 "words": self.words_on(state), "again": bool(self.rendered) and self.finished() is None,
-                "making": self.making is not None}
+                "making": self.making is not None, "channels": self.channels_now(state)}
+
+    def channels_now(self, state):
+        """The channel looks the page offers: each saved look with what it puts on a clip, the one in use, and the
+        name drawn on this clip with its spot; a spot the name does not fit in says why."""
+        mine = state["channel"]
+        return {"saved": [{"name": c["name"], "handle": c["handle"], "says": look_said(c, muse=False)}
+                          for c in channels.listed()],
+                "in_use": (channels.in_use() or {}).get("name"), "handle": mine["name"] if mine else "",
+                "spots": [{"name": s, "label": s.capitalize(),
+                           "now": bool(mine) and (mine.get("spot") or channels.SPOTS[0]) == s,
+                           "why": _first_sentence(self.unfit(dict(mine, spot=s)) or "") or None if mine else None}
+                          for s in channels.SPOTS]}
 
     def languages(self, state, refused):
         """The captions' language choices: as said, which the page puts on itself (add_captions in the language
@@ -345,6 +375,62 @@ class Chat:
         if entry:
             self._tell("the person chose the %s style on the page" % name)
         return refused
+
+    def use_channel(self, name):
+        """The person's tap on a saved channel look, or on None: the look goes on the clip at once, every part of it,
+        and on every new clip; None stops it for new clips and takes the drawn name off this one. Told to Muse
+        before its next job. Returns None, or the sentence why not."""
+        state = self._clip_now()
+        look = channels.get(name) if name else None
+        off = [{"do": "channel", "name": "", "spot": None}] if state["channel"] else []
+        entries = channel_entries(look, [], every=True) if look else off
+        unfit = self.unfit(*entries)
+        if unfit:
+            return "That look's name does not fit on this clip: %s" % unfit
+        try:
+            channels.use(name or None)
+        except ValueError as e:
+            return str(e)
+        for entry in entries:
+            self.edit(entry)
+        self._tell('the person put the "%s" channel look on the clip on the page' % name if name else
+                   "the person stopped using a channel look on the page")
+        return None
+
+    def save_channel(self, name, handle):
+        """The person's tap on Save under their name for the channel: the clip's look is kept as that channel's
+        look and is in use from now on; the name to draw goes on this clip. Returns None, or the sentence why not."""
+        state = self._clip_now()
+        drawn = " ".join((handle or "").split())
+        unfit = drawn and self.unfit({"do": "channel", "name": drawn, "spot": (state["channel"] or {}).get("spot")})
+        if unfit:
+            return "Nothing was saved: %s" % unfit
+        try:
+            look = channels.save(look_of(state, (self.clip or {}).get("style", "clean"), name, handle))
+            channels.use(look["name"])
+        except ValueError as e:
+            return str(e)
+        if (state["channel"] or {}).get("name", "") != look["handle"]:
+            self.edit({"do": "channel", "name": look["handle"], "spot": look["spot"]})
+        self._tell("the person saved the clip's look as the \"%s\" channel look on the page: %s" % (
+            look["name"], look_said(look)))
+        return None
+
+    def set_channel_spot(self, spot):
+        """The person's tap on where the channel's name sits on the clip. Returns None, or the sentence why not."""
+        state = self._clip_now()
+        if spot not in channels.SPOTS:
+            return "Choose where the name goes: %s." % ", ".join(channels.SPOTS)
+        if not state["channel"]:
+            return "Save the clip's look with a name to draw on it first."
+        try:
+            self.edit({"do": "channel", "name": state["channel"]["name"], "spot": spot})
+        except Refused as e:
+            return str(e)
+        look = channels.in_use()
+        if look and look["handle"] == state["channel"]["name"]:
+            channels.save(dict(look, spot=spot))
+        return None
 
     def set_look(self, name):
         """The person's tap on a colour look for the footage: set_look's own edit, as set_captions."""
@@ -1116,6 +1202,9 @@ class Hand(Job):
             self.chat.cond.notify_all()
 
     def edit(self, entry):
+        said = self.chat.refusal(entry)
+        if said:
+            raise Refused(said)
         if self.trial:
             raise Allowed()
         self.entry = entry
