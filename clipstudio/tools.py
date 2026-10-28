@@ -378,8 +378,9 @@ def _clip_said(job, rec):
 
 def _clip_lines(c):
     rec = c["rec"]
-    shape = "upright" if rec["height"] > rec["width"] else "lying (shown whole over a blurred copy of itself)" if (
-        not montage.fills(rec["width"], rec["height"])) else "square"
+    shape = "upright" if rec["height"] > rec["width"] else (
+        "lying (cropped upright to fill the frame, around its face or the focus you give it)"
+        if not montage.fills(rec["width"], rec["height"]) else "square")
     lines = ["%d. %s · %s · %g s · %s %dx%d" % (c["n"], rec["name"], c["when"], rec["seconds"], shape, rec["width"],
                                                 rec["height"])]
     if c["stills"]:
@@ -493,7 +494,7 @@ def arrange_clips(job, why, story, clips, left_out=None):
                 fitted.append("clip %d, %g-%g s: %s" % (c["clip"], a, b, cut[0].lower() + cut[1:].rstrip(".")))
             first = len(pieces) + 1
             pieces += [{"rec": rec, "from": round(x, 2), "to": round(y, 2), "clip": c["clip"], "why": c["why"],
-                        "talk": True} for x, y in parts]
+                        "talk": True, "focus": c.get("focus"), "whole": c.get("whole")} for x, y in parts]
             if c.get("words"):
                 lines.append({"piece": first, "text": c["words"]})
             continue
@@ -509,9 +510,20 @@ def arrange_clips(job, why, story, clips, left_out=None):
                         "%g-%g s" % s for s in frozen) if frozen else "a piece is at most %g s" % LONGEST_PIECE))
                 a, b = fit
         pieces.append({"rec": rec, "from": round(a, 2), "to": round(max(a, b), 2), "clip": c["clip"],
-                       "why": c["why"]})
+                       "why": c["why"], "focus": c.get("focus"), "whole": c.get("whole")})
         if c.get("words"):
             lines.append({"piece": len(pieces), "text": c["words"]})
+    middled = set()
+    for p in pieces:
+        if not montage.fills(p["rec"]["width"], p["rec"]["height"]) and not p.get("whole"):
+            p["centre"] = _upright_centre(p["rec"], p["from"], p["to"], p.get("focus"))
+            if p["centre"] is None:
+                p["centre"] = 0.5
+                middled.add(p["clip"])
+    if middled:
+        fitted.append("no face was found in clip%s %s, so %s cropped upright around the middle of the picture: give "
+                      "focus where the product or the action is" % ("s" if len(middled) > 1 else "", ", ".join(
+                          map(str, sorted(middled))), "they are" if len(middled) > 1 else "it is"))
     asked = job.chat.clip["length_s"]
     most = min(LONGEST, asked * OVER_LENGTH)
     length = sum(p["to"] - p["from"] for p in pieces)
@@ -593,6 +605,21 @@ def arrange_clips(job, why, story, clips, left_out=None):
         said.append(spelling)
     made = make_clip(job, why, 1, "subject")
     return "\n".join(said) + "\n\n" + made
+
+
+def _upright_centre(rec, a, b, focus):
+    """Where a lying piece is cropped upright to fill the frame, 0 to 1 of its width: the middle of the focus Muse gave
+    on its 0-1000 grid, else the face seen most from a to b, else None (no face, or faces cannot be looked for)."""
+    if focus:
+        return (focus[0] + focus[2]) / 2000.0
+    try:
+        best = faces.places(faces.sample(rec, a, b))
+    except (faces.NoFaces, faces.Stopped):
+        return None
+    if not best:
+        return None
+    x, _, w, _ = best[0]["box"]
+    return (x + w / 2.0) / rec["width"]
 
 
 def _moving(a, b, stills, longest, shortest):
@@ -4086,6 +4113,16 @@ TOOLS = {t.name: t for t in [
                                   "description": "A short line on screen from this piece until the next piece with "
                                                  "words, in the person's language. Leave it out where the picture "
                                                  "says it all."},
+                        "focus": {"type": "array", "minItems": 4, "maxItems": 4,
+                                  "items": {"type": "number", "minimum": 0, "maximum": 1000},
+                                  "description": "[x1, y1, x2, y2] on your 0-1000 grid of this clip's picture: what "
+                                                 "must stay in the frame when a lying picture is cropped upright to "
+                                                 "fill it, such as the product and the hands showing it. Leave it out "
+                                                 "to keep the face the program finds."},
+                        "whole": {"type": "boolean",
+                                  "description": "true shows a lying picture whole over a blurred copy of itself, "
+                                                 "small in the middle of the frame: only for a screen or a wide view "
+                                                 "where every part matters. Leave it out to fill the frame."},
                         "why": {"type": "string", "maxLength": 200,
                                 "description": "One line for the person, in their language: why this piece goes "
                                                "here."}},

@@ -196,10 +196,19 @@ def stills(rec):
 
 
 def fills(width, height):
-    """True when cropping a width x height picture to 9:16 keeps at least FILL of it, so it fills the frame; else it
-    is shown whole over a blurred copy of itself."""
+    """True when cropping a width x height picture to 9:16 keeps at least FILL of it, so it fills the frame as it is;
+    else it is lying, and fills the frame cropped upright around its centre (upright()), or is shown whole over a
+    blurred copy of itself when a piece has no centre."""
     aspect, own = W / float(H), width / float(height)
     return min(own, aspect) / max(own, aspect) >= FILL
+
+
+def upright(rec, centre):
+    """FFmpeg's filter cropping a lying picture upright to fill the W x H frame: its full height, and the width the
+    frame takes of it, around centre (0 to 1 of its width), kept inside the picture."""
+    wide = int(round(rec["width"] * H / float(rec["height"]) / 2)) * 2
+    x = int(round(min(max(centre * wide - W / 2.0, 0), wide - W)))
+    return "scale=%d:%d,crop=%d:%d:%d:0" % (wide, H, W, H, x)
 
 
 def starts(pieces):
@@ -212,9 +221,10 @@ def starts(pieces):
 
 
 def graph(pieces):
-    """(FFmpeg's input arguments, the filter graph) joining pieces [{rec, from, to}] in order into one upright
-    W x H recording at FPS, its sound at RATE in stereo. A clip without sound gets silence, and each piece's sound fades
-    in and out over FADE s, so a cut does not click."""
+    """(FFmpeg's input arguments, the filter graph) joining pieces [{rec, from, to[, centre]}] in order into one upright
+    W x H recording at FPS, its sound at RATE in stereo. A lying piece with a centre is cropped upright around it; one
+    without is shown whole over a blurred copy of itself. A clip without sound gets silence, and each piece's sound
+    fades in and out over FADE s, so a cut does not click."""
     args, chains, joined = [], [], ""
     for i, p in enumerate(pieces):
         rec, d = p["rec"], round(p["to"] - p["from"], 3)
@@ -222,6 +232,8 @@ def graph(pieces):
         cover = "scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d" % (W, H, W, H)
         if fills(rec["width"], rec["height"]):
             chains.append("[%d:v:0]%s,setsar=1[p%d]" % (i, cover, i))
+        elif p.get("centre") is not None:
+            chains.append("[%d:v:0]%s,setsar=1[p%d]" % (i, upright(rec, p["centre"]), i))
         else:
             chains.append("[%d:v:0]split[w%d][b%d];[b%d]%s,gblur=sigma=%d,eq=brightness=%g[g%d];"
                           "[w%d]scale=%d:%d:force_original_aspect_ratio=decrease[s%d];"
@@ -240,7 +252,8 @@ def graph(pieces):
 def target(pieces, name):
     """Where the joined recording of pieces is kept: the same pieces in the same order are joined once."""
     key = hashlib.sha1(json.dumps([[p["rec"]["path"], p["rec"]["size"], p["rec"]["mtime"], round(p["from"], 3),
-                                    round(p["to"], 3)] for p in pieces]).encode("utf-8")).hexdigest()[:10]
+                                    round(p["to"], 3), p.get("centre")] for p in pieces]).encode("utf-8"))
+    key = key.hexdigest()[:10]
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name)[:40] or "clips"
     return os.path.join(recording.WORK, "montage", "%s-%s.mp4" % (safe, key))
 

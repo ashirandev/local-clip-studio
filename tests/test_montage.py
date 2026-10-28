@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -76,6 +77,24 @@ class Shape(unittest.TestCase):
         self.assertFalse(montage.fills(1920, 1080))
         self.assertFalse(montage.fills(1080, 1080))
 
+    def test_a_lying_picture_is_cropped_upright_around_its_centre_and_never_past_its_edge(self):
+        lying = rec("l.mov", 1920, 1080)
+        self.assertEqual(montage.upright(lying, 0.5), "scale=3414:1920,crop=1080:1920:1167:0")
+        self.assertEqual(montage.upright(lying, 0.0), "scale=3414:1920,crop=1080:1920:0:0")
+        self.assertEqual(montage.upright(lying, 1.0), "scale=3414:1920,crop=1080:1920:2334:0")
+
+    def test_the_crop_follows_the_focus_given_then_the_face_found(self):
+        lying = rec("l.mov", 1920, 1080)
+        self.assertAlmostEqual(tools._upright_centre(lying, 0, 2, [600, 0, 800, 1000]), 0.7)
+        face = {"size": [1920, 1080], "every": 1, "samples": [{"t": t, "faces": [[100, 200, 200, 200, 0.9]]}
+                                                              for t in (0, 1)]}
+        with mock.patch.object(tools.faces, "sample", return_value=face):
+            self.assertAlmostEqual(tools._upright_centre(lying, 0, 2, None), 200 / 1920.0)
+        with mock.patch.object(tools.faces, "sample", return_value=dict(face, samples=[])):
+            self.assertIsNone(tools._upright_centre(lying, 0, 2, None), "no face: the caller says so")
+        with mock.patch.object(tools.faces, "sample", side_effect=tools.faces.NoFaces("no model")):
+            self.assertIsNone(tools._upright_centre(lying, 0, 2, None))
+
     def test_pieces_start_where_the_one_before_ends(self):
         self.assertEqual(montage.starts([{"from": 1, "to": 3.5}, {"from": 0, "to": 2}, {"from": 4, "to": 5}]),
                          [0.0, 2.5, 4.5])
@@ -104,6 +123,26 @@ class Join(unittest.TestCase):
         self.assertFalse(os.path.exists(out + ".part"))
         self.assertIn("gblur", montage.graph(pieces[1:])[1], "the lying clip is shown whole over a blurred copy")
         self.assertNotIn("gblur", montage.graph(pieces[:1])[1], "the upright clip fills the frame")
+
+    def test_a_lying_piece_with_a_centre_fills_the_frame_with_the_part_around_it(self):
+        lying = os.path.join(self.tmp, "halves.mp4")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=320x360:d=2", "-f", "lavfi",
+                        "-i", "color=c=blue:s=320x360:d=2", "-filter_complex", "[0:v][1:v]hstack", "-c:v", "libx264",
+                        "-preset", "ultrafast", "-pix_fmt", "yuv420p", lying], check=True)
+        seen = {}
+        for centre in (0.1, 0.9, None):
+            pieces = [{"rec": recording.probe(lying), "from": 0.0, "to": 1.5, "centre": centre}]
+            out = montage.join(pieces, montage.target(pieces, "halves"))
+            got = recording.probe(out)
+            self.assertEqual((got["width"], got["height"]), (1080, 1920))
+            raw = subprocess.run([FFMPEG, "-v", "error", "-ss", "0.5", "-i", out, "-frames:v", "1", "-vf",
+                                  "crop=2:2:539:200", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                                 capture_output=True, check=True).stdout
+            seen[centre] = (raw[0], raw[2], out)
+        self.assertGreater(seen[0.1][0], 150, "around 0.1 the frame is the red half")
+        self.assertGreater(seen[0.9][1], 150, "around 0.9 the frame is the blue half")
+        self.assertLess(max(seen[None][:2]), 120, "with no centre the top of the frame is the dim blurred copy")
+        self.assertEqual(len({v[2] for v in seen.values()}), 3, "each crop is joined and kept apart")
 
     def test_a_held_picture_is_found(self):
         held, moving = os.path.join(self.tmp, "held.mp4"), os.path.join(self.tmp, "moving.mp4")

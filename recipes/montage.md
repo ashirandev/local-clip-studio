@@ -50,7 +50,9 @@ tells it best.
 
 ## The clip
 
-- The picture fills the frame. A clip shot lying down is shown whole over a blurred copy of itself.
+- The picture fills the frame. A clip shot lying down is cropped upright around the face the program finds, or
+  around the focus you give its piece: the product and the hands showing it, and the face when it fits. Give whole
+  only for a screen or a wide view where every part matters: it is shown small over a blurred copy of itself.
 - The title says what the day or the event was, in the clip's language.
 
 ## Checked at the end
