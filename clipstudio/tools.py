@@ -1764,6 +1764,20 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
 
 
 CAPTION_LETTERS = 16
+SUBTITLES = {"English": ("english", "en", "eng", "อังกฤษ", "ภาษาอังกฤษ"), "Thai": ("thai", "th", "ไทย", "ภาษาไทย")}
+SENTENCE_GAP = 0.7
+SENTENCE_SHORT = 1.5
+SENTENCE_LONG = 5.0
+READS = 20
+SCREEN_NAMES = 30
+SUBTITLE_SCHEMA = {"type": "object", "properties": {"lines": {"type": "array", "items": {"type": "string"}}},
+                   "required": ["lines"]}
+SUBTITLE_ASK = ("These are the spoken sentences of a short vertical clip (%s), in %s, heard by speech recognition (a "
+                "word may be misheard), in the order they are said, each with how long it is on screen. Write the %s "
+                "subtitle for each sentence, so a viewer who does not know %s follows the clip: natural spoken %s, "
+                "short, the meaning and not word for word; keep every number the sentence says, and add none; keep "
+                "names written in Latin letters exactly as they are%s; when a sentence is only a filler sound, write "
+                "it short (\"Yeah.\", \"Huh?\"). One %s line for each sentence, in the same order.\n\n%s")
 HITS = {"flash": "a short white flash", "shake": "the picture shakes and settles", "punch": "a quick zoom in and back",
         "word": "a big word that pops in, such as POW"}
 
@@ -1954,11 +1968,72 @@ def _in_clip(pieces, p, length):
     return round(a, 2), round(min(length, b), 2)
 
 
-def add_captions(job, why, on=True, lit=False, pop=False):
+def _subtitles(name):
+    """The language named for the captions, as SUBTITLES writes it, or None when none is named."""
+    named = " ".join((name or "").lower().split())
+    if not named:
+        return None
+    for language, names in SUBTITLES.items():
+        if named in names:
+            return language
+    raise Refused("The studio writes captions in %s, the languages its fonts draw; %s is not one of them. Tell the "
+                  "person so." % (" or ".join(SUBTITLES), name))
+
+
+def _spoken(job, texts):
+    """The language the texts are said in: Thai when they are written in Thai letters, else the recipe's guess."""
+    if any(re.search("[ก-๛]", t) for t in texts):
+        return "Thai"
+    named = " ".join(((job.chat.clip or {}).get("language") or "").split())
+    return next((k for k, v in SUBTITLES.items() if named.lower() in v), named or "English")
+
+
+def _sentences(phrases):
+    """The phrases joined into the sentences a subtitle is written for: a phrase joins the one just before it in what
+    was said when the gap is at most SENTENCE_GAP s and the one before is shorter than SENTENCE_SHORT s or the two
+    last at most SENTENCE_LONG s together. [{"from", "to", "text", "first"}], first = the index of its first phrase."""
+    out = []
+    for k, p in enumerate(phrases):
+        last = out[-1] if out else None
+        if last and p["n"] == phrases[k - 1]["n"] + 1 and p["from"] - last["to"] <= SENTENCE_GAP and (
+                last["to"] - last["from"] < SENTENCE_SHORT or p["to"] - last["from"] <= SENTENCE_LONG):
+            last["to"], last["text"] = p["to"], last["text"] + " " + p["text"]
+        else:
+            out.append({"from": p["from"], "to": p["to"], "text": p["text"], "first": k})
+    return out
+
+
+def _translated(job, units, language, said_in, names):
+    """Muse's subtitle in language for each unit, asked apart from the job, or None when twice the lines it wrote
+    did not line up one for one with the units."""
+    kind = (job.chat.clip or {}).get("title") or "a video"
+    listing = "\n".join("%d. (%.1f s) %s" % (k, u["to"] - u["from"], u["text"]) for k, u in enumerate(units, 1))
+    shown = "; the screen writes these words this way: %s" % ", ".join(names) if names else ""
+    ask = SUBTITLE_ASK % (kind, said_in, language, said_in, language, shown, language, listing)
+    for _ in range(2):
+        try:
+            got = json.loads(job.ask_aside([{"role": "user", "content": ask}], SUBTITLE_SCHEMA,
+                                           "Writing the %s subtitles" % language))["lines"]
+        except (ValueError, KeyError, TypeError):
+            continue
+        if isinstance(got, list) and len(got) == len(units) and all(isinstance(s, str) and s.strip() for s in got):
+            return [" ".join(s.split()) for s in got]
+    return None
+
+
+def _said_numbers(words):
+    """The numbers words says, leaving out 1, which one language says as a number and another as "a"."""
+    return spoken.values(words) - {1}
+
+
+def add_captions(job, why, on=True, lit=False, pop=False, language=""):
     rec = _open(job, "caption")
     state = _clip_state(job)
     if lit and pop:
         raise Refused("Captions are lit or popped, not both: a popped word already moves as it is said. Choose one.")
+    target = _subtitles(language or (job.chat.clip or {}).get("subtitles"))
+    if language and job.chat.clip is not None:
+        job.chat.clip["subtitles"] = target
     clip, length = state["clip"], state["length"]
     if not on:
         if not state["captions"]:
@@ -1968,44 +2043,72 @@ def add_captions(job, why, on=True, lit=False, pop=False):
     moments = job.chat.moments or []
     said = moments[clip["moment"] - 1].get("said") or [] if clip["moment"] <= len(moments) else []
     phrases, unsure, heard = [], [], []
-    for p in said:
+    for n, p in enumerate(said):
         if _unsure(p):
             unsure.append(p)
             continue
         at = _in_clip(clip["pieces"], p, length)
         if at:
-            phrases.append({"from": at[0], "to": at[1], "text": p["text"]})
+            phrases.append({"from": at[0], "to": at[1], "text": p["text"], "n": n})
             heard.append(p)
     if not phrases:
         raise Refused("Nothing was heard clearly in this moment, so there are no words to caption. Leave the captions "
                       "off, and say so in your answer.")
+    translated, first = None, list(range(len(phrases)))
     try:
         texts, spelling = _spell(job, [p["text"] for p in phrases])
+        for phrase, p, words_ in zip(phrases, heard, texts):
+            phrase["text"] = p["text"] = words_
+        said_in = _spoken(job, texts)
+        if target and target != said_in:
+            units = _sentences(phrases)
+            names = [w for w in dict.fromkeys(_screen_words(job, rec, state)) if len(w) >= 4][:SCREEN_NAMES]
+            translated = _translated(job, units, target, said_in, names)
     except hearing.Stopped:
         return "No captions: the person pressed Stop."
-    for phrase, p, words_ in zip(phrases, heard, texts):
-        phrase["text"] = p["text"] = words_
-    lines = text.caption_lines(phrases, CAPTION_LETTERS)
+    if translated:
+        lines = text.caption_lines([{"from": u["from"], "to": u["to"], "text": s} for u, s in zip(units, translated)],
+                                   CAPTION_LETTERS)
+        for line in lines:
+            line["said"] = units[line["phrase"]]["text"]
+        first = [u["first"] for u in units]
+    else:
+        lines = text.caption_lines(phrases, CAPTION_LETTERS)
     band = clip["layout"]["captions"]
     entry = {"do": "captions", "lines": lines, "band": [band[1], band[3]], "lit": bool(lit), "pop": bool(pop)}
-    bands, spoken = clip["layout"].get("bands"), clip.get("voices")
-    if bands and spoken:
-        who = {(round(v["from"], 2), round(v["to"], 2)): v["who"] for v in spoken}
+    if translated:
+        entry["language"] = target
+    bands, voiced = clip["layout"].get("bands"), clip.get("voices")
+    if bands and voiced:
+        who = {(round(v["from"], 2), round(v["to"], 2)): v["who"] for v in voiced}
         owners = [who.get((round(p["from"], 2), round(p["to"], 2))) for p in said if not _unsure(p)
                   and _in_clip(clip["pieces"], p, length)]
         for line in lines:
-            line["who"] = owners[line["phrase"]] if line["phrase"] < len(owners) else None
+            k = first[line["phrase"]]
+            line["who"] = owners[k] if k < len(owners) else None
         entry["bands"] = {n: [b[1], b[3]] for n, b in bands.items()}
     state = job.edit(entry)
     under = ("each under the face of the person who says it" if entry.get("bands") and any(
         line.get("who") for line in lines) else "in the band from y %d to %d" % (band[1], band[1] + band[3]))
-    out = ["Captions on: %d lines of what was said, numbers exactly as heard, %s; %s."
-           % (len(lines), under,
+    out = ["Captions on: %d lines %s, %s; %s."
+           % (len(lines), "in %s, translated from the %d sentences said in %s, numbers kept" % (
+               target, len(units), said_in) if translated else "of what was said, numbers exactly as heard", under,
               "each word lights up as it is said" if lit else
               "each word pops in at its place as it is said and stays, so once said the line looks plain" if pop else
               "plain words, none lit, so the eye stays on the picture")]
     if spelling:
         out.append(spelling)
+    if translated:
+        out.append("The clip is for viewers who read %s: write the title, the words on screen and the post in %s "
+                   "too." % (target, target))
+        fast = max(((len(s) / max(0.1, u["to"] - u["from"]), u, s) for u, s in zip(units, translated)),
+                   key=lambda f: f[0])
+        if fast[0] > READS:
+            out.append("The fastest line is read at %d letters a second (%s \"%s\"); most viewers read up to %d."
+                       % (round(fast[0]), recording.clock(fast[1]["from"]), fast[2], READS))
+    elif target and target != said_in:
+        out.append("The %s lines Muse wrote did not line up one for one with the sentences said, twice, so the "
+                   "captions are in %s as said. Tell the person, or put the captions on again." % (target, said_in))
     if unsure:
         out.append("Left out %d line%s the hearing was not sure of, because a wrong caption is worse than none: %s."
                    % (len(unsure), "" if len(unsure) == 1 else "s",
@@ -2594,10 +2697,20 @@ def check_clip(job, why):
 
     lines = (state["captions"] or {}).get("lines") or []
     joined = "".join(said).replace(" ", "")
-    unsaid = [line["text"] for line in lines if line["text"].replace(" ", "") not in joined]
+    unsaid = [line["text"] for line in lines if line.get("said", line["text"]).replace(" ", "") not in joined]
     check("Captions are words that were said", not unsaid if lines else None,
           ("%d of %d lines are in what was said" % (len(lines) - len(unsaid), len(lines)) +
            ("; not said: %s" % "; ".join(unsaid[:3]) if unsaid else "")) if lines else "no captions")
+    sentences = {}
+    for line in lines:
+        if "said" in line:
+            sentences.setdefault(line["phrase"], [line["said"], ""])[1] += line["text"]
+    if sentences:
+        off = ['"%s" for "%s"' % (t.strip(), s) for s, t in sentences.values()
+               if _said_numbers(s) != _said_numbers(t)]
+        check("Translated captions keep the numbers", not off,
+              "%d of %d sentences keep every number said" % (len(sentences) - len(off), len(sentences)) +
+              ("; not kept: %s" % "; ".join(off[:3]) if off else ""))
     if kind == "seller":
         wrong = [n for t in state["titles"] for n in _not_said(t["text"], said)]
         unread = _numbers_unread(job, said) if wrong else None
@@ -2951,7 +3064,8 @@ LOOK_LABELS = {"3d": "3D"}
 SHORTEST, LONGEST = 10, 90
 
 
-def load_recipe(job, why, type, length_s=None, style=None, language="", brief=""):
+def load_recipe(job, why, type, length_s=None, style=None, language="", brief="", subtitles=""):
+    subtitles = _subtitles(subtitles)
     recipe = RECIPES.get(type.lower().strip())
     if recipe is None:
         raise Refused("There is no recipe for %s yet. The recipes are: %s. Do not use a recipe made for another "
@@ -2962,12 +3076,13 @@ def load_recipe(job, why, type, length_s=None, style=None, language="", brief=""
                       "the recipe for the kind of recording that is open." % (
                           MONTAGE, "one recording open" if job.chat.recording else "no clips open"))
     clip = {"recipe": recipe["name"], "title": recipe["title"], "length_s": length_s or recipe["length"],
-            "style": style or recipe["style"], "language": language, "brief": brief}
+            "style": style or recipe["style"], "language": language, "brief": brief, "subtitles": subtitles}
     had = job.chat.clip
     job.set_clip(clip, chips(clip))
     lines = ["Recipe loaded: %s (%s)." % (recipe["title"], recipe["name"]),
-             "Your guesses, shown to the person with buttons to change them: about %d s, style %s%s."
-             % (clip["length_s"], clip["style"], ", language " + language if language else ""),
+             "Your guesses, shown to the person with buttons to change them: about %d s, style %s%s%s."
+             % (clip["length_s"], clip["style"], ", language " + language if language else "",
+                ", captions in " + subtitles if subtitles else ""),
              "The person's own words win over this recipe and over your guesses. Do not ask the person to confirm "
              "them: go on with the work. The buttons let them change any guess at any time."]
     if had and had["recipe"] != recipe["name"]:
@@ -3078,6 +3193,10 @@ TOOLS = {t.name: t for t in [
                                    "; ".join("%s (%s)" % kv for kv in STYLES.items()) + "."},
           "language": {"type": "string", "maxLength": 40,
                        "description": "The language spoken in the recording, as far as you can tell, such as Thai."},
+          "subtitles": {"type": "string", "maxLength": 40,
+                        "description": "Only when the person wants the captions in another language than the one "
+                                       "spoken, such as English subtitles for a clip said in Thai: that language. "
+                                       "Leave it out for captions of the words as said."},
           "brief": {"type": "string", "maxLength": 300,
                     "description": "What the person asked for about the clip itself, in their own words (its mood, "
                                    "length or focus), if they said anything. It wins over every guess."}},
@@ -3237,7 +3356,12 @@ TOOLS = {t.name: t for t in [
           "pop": {"type": "boolean",
                   "description": "true pops each word in at its own place as it is said, and the line stays once "
                                  "said, so nothing is lit and the eye can go back to the person. Use it when the "
-                                 "person asks for words that pop or appear as they are said. Not with lit."}},
+                                 "person asks for words that pop or appear as they are said. Not with lit."},
+          "language": {"type": "string", "maxLength": 40,
+                       "description": "The language to write the captions in, such as English, when the person wants "
+                                      "subtitles in another language than the one spoken: the program has each "
+                                      "sentence translated and keeps its numbers. Leave it out to keep what the "
+                                      "recipe was told."}},
          [], add_captions, changes=True),
     Tool("blur_box", "Blurred a box",
          "Blur one box of the recording's picture so nothing in it can be read, such as a stream's chat with "

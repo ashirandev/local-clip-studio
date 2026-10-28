@@ -447,6 +447,110 @@ class Tools(unittest.TestCase):
         self.assertEqual([p["text"] for p in self.chat.moments[0]["said"]],
                          ["ตั้งค่าเครื่องง่ายมาก", "ราคาถูกมาก"], "the check reads the line as the caption shows it")
 
+    def test_english_captions_are_whole_sentences_translated_and_checked_against_what_was_said(self):
+        self.worker.phrases = [{"from": 2.0, "to": 2.6, "text": "ตั้งค่าเครื่อง"}, {"from": 2.8, "to": 4.0, "text": "ง่ายมาก"},
+                               {"from": 5.0, "to": 8.0, "text": "ราคา 990 บาท"}]
+
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            brain, steps = self.run_job(
+                *self.to_moment()[:2],
+                [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the setup"}])],
+                '{"lines": ["ตั้งค่าเครื่อง", "ง่ายมาก", "ราคา <N1> บาท"]}',
+                [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("add_captions", language="english", why="for viewers abroad")],
+                '{"lines": ["Setting it up is so easy.", "It costs 990 baht."]}',
+                [call("decide_people", keep=[1], why="it is him")],
+                [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
+                [call("add_captions", language="English", why="again")],
+                '{"lines": ["Setting it up is so easy.", "It costs 99 baht."]}',
+                [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
+                "Done.")
+        finally:
+            render.export = had
+        caps, _, _, checked, _, _, wrong = steps[-7:]
+        self.assertFalse(caps["refused"], caps["result"])
+        self.assertRegex(caps["result"], r"^Captions on: \d+ lines in English, translated from the 2 sentences said in "
+                                         r"Thai, numbers kept")
+        self.assertIn("write the title, the words on screen and the post in English too", caps["result"])
+        asked = [m for m in brain.sent if len(m) == 1 and "English subtitle" in m[0]["content"]]
+        self.assertIn("in Thai", asked[0][0]["content"])
+        self.assertIn("\n\n1. (2.0 s) ตั้งค่าเครื่อง ง่ายมาก\n2. (3.0 s) ราคา 990 บาท", asked[0][0]["content"],
+                      "a phrase 0.2 s after a short one is the same sentence: one subtitle for both")
+        self.assertFalse(checked["refused"], checked["result"])
+        self.assertIn("- passed: Captions are words that were said (", checked["result"])
+        self.assertIn("- passed: Translated captions keep the numbers (2 of 2 sentences keep every number said)",
+                      checked["result"])
+        self.assertIn('- FAILED: Translated captions keep the numbers (1 of 2 sentences keep every number said; not '
+                      'kept: "It costs 99 baht." for "ราคา 990 บาท")', wrong["result"])
+        captions = self.chat.project.state()["captions"]
+        self.assertEqual(captions["language"], "English")
+        self.assertEqual("".join(line["text"] for line in captions["lines"]),
+                         "Setting it up is so easy.It costs 99 baht.")
+        self.assertEqual({line["said"] for line in captions["lines"]}, {"ตั้งค่าเครื่อง ง่ายมาก", "ราคา 990 บาท"})
+
+    def test_english_captions_that_do_not_line_up_are_asked_once_more_then_left_as_said(self):
+        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "ตั้งค่าเครื่องง่ายมาก"},
+                               {"from": 5.0, "to": 8.0, "text": "ราคาถูกมาก"}]
+        script = self.to_moment()
+        brain, steps = self.run_job(
+            *script[:2], [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the setup"}])],
+            '{"lines": ["ตั้งค่าเครื่องง่ายมาก", "ราคาถูกมาก"]}',
+            [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("add_captions", language="English", why="abroad")], '{"lines": ["Easy to set up."]}', "not json",
+            [call("add_captions", language="English", why="again")], '{"lines": ["Easy."]}',
+            '{"lines": ["Easy to set up.", "Really cheap."]}',
+            [call("add_captions", language="Japanese", why="for Japan")],
+            "Done.")
+        left, again, japanese = steps[-3:]
+        self.assertFalse(left["refused"], left["result"])
+        self.assertRegex(left["result"], r"^Captions on: \d+ lines of what was said")
+        self.assertIn("did not line up one for one with the sentences said, twice, so the captions are in Thai as said",
+                      left["result"])
+        self.assertRegex(again["result"], r"^Captions on: 2 lines in English, translated from the 2 sentences said in "
+                                          r"Thai")
+        self.assertEqual([line["text"] for line in self.chat.project.state()["captions"]["lines"]],
+                         ["Easy to set up.", "Really cheap."], "a gap of 1 s ends a sentence")
+        self.assertTrue(japanese["refused"])
+        self.assertIn("The studio writes captions in English or Thai, the languages its fonts draw", japanese["result"])
+
+    def test_a_subtitle_sentence_never_joins_two_phrases_with_a_left_out_one_between(self):
+        phrases = [{"from": 0.0, "to": 1.0, "text": "a", "n": 0}, {"from": 1.2, "to": 2.0, "text": "b", "n": 2},
+                   {"from": 2.1, "to": 3.0, "text": "c", "n": 3}, {"from": 3.1, "to": 9.0, "text": "d", "n": 4}]
+        self.assertEqual(tools._sentences(phrases), [{"from": 0.0, "to": 1.0, "text": "a", "first": 0},
+                                                     {"from": 1.2, "to": 3.0, "text": "b c", "first": 1},
+                                                     {"from": 3.1, "to": 9.0, "text": "d", "first": 3}],
+                         "the check finds a sentence in what was said only when its phrases were said one after "
+                         "another; and two long phrases are two sentences")
+
+    def test_a_recipe_told_english_subtitles_has_the_captions_translated_but_never_thai_into_thai(self):
+        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "ตั้งค่าเครื่องง่ายมาก"},
+                               {"from": 5.0, "to": 8.0, "text": "ราคาถูกมาก"}]
+        script = self.to_moment()
+        brain, steps = self.run_job(
+            script[0], [call("load_recipe", type="talk", subtitles="อังกฤษ", why="the kind")], script[1],
+            [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the setup"}])],
+            '{"lines": ["ตั้งค่าเครื่องง่ายมาก", "ราคาถูกมาก"]}',
+            [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("add_captions", why="captions")], '{"lines": ["Easy to set up.", "Really cheap."]}',
+            [call("add_captions", language="ไทย", why="back to Thai")],
+            [call("load_recipe", type="talk", subtitles="Klingon", why="the kind")],
+            "Done.")
+        recipe, english, thai_, klingon = steps[1], steps[-3], steps[-2], steps[-1]
+        self.assertIn("captions in English", recipe["result"])
+        self.assertRegex(english["result"], r"^Captions on: 2 lines in English")
+        self.assertRegex(thai_["result"], r"^Captions on: \d+ lines of what was said")
+        self.assertNotIn("line up", thai_["result"])
+        self.assertEqual(self.chat.clip["subtitles"], "Thai", "the batch of clips made next keeps the person's choice")
+        self.assertTrue(klingon["refused"])
+        self.assertEqual(len([m for m in brain.sent if len(m) == 1 and "subtitle" in m[0]["content"]]), 1,
+                         "captions said in Thai and asked for in Thai are not translated")
+
     def test_captions_blurs_and_hits_go_on_the_clip_and_muse_is_told_what_they_cover(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "this is the moment"},
                                {"from": 5.0, "to": 8.0, "text": "watch him fall down now"}]
