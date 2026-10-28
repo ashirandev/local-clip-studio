@@ -782,6 +782,14 @@ class Captions(unittest.TestCase):
             self.assertLess(abs((grown[1] + grown[3]) - (settled[1] + settled[3])) / 2, 3,
                             "%s: at its own height: %s %s" % (name, settled, grown))
 
+    def test_popped_lines_are_measured_in_a_few_runs_however_many_there_are(self):
+        said = [{"from": 1.0 + 2 * k, "to": 2.6 + 2 * k, "text": "ทดสอบบรรทัดที่ %d ของคำบรรยาย" % k} for k in range(12)]
+        st = text.style("pop", size=2)
+        with mock.patch.dict(text._boxes, clear=True), \
+                mock.patch.object(text, "_render_and_read", wraps=text._render_and_read) as runs:
+            text.captions(text.caption_lines(said), st, (1300, 400), pop=True)
+        self.assertLessEqual(runs.call_count, 6, "12 lines: %d FFmpeg runs, not two a line" % runs.call_count)
+
     def test_caption_refusals(self):
         lines = text.caption_lines(SAID)
         with self.assertRaisesRegex(ValueError, "pop 1 is not True or False"):
