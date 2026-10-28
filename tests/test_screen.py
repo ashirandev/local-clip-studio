@@ -129,6 +129,20 @@ class Words(unittest.TestCase):
         os.remove(os.path.join(self.tmp, "screen", screen._key(self.rec, 10.0, 20.0) + ".json"))
         self.assertEqual(screen.words(self.rec, 10.0, 20.0), ["Eaglet", "Get", "Local", "ashiran.com"], "kept")
 
+    def test_a_web_address_read_at_one_second_spells_a_name_said_at_another(self):
+        from clipstudio import tools
+        screen._keep(self.rec, 10.0, 20.0, [{"at": 10.0, "lines": self.lines(
+            ("Get Eaglet at ashiran.com", 0.99), ("Ashiran-CV.pdf llama.cpp th.jobsdb.com", 0.99))}])
+        self.assertEqual(screen.sites(self.rec), [])
+        screen.words(self.rec, 10.0, 20.0)
+        self.assertEqual(screen.sites(self.rec), ["ashiran.com", "ashiran", "th.jobsdb.com", "jobsdb"],
+                         "addresses and their names; not a file name")
+        screen.words(self.rec, 10.0, 20.0)
+        self.assertEqual(len(screen.sites(self.rec)), 4, "kept once")
+        shown = ["Eaglet"] + screen.sites(self.rec)
+        self.assertEqual(tools._misspelled("ดูที่ ashilan.do.com กับ Achilan แล้วหางานบน JobDB", shown),
+                         [("ashilan.do.com", "ashiran.com"), ("Achilan", "Ashiran"), ("JobDB", "Jobsdb")])
+
     def test_a_stretch_not_read_yet_gives_its_words_from_a_few_pictures(self):
         asked = []
 
@@ -237,6 +251,11 @@ class Misspelled(unittest.TestCase):
                          [("Egret", "Eaglet"), ("Achilan.com", "ashiran.com"), ("Achilan", "Ashiran")])
         for fine in ("Choose the right Model", "Eaglet on ashiran.com", "Your machine", "Gemma"):
             self.assertEqual(tools._misspelled(fine, shown), [], fine)
+
+    def test_a_made_up_tag_half_like_a_screen_word_is_left_as_written(self):
+        from clipstudio import tools
+        self.assertEqual(tools._misspelled("#Eaglet #AutoApply", ["Eaglet", "Automation"]), [],
+                         "round 8: #AutoApply became #Automation")
 
 
 class Span(unittest.TestCase):

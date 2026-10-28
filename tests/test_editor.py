@@ -1554,6 +1554,18 @@ class Tools(unittest.TestCase):
         words.spelled(ask, texts[1:3], every=True, kept=kept)
         self.assertEqual(asked[-1], texts[1:3], "a change the rules refused is asked about again")
 
+    def test_a_tone_mark_that_makes_a_rarer_word_is_not_a_fix(self):
+        right = "ไว้ใจให้ทำงานแทนตั้งแต่เลือกเงินเดือน"
+
+        def ask(messages, schema):
+            fixes = {right: "ไว้ใจให้ทำงานแทนตั้งแต้เลือกเงินเดือน", "สาธิตการตังค่าอัตโนมัติ": "สาธิตการตั้งค่าอัตโนมัติ"}
+            texts = json.loads(messages[-1]["content"].rsplit("\n\n", 1)[1])
+            return json.dumps({"texts": [fixes.get(x, x) for x in texts]}, ensure_ascii=False)
+
+        self.assertEqual(words.spelled(ask, [right, "สาธิตการตังค่าอัตโนมัติ"], every=True),
+                         ([right, "สาธิตการตั้งค่าอัตโนมัติ"], [("สาธิตการตังค่าอัตโนมัติ", "สาธิตการตั้งค่าอัตโนมัติ")]),
+                         "round 8: ตั้งแต่ became ตั้งแต้")
+
     def test_thai_spelling_is_fixed_before_it_is_burned_in_or_handed_over(self):
         def export(rec, state, out, on_progress=None, on_start=None, *, default):
             make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))

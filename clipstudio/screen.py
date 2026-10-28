@@ -48,6 +48,10 @@ SURE = 0.9
 MOST_WORDS = 40
 WORDS_FROM = 3
 NAME = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:[.-][A-Za-z0-9]+)*")
+ENDINGS = {"com", "net", "org", "io", "ai", "co", "th", "dev", "app", "me", "tv", "gg", "info", "shop", "site", "xyz",
+           "us", "uk", "jp"}
+NOT_NAMES = ENDINGS | {"www"}
+_SITES = threading.Lock()
 _lock = threading.Lock()
 _reader = []
 _now = {}
@@ -295,7 +299,9 @@ def words(rec, a, b):
     target = os.path.join(recording.WORK, "screen", _key(rec, a, b) + ".words.json")
     try:
         with open(target, encoding="utf-8") as f:
-            return json.load(f)
+            found = json.load(f)
+        _keep_sites(rec, found)
+        return found
     except (OSError, ValueError):
         pass
     read = kept(rec, a, b)
@@ -310,10 +316,62 @@ def words(rec, a, b):
                 if len(word) >= 3:
                     count[word] = count.get(word, 0) + 1
     out = [w for w, _ in sorted(count.items(), key=lambda kv: (-kv[1], kv[0]))][:MOST_WORDS]
+    _keep_sites(rec, count)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     with open(target + ".part", "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False)
     os.replace(target + ".part", target)
+    return out
+
+
+def _site(word):
+    """Whether word is written as a web address, labels joined by dots that end in a known ending (ashiran.com,
+    th.jobsdb.com); not a file name (CV.pdf, llama.cpp)."""
+    parts = word.lower().split(".")
+    return len(parts) >= 2 and parts[-1] in ENDINGS and all(parts)
+
+
+def _sites_file(rec):
+    return os.path.join(recording.WORK, "screen", hashlib.sha1(("sites|%d|%s|%d|%s" % (
+        VERSION, rec["path"], rec["size"], rec["mtime"])).encode("utf-8")).hexdigest()[:16] + ".sites.json")
+
+
+def _read_sites(rec):
+    try:
+        with open(_sites_file(rec), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return []
+
+
+def _keep_sites(rec, found):
+    """Adds the web addresses among found to the recording's own list."""
+    new = [w for w in found if _site(w)]
+    if not new:
+        return
+    with _SITES:
+        known = _read_sites(rec)
+        more = [w for w in dict.fromkeys(new) if w not in known]
+        if not more:
+            return
+        target = _sites_file(rec)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target + ".part", "w", encoding="utf-8") as f:
+            json.dump(known + more, f, ensure_ascii=False)
+        os.replace(target + ".part", target)
+
+
+def sites(rec):
+    """The web addresses read on the screen anywhere in the recording so far, each followed by its names (ashiran.com,
+    ashiran): an address is spelled one way, so a name said in a moment is written as the screen writes it even when
+    the address shows at another second. Only addresses: measured 10-28 against every word read on every screen, the
+    plain words (Content, Company, roles) would have changed Context, Compact and homes; the addresses changed 7 words,
+    all rightly (ashilan.do.com, Achilan, JobDB)."""
+    out = []
+    for address in _read_sites(rec):
+        for w in [address] + address.split(".")[:-1]:
+            if len(w) >= 4 and w.lower() not in NOT_NAMES and w not in out:
+                out.append(w)
     return out
 
 

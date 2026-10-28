@@ -1251,7 +1251,7 @@ def _reads_screen(job):
     return bool(clip) and (RECIPES.get(clip["recipe"]) or {}).get("read") == "screen"
 
 
-NEAR_NAME = 0.5
+NEAR_NAME = 0.4
 
 
 def _screen_words(job, rec, state):
@@ -1261,10 +1261,11 @@ def _screen_words(job, rec, state):
         return []
     try:
         span = state["clip"].get("span")
-        return screen.words(rec, *span) if span else [w for a, b in state["clip"]["pieces"]
-                                                       for w in screen.words(rec, a, b)]
+        found = screen.words(rec, *span) if span else [w for a, b in state["clip"]["pieces"]
+                                                        for w in screen.words(rec, a, b)]
     except screen.ScreenError:
         return []
+    return found + [w for w in screen.sites(rec) if w not in found]
 
 
 def _misspelled(words, shown):
@@ -1280,7 +1281,9 @@ def _misspelled(words, shown):
             continue
         near = min((hearing._changed(x, s), s) for s in long_) if long_ else None
         if near and near[0] <= NEAR_NAME:
-            out.append((w, long_[near[1]]))
+            right = long_[near[1]]
+            out.append((w, right[:1].upper() + right[1:] if w[:1].isupper() and right.islower() and "." not in right
+                        else right))
     return out
 
 

@@ -169,7 +169,9 @@ def spelled(ask, texts, every=False, kept=None):
     every is for what the viewer reads. Glimmer's slips there are often real words, so the dictionary flags nothing:
     ต้อสู้ for ต่อสู้, ตังค่า for ตั้งค่า, ต้อวัน for ต่อวัน (10-27 and 10-28, in titles and post text). Measured 10-28 on the
     111 Thai titles, captions and hashtags Muse had written, all asked: Muse changed 11, these rules kept the 9 right
-    fixes and refused the 2 wrong ones (a reworded line, a word dropped), and none of the 100 right texts changed."""
+    fixes and refused the 2 wrong ones (a reworded line, a word dropped), and none of the 100 right texts changed.
+    Round 8 the same day, Muse made ตั้งแต่ into ตั้งแต้, a tone mark only: such a change is now kept only when the words
+    it touches are commoner after it (_commoner); on those 112 texts that keeps the 9 right fixes and refuses it."""
     texts, kept = list(texts), {} if kept is None else kept
     todo = [i for i, t in enumerate(texts) if isinstance(t, str) and (THAI.search(t) if every else odd_thai(t))]
     todo = [i for i in todo if texts[i] not in kept]
@@ -185,7 +187,8 @@ def spelled(ask, texts, every=False, kept=None):
             if isinstance(after, str) and after != before and thai.values(after) == thai.values(before) and (
                     (len(odd_thai(after)) < len(odd_thai(before))
                      and difflib.SequenceMatcher(None, before, after).ratio() >= 1 - MOST_CHANGED)
-                    or (_skeleton(after) == _skeleton(before) and len(odd_thai(after)) <= len(odd_thai(before)))):
+                    or (_skeleton(after) == _skeleton(before) and len(odd_thai(after)) <= len(odd_thai(before))
+                        and _commoner(before, after))):
                 kept[before] = after
             elif after == before:
                 kept[before] = before
@@ -196,6 +199,41 @@ def spelled(ask, texts, every=False, kept=None):
             texts[i] = after
             changed.append((before, after))
     return texts, changed
+
+
+_COUNTS = []
+
+
+def _counts():
+    """The Thai National Corpus's word counts, and a dictionary of its words, loaded once."""
+    if not _COUNTS:
+        from pythainlp.corpus import tnc
+        from pythainlp.util import dict_trie
+        _COUNTS.append(dict(tnc.word_freqs()))
+        _COUNTS.append(dict_trie(set(_COUNTS[0])))
+    return _COUNTS
+
+
+def _commoner(before, after):
+    """Whether the words a change touches are commoner after it than before, counted in the Thai National Corpus:
+    ต้อสู้ to ต่อสู้ (361 to 4,604) and ตังค่า to ตั้งค่า (339 to 21,261) are fixes, ตั้งแต่ to ตั้งแต้ (21,505 to 116) is not."""
+    ops = [o for o in difflib.SequenceMatcher(None, before, after, autojunk=False).get_opcodes() if o[0] != "equal"]
+    return _least(after, [(j1 - 1, max(j2, j1 + 1)) for _, _, _, j1, j2 in ops]) > \
+        _least(before, [(i1 - 1, max(i2, i1 + 1)) for _, i1, i2, _, _ in ops])
+
+
+def _least(text, spans):
+    """The least corpus count of the words of text that overlap any of spans ((from, to) in characters); 0 for a word
+    the corpus does not have."""
+    from pythainlp.tokenize import word_tokenize
+    counts, trie = _counts()
+    least, at = None, 0
+    for w in word_tokenize(text, engine="newmm", keep_whitespace=True, custom_dict=trie):
+        a, at = at, at + len(w)
+        if w.strip() and any(a < y and x < at for x, y in spans):
+            n = counts.get(w.strip(), 0)
+            least = n if least is None else min(least, n)
+    return least or 0
 
 
 VOWELS_AND_MARKS = set("ัิีึืุู็่้๊๋์ํ")
