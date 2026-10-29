@@ -50,9 +50,22 @@ PRICES = {
 # Baseten was run with a key of ours on 10-29 (a question, a tool call and a JSON answer, through this preset);
 # Fireworks is written to its documented address and model name, not yet run with a key of ours.
 NOT_MEASURED = "on %s servers, with your own key (written to its API, not measured)"
-# The endpoints a person may name in a word when setup asks for one; Modal's address is their own workspace's.
-NAMED = {"meta": "https://api.meta.ai/v1", "baseten": "https://inference.baseten.co/v1",
-         "fireworks": "https://api.fireworks.ai/inference/v1"}
+# The APIs a key can be given for, with what goes in each field, as Options shows it faded: where a key is made is
+# read from each provider's own page (10-29): dev.meta.ai/api-keys, Baseten's organization settings, Fireworks'
+# app.fireworks.ai/api-keys, Modal's proxy tokens (two parts, wk- and ws-). Modal has no address of its own: each
+# workspace's endpoint has its own.
+APIS = {
+    "meta": {"label": "Meta", "mind": "spark", "url": "https://api.meta.ai/v1",
+             "key": "Meta API key, from dev.meta.ai/api-keys"},
+    "modal": {"label": "Modal", "mind": "modal", "url": "", "where": "https://<your endpoint>.modal.direct/v1",
+              "key": "wk-....ws-... (your proxy token's two parts)"},
+    "baseten": {"label": "Baseten", "mind": "baseten", "url": "https://inference.baseten.co/v1",
+                "key": "Baseten API key, from API keys in app.baseten.co"},
+    "fireworks": {"label": "Fireworks", "mind": "fireworks", "url": "https://api.fireworks.ai/inference/v1",
+                  "key": "Fireworks API key, from app.fireworks.ai/api-keys"},
+}
+# The endpoints a person may name in a word when setup asks for one.
+NAMED = {name: api["url"] for name, api in APIS.items() if api["url"]}
 # Baseten refuses a question holding more pictures (HTTP 400 "Too many images: 9 (max 8)", the trip demo, 10-29).
 BASETEN_PICTURES = 8
 LEFT_OUT = ("(A picture was here. This Muse takes at most %d pictures a question, so the oldest are left out of this "
@@ -109,21 +122,40 @@ ENDPOINT_MINDS = {"LCS_MODAL_URL": "modal", "LCS_BASETEN_URL": "baseten", "LCS_F
                   "LCS_SPARK_URL": "spark"}
 
 
-def saved_api():
-    """The endpoint the person saved in KEY_FILE ("" when none), and whether a key is saved with it. Never the key."""
+def _kept():
+    """The settings in KEY_FILE, {name: value}, {} when there is none."""
     try:
         with open(KEY_FILE, encoding="utf-8-sig") as f:
-            got = dict(line.partition("=")[::2] for line in f.read().splitlines() if "=" in line)
+            return dict(line.partition("=")[::2] for line in f.read().splitlines() if "=" in line)
     except OSError:
-        return "", False
-    url = next((got[name] for name in ENDPOINTS if got.get(name)), "")
+        return {}
+
+
+def saved_api():
+    """The endpoint the person saved last in KEY_FILE ("" when none), and whether a key is saved with it. Never the
+    key."""
+    got = _kept()
+    url = next((value for name, value in reversed(got.items()) if name in ENDPOINTS and value), "")
     return url, bool(url) and all(got.get(name) for name in api_names(url)[1])
+
+
+def saved_apis():
+    """Each API the person saved an endpoint for in KEY_FILE, {name in APIS: {"url", "saved"}}, saved being whether
+    its key is there too. Never a key."""
+    got, out = _kept(), {}
+    for name, api in APIS.items():
+        url = next((got[u] for u, m in ENDPOINT_MINDS.items() if m == api["mind"] and got.get(u)), "")
+        if url:
+            out[name] = {"url": url, "saved": all(got.get(k) for k in api_names(url)[1])}
+    return out
 
 
 def save_api(url, key):
     """Keeps the endpoint and the API key the person typed in KEY_FILE, in their own user folder and never in the
-    studio's, and puts them in this process's environment at once, over what was there. Returns None, or a sentence
-    saying what to give instead. The key goes only to that endpoint, in the Authorization header of each question."""
+    studio's, and puts them in this process's environment at once, over what was there. Each API keeps its own: a
+    Baseten key saved after a Meta key leaves the Meta key, which Wonder, Image and Voice still need; a second Meta
+    endpoint replaces the first. Returns None, or a sentence saying what to give instead. The key goes only to that
+    endpoint, in the Authorization header of each question."""
     url, key = url.strip().rstrip("/"), key.strip()
     u = urllib.parse.urlsplit(url)
     if not u.hostname or not (u.scheme == "https" or (u.scheme == "http" and u.hostname in LOOPBACK)):
@@ -139,7 +171,7 @@ def save_api(url, key):
     else:
         values = {key_names[0]: key}
     values[url_name] = url
-    gone = set(ENDPOINTS) | {"META_API_KEY", "MODAL_KEY", "MODAL_SECRET", "BASETEN_API_KEY", "FIREWORKS_API_KEY"}
+    gone = {url_name, *key_names}
     try:
         with open(KEY_FILE, encoding="utf-8-sig") as f:
             kept = [line for line in f.read().splitlines() if line.partition("=")[0].strip() not in gone]

@@ -74,6 +74,9 @@ const apiForm = $("apiForm");
 const apiUrl = $("apiUrl");
 const apiKey = $("apiKey");
 const apiNote = $("apiNote");
+const apiSeg = $("apiSeg");
+let apis = [];
+let apiNow = "";
 const phoneBox = $("phoneBox");
 const sendsBox = $("sendsBox");
 const sendsLine = $("sendsLine");
@@ -2117,9 +2120,24 @@ async function loadKey() {
     return;
   }
   apiForm.hidden = !d.here;
-  if (d.url && !apiUrl.value) apiUrl.value = d.url;
-  apiKey.placeholder = d.saved ? "API key (saved)" : "API key";
+  apis = d.apis || [];
+  const saved = apis.find((a) => a.url && a.url === d.url);
+  const now = apis.some((a) => a.name === apiNow) ? apiNow : saved ? saved.name : apis.length ? apis[0].name : "";
+  drawSeg(apiSeg, apis.map((a) => [a.name, a.label]), now, fillApi);
+  fillApi(now);
   drawSends(d);
+}
+
+function fillApi(name) {
+  const a = apis.find((x) => x.name === name);
+  if (!a) return;
+  apiNow = a.name;
+  apiUrl.placeholder = a.address;
+  apiUrl.value = a.url && !(a.own && a.url === a.address) ? a.url : "";
+  apiKey.value = "";
+  apiKey.placeholder = a.saved ? "API key (saved)" : a.key;
+  apiNote.classList.remove("bad");
+  apiNote.textContent = a.own ? "Leave the address empty for " + a.label + "'s own." : "Give your " + a.label + " endpoint's address.";
 }
 
 function drawSends(d) {
@@ -2150,7 +2168,7 @@ apiForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   let d;
   try {
-    d = await post("/api/key", { url: apiUrl.value, key: apiKey.value });
+    d = await post("/api/key", { api: apiNow, url: apiUrl.value, key: apiKey.value });
   } catch (err) {
     d = { ok: false, error: "The studio is not answering. Start it again with: python app.py" };
   }
@@ -2158,6 +2176,11 @@ apiForm.addEventListener("submit", async (e) => {
   apiNote.classList.toggle("bad", !ok);
   apiNote.textContent = !d.ok ? d.error : ok ? d.mind.label + " is ready." : d.mind.why;
   if (!d.ok) return;
+  const a = apis.find((x) => x.name === apiNow);
+  if (a) {
+    a.saved = true;
+    a.url = d.url;
+  }
   apiKey.value = "";
   apiKey.placeholder = "API key (saved)";
   health();

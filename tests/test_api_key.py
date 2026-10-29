@@ -77,7 +77,7 @@ class Saved(unittest.TestCase):
             m = mind.minds()[key]
             self.assertEqual(m.headers()["Authorization"], "Bearer made-up-" + key)
             self.assertEqual((m.status()["ok"], m.status()["name"]), (True, model))
-        self.assertNotIn("BASETEN_API_KEY", self.read(), "one endpoint is kept, as with Modal's")
+        self.assertEqual(set(mind.saved_apis()), {"baseten", "fireworks"}, "each API keeps its own key")
         self.assertEqual(mind.minds()["fireworks"].price(), (1.25, 0.15, 4.25))
         self.assertEqual(mind.minds()["baseten"].price(), (1.25, 0.15, 4.25), "Baseten's own page, 10-29")
         self.assertAlmostEqual(mind.minds()["baseten"].cost({"read_new": 26, "reused": 128, "written": 235}),
@@ -87,14 +87,21 @@ class Saved(unittest.TestCase):
                          "a judge's own deployment is one setting")
         self.assertIsNone(mind.minds()["fireworks"].price(), "and its price is the judge's own")
 
-    def test_a_second_endpoint_replaces_the_first_and_other_lines_stay(self):
+    def test_each_api_keeps_its_own_key_a_second_endpoint_of_one_replaces_its_first_and_other_lines_stay(self):
         os.makedirs(os.path.dirname(mind.KEY_FILE))
         with open(mind.KEY_FILE, "w", encoding="utf-8") as f:
             f.write("# mine\nLCS_TEST_OTHER=1\n")
         mind.save_api("https://api.meta.ai/v1", "first")
         mind.save_api("https://x--y.modal.direct/v1", "wk-a.ws-b")
+        self.assertEqual(mind.saved_api(), ("https://x--y.modal.direct/v1", True), "the one saved last")
+        mind.save_api("https://api.meta.ai/v1", "second")
         self.assertEqual(self.read(), "# mine\nLCS_TEST_OTHER=1\nMODAL_KEY=wk-a\nMODAL_SECRET=ws-b\n"
-                                      "LCS_MODAL_URL=https://x--y.modal.direct/v1\n")
+                                      "LCS_MODAL_URL=https://x--y.modal.direct/v1\nMETA_API_KEY=second\n"
+                                      "LCS_SPARK_URL=https://api.meta.ai/v1\n")
+        self.assertEqual(mind.saved_apis(), {"meta": {"url": "https://api.meta.ai/v1", "saved": True},
+                                             "modal": {"url": "https://x--y.modal.direct/v1", "saved": True}},
+                         "Modal's token did not take the place of Meta's key, which Wonder, Image and Voice need")
+        self.assertEqual(mind.saved_api(), ("https://api.meta.ai/v1", True))
 
     def test_a_key_is_never_sent_in_the_clear_to_another_computer(self):
         self.assertEqual(mind.save_api("http://192.168.1.20:8080/v1", "k"),
@@ -168,6 +175,31 @@ class Page(unittest.TestCase):
                          ("https://api.fireworks.ai/inference/v1", "fireworks")):
             status, got, _ = self.ask("POST", {"url": url, "key": "made-up-key"})
             self.assertEqual((status, got["mind"]["key"], got["mind"]["ok"]), (200, key, True), url)
+
+    def test_each_api_shows_its_own_faded_fields_and_an_empty_address_saves_its_own(self):
+        forms = {a["name"]: a for a in self.ask("GET")[1]["apis"]}
+        self.assertEqual({n: (a["address"], a["own"]) for n, a in forms.items()},
+                         {"meta": ("https://api.meta.ai/v1", True),
+                          "modal": ("https://<your endpoint>.modal.direct/v1", False),
+                          "baseten": ("https://inference.baseten.co/v1", True),
+                          "fireworks": ("https://api.fireworks.ai/inference/v1", True)})
+        self.assertEqual(list(forms), ["meta", "modal", "baseten", "fireworks"], "in the order the page shows them")
+        self.assertIn("dev.meta.ai/api-keys", forms["meta"]["key"], "where the key is made, from Meta's own page")
+        status, got, _ = self.ask("POST", {"api": "baseten", "url": "", "key": "made-up-baseten"})
+        self.assertEqual((status, got["url"], got["mind"]["key"], got["mind"]["ok"]),
+                         (200, "https://inference.baseten.co/v1", "baseten", True), "what the faded text shows")
+        self.assertEqual(self.ask("POST", {"api": "meta", "url": " ", "key": "made-up-meta"})[1]["mind"]["key"], "spark")
+        forms = {a["name"]: a for a in self.ask("GET")[1]["apis"]}
+        self.assertEqual({n: (a["url"], a["saved"]) for n, a in forms.items()},
+                         {"meta": ("https://api.meta.ai/v1", True), "modal": ("", False),
+                          "baseten": ("https://inference.baseten.co/v1", True), "fireworks": ("", False)})
+        self.assertEqual(self.ask("POST", {"api": "modal", "url": "", "key": "wk-a.ws-b"})[:2],
+                         (400, {"ok": False, "error": "Give your Modal endpoint's address."}))
+        status, got, _ = self.ask("POST", {"api": "fireworks", "url": "https://api.meta.ai/v1", "key": "made-up"})
+        self.assertEqual((status, got["error"]), (400, "That address is not Fireworks's: leave it empty for "
+                                                       "Fireworks's own, or pick the API it is for."))
+        self.assertEqual(self.ask("POST", {"api": "baseten", "url": "ftp://nope", "key": "k"})[1]["error"],
+                         "Give the endpoint's address, starting with https://.")
 
     def test_another_device_on_the_network_cannot_set_or_read_the_key(self):
         mind.save_api("https://api.meta.ai/v1", "made-up-key")

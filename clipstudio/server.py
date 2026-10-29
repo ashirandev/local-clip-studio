@@ -18,9 +18,10 @@ computer only.
 - GET /api/parts: what this computer has of FFmpeg, llama.cpp, Muse Glimmer and the hearing model, what setting up
   the rest would download, its graphics card, and the setup running now. POST /api/parts {}: downloads the missing
   parts in the background (parts.py)
-- GET /api/key: the endpoint saved in Options and whether a key is saved with it (never the key), to the page on this
-  computer only. POST /api/key {url, key}: keeps them in the person's own user folder (mind.save_api) and makes the
-  Muse they reach ready at once; refused from any other device
+- GET /api/key: the endpoint saved in Options and whether a key is saved with it (never the key), and for each API
+  (Meta, Modal, Baseten, Fireworks) what its fields hold faded and what is saved for it, to the page on this computer
+  only. POST /api/key {api, url, key}: keeps them in the person's own user folder (mind.save_api), an empty url being
+  that API's own address, and makes the Muse they reach ready at once; refused from any other device
 - GET /api/chat[?id=<chat>]: the chat the page shows (or an earlier one, opened again), and whether Muse is working
 - POST /api/chat/new: a new, empty chat
 - GET /api/chats: the earlier chats, newest first
@@ -74,7 +75,7 @@ import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qsl, quote
+from urllib.parse import parse_qsl, quote, urlsplit
 
 import segno
 
@@ -136,7 +137,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(dict(parts.state(), ok=True))
         elif path == "/api/key":
             url, saved = mind.saved_api() if self.here() else ("", False)
-            mine = {"sends": sends.allowed()} if self.here() else {}
+            mine = {"sends": sends.allowed(), "apis": api_forms()} if self.here() else {}
             self.send_json(dict({"ok": True, "here": self.here(), "url": url, "saved": saved}, **mine))
         elif path == "/api/chat":
             chat = agent.open_chat(query["id"]) if query.get("id") else agent.current()
@@ -592,13 +593,23 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": "Set the key on the computer the studio runs on."},
                            HTTPStatus.FORBIDDEN)
             return
-        url = str(body.get("url") or "")
-        why = mind.save_api(url, str(body.get("key") or ""))
+        url, api = str(body.get("url") or "").strip(), mind.APIS.get(str(body.get("api") or ""))
+        if api and not url:
+            url = api["url"]
+            why = None if url else "Give your %s endpoint's address." % api["label"]
+        elif api and urlsplit(url).scheme in ("http", "https") and \
+                mind.ENDPOINT_MINDS[mind.api_names(url)[0]] != api["mind"]:
+            why = "That address is not %s's: leave it empty for %s's own, or pick the API it is for." % (
+                api["label"], api["label"])
+        else:
+            why = None
+        why = why or mind.save_api(url, str(body.get("key") or ""))
         if why:
             self.send_json({"ok": False, "error": why}, HTTPStatus.BAD_REQUEST)
             return
         mind.MINDS.update(mind.minds())
-        self.send_json({"ok": True, "mind": mind.MINDS[mind.ENDPOINT_MINDS[mind.api_names(url)[0]]].status()})
+        self.send_json({"ok": True, "url": url.rstrip("/"),
+                        "mind": mind.MINDS[mind.ENDPOINT_MINDS[mind.api_names(url)[0]]].status()})
 
     def here(self):
         """True when the page is on this computer, so a file dropped on it is on this computer too: a loopback
@@ -804,6 +815,15 @@ def _close(s):
     s.closed = True
     s.shutdown()
     s.server_close()
+
+
+def api_forms():
+    """What Options > API shows for each API, in mind.APIS's order: its faded address and key, the address saved for it
+    and whether its key is saved (never the key), and whether an empty address means its own."""
+    saved = mind.saved_apis()
+    return [{"name": name, "label": api["label"], "address": api["url"] or api["where"], "key": api["key"],
+             "own": bool(api["url"]), "url": saved.get(name, {}).get("url", ""),
+             "saved": saved.get(name, {}).get("saved", False)} for name, api in mind.APIS.items()]
 
 
 def phone_state():
