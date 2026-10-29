@@ -800,6 +800,9 @@ class Captions(unittest.TestCase):
             events = text.captions(keyed, st, (1350, 400), pop=pop)
             self.assertIn(tag + key, "".join(events), "pop %s" % pop)
             self.assertNotEqual(events, text.captions(lines, st, (1350, 400), pop=pop))
+        popping = [e for e in text.captions(keyed, st, (1350, 400), pop=True) if e.startswith("Dialogue: 2,")]
+        self.assertTrue(any(e.endswith(tag + key + "{\\1c%s&}" % text._colour(st.colour)) for e in popping),
+                        "the key word is in the key colour while it pops in, too")
         plain = text.captions(keyed, st, (1350, 400))
         self.assertEqual([re.sub(r"\{[^}]*\}", "", e.split(",,", 1)[1].split(",", 4)[-1]) for e in plain
                           if "_glow" not in e.split(",")[3]], [ln["text"].strip() for ln in lines],
