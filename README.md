@@ -46,21 +46,28 @@ Drop a recording on the page, or tap one of your newest. It is opened where it i
 path of a dropped file, so the studio finds it in those folders by its name, size and time. Nothing is copied or
 uploaded, and the recording is only ever read.
 
-The screen stays simple: what Muse plans, what it does and why. **Settings** has the switch between the two Muses,
-the details of this computer's setup, and **Show how Muse works**, which adds each step's input and result, the files
-it opens, its thinking as it is written, and its engine numbers.
+The screen stays simple, with pictures and icons more than words. The first screen is your clips: each chat shows
+as a picture of the clip it made, with which Muse made it (a computer for this one, a cloud for an API) and what it
+cost, and the month's total sits at the top. In a chat, each message's work is one card: the plan as a bar, each step
+as an icon with its reason, the moments Muse proposes as short videos, and what Muse is thinking while it writes;
+each step opens to show how Muse decided, and a finished card can play its steps again. The editor shows the clip,
+a timeline of its words, and icon buttons (Captions, Style, Colour, Sound, Words, Channel), each opening pictures to
+pick from. **Options** has the switch between the Muses, **Simple or Detailed** steps (Detailed adds each step's
+input and result, the files it opens and its engine numbers), light or dark, the money costs are shown in, and this
+computer's setup.
 
 **On a phone.** Start the studio with `LCS_HOST=0.0.0.0` and open `http://<this computer's address>:8899/` on a phone
-on the same Wi-Fi. The phone picks from the recordings on the computer, and the clip shows as a small preview at the
-top right that opens full screen with a tap. Do this only on a network you trust: anyone on it can open the
+on the same Wi-Fi. The phone picks from the recordings on the computer; the clips, the chat and the editor are
+three screens there (on a wide screen the chat and the editor sit side by side), and the editor plays the clip full
+screen at a tap. Do this only on a network you trust: anyone on it can open the
 recordings in your folders. Two guards hold either way: the studio answers only to an address or `localhost`, never
 to a web name (so a web page cannot reach it through a name it owns), and it takes only JSON posts (so another web
 page cannot send it anything without asking first).
 
 ## The mind: three ways to run Muse
 
-The line under the title shows which Muse will answer and where it runs: local (on this computer) or API (on
-someone's servers, paid per token). Tap it to switch. With Show how Muse works on, every answer shows which one
+The chip under the title shows which Muse will answer and where it runs: local (on this computer) or API (on
+someone's servers, paid per token). Tap it to switch. With Detailed steps, every answer shows which one
 answered, with its engine numbers: tokens read new, tokens reused from the question before, reading and writing speed, and seconds.
 
 **1. Muse Glimmer on your own graphics card (the default).** This is Meta's open-weight model, run by llama.cpp's
@@ -110,17 +117,19 @@ environment and is never written anywhere.
 Modal's machines, paid per token, with no graphics card of your own. Make a shared endpoint for it in your Modal
 workspace (Endpoints), make a proxy token, and set `MODAL_KEY` and `MODAL_SECRET` to its two parts. `LCS_MODAL_MODEL`
 and `LCS_MODAL_URL` change the model and the address (default `https://inference.us-west.modal.direct/v1`). Each
-conversation stays on one Modal machine, so what it read before is billed at the cached price. Settings says so when
+conversation stays on one Modal machine, so what it read before is billed at the cached price. Options says so when
 the workspace has no endpoint for the model yet.
 
 Keys can stay in a file of your own, outside the studio's folder: name it in `LCS_KEYS` (`KEY=VALUE` lines; several
 files separated by `;` on Windows, `:` elsewhere). The studio prints the names it read, never a value.
 
-**What it costs.** Each finished clip carries a $ chip with what Muse cost to make it (Free on your own card); tap it
-for the chat, today and this month, at the providers' list prices in US dollars per million tokens (Muse Spark 1.3:
-$1.25 read new, $0.15 read from the provider's cache, $4.25 written, thinking included; Muse Spark Open on Modal the
-same). Glimmer on your own card costs nothing. Every answer's line in Show how Muse works carries its cost too.
-Amounts are shown in the money of the browser's language (US dollars for English, baht for Thai), at the day's rate
+**What it costs.** Each chat on the clips screen, each work card and each finished clip shows what Muse cost to make
+it ($0 on your own card, and a dash for a chat made before costs were written down, never a $0 that is not known);
+tap a cost for the chat, today and this month, at the providers' list prices in US dollars per million tokens (Muse
+Spark 1.3: $1.25 read new, $0.15 read from the provider's cache, $4.25 written, thinking included; Muse Spark Open on
+Modal the same). Glimmer on your own card costs nothing. Every answer's line in Detailed steps carries its cost too.
+Amounts are shown in the money of the browser's language (US dollars for English, baht for Thai; Options can switch
+it to US dollars), at the day's rate
 from open.er-api.com, fetched at most twice a day and carrying nothing of yours. A question cut short by Stop is not
 counted: a provider says what an answer cost only at its end.
 
@@ -142,8 +151,8 @@ else works the same.
 ## How the agent works
 
 Each message that asks for work starts a job. Muse makes a plan, then calls one tool at a time, and the page shows
-every step as it happens: its number, what it did and why (one line in your language), and with Show how Muse works on, the input,
-the result and the engine numbers.
+every step as it happens: an icon, what it did and why (one line in your language) and how Muse decided, and with
+Detailed steps the input, the result and the engine numbers.
 
 - **The loop keeps the rules, not Muse.** Wrong input is refused with a sentence that says what to send instead. A
   call that already got the same result twice is refused until something changes, so a fixed retry always runs.
@@ -156,10 +165,10 @@ the result and the engine numbers.
 - **An editor you can talk to.** A greeting, a thanks or a word about your day gets an answer, not a job. If Muse's
   first answer to something you typed calls a tool anyway, one short question apart asks whether you asked for
   work; if you did not, Muse is asked again with no tools at all, so nothing runs.
-- **Chats are kept.** New chat starts an empty one; Earlier chats opens an old one again, exactly as it was. After
+- **Chats are kept.** + starts an empty one; the clips screen opens an old one again, exactly as it was. After
   the first job that does work, Muse names the chat in a few words of your language ("รีวิวไมค์ Yeti Orb"), and
-  the list says which Muse answered in it, local or API.
-- **An editor can finish it in Premiere Pro.** Premiere project, under a finished clip, saves a zip: the clip as a
+  the clips screen shows each chat as the clips it made, which Muse answered in it, local or API, and its cost.
+- **An editor can finish it in Premiere Pro.** Premiere, under Save on a finished clip, saves a zip: the clip as a
   sequence in Final Cut Pro 7 XML (File > Import in Premiere), its captions as .srt and a note. Every piece on the
   timeline points at your own file, named by it, with its in and out points there, so an editor drags an edge to take
   more or less of it; a montage points back at the clips it was joined from, not at the joined file. The frame comes
@@ -262,15 +271,15 @@ the result and the engine numbers.
   answer says which clips are ready and what failed in the others, never one "done" for all.
 - **Every change is one entry, and undo takes it back.** The clip is a list of entries (the moment and layout, the
   style, titles, captions, blurs, hits). The same list draws the preview and the finished file. After each change
-  Muse sees the frame it made, and the page shows the clip with a slider to any second. The person can undo on the
+  Muse sees the frame it made, and the page shows the clip with a timeline to any second. The person can undo on the
   page too, and Muse is told before it answers next.
-- **The look and the words change at a tap, without waiting for Muse.** Beside the clip are its captions (Off,
-  Plain, Lit, Pop), the six text styles and the colour looks; under it, every title and caption phrase sits on a
-  line by its time. A tap runs the very tool Muse would call, with its checks, so a choice the tool would refuse is
+- **The look and the words change at a tap, without waiting for Muse.** Under the clip, icon buttons open its
+  captions (Off, Plain, Lit, Pop), the six text styles and the colour looks as pictures; on the timeline, every
+  title and caption phrase sits on a line by its time. A tap runs the very tool Muse would call, with its checks, so a choice the tool would refuse is
   shown off with the tool's reason, and the page and Muse never disagree. Undo takes a tap back, and Muse is told
   before it answers next. Caption words the person types are kept as typed, also when the captions go on again, and
   the check on captions passes them as the person's own words. When the clip has changed since its video was made,
-  Make the video again renders it as Muse's render does. Under Captions, As said puts them back in the words as
+  Update video renders it as Muse's render does. Under Captions, As said puts them back in the words as
   said at a tap; English is a tap that asks Muse, which writes the translation.
 - **The preview changes at once.** The page plays the clip without its words (a base video, made once for each
   picture) and lays the words over it, drawn as see-through pictures by the same libass as the export. A change of
@@ -278,8 +287,9 @@ the result and the engine numbers.
   makes the base again, in the background, and the clip's frame shows until it is ready.
 - **Ready to post says how little the person did:** how long Muse worked on the job, the messages the person typed
   and their taps, and Muse's steps.
-- **The checks read red to green.** Each check of the finished file says Passed, FAILED or Not needed; one that
-  failed on the clip's last check and passes now says Fixed.
+- **The checks read red to green.** Each check of the finished file says Passed, Failed or Not needed, with a mark
+  of its colour; one that failed on the clip's last check and passes now says Fixed. A failed check opens by itself,
+  and the clip's card carries how many passed.
 - **A clip is ready only when its file is.** Render returns when the file exists. Hand-over takes only a file made
   from the clip as it is now: a change after the render makes the file old, and the state Muse reads says so in
   words, so it cannot tell the person a clip is ready when it is not.

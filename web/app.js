@@ -1,59 +1,77 @@
 "use strict";
 
-const log = document.getElementById("log");
-const statusLine = document.getElementById("status");
-const composer = document.getElementById("composer");
-const text = document.getElementById("text");
-const send = document.getElementById("send");
-const stopButton = document.getElementById("stop");
-const newButton = document.getElementById("new");
-const earlier = document.getElementById("earlier");
-const earlierList = document.getElementById("earlierList");
-const mindsBox = document.getElementById("minds");
-const machineBox = document.getElementById("machine");
-const museMenu = document.getElementById("museMenu");
-const museChip = document.getElementById("museChip");
-const museWhere = document.getElementById("museWhere");
-const settings = document.getElementById("settings");
+const $ = (id) => document.getElementById(id);
+const app = $("app");
+const log = $("log");
+const chatView = $("chatView");
+const statusLine = $("status");
+const composer = $("composer");
+const text = $("text");
+const send = $("send");
+const stopButton = $("stop");
+const newButton = $("new");
+const grid = $("grid");
+const gridEmpty = $("gridEmpty");
+const monthChip = $("month");
+const mindsBox = $("minds");
+const machineBox = $("machine");
+const museChip = $("museChip");
+const museWhere = $("museWhere");
+const chatMuse = $("chatMuse");
+const chatName = $("chatName");
+const chatSub = $("chatSub");
+const toHome = $("toHome");
+const toClip = $("toClip");
+const toChat = $("toChat");
 const MONEY = { TH: "THB", JP: "JPY", KR: "KRW", CN: "CNY", TW: "TWD", HK: "HKD", SG: "SGD", MY: "MYR", ID: "IDR", VN: "VND", PH: "PHP", IN: "INR", GB: "GBP", AU: "AUD", NZ: "NZD", CA: "CAD", CH: "CHF", BR: "BRL", MX: "MXN" };
 const EURO = ["AT", "BE", "CY", "DE", "EE", "ES", "FI", "FR", "GR", "HR", "IE", "IT", "LT", "LU", "LV", "MT", "NL", "PT", "SI", "SK"];
-const detailsBox = document.getElementById("details");
-const darkBox = document.getElementById("dark");
-const phone = window.matchMedia("(max-width: 760px)");
-const clipBox = document.getElementById("clip");
-const clipOpen = document.getElementById("clipOpen");
-const clipHide = document.getElementById("clipHide");
-const clipBack = document.getElementById("clipBack");
-const clipPill = document.getElementById("clipPill");
-const welcome = document.getElementById("welcome").cloneNode(true);
-const frameBox = document.getElementById("frame");
+const darkScheme = window.matchMedia("(prefers-color-scheme: dark)");
+const clipBox = $("clip");
+const clipBack = $("clipBack");
+const clipCost = $("clipCost");
+const clipSave = $("clipSave");
+const welcome = $("welcome").cloneNode(true);
+const frameBox = $("frame");
 const emptyFrame = frameBox.cloneNode(true).childNodes;
-const clipLine = document.getElementById("clipLine");
-const clipTitle = document.getElementById("clipTitle");
-const clipTools = document.getElementById("clipTools");
-const clipAt = document.getElementById("clipAt");
-const clipAtLine = document.getElementById("clipAtLine");
-const clipUndo = document.getElementById("clipUndo");
-const panelBox = document.getElementById("panel");
-const partTabs = document.getElementById("partTabs");
-const panelNote = document.getElementById("panelNote");
-const wordsBox = document.getElementById("words");
-const lanes = document.getElementById("lanes");
-const wordEdit = document.getElementById("wordEdit");
-const wordLabel = document.getElementById("wordLabel");
-const wordText = document.getElementById("wordText");
-const wordSave = document.getElementById("wordSave");
-const wordCancel = document.getElementById("wordCancel");
-const wordNote = document.getElementById("wordNote");
-const againBox = document.getElementById("again");
-const againButton = document.getElementById("againButton");
-const againLine = document.getElementById("againLine");
-const previewLine = document.getElementById("previewLine");
-const fileInput = document.getElementById("file");
-const dropCover = document.getElementById("dropCover");
+const bigPlay = $("bigPlay");
+const fullButton = $("full");
+const playButton = $("play");
+const timeLine = $("time");
+const clipLine = $("clipLine");
+const clipTitle = $("clipTitle");
+const clipAt = $("clipAt");
+const clipAtLine = $("clipAtLine");
+const clipUndo = $("clipUndo");
+const partTabs = $("partTabs");
+const panelNote = $("panelNote");
+const lanes = $("lanes");
+const wordList = $("wordList");
+const wordEdit = $("wordEdit");
+const wordLabel = $("wordLabel");
+const wordText = $("wordText");
+const wordSave = $("wordSave");
+const wordCancel = $("wordCancel");
+const wordNote = $("wordNote");
+const againButton = $("againButton");
+const againLine = $("againLine");
+const previewLine = $("previewLine");
+const fileInput = $("file");
+const dropCover = $("dropCover");
+const sheet = $("sheet");
+const sheetBack = $("sheetBack");
+const sheetHead = $("sheetHead");
+const sheetIcon = $("sheetIcon");
+const costBox = $("costBox");
+const outRow = $("outRow");
+const postBox = $("postBox");
+const featuresList = $("featuresList");
 const idle = text.placeholder;
 
-const room = { mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false } };
+const SHEETS = { caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
+const EDITS = ["caps", "style", "look", "sound", "words", "channel"];
+const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", move_part: "move", mute_sound: "mute", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", show_people: "people", slow_push: "move", undo: "undo", use_channel_look: "at" };
+
+const room = { mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {} };
 
 function localStore(key, value) {
   try {
@@ -71,12 +89,51 @@ function el(tag, cls, words) {
   return e;
 }
 
-function scrollDown() {
-  log.scrollTop = log.scrollHeight;
+function ico(name, cls) {
+  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("class", "ico" + (cls ? " " + cls : ""));
+  s.setAttribute("aria-hidden", "true");
+  const u = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  u.setAttribute("href", "#i-" + name);
+  s.appendChild(u);
+  return s;
+}
+
+function iconButton(cls, label, name) {
+  const b = el("button", cls);
+  b.type = "button";
+  b.setAttribute("aria-label", label);
+  b.appendChild(ico(name));
+  return b;
+}
+
+function toast(words) {
+  let t = document.querySelector(".toast");
+  if (!t) {
+    t = el("div", "toast");
+    t.setAttribute("role", "status");
+    document.body.appendChild(t);
+  }
+  t.textContent = words;
+  t.hidden = false;
+  clearTimeout(room.toastTimer);
+  room.toastTimer = setTimeout(() => (t.hidden = true), 1800);
+}
+
+function nearBottom() {
+  const scroller = getComputedStyle(chatView).overflowY === "auto" ? chatView : document.scrollingElement;
+  return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 320;
+}
+
+function scrollDown(always) {
+  if (app.dataset.screen !== "chat" && app.dataset.screen !== "clip") return;
+  if (!always && !nearBottom()) return;
+  if (getComputedStyle(chatView).overflowY === "auto") chatView.scrollTop = chatView.scrollHeight;
+  else if (app.dataset.screen === "chat") window.scrollTo(0, document.scrollingElement.scrollHeight);
 }
 
 function clearWelcome() {
-  const w = document.getElementById("welcome");
+  const w = $("welcome");
   if (w) w.remove();
 }
 
@@ -85,6 +142,12 @@ function bubble(kind, words, into) {
   const div = el("div", "msg " + kind, words);
   (into || log).appendChild(div);
   scrollDown();
+  return div;
+}
+
+function note(words, into) {
+  const div = bubble("note", null, into);
+  div.append(ico("warn", "sm"), el("span", null, words));
   return div;
 }
 
@@ -104,6 +167,12 @@ function engineLine(e, label) {
 }
 
 function myCurrency() {
+  const chosen = localStore("money");
+  if (chosen) return chosen;
+  return localCurrency();
+}
+
+function localCurrency() {
   try {
     const region = new Intl.Locale(navigator.language || "en").maximize().region;
     return MONEY[region] || (EURO.includes(region) ? "EUR" : "USD");
@@ -121,8 +190,10 @@ function money(usd) {
 
 function moneyShort(usd) {
   const r = room.rate;
+  if (usd === null || usd === undefined) return new Intl.NumberFormat(navigator.language || "en-US", { style: "currency", currency: r.currency, maximumFractionDigits: 0 }).format(0).replace(/0/, "–");
   const v = usd * r.per_usd;
-  return new Intl.NumberFormat(navigator.language || "en-US", { style: "currency", currency: r.currency, minimumFractionDigits: 2, maximumFractionDigits: v && Math.abs(v) < 0.1 ? 3 : 2 }).format(v);
+  const digits = v === 0 ? 0 : Math.abs(v) < 0.1 ? 3 : 2;
+  return new Intl.NumberFormat(navigator.language || "en-US", { style: "currency", currency: r.currency, minimumFractionDigits: digits, maximumFractionDigits: digits }).format(v);
 }
 
 function costRow(what, usd, more) {
@@ -134,13 +205,15 @@ function costRow(what, usd, more) {
 }
 
 function drawCost(d, box, job) {
-  room.rate = d.rate;
   const mine = d.jobs.find((j) => j.job === job);
-  const rows = [el("p", "pop-head", "What Muse cost")];
+  const rows = [];
   if (mine) rows.push(costRow("This clip", mine.usd, mine.minds.join(", ") + " · " + plural(mine.answers, "answer")));
   if (room.chat) rows.push(costRow("This chat", d.chat));
-  d.jobs.forEach((j) => rows.push(costRow("Message " + j.job, j.usd, j.minds.join(", ") + " · " + plural(j.answers, "answer"))));
   rows.push(costRow("Today", d.today), costRow("This month", d.month));
+  if (d.jobs.length > 1) {
+    rows.push(el("p", "pop-head", "Each message"));
+    d.jobs.forEach((j) => rows.push(costRow("Message " + j.job, j.usd, j.minds.join(", ") + " · " + plural(j.answers, "answer"))));
+  }
   rows.push(el("p", "pop-head", "Each Muse, in all"));
   room.minds.forEach((m) => rows.push(costRow(m.label, d.minds[m.label] || 0, m.key === "local" ? "On your own graphics card: free" : m.where.charAt(0).toUpperCase() + m.where.slice(1))));
   const notes = ["Each answer is priced by " + d.prices + ". A question cut short by Stop or by new words is not counted: the provider says what an answer cost only at its end."];
@@ -151,30 +224,56 @@ function drawCost(d, box, job) {
   box.replaceChildren(...rows);
 }
 
-function costLabel(d, job) {
-  const mine = d.jobs.find((j) => j.job === job);
-  if (!mine) return "$";
-  return mine.usd > 0 ? moneyShort(mine.usd) : "Free";
+function mindIcons(minds) {
+  return (minds || []).map((m) => ico(m.local ? "pc" : "cloud", "sm"));
 }
 
-async function refreshCost(job) {
-  const tags = room.costs.filter((c) => job === undefined || c.job === job);
-  if (!tags.length) return;
+function isLocal(label) {
+  const m = room.minds.find((x) => x.label === label);
+  return m ? m.local : /glimmer/i.test(label || "");
+}
+
+function drawCosts(d) {
+  room.spent = d;
+  room.rate = d.rate;
+  const month = new Date().toLocaleString("en", { month: "short" });
+  monthChip.replaceChildren(ico("cash", "sm"), moneyShort(d.month), el("small", null, month));
+  monthChip.setAttribute("aria-label", "Spent this month: " + moneyShort(d.month) + ". Show what Muse cost");
+  monthChip.hidden = false;
+  if (room.chat) {
+    const usd = room.open.size || d.jobs.length || !room.paid ? d.chat : null;
+    chatSub.replaceChildren(...mindIcons(room.minded), moneyShort(usd));
+    clipCost.replaceChildren(...mindIcons(room.minded), moneyShort(usd));
+    clipCost.setAttribute("aria-label", "What this chat cost: " + moneyShort(usd) + ". Show the costs");
+    clipCost.hidden = false;
+  }
+  Object.values(room.jobs).forEach((j) => {
+    const mine = d.jobs.find((x) => x.job === j.n);
+    if (!j.mind) return;
+    j.cost.replaceChildren(ico(isLocal(j.mind) ? "pc" : "cloud", "sm"), moneyShort(mine ? mine.usd : isLocal(j.mind) ? 0 : null));
+    j.cost.hidden = false;
+  });
+  room.costs.forEach((c) => {
+    const mine = d.jobs.find((x) => x.job === c.job);
+    c.tag.replaceChildren(ico("cash", "sm"), moneyShort(mine ? mine.usd : 0));
+  });
+  if (!sheet.hidden && room.part === "cost") drawCost(d, costBox, room.ready ? room.ready.job : undefined);
+}
+
+async function refreshCost() {
   try {
     const r = await fetch("/api/spent?currency=" + myCurrency() + (room.chat ? "&chat=" + encodeURIComponent(room.chat) : ""), { cache: "no-store" });
-    const d = await r.json();
-    tags.forEach((c) => {
-      c.tag.textContent = costLabel(d, c.job);
-      drawCost(d, c.box, c.job);
-    });
+    drawCosts(await r.json());
   } catch (err) {
-    tags.forEach((c) => c.box.replaceChildren(el("p", "earlier-empty", "The studio is not answering.")));
+    if (room.part === "cost") costBox.replaceChildren(el("p", "earlier-empty", "The studio is not answering."));
   }
 }
 
-function fold(summary, body, cls) {
-  const d = el("details", "detail");
-  d.append(el("summary", null, summary), el("p", cls, body));
+function fold(summary, body, cls, always) {
+  const d = el("details", always ? "thought" : "detail");
+  const s = el("summary");
+  s.append(ico("think", "sm"), summary);
+  d.append(s, el("p", cls, body));
   return d;
 }
 
@@ -201,74 +300,152 @@ function clock(seconds) {
   return (s >= 3600 ? Math.floor(s / 3600) + ":" : "") + mm + ":" + String(s % 60).padStart(2, "0");
 }
 
-function when(seconds) {
-  return new Date(seconds * 1000).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+function plural(n, one) {
+  return n + " " + one + (n === 1 ? "" : "s");
 }
+
+function setScreen(name, push) {
+  if (room.screen === name) return;
+  room.screen = name;
+  app.dataset.screen = name;
+  closeSheet();
+  if (push !== false) history.pushState({ screen: name }, "");
+  if (name === "home") {
+    loadHome();
+    window.scrollTo(0, 0);
+  } else if (name === "chat") {
+    scrollDown(true);
+  } else {
+    window.scrollTo(0, 0);
+  }
+  if (name !== "clip") {
+    const v = playerVideo();
+    if (v && !v.paused && getComputedStyle(clipBox).display === "none") v.pause();
+  }
+}
+
+window.addEventListener("popstate", (e) => setScreen((e.state && e.state.screen) || "home", false));
+
+toHome.addEventListener("click", () => setScreen("home"));
+toClip.addEventListener("click", () => setScreen("clip"));
+toChat.addEventListener("click", () => setScreen("chat"));
+clipBack.addEventListener("click", () => setScreen("chat"));
 
 function job(n) {
   if (!room.jobs[n]) {
     clearWelcome();
     const box = el("section", "job");
     box.setAttribute("aria-label", "Muse's work on message " + n);
-    const plan = el("div", "plan");
+    const card = el("article", "w-card");
+    const head = el("div", "w-head");
+    const open = el("button", "w-open");
+    open.type = "button";
+    open.setAttribute("aria-expanded", "false");
+    const av = el("span", "w-av");
+    av.appendChild(ico("muse", "sm"));
+    const st = el("span", "w-st");
+    const state = el("b", null, "Working");
+    const meta = el("small", null, "");
+    st.append(state, meta);
+    const cost = el("span", "w-cost");
+    cost.hidden = true;
+    open.append(av, st, cost, ico("down", "w-chev"));
+    const replay = iconButton("round w-replay", "Play how Muse worked again", "replay");
+    replay.hidden = true;
+    head.append(open, replay);
+    const plan = el("div", "w-plan");
+    plan.setAttribute("aria-hidden", "true");
     plan.hidden = true;
-    const flow = el("div", "flow");
-    const live = el("div", "live");
-    live.hidden = true;
-    const liveLine = el("p", "live-line");
-    const liveThinking = el("p", "live-thinking detail");
-    live.append(liveLine, liveThinking);
-    const foot = el("p", "foot");
-    foot.hidden = true;
-    box.append(plan, flow, live, foot);
+    const now = el("p", "w-now");
+    now.hidden = true;
+    const tick = el("p", "w-tick");
+    const think = el("p", "w-think");
+    think.setAttribute("aria-label", "What Muse is thinking now");
+    const moments = el("div", "moments");
+    moments.hidden = true;
+    const strip = el("div", "w-strip");
+    const rows = el("ol", "w-steps");
+    card.classList.add("open");
+    open.setAttribute("aria-expanded", "true");
+    const chips = el("div", "w-chips");
+    chips.hidden = true;
+    card.append(head, plan, now, tick, think, moments, strip, rows, chips);
+    const flow = el("div", "job");
+    box.append(card, flow);
     log.appendChild(box);
-    room.jobs[n] = { box, plan, flow, live, liveLine, liveThinking, foot, mind: "", steps: {}, answers: [], moments: {} };
+    const j = { n, box, card, open, state, meta, cost, replay, plan, now, tick, think, momentsBox: moments, strip, rows, chips, flow, mind: "", steps: {}, answers: [], moments: {}, count: 0, refused: 0, ended: false, items: [] };
+    open.addEventListener("click", () => setOpen(j, !card.classList.contains("open")));
+    replay.addEventListener("click", () => replayJob(j));
+    room.jobs[n] = j;
   }
   return room.jobs[n];
 }
 
+function setOpen(j, on) {
+  j.card.classList.toggle("open", on);
+  j.rows.hidden = !on;
+  j.open.setAttribute("aria-expanded", String(on));
+}
+
 function drawPlan(j, e) {
-  j.plan.textContent = "";
-  j.plan.hidden = false;
-  j.plan.appendChild(el("p", "plan-head", e.changed ? "Muse changed its plan" : "Muse's plan"));
-  if (e.why) j.plan.appendChild(el("p", "plan-why", e.why));
-  const list = el("ol", "plan-items");
+  j.items = e.items;
+  j.plan.replaceChildren(...e.items.map((item) => el("i", item.state)));
+  j.plan.hidden = !e.items.length;
+  const now = e.items.find((item) => item.state === "now") || e.items.find((item) => item.state === "todo");
+  j.now.textContent = now ? (e.changed ? "New plan · " : "") + now.text : "";
+  j.now.hidden = !j.now.textContent;
+  j.now.title = e.why || "";
   const said = { done: "done", now: "working on it", todo: "not started" };
-  e.items.forEach((item) => {
-    const li = el("li", item.state);
-    const mark = el("span", "mark");
-    mark.setAttribute("aria-hidden", "true");
-    li.append(mark, el("span", null, item.text), el("span", "sr", " (" + said[item.state] + ")"));
-    list.appendChild(li);
-  });
-  j.plan.appendChild(list);
+  j.plan.setAttribute("aria-label", "Muse's plan: " + e.items.map((item) => item.text + " (" + said[item.state] + ")").join(", "));
 }
 
 function drawStep(j, e) {
-  const div = el("div", "step" + (e.refused ? " refused" : ""));
-  const head = el("p", "step-head");
+  j.count += 1;
+  if (e.refused) j.refused += 1;
   const label = e.look ? "Looked at " + clock(e.look.start) + "–" + clock(e.look.end) : e.label || e.tool;
-  head.append(el("span", "n", String(e.step)), el("span", "label", label));
-  div.appendChild(head);
+  const icon = TOOL_ICONS[e.tool] || "dash";
+  const li = el("li", "w-row");
+  const mark = el("span", "w-ic" + (e.refused ? " bad" : ""));
+  mark.appendChild(ico(icon, "sm"));
+  li.append(mark, el("b", null, label), e.refused ? el("span", "no", "Refused") : el("span", "sec", e.seconds >= 1 ? Math.round(e.seconds) + " s" : ""));
   const said = e.said ? el("p", "said", e.said) : null;
-  if (said) div.appendChild(said);
+  if (said) li.appendChild(said);
   const why = el("p", "why", e.why || "Muse gave no reason for this step.");
-  div.appendChild(why);
+  li.appendChild(why);
   j.steps[e.step] = { why: why, said: said };
-  if (e.look) div.appendChild(lookStrip(e.look));
-  if (e.look && e.look.said && e.look.said.length) div.appendChild(saidFold(e.look.said));
-  if (e.look && e.look.took) div.appendChild(el("p", "engine detail", "Heard in " + e.look.took + " s"));
-  if (e.moments && e.fixing) div.appendChild(el("p", "engine detail", "Misheard words fixed by Muse in " + e.fixing + " s"));
-  if (e.refused) div.appendChild(el("p", "result simple", "That did not work, so Muse tried again."));
+  if (e.look) li.appendChild(lookStrip(e.look));
+  if (e.look && e.look.said && e.look.said.length) li.appendChild(saidFold(e.look.said));
+  if (e.look && e.look.took) li.appendChild(el("p", "engine detail", "Heard in " + e.look.took + " s"));
+  if (e.moments && e.fixing) li.appendChild(el("p", "engine detail", "Misheard words fixed by Muse in " + e.fixing + " s"));
+  if (e.refused) li.appendChild(el("p", "result simple", "That did not work, so Muse tried again."));
   const input = inputLine(e.input);
-  if (input) div.appendChild(el("p", "input detail", input));
+  if (input) li.appendChild(el("p", "input detail", input));
   const lines = String(e.result || "").split("\n");
   const first = e.refused ? (e.guard ? "Refused, already answered: " : "Refused: ") + lines[0] : lines[0];
-  div.appendChild(el("p", "result detail", first));
-  if (lines.length > 1) div.appendChild(fold("Full result", lines.slice(1).join("\n"), "more"));
-  if (e.thinking) div.appendChild(fold("How Muse decided", e.thinking, "thinking"));
-  if (e.engine) div.appendChild(el("p", "engine detail", engineLine(e.engine, j.mind)));
-  j.flow.appendChild(div);
+  li.appendChild(el("p", "result detail", first));
+  if (lines.length > 1) li.appendChild(fold("Full result", lines.slice(1).join("\n"), "more"));
+  if (e.thinking) li.appendChild(fold("How Muse decided", e.thinking, "thinking", true));
+  if (e.engine) li.appendChild(el("p", "engine detail", engineLine(e.engine, j.mind)));
+  j.rows.appendChild(li);
+  const at = j.rows.children.length - 1;
+  const b = el("button", "w-ic" + (e.refused ? " bad" : "") + (j.ended ? "" : " new"));
+  b.type = "button";
+  b.setAttribute("aria-label", "Step " + e.step + ": " + label + (e.refused ? ", refused" : ""));
+  b.appendChild(ico(icon, "sm"));
+  b.addEventListener("click", () => {
+    setOpen(j, true);
+    const row = j.rows.children[at];
+    if (!row) return;
+    row.classList.remove("flash");
+    void row.offsetWidth;
+    row.classList.add("flash");
+    row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  });
+  j.strip.appendChild(b);
+  j.strip.scrollLeft = j.strip.scrollWidth;
+  if (!j.ended) j.meta.textContent = label + " · step " + e.step;
+  j.tick.textContent = "";
+  j.think.textContent = "";
   if (e.moments) j.moments[e.step] = drawMoments(j, e.moments);
 }
 
@@ -306,49 +483,50 @@ function span(m) {
 }
 
 function drawMoments(j, moments) {
-  document.querySelectorAll(".moments .chip").forEach((b) => (b.disabled = true));
-  const div = el("div", "moments");
-  div.appendChild(el("p", "moments-head", "The moments Muse found"));
-  const list = el("ol", "moment-list");
+  document.querySelectorAll(".moment .chip").forEach((b) => (b.disabled = true));
+  const box = j.momentsBox;
+  box.replaceChildren();
+  box.hidden = false;
   const reasons = [];
   moments.forEach((m) => {
-    const li = el("li", "moment");
-    li.dataset.preview = m.preview;
+    const tile = el("div", "moment");
+    tile.dataset.preview = m.preview;
     const media = el("div", "moment-media");
     const img = el("img");
     img.src = "/api/frame/" + m.frame;
     img.alt = "A picture from moment " + m.n + ", at " + clock(m.t);
     media.append(img, el("span", "moment-wait", "Cutting a preview…"));
-    const body = el("div", "moment-body");
     const why = el("p", "moment-why", m.reason);
     reasons.push(why);
-    body.append(el("p", "moment-head", "Moment " + m.n + " · " + span(m) + " · " + Math.round(m.end - m.start) + " s"), why);
-    if (m.said && m.said.length) body.appendChild(saidFold(m.said));
+    tile.append(media, el("p", "moment-head", m.n + " · " + span(m) + " · " + Math.round(m.end - m.start) + " s"), why);
+    if (m.said && m.said.length) {
+      const said = saidFold(m.said);
+      said.classList.add("detail");
+      tile.appendChild(said);
+    }
     if (m.n === 1) {
-      body.appendChild(el("p", "moment-pick", "Muse starts with this one"));
+      tile.appendChild(el("p", "moment-pick", "Muse's pick"));
     } else {
-      const b = el("button", "chip", "Use this one instead");
+      const b = el("button", "chip", "Use this one");
       b.type = "button";
       b.addEventListener("click", () => {
         showMoment(m);
         say("(tapped) Use moment " + m.n + " (" + clock(m.start) + "-" + clock(m.end) + ") instead.");
       });
-      body.appendChild(b);
+      tile.appendChild(b);
     }
-    li.append(media, body);
-    list.appendChild(li);
-    if (room.cut[m.preview]) fillPreview(li, room.cut[m.preview]);
+    box.appendChild(tile);
+    if (room.cut[m.preview]) fillPreview(tile, room.cut[m.preview]);
   });
-  div.appendChild(list);
-  j.flow.appendChild(div);
   showMoment(moments[0]);
   return reasons;
 }
 
-function fillPreview(li, e) {
-  const media = li.querySelector(".moment-media");
+function fillPreview(tile, e) {
+  const media = tile.querySelector(".moment-media");
   if (!e.ok) {
-    media.querySelector(".moment-wait").textContent = "No preview: " + e.error;
+    const wait = media.querySelector(".moment-wait");
+    if (wait) wait.textContent = "No preview: " + e.error;
     return;
   }
   const v = el("video");
@@ -370,22 +548,21 @@ function showMoment(m) {
     const v = el("video");
     v.src = "/api/preview/" + m.preview;
     v.muted = true;
-    v.autoplay = true;
     v.loop = true;
     v.playsInline = true;
-    v.controls = true;
     v.setAttribute("aria-label", "A rough preview of moment " + m.n);
     frameBox.replaceChildren(v);
+    wirePlayer(v);
   } else {
     const img = el("img");
     img.src = "/api/frame/" + m.frame;
     img.alt = "A picture from moment " + m.n;
     frameBox.replaceChildren(img);
   }
-  clipTitle.textContent = "Moment " + m.n;
-  clipPill.textContent = "Show moment " + m.n;
-  clipLine.textContent = span(m) + " of your video. " + (ready && ready.ok ? "A rough preview" : "Cutting a rough preview") + "; your clip shows here instead once Muse makes it.";
-  popClip();
+  thumb("/api/frame/" + m.frame);
+  clipTitle.textContent = "Moment " + m.n + " · " + span(m);
+  clipLine.textContent = ready && ready.ok ? "" : "Cutting a rough preview…";
+  updatePlayer();
 }
 
 function drawAnswer(j, e) {
@@ -393,44 +570,33 @@ function drawAnswer(j, e) {
   const words = el("p", "words", e.text);
   div.appendChild(words);
   j.answers.push(words);
-  if (e.thinking) div.appendChild(fold("How Muse decided", e.thinking, "thinking"));
+  if (e.thinking) div.appendChild(fold("How Muse decided", e.thinking, "thinking", true));
   if (e.engine) div.appendChild(el("p", "engine detail", engineLine(e.engine, e.mind)));
 }
 
 function drawGuesses(j, e) {
-  document.querySelectorAll(".guesses .chip").forEach((b) => (b.disabled = true));
+  document.querySelectorAll(".w-chips .chip, .w-chips .look-card").forEach((b) => (b.disabled = true));
   const c = e.clip;
-  const div = el("div", "guesses");
-  div.appendChild(el("p", "guesses-head", "Muse's guesses"));
   const facts = [c.title, "about " + c.length_s + " s", c.style + " style"];
   if (c.language) facts.push(c.language);
-  div.appendChild(el("p", "facts", facts.join(" · ")));
-  if (c.brief) div.appendChild(el("p", "brief", "What you asked for: " + c.brief));
   const row = el("div", "chips");
   const looks = el("div", "look-cards");
   e.chips.forEach((chip) => {
-    const b = el("button", chip.look ? "chip look-card" : "chip", chip.look ? null : chip.label);
+    const b = el("button", chip.look ? "look-card" : "chip", chip.look ? null : chip.label);
     b.type = "button";
     if (chip.look) {
       const pic = el("img", "look-pic");
       pic.src = "/api/look/" + chip.look + ".png";
       pic.alt = "";
-      b.append(pic, el("span", "look-name", chip.now ? chip.label + " · now" : chip.label));
+      b.append(pic, el("span", null, chip.now ? chip.label + " · now" : chip.label));
       if (chip.now) b.setAttribute("aria-current", "true");
     }
     if (!chip.now) b.addEventListener("click", () => say(chip.say));
     (chip.look ? looks : row).appendChild(b);
   });
-  div.appendChild(row);
-  if (looks.children.length) {
-    div.appendChild(el("p", "looks-head", "Looks for the words"));
-    div.appendChild(looks);
-  }
-  j.flow.appendChild(div);
-}
-
-function plural(n, one) {
-  return n + " " + one + (n === 1 ? "" : "s");
+  j.chips.replaceChildren(el("p", "facts", facts.join(" · ") + (c.brief ? " · “" + c.brief + "”" : "")), row);
+  if (looks.children.length) j.chips.appendChild(looks);
+  j.chips.hidden = false;
 }
 
 function stopTimer() {
@@ -438,17 +604,11 @@ function stopTimer() {
   room.timer = null;
 }
 
-function hideLive(j) {
-  stopTimer();
-  j.live.hidden = true;
-  j.liveThinking.textContent = "";
-}
-
 function setBusy() {
   const busy = room.open.size > 0;
   stopButton.hidden = !(busy || room.work.video || room.work.preview);
   stopButton.disabled = false;
-  text.placeholder = busy ? "Type here to change what Muse is doing" : idle;
+  text.placeholder = busy ? "Change what Muse is doing" : idle;
   showStatus();
 }
 
@@ -460,56 +620,63 @@ function pageWork(what, on) {
 const TAPPED = "(tapped) ";
 const OPENED = "(opened) ";
 
-function personWords(text) {
-  if (text.startsWith(TAPPED)) return ["you tapped", "Tapped: " + text.slice(TAPPED.length)];
-  if (text.startsWith(OPENED)) {
-    const lines = text.slice(OPENED.length).split("\n");
+function personBubble(words, into) {
+  const div = bubble("you", null, into);
+  if (words.startsWith(TAPPED)) {
+    const tap = el("span", "tap");
+    tap.appendChild(ico("tap", "sm"));
+    div.append(tap, words.slice(TAPPED.length));
+  } else if (words.startsWith(OPENED)) {
+    const lines = words.slice(OPENED.length).split("\n");
     const parts = lines[0].split(" · ");
-    return ["you opened", ["Opened: " + parts[0] + " · " + parts[1]].concat(lines.slice(1)).join("\n")];
+    const tap = el("span", "tap");
+    tap.appendChild(ico("film", "sm"));
+    div.append(tap, [parts[0] + " · " + parts[1]].concat(lines.slice(1)).join("\n"));
+  } else {
+    div.textContent = words;
   }
-  return ["you", text];
 }
 
-function clipView(view) {
-  clipBox.dataset.view = view;
-  clipPill.hidden = view !== "tucked";
-}
-
-function popClip() {
-  if (clipBox.dataset.view === "full") return;
-  if (phone.matches) {
-    clipView("tucked");
+function thumb(src) {
+  if (!src) {
+    toClip.hidden = true;
     return;
   }
-  clipView("pip");
-  clipBox.classList.remove("popping");
-  void clipBox.offsetWidth;
-  clipBox.classList.add("popping");
+  const img = el("img");
+  img.src = src;
+  img.alt = "";
+  toClip.replaceChildren(img);
+  toClip.hidden = false;
 }
 
 function clearClip() {
   frameBox.replaceChildren(...[...emptyFrame].map((n) => n.cloneNode(true)));
   clipLine.textContent = "";
   clipTitle.textContent = "Your clip";
-  clipTools.hidden = true;
   room.made = null;
   room.panel = null;
   room.wantBase = false;
   room.base = null;
   room.steps = [];
   room.againError = false;
+  room.ready = null;
+  room.finished = null;
+  room.mute = {};
   againLine.textContent = "";
   previewLine.hidden = true;
+  clipSave.hidden = true;
+  clipCost.hidden = true;
   hidePanel();
-  clipView("none");
+  thumb(null);
+  updatePlayer();
 }
 
 function showClip(e) {
   const clip = e.clip;
   if (!clip) {
     room.made = null;
-    clipTools.hidden = true;
     clipLine.textContent = "The clip was taken back. Ask Muse to make it again.";
+    updatePlayer();
     return;
   }
   room.made = { clip, version: e.id };
@@ -521,12 +688,10 @@ function showClip(e) {
   else if (entry && entry.do === "clip") clipAt.value = Math.min(clip.length / 2, clip.length - 0.1);
   if (entry && entry.do === "clip") room.mute = {};
   drawClipFrame();
-  const titles = clip.titles.length;
-  clipTitle.textContent = "Your clip";
-  clipPill.textContent = "Show your clip";
-  clipLine.textContent = "Moment " + clip.moment + " · " + clip.length + " s · the " + clip.layout + " layout · " + (titles ? titles + (titles === 1 ? " title" : " titles") : "no words yet") + ". Slide to see any second of it." + (clip.people ? " Tap a face to blur it, and tap it again to show it." : "");
-  clipTools.hidden = false;
-  popClip();
+  clipTitle.textContent = room.ready ? room.ready.title : "Your clip";
+  clipLine.textContent = clip.people ? "Tap a face to blur it, and tap it again to show it." : "";
+  thumb("/api/clipframe?chat=" + encodeURIComponent(room.chat) + "&t=" + (clip.length / 2).toFixed(1) + "&width=120&v=" + e.id);
+  updatePlayer();
 }
 
 function showFinished(file) {
@@ -536,87 +701,179 @@ function showFinished(file) {
   const v = el("video");
   v.src = "/api/clip/" + file.name;
   v.poster = "/api/clip/" + file.name.replace(/\.mp4$/, ".jpg");
-  v.controls = true;
   v.playsInline = true;
   v.preload = "metadata";
   v.setAttribute("aria-label", "Your finished clip");
-  v.addEventListener("timeupdate", () => movePlayhead(v.currentTime));
   frameBox.replaceChildren(v);
-  clipTools.hidden = true;
-  clipTitle.textContent = "Your clip";
-  clipPill.textContent = "Show your clip";
-  clipLine.textContent = "The finished clip · " + file.length + " s · " + (file.size / 1e6).toFixed(1) + " MB.";
-  popClip();
+  wirePlayer(v);
+  clipLine.textContent = "";
+  thumb(v.poster);
+  updatePlayer();
 }
 
-const CHECKED = { pass: "Passed", fail: "FAILED", skip: "Not needed", muse: "For Muse", fixed: "Fixed" };
+function playerVideo() {
+  return frameBox.querySelector("video");
+}
+
+function wirePlayer(v) {
+  ["play", "pause", "ended", "loadedmetadata", "timeupdate"].forEach((k) => v.addEventListener(k, () => {
+    if (k === "timeupdate" && !v.classList.contains("base")) movePlayhead(v.currentTime);
+    updatePlayer();
+  }));
+  v.addEventListener("click", togglePlay);
+}
+
+function updatePlayer() {
+  const v = playerVideo();
+  const playing = Boolean(v && !v.paused && !v.ended);
+  playButton.disabled = !v;
+  playButton.replaceChildren(ico(playing ? "pause" : "play"));
+  playButton.setAttribute("aria-label", playing ? "Pause" : "Play");
+  bigPlay.hidden = !v || playing;
+  fullButton.hidden = !v;
+  clipUndo.disabled = !room.panel;
+  if (v && v.duration) timeLine.replaceChildren(el("b", null, clock(v.currentTime)), " / " + clock(v.duration));
+  else if (room.made) timeLine.replaceChildren(el("b", null, clock(Number(clipAt.value) || 0)), " / " + clock(room.made.clip.length));
+  else timeLine.textContent = "";
+}
+
+function togglePlay() {
+  const v = playerVideo();
+  if (!v) return;
+  if (v.paused || v.ended) v.play().catch(() => {});
+  else v.pause();
+}
+
+playButton.addEventListener("click", togglePlay);
+bigPlay.addEventListener("click", togglePlay);
+
+fullButton.addEventListener("click", () => {
+  const v = playerVideo();
+  if (!v) return;
+  try {
+    if (v.requestFullscreen) v.requestFullscreen().catch(() => v.webkitEnterFullscreen && v.webkitEnterFullscreen());
+    else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
+  } catch (err) {
+    toast("This browser cannot show it full screen.");
+  }
+});
+
+const CHECKED = { pass: "Passed", fail: "Failed", skip: "Not needed", muse: "For Muse", fixed: "Fixed" };
 
 function drawChecked(j, e) {
   const due = e.checks.filter((c) => c.ok !== null);
   const passed = due.filter((c) => c.ok).length;
   const fixed = e.checks.filter((c) => c.fixed).length;
-  const div = el("div", "checks" + (passed === due.length ? " all" : ""));
-  div.appendChild(el("p", "checks-head", "Checked " + passed + " of " + due.length + " on the finished file" + (fixed ? " · " + fixed + " fixed since the last check" : "")));
+  j.checks = { passed, due: due.length };
+  const box = el("details", "checks " + (passed === due.length ? "all" : "fail"));
+  box.open = passed !== due.length;
+  const head = el("summary");
+  head.append(ico("shield", "sm"), "Checked " + passed + " of " + due.length + (fixed ? " · " + fixed + " fixed" : ""));
   const list = el("ul", "checks-list");
   e.checks.forEach((c) => {
     const how = c.fixed ? "fixed" : c.ok === null ? (c.who === "Muse" ? "muse" : "skip") : c.ok ? "pass" : "fail";
     const li = el("li", how);
-    const mark = el("span", "mark", c.ok === null ? "–" : c.ok ? "✓" : "✗");
-    mark.setAttribute("aria-hidden", "true");
     const words = el("span", "what");
-    words.append(el("b", null, c.name), el("small", null, c.found + (c.who === "program" ? "" : " · " + c.who) + (c.fixed ? " · it failed the check before" : "")));
-    li.append(mark, el("span", "check-word", CHECKED[how]), words);
+    words.append(el("b", null, c.name), el("small", null, CHECKED[how] + " · " + c.found + (c.who === "program" ? "" : " · " + c.who)));
+    li.append(ico(c.ok === null ? "dash" : c.ok ? "check" : "x", "sm"), words);
     list.appendChild(li);
   });
-  div.appendChild(list);
-  j.flow.appendChild(div);
+  box.append(head, list);
+  j.flow.appendChild(box);
+}
+
+function openClip() {
+  setScreen("clip");
 }
 
 function drawReady(j, e) {
+  room.ready = e;
   const div = el("div", "ready");
-  div.appendChild(el("p", "ready-head", "Ready to post"));
-  if (e.work) div.appendChild(el("p", "ready-work", e.work.line));
-  const v = el("video");
-  v.src = "/api/clip/" + e.file;
-  v.poster = "/api/clip/" + e.file.replace(/\.mp4$/, ".jpg");
-  v.controls = true;
-  v.playsInline = true;
-  v.preload = "metadata";
-  v.setAttribute("aria-label", "Your finished clip");
+  const img = el("img");
+  img.src = "/api/clip/" + e.file.replace(/\.mp4$/, ".jpg");
+  img.alt = "";
+  img.addEventListener("click", openClip);
   const body = el("div", "ready-body");
-  body.append(el("p", "ready-title", e.title), el("p", "ready-caption", e.caption), el("p", "ready-tags", e.hashtags.join(" ")));
-  if (e.english) body.appendChild(el("p", "ready-english", e.english));
-  const all = [e.title, e.caption, e.hashtags.join(" ")].concat(e.english ? [e.english] : []).join("\n\n");
-  const copy = el("button", "chip", "Copy all");
-  copy.type = "button";
-  copy.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(all);
-      copy.textContent = "Copied";
-    } catch (err) {
-      copy.textContent = "Select the text to copy it";
-    }
+  const title = el("p", "ready-title", e.title);
+  title.addEventListener("click", openClip);
+  const meta = el("div", "ready-meta");
+  if (e.length) {
+    const len = el("span", "tag");
+    len.append(ico("film", "sm"), clock(e.length));
+    meta.appendChild(len);
+  }
+  if (j.checks && j.checks.due) {
+    const ok = j.checks.passed === j.checks.due;
+    const c = el("span", "tag " + (ok ? "ok" : "bad"));
+    c.append(ico("shield", "sm"), j.checks.passed + "/" + j.checks.due);
+    c.setAttribute("aria-label", "Checks: " + j.checks.passed + " of " + j.checks.due + " passed");
+    meta.appendChild(c);
+  }
+  const cost = el("span", "tag");
+  cost.append(ico("cash", "sm"), "…");
+  meta.appendChild(cost);
+  room.costs.push({ job: e.job, tag: cost });
+  body.append(title, meta);
+  if (e.work) body.appendChild(el("p", "ready-work", e.work.line));
+  const go = el("div", "ready-go");
+  const open = iconButton("round go", "Open the clip: " + e.title, "play");
+  open.addEventListener("click", openClip);
+  const save = iconButton("round", "Save the clip or the post", "save");
+  save.addEventListener("click", () => {
+    room.ready = e;
+    openSheet("out");
   });
-  const save = el("a", "chip", "Download the clip");
-  save.href = "/api/clip/" + e.file + "?download=1";
-  const edit = el("a", "chip", "Premiere project");
+  go.append(open, save);
+  div.append(img, body, go);
+  j.flow.appendChild(div);
+  clipTitle.textContent = e.title;
+  clipSave.hidden = false;
+  refreshCost();
+}
+
+function drawOut() {
+  const e = room.ready;
+  outRow.replaceChildren();
+  postBox.replaceChildren();
+  if (!e) return;
+  const save = el("a");
+  save.href = "/api/clip/" + (room.finished || e.file) + "?download=1";
+  save.append(ico("save"), "Video");
+  const edit = el("a");
   edit.href = "/api/premiere?chat=" + encodeURIComponent(room.chat);
   edit.title = "The clip as it is now, for Premiere Pro: each piece points at your own file, so an editor can drag its edges";
-  const cost = el("details", "menu ready-cost");
-  const tag = el("summary", "chip cost-chip", "$");
-  tag.setAttribute("aria-label", "What Muse cost for this clip");
-  const box = el("div", "pop cost-box");
-  cost.append(tag, box);
-  cost.addEventListener("toggle", () => {
-    if (cost.open) refreshCost(e.job);
-  });
-  room.costs.push({ job: e.job, tag, box });
-  refreshCost(e.job);
-  const row = el("div", "ready-actions");
-  row.append(copy, save, edit, cost);
-  body.appendChild(row);
-  div.append(v, body);
-  j.flow.appendChild(div);
+  edit.append(ico("lanes"), "Premiere");
+  const all = [e.title, e.caption, e.hashtags.join(" ")].concat(e.english ? [e.english] : []).join("\n\n");
+  const copy = el("button");
+  copy.type = "button";
+  copy.append(ico("copy"), "Copy post");
+  copy.addEventListener("click", () => copyText(all));
+  outRow.append(save, edit, copy);
+  postBox.append(el("p", "t", e.title), el("p", null, e.caption), el("p", "h", e.hashtags.join(" ")));
+  if (e.english) postBox.appendChild(el("p", "e", e.english));
+}
+
+async function copyText(words) {
+  try {
+    await navigator.clipboard.writeText(words);
+    toast("Copied");
+    return;
+  } catch (err) {
+    const t = el("textarea");
+    t.value = words;
+    t.style.position = "fixed";
+    t.style.opacity = "0";
+    document.body.appendChild(t);
+    t.select();
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch (e) {
+      ok = false;
+    }
+    t.remove();
+    toast(ok ? "Copied" : "Select the words to copy them");
+  }
 }
 
 function drawClipFrame() {
@@ -624,6 +881,7 @@ function drawClipFrame() {
   if (!made) return;
   const t = Math.min(Number(clipAt.value), Math.max(0, made.clip.length - 0.05));
   clipAtLine.textContent = t.toFixed(1) + " s";
+  updatePlayer();
   const v = frameBox.querySelector("video.base");
   if (v) {
     if (Math.abs(v.currentTime - t) > 0.04) v.currentTime = t;
@@ -678,9 +936,10 @@ clipAt.addEventListener("input", () => {
 });
 
 function hidePanel() {
-  panelBox.hidden = true;
-  wordsBox.hidden = true;
-  againBox.hidden = true;
+  lanes.replaceChildren();
+  wordList.replaceChildren();
+  againButton.hidden = true;
+  partTabs.querySelectorAll(".tool[data-show]").forEach((b) => (b.disabled = true));
   closeWords();
 }
 
@@ -699,12 +958,14 @@ function loadPanel() {
     if (!d.ok || !d.clip) {
       room.panel = null;
       hidePanel();
+      updatePlayer();
       return;
     }
     room.panel = d;
     drawPanel(d);
     drawWords(d);
     drawAgain(d);
+    updatePlayer();
     if (room.wantBase && room.made) refreshPreview();
   }, 150);
 }
@@ -747,7 +1008,6 @@ function showBase(url) {
     const at = Number(clipAt.value);
     v = el("video", "base");
     v.src = url;
-    v.controls = true;
     v.playsInline = true;
     v.preload = "auto";
     v.setAttribute("aria-label", "Your clip");
@@ -773,9 +1033,11 @@ function showBase(url) {
       follow(v);
     });
     frameBox.replaceChildren(v, pic);
+    wirePlayer(v);
     room.base = url;
   }
   drawLayer();
+  updatePlayer();
 }
 
 function leaveBase() {
@@ -816,13 +1078,13 @@ function baseFaces(v) {
 
 function drawChoices(row, why, choices, act, picture) {
   row.textContent = "";
-  row.classList.toggle("picture-row", Boolean(picture) && row.classList.contains("panel-row"));
+  row.classList.toggle("picture-row", Boolean(picture));
   const off = {};
   choices.forEach((c) => {
-    const b = el("button", picture ? "chip look-card" : "chip", picture ? null : c.label);
+    const b = el("button", picture ? "choice" : row.classList.contains("seg") ? null : "chip", picture ? null : c.label);
     b.type = "button";
     b.setAttribute("aria-pressed", String(c.now));
-    if (picture) b.append(picture(c), el("span", "look-name", c.label));
+    if (picture) b.append(picture(c), el("span", null, c.label));
     if (c.why) {
       b.disabled = true;
       b.setAttribute("aria-describedby", why.id);
@@ -839,29 +1101,27 @@ function drawChoices(row, why, choices, act, picture) {
 
 function showPart(name) {
   room.part = name;
-  localStore("part", name);
-  partTabs.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.show === name)));
-  document.querySelectorAll("[data-part]").forEach((e) => e.classList.toggle("part-off", e.dataset.part !== name));
+  partTabs.querySelectorAll(".tool[data-show]").forEach((b) => b.setAttribute("aria-pressed", String(!sheet.hidden && b.dataset.show === name)));
+  document.querySelectorAll("#panel [data-part]").forEach((e) => e.classList.toggle("part-off", e.dataset.part !== name));
 }
 
 partTabs.addEventListener("click", (e) => {
-  const b = e.target.closest("button[data-show]");
-  if (b) showPart(b.dataset.show);
+  const b = e.target.closest(".tool[data-show]");
+  if (!b) return;
+  if (!sheet.hidden && room.part === b.dataset.show) closeSheet();
+  else openSheet(b.dataset.show);
 });
 
 function drawPanel(d) {
-  panelBox.hidden = false;
+  partTabs.querySelectorAll(".tool[data-show]").forEach((b) => (b.disabled = false));
   partTabs.querySelector('[data-show="words"]').hidden = !d.words.length;
   partTabs.querySelector('[data-show="channel"]').hidden = !d.channels;
   partTabs.querySelector('[data-show="sound"]').hidden = !(d.sound && d.sound.has);
-  const part = room.part || localStore("part") || "caps";
-  const tab = partTabs.querySelector('[data-show="' + part + '"]');
-  showPart(tab && !tab.hidden ? part : "caps");
-  const caps = document.getElementById("capsRow");
-  const langs = document.getElementById("langRow");
-  const styles = document.getElementById("styleRow");
-  const looks = document.getElementById("lookRow");
-  const at = Number(document.getElementById("clipAt").value) || 0;
+  const caps = $("capsRow");
+  const langs = $("langRow");
+  const styles = $("styleRow");
+  const looks = $("lookRow");
+  const at = Number(clipAt.value) || 0;
   const lookPic = (c) => {
     const pic = el("img", "look-pic frame-pic");
     pic.src = "/api/clipframe?chat=" + encodeURIComponent(room.chat) + "&t=" + at.toFixed(1) + "&look=" + c.name + "&width=240";
@@ -874,17 +1134,17 @@ function drawPanel(d) {
     pic.alt = "";
     return pic;
   };
-  drawChoices(caps, document.getElementById("capsWhy"), d.captions, (c) => choose(caps, "/api/captions", { mode: c.name }), (c) => mini("cap-" + c.name, c.label));
-  drawChoices(langs, document.getElementById("langWhy"), d.languages, (c) => (c.say ? askMuse(langs, c) : choose(langs, "/api/captions", { language: c.name })), null);
-  drawChoices(styles, document.getElementById("styleWhy"), d.styles, (c) => choose(styles, "/api/style", { style: c.name }), stylePic);
-  drawChoices(looks, document.getElementById("lookWhy"), d.looks, (c) => choose(looks, "/api/colour", { look: c.name }), lookPic);
+  drawChoices(caps, $("capsWhy"), d.captions, (c) => choose(caps, "/api/captions", { mode: c.name }), (c) => mini("cap-" + c.name, c.label));
+  drawChoices(langs, $("langWhy"), d.languages, (c) => (c.say ? askMuse(langs, c) : choose(langs, "/api/captions", { language: c.name })), null);
+  drawChoices(styles, $("styleWhy"), d.styles, (c) => choose(styles, "/api/style", { style: c.name }), stylePic);
+  drawChoices(looks, $("lookWhy"), d.looks, (c) => choose(looks, "/api/colour", { look: c.name }), lookPic);
   if (d.channels) drawChannels(d.channels);
   drawSound(d.sound);
 }
 
-const muteFrom = document.getElementById("muteFrom");
-const muteTo = document.getElementById("muteTo");
-const muteGo = document.getElementById("muteGo");
+const muteFrom = $("muteFrom");
+const muteTo = $("muteTo");
+const muteGo = $("muteGo");
 
 function clipNow() {
   const v = frameBox.querySelector("video");
@@ -894,20 +1154,23 @@ function clipNow() {
 
 function drawMute() {
   const m = room.mute || {};
-  muteFrom.textContent = m.from === undefined ? "Start here" : "Start " + m.from.toFixed(1) + " s";
-  muteTo.textContent = m.to === undefined ? "End here" : "End " + m.to.toFixed(1) + " s";
+  muteFrom.lastChild.textContent = m.from === undefined ? "From here" : "From " + m.from.toFixed(1) + " s";
+  muteTo.lastChild.textContent = m.to === undefined ? "To here" : "To " + m.to.toFixed(1) + " s";
   const ok = m.from !== undefined && m.to !== undefined && Math.abs(m.to - m.from) >= 0.1;
   muteFrom.disabled = muteTo.disabled = false;
   muteGo.disabled = !ok;
-  muteGo.textContent = ok ? "Mute " + Math.min(m.from, m.to).toFixed(1) + "–" + Math.max(m.from, m.to).toFixed(1) + " s" : "Mute";
+  muteGo.lastChild.textContent = ok ? "Mute " + Math.min(m.from, m.to).toFixed(1) + "–" + Math.max(m.from, m.to).toFixed(1) + " s" : "Mute";
+  drawMuteMarks();
 }
 
 function drawSound(sound) {
-  const row = document.getElementById("mutedRow");
+  const row = $("mutedRow");
   row.textContent = "";
   ((sound && sound.mutes) || []).forEach(([a, b]) => {
-    const back = el("button", "chip", "Muted " + a.toFixed(1) + "–" + b.toFixed(1) + " s · Bring the sound back");
+    const back = el("button", "chip");
     back.type = "button";
+    back.append(ico("mute", "sm"), a.toFixed(1) + "–" + b.toFixed(1) + " s", ico("again", "sm"));
+    back.setAttribute("aria-label", "Bring back the sound from " + a.toFixed(1) + " to " + b.toFixed(1) + " s");
     back.addEventListener("click", () => mute(a, b, true));
     row.appendChild(back);
   });
@@ -942,19 +1205,19 @@ muteGo.addEventListener("click", () => {
   mute(Math.max(0, Math.min(m.from, m.to)), Math.max(m.from, m.to), false);
 });
 
-const channelSave = document.getElementById("channelSave");
-const channelName = document.getElementById("channelName");
-const channelHandle = document.getElementById("channelHandle");
+const channelSave = $("channelSave");
+const channelName = $("channelName");
+const channelHandle = $("channelHandle");
 
 function drawChannels(c) {
-  const row = document.getElementById("channelRow");
-  const spots = document.getElementById("spotRow");
+  const row = $("channelRow");
+  const spots = $("spotRow");
   const looks = [{ name: "", label: "None", now: !c.in_use, why: null }].concat(c.saved.map((s) => ({ name: s.name, label: s.name, now: s.name === c.in_use, why: null })));
-  drawChoices(row, document.getElementById("channelWhy"), looks, (x) => choose(row, "/api/channel", { name: x.name }), false);
+  drawChoices(row, $("channelWhy"), looks, (x) => choose(row, "/api/channel", { name: x.name }), false);
   const using = c.saved.find((s) => s.name === c.in_use);
-  document.getElementById("channelSays").textContent = using ? "New clips start in this look: " + using.says + "." : c.saved.length ? "No channel look is in use: new clips start in Muse's guesses." : "No channel look yet. Make a clip look the way your channel does, then save it here.";
+  $("channelSays").textContent = using ? "New clips start in this look: " + using.says + "." : c.saved.length ? "No channel look is in use: new clips start in Muse's guesses." : "No channel look yet. Make a clip look the way your channel does, then save it here.";
   spots.hidden = !c.handle;
-  drawChoices(spots, document.getElementById("spotWhy"), c.spots.map((s) => Object.assign({ why: null }, s)), (x) => choose(spots, "/api/channel", { spot: x.name }), false);
+  drawChoices(spots, $("spotWhy"), c.spots.map((s) => Object.assign({ why: null }, s)), (x) => choose(spots, "/api/channel", { spot: x.name }), false);
   if (using && document.activeElement !== channelName && document.activeElement !== channelHandle && !channelName.value) {
     channelName.value = using.name;
     channelHandle.value = using.handle;
@@ -1000,13 +1263,24 @@ function rows(blocks) {
   });
 }
 
+function filmLane(d) {
+  const lane = el("div", "lane film");
+  lane.setAttribute("aria-hidden", "true");
+  const track = el("div", "track");
+  const src = room.ready ? "/api/clip/" + room.ready.file.replace(/\.mp4$/, ".jpg") : "/api/clipframe?chat=" + encodeURIComponent(room.chat) + "&t=" + (d.length / 2).toFixed(1) + "&width=90";
+  track.style.backgroundImage = "url(\"" + src + "\")";
+  lane.append(ico("film", "sm lane-ico"), track);
+  return lane;
+}
+
 function drawWords(d) {
   lanes.textContent = "";
-  const kinds = [["title", "On screen"], ["caption", "Captions"]];
-  kinds.forEach(([kind, name]) => {
+  lanes.appendChild(filmLane(d));
+  const kinds = [["title", "Words on screen", "aa"], ["caption", "Captions", "cc"]];
+  kinds.forEach(([kind, name, icon]) => {
     const blocks = d.words.filter((b) => b.kind === kind);
     if (!blocks.length) return;
-    const lane = el("div", "lane");
+    const lane = el("div", "lane " + kind);
     lane.setAttribute("role", "group");
     lane.setAttribute("aria-label", name);
     const track = el("div", "track");
@@ -1023,28 +1297,62 @@ function drawWords(d) {
       button.addEventListener("click", () => openWords(b));
       track.appendChild(button);
     });
-    lane.append(el("span", "lane-name", name), track);
+    lane.append(ico(icon, "sm lane-ico"), track);
     lanes.appendChild(lane);
   });
   const head = el("div", "playhead");
   head.setAttribute("aria-hidden", "true");
   lanes.appendChild(head);
-  wordsBox.hidden = !d.words.length;
+  drawWordList(d);
+  drawMuteMarks();
   movePlayhead(room.made ? Number(clipAt.value) : 0);
   if (room.editing && !d.words.some((b) => b.kind === room.editing.kind && b.n === room.editing.n && b.text === room.editing.was)) closeWords();
+}
+
+function drawMuteMarks() {
+  const track = lanes.querySelector(".lane.film .track");
+  if (!track || !room.panel) return;
+  track.querySelectorAll(".mute-span, .mute-mark").forEach((n) => n.remove());
+  const length = room.panel.length;
+  ((room.panel.sound && room.panel.sound.mutes) || []).forEach(([a, b]) => {
+    const s = el("i", "mute-span");
+    s.style.left = (100 * a / length) + "%";
+    s.style.width = (100 * (b - a) / length) + "%";
+    track.appendChild(s);
+  });
+  ["from", "to"].forEach((k) => {
+    const t = (room.mute || {})[k];
+    if (t === undefined) return;
+    const m = el("i", "mute-mark");
+    m.style.left = (100 * t / length) + "%";
+    track.appendChild(m);
+  });
+}
+
+function drawWordList(d) {
+  wordList.replaceChildren();
+  d.words.forEach((b) => {
+    const r = el("button", "word-row" + (b.typed ? " typed" : ""));
+    r.type = "button";
+    r.append(ico(b.kind === "title" ? "aa" : "cc", "sm"), el("span", "at", clock(b.start)), el("span", "w", b.text), ico("words", "sm"));
+    r.setAttribute("aria-label", "Change " + (b.kind === "title" ? "the words on screen" : "the caption") + " at " + b.start.toFixed(1) + " s: " + b.text);
+    r.addEventListener("click", () => openWords(b));
+    wordList.appendChild(r);
+  });
 }
 
 function movePlayhead(t) {
   const head = lanes.querySelector(".playhead");
   if (!head || !room.panel) return;
   const share = Math.max(0, Math.min(1, t / room.panel.length));
-  head.style.left = "calc(var(--lane-name) + (100% - var(--lane-name)) * " + share + ")";
+  head.style.left = (share * 100) + "%";
+  if (room.made) updatePlayer();
 }
 
 function seek(t) {
   const v = frameBox.querySelector("video");
   if (room.made) {
-    clipAt.value = Math.min(t + 0.05, room.made.clip.length - 0.05);
+    clipAt.value = Math.max(0, Math.min(t + 0.05, room.made.clip.length - 0.05));
     movePlayhead(Number(clipAt.value));
     drawClipFrame();
   } else if (v && !room.showing) {
@@ -1053,9 +1361,25 @@ function seek(t) {
   }
 }
 
+$("timeline").addEventListener("pointerdown", (e) => {
+  if (e.target.closest(".block") || !room.panel) return;
+  const at = (ev) => {
+    const r = lanes.getBoundingClientRect();
+    seek(Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * room.panel.length);
+  };
+  at(e);
+  const up = () => {
+    window.removeEventListener("pointermove", at);
+    window.removeEventListener("pointerup", up);
+  };
+  window.addEventListener("pointermove", at);
+  window.addEventListener("pointerup", up);
+});
+
 function openWords(b) {
   seek(b.start);
   room.editing = { kind: b.kind, n: b.n, was: b.text };
+  if (sheet.hidden || room.part !== "words") openSheet("words");
   wordLabel.textContent = (b.kind === "title" ? "Words on screen" : "Caption") + ", " + b.start.toFixed(1) + " to " + b.end.toFixed(1) + " s" + (b.typed ? " · your own words" : "");
   wordText.value = b.text;
   wordNote.textContent = "";
@@ -1096,7 +1420,7 @@ wordText.addEventListener("keydown", (e) => {
 
 function drawAgain(d) {
   pageWork("video", d.making);
-  againBox.hidden = !(d.again || d.making);
+  againButton.hidden = !(d.again || d.making);
   againButton.disabled = d.making;
   if (d.making && !againLine.textContent) againLine.textContent = "Making the video…";
   if (!d.making && !room.againError) againLine.textContent = d.again ? "You changed the clip after the video was made." : "";
@@ -1128,7 +1452,7 @@ clipUndo.addEventListener("click", async () => {
   } catch (err) {
     clipLine.textContent = "The studio is not answering. Start it again with: python app.py";
   }
-  clipUndo.disabled = false;
+  clipUndo.disabled = !room.panel;
 });
 
 function showRecording(e) {
@@ -1140,34 +1464,97 @@ function showRecording(e) {
     img.src = "/api/frame/" + e.frame;
     img.alt = "A picture from " + r.name;
     frameBox.replaceChildren(img);
+    thumb("/api/frame/" + e.frame);
   } else {
     frameBox.replaceChildren(el("p", "hint", "Opened " + r.name));
   }
-  clipTitle.textContent = "Your video";
-  clipPill.textContent = "Show your video";
-  clipLine.textContent = r.name + " · " + clock(r.seconds) + " long. This is the video you opened. Your clip shows here instead once Muse makes it.";
-  popClip();
+  clipTitle.textContent = r.name;
+  clipLine.textContent = clock(r.seconds) + " long. Your clip shows here once Muse makes it.";
+  updatePlayer();
 }
 
 const ENDS = {
+  answered: "Done",
   stopped: "Stopped",
-  closed: "The studio was closed during this job",
+  closed: "Ended: the studio was closed",
   mind: "Ended: Muse could not answer",
   fault: "Ended: the studio broke",
   repeating: "Ended: Muse kept repeating itself",
-  "too many steps": "Ended: too many steps",
+  "too many steps": "Paused: too many steps",
 };
+
+function endJob(j, e) {
+  stopTimer();
+  j.ended = true;
+  j.card.classList.remove("run");
+  j.state.textContent = ENDS[e.why] || "Done";
+  const parts = [plural(e.steps, "step")];
+  if (e.seconds) parts.push(clock(e.seconds));
+  if (e.refused) parts.push(e.refused + " refused" + (e.fixed ? ", " + e.fixed + " fixed" : ""));
+  j.meta.textContent = parts.join(" · ");
+  j.tick.textContent = "";
+  j.think.textContent = "";
+  j.replay.hidden = j.count < 2;
+  const left = j.items.find((item) => item.state !== "done");
+  j.now.textContent = left ? left.text : "";
+  j.now.hidden = !left;
+}
+
+function replayJob(j) {
+  if (!j.ended || j.card.classList.contains("run")) return;
+  const icons = [...j.strip.children];
+  const words = [...j.rows.children].map((row) => (row.querySelector(".why") || {}).textContent || "");
+  const labels = [...j.rows.children].map((row) => (row.querySelector("b") || {}).textContent || "");
+  const state = j.state.textContent;
+  const meta = j.meta.textContent;
+  const plan = [...j.plan.children].map((i) => i.className);
+  const moments = j.momentsBox.hidden;
+  icons.forEach((b) => (b.hidden = true));
+  j.momentsBox.hidden = true;
+  j.card.classList.add("run");
+  j.state.textContent = "Working";
+  let n = 0;
+  const one = () => {
+    if (n >= icons.length) {
+      j.card.classList.remove("run");
+      j.state.textContent = state;
+      j.meta.textContent = meta;
+      j.tick.textContent = "";
+      [...j.plan.children].forEach((i, k) => (i.className = plan[k]));
+      j.momentsBox.hidden = moments;
+      return;
+    }
+    const b = icons[n];
+    b.hidden = false;
+    b.classList.remove("new");
+    void b.offsetWidth;
+    b.classList.add("new");
+    j.strip.scrollLeft = j.strip.scrollWidth;
+    j.meta.textContent = labels[n] + " · step " + (n + 1);
+    j.tick.textContent = words[n];
+    const share = (n + 1) / icons.length;
+    [...j.plan.children].forEach((i, k, all) => (i.className = (k + 1) / all.length <= share ? "done" : k / all.length <= share ? "now" : ""));
+    if (/moment/i.test(labels[n]) && j.momentsBox.children.length) j.momentsBox.hidden = false;
+    n += 1;
+    setTimeout(one, b.classList.contains("bad") ? 650 : 420);
+  };
+  one();
+}
 
 function on(e) {
   if (e.id <= room.last) return;
   room.last = e.id;
   if (e.kind === "person") {
-    const [kind, words] = personWords(e.text);
-    bubble(kind, words, e.cut_in && room.jobs[e.job] ? room.jobs[e.job].flow : null);
+    personBubble(e.text, e.cut_in && room.jobs[e.job] ? room.jobs[e.job].flow : null);
     return;
   }
   if (e.kind === "opened") {
     showRecording(e);
+    return;
+  }
+  if (e.kind === "named") {
+    room.title = e.title;
+    chatName.textContent = e.title;
     return;
   }
   if (e.kind === "edit" || e.kind === "undo") {
@@ -1178,6 +1565,7 @@ function on(e) {
   }
   if (e.kind === "rendered") {
     room.wantBase = false;
+    room.finished = e.file.name;
     showFinished(e.file);
     againLine.textContent = "";
     if (e.job === null) pageWork("video", false);
@@ -1199,15 +1587,21 @@ function on(e) {
   }
   if (e.kind === "preview") {
     room.cut[e.name] = e;
-    document.querySelectorAll(".moment").forEach((li) => {
-      if (li.dataset.preview === e.name) fillPreview(li, e);
+    document.querySelectorAll(".moment").forEach((tile) => {
+      if (tile.dataset.preview === e.name) fillPreview(tile, e);
     });
     if (room.showing && room.showing.preview === e.name) showMoment(room.showing);
     return;
   }
+  if (e.job === null || e.job === undefined) return;
   const j = job(e.job);
   if (e.kind === "job") {
     j.mind = e.mind;
+    j.card.classList.add("run");
+    j.cost.replaceChildren(ico(isLocal(e.mind) ? "pc" : "cloud", "sm"));
+    j.cost.hidden = false;
+    if (!room.minded.some((m) => m.label === e.mind)) room.minded.push({ label: e.mind, local: isLocal(e.mind) });
+    if (!isLocal(e.mind)) room.paid = true;
     room.open.add(e.job);
     setBusy();
   } else if (e.kind === "plan") {
@@ -1217,17 +1611,15 @@ function on(e) {
   } else if (e.kind === "wait") {
     stopTimer();
     const tick = () => {
-      j.liveLine.textContent = "Muse is thinking about step " + e.step + " · " + Math.max(0, Math.round(Date.now() / 1000 - e.t)) + " s";
+      j.meta.textContent = "Thinking about step " + e.step + " · " + Math.max(0, Math.round(Date.now() / 1000 - e.t)) + " s";
     };
     tick();
-    j.live.hidden = false;
-    j.box.appendChild(j.live);
     room.timer = setInterval(tick, 1000);
   } else if (e.kind === "step") {
-    hideLive(j);
+    stopTimer();
     drawStep(j, e);
   } else if (e.kind === "answer") {
-    hideLive(j);
+    stopTimer();
     drawAnswer(j, e);
   } else if (e.kind === "checked") {
     drawChecked(j, e);
@@ -1239,21 +1631,15 @@ function on(e) {
   } else if (e.kind === "ready") {
     drawReady(j, e);
   } else if (e.kind === "cut") {
-    hideLive(j);
-    bubble("note", e.by === "stop" ? "Stopped while Muse was thinking about step " + e.step + "." : "Muse stopped thinking about step " + e.step + " to read your message.", j.flow);
+    stopTimer();
+    note(e.by === "stop" ? "Stopped while Muse was thinking about step " + e.step + "." : "Muse stopped thinking about step " + e.step + " to read your message.", j.flow);
   } else if (e.kind === "note") {
-    bubble("note", e.text, j.flow);
+    note(e.text, j.flow);
   } else if (e.kind === "end") {
-    hideLive(j);
-    const parts = [ENDS[e.why] || null, plural(e.steps, "step")].filter(Boolean);
-    if (e.refused) parts.push(e.refused + " refused" + (e.fixed ? ", " + e.fixed + " fixed by Muse" : ""));
-    if (e.seconds) parts.push(e.seconds + " s");
-    const plain = (ENDS[e.why] || "Muse finished") + (e.seconds ? " in " + Math.max(1, Math.round(e.seconds)) + " s" : "") + ".";
-    j.foot.replaceChildren(el("span", "simple", plain), el("span", "detail", parts.join(" · ")));
-    j.foot.hidden = false;
+    endJob(j, e);
     room.open.delete(e.job);
     setBusy();
-    refreshCost(e.job);
+    refreshCost();
   }
   scrollDown();
 }
@@ -1265,27 +1651,25 @@ function onThinking(live) {
       previewLine.hidden = false;
       previewLine.textContent = live.work;
     } else if (live.work) {
-      againBox.hidden = false;
+      againButton.hidden = false;
       againButton.disabled = true;
       againLine.textContent = live.work;
     }
     return;
   }
   const j = room.jobs[live.job];
-  if (!j) return;
+  if (!j || j.ended) return;
   if (live.work) {
     stopTimer();
-    j.liveLine.textContent = live.work;
-    j.liveThinking.textContent = "";
-    j.live.hidden = false;
-    j.box.appendChild(j.live);
+    j.tick.textContent = live.work;
+    j.think.textContent = "";
     scrollDown();
     return;
   }
-  if (j.live.hidden) return;
   const words = (live.thinking + (live.text ? "\n" + live.text : "")).trim();
-  j.liveThinking.textContent = words.length > 1500 ? "…" + words.slice(-1500) : words;
-  j.liveThinking.scrollTop = j.liveThinking.scrollHeight;
+  j.tick.textContent = "";
+  j.think.textContent = words.length > 1500 ? "…" + words.slice(-1500) : words;
+  j.think.scrollTop = j.think.scrollHeight;
   scrollDown();
 }
 
@@ -1300,7 +1684,7 @@ function showStatus() {
   } else if (room.work.video || room.work.preview) {
     statusLine.textContent = "Making the " + (room.work.video ? "video" : "preview") + ". Press Stop to end it.";
   } else if (m) {
-    statusLine.textContent = m.ok ? m.label + " is ready, " + m.where + "." : m.label + " is not ready yet. Open Settings to see why.";
+    statusLine.textContent = m.ok ? m.label + " is ready, " + m.where + "." : m.label + " is not ready yet. Open Options to see why.";
   }
 }
 
@@ -1308,19 +1692,18 @@ function mindName(m) {
   return m.label.replace(/^Muse /, "");
 }
 
-function whereTag(m) {
-  return el("span", "mind-tag" + (m.local ? "" : " api"), m.local ? "local" : "API");
-}
-
 function drawChip() {
   const m = current();
-  museChip.textContent = "";
+  [museChip, chatMuse].forEach((chip) => chip.replaceChildren());
   if (!m) return;
   const dot = el("span", "dot " + (m.ok ? "ok" : "off"));
   dot.setAttribute("aria-hidden", "true");
-  museChip.append(dot, el("span", "muse-name", mindName(m)), whereTag(m));
-  museChip.setAttribute("aria-label", "Muse: " + m.label + ", " + (m.local ? "on this computer" : "through an API, which costs money") + ". Change");
-  museChip.title = m.label + ", " + m.where;
+  museChip.append(dot, ico(m.local ? "pc" : "cloud", "sm"), el("b", null, mindName(m)), el("span", null, m.ok ? (m.local ? "on this computer" : "API, with your key") : "not ready"));
+  chatMuse.append(ico(m.local ? "pc" : "cloud", "sm"), mindName(m));
+  [museChip, chatMuse].forEach((chip) => {
+    chip.setAttribute("aria-label", "Muse: " + m.label + ", " + (m.local ? "on this computer" : "through an API, which costs money") + ". Change");
+    chip.title = m.label + ", " + m.where;
+  });
   museWhere.textContent = m.ok ? m.where.charAt(0).toUpperCase() + m.where.slice(1) : "Not ready yet";
 }
 
@@ -1329,18 +1712,16 @@ function drawMinds() {
   machineBox.textContent = "";
   drawChip();
   room.minds.forEach((m) => {
-    const b = el("button", "mind");
+    const b = el("button");
     b.type = "button";
     b.setAttribute("role", "radio");
     b.setAttribute("aria-checked", String(m.key === room.mind));
     b.disabled = !m.ok;
-    const dot = el("span", "dot " + (m.ok ? "ok" : "off"));
-    dot.setAttribute("aria-hidden", "true");
-    b.append(dot, el("span", null, m.label), el("small", null, m.ok ? m.where.charAt(0).toUpperCase() + m.where.slice(1) : "Not ready"));
+    b.append(ico(m.local ? "pc" : "cloud"), mindName(m), el("small", null, m.ok ? (m.local ? "This computer · free" : "API · costs money") : "Not ready"));
+    b.title = m.ok ? m.where : m.why;
     b.addEventListener("click", () => {
       room.mind = m.key;
       localStore("mind", m.key);
-      museMenu.open = false;
       drawMinds();
     });
     mindsBox.appendChild(b);
@@ -1348,39 +1729,107 @@ function drawMinds() {
   });
   const h = room.hearing;
   if (h) machineBox.appendChild(el("p", null, h.label + ": " + (h.ok ? h.name + " at " + h.url : h.why)));
+  drawSeg($("stepsSeg"), [["simple", "Simple"], ["detailed", "Detailed"]], document.body.classList.contains("details") ? "detailed" : "simple", (k) => {
+    localStore("details", k === "detailed" ? "1" : "0");
+    showDetails(k === "detailed");
+  });
+  drawSeg($("themeSeg"), [["auto", "Auto", "auto"], ["light", "Light", "sun"], ["dark", "Dark", "moon"]], localStore("theme") || "auto", (k) => {
+    localStore("theme", k);
+    showTheme();
+  });
+  const mine = localCurrency();
+  const choices = [["USD", "$ USD"]].concat(mine !== "USD" ? [[mine, mine]] : []);
+  drawSeg($("moneySeg"), choices, myCurrency(), (k) => {
+    localStore("money", k);
+    refreshCost();
+    loadHome();
+  });
   showStatus();
+}
+
+function drawSeg(box, choices, now, act) {
+  box.replaceChildren();
+  choices.forEach(([key, label, icon]) => {
+    const b = el("button");
+    b.type = "button";
+    if (icon) b.appendChild(ico(icon, "sm"));
+    b.append(label);
+    b.setAttribute("aria-pressed", String(key === now));
+    b.addEventListener("click", () => {
+      box.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      act(key);
+    });
+    box.appendChild(b);
+  });
 }
 
 function showDetails(on) {
   document.body.classList.toggle("details", on);
-  detailsBox.checked = on;
+  Object.values(room.jobs).forEach((j) => setOpen(j, on || j.card.classList.contains("open")));
 }
 
-detailsBox.addEventListener("change", () => {
-  localStore("details", detailsBox.checked ? "1" : "0");
-  showDetails(detailsBox.checked);
-});
+function showTheme() {
+  const k = localStore("theme") || "auto";
+  const dark = k === "dark" || (k === "auto" && darkScheme.matches);
+  if (dark) document.documentElement.dataset.theme = "dark";
+  else delete document.documentElement.dataset.theme;
+}
+
+darkScheme.addEventListener("change", showTheme);
+
+function openSheet(part) {
+  const fromClip = app.dataset.screen === "clip" || EDITS.includes(part) || part === "out";
+  sheet.classList.toggle("dark", fromClip);
+  sheet.classList.toggle("tall", part === "features" || part === "options");
+  sheetBack.classList.toggle("clear", EDITS.includes(part));
+  const [icon, title] = SHEETS[part];
+  sheetIcon.firstElementChild.setAttribute("href", "#i-" + icon);
+  sheetHead.textContent = title;
+  sheet.hidden = false;
+  sheetBack.classList.add("on");
+  showPart(part);
+  panelNote.textContent = "";
+  if (part !== "words") closeWords();
+  if (part === "cost") {
+    if (room.spent) drawCost(room.spent, costBox, room.ready ? room.ready.job : undefined);
+    refreshCost();
+  } else if (part === "out") {
+    drawOut();
+  } else if (part === "options") {
+    drawMinds();
+  } else if (part === "features") {
+    loadFeatures();
+  }
+  sheet.scrollTop = 0;
+}
+
+function closeSheet() {
+  if (sheet.hidden) return;
+  sheet.hidden = true;
+  sheetBack.classList.remove("on");
+  closeWords();
+  showPart(room.part);
+}
+
+$("sheetClose").addEventListener("click", closeSheet);
+sheetBack.addEventListener("click", closeSheet);
 
 document.addEventListener("click", (e) => {
-  [museMenu, settings, earlier, features].forEach((menu) => {
-    if (menu.open && !menu.contains(e.target) && !e.target.closest("#seeFeatures")) menu.open = false;
-  });
+  const t = e.target.closest("[data-sheet]");
+  if (t) {
+    if (!sheet.hidden && room.part === t.dataset.sheet) closeSheet();
+    else openSheet(t.dataset.sheet);
+    return;
+  }
+  const idea = e.target.closest("[data-idea]");
+  if (idea) {
+    text.value = idea.dataset.idea;
+    text.focus();
+  }
 });
 
-clipOpen.addEventListener("click", () => clipView("full"));
-clipHide.addEventListener("click", () => clipView("tucked"));
-clipBack.addEventListener("click", () => clipView(phone.matches ? "tucked" : "pip"));
-clipPill.addEventListener("click", () => clipView("full"));
-
-function showDark(on) {
-  if (on) document.documentElement.dataset.theme = "dark";
-  else delete document.documentElement.dataset.theme;
-  darkBox.checked = on;
-}
-
-darkBox.addEventListener("change", () => {
-  localStore("theme", darkBox.checked ? "dark" : "light");
-  showDark(darkBox.checked);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !sheet.hidden && document.activeElement !== wordText) closeSheet();
 });
 
 async function health() {
@@ -1401,6 +1850,10 @@ async function health() {
   }
 }
 
+function listed(chatId) {
+  return room.list.find((c) => c.id === chatId);
+}
+
 function show(chatId) {
   if (room.source) room.source.close();
   stopTimer();
@@ -1411,7 +1864,13 @@ function show(chatId) {
   room.costs = [];
   room.cut = {};
   room.showing = null;
+  room.minded = [];
+  room.paid = false;
   room.work = { video: false, preview: false };
+  const known = listed(chatId);
+  room.title = known ? known.title || known.first : "";
+  chatName.textContent = room.title || "New clip";
+  chatSub.replaceChildren();
   log.replaceChildren(welcome.cloneNode(true));
   clearClip();
   fillNewest();
@@ -1427,6 +1886,7 @@ function show(chatId) {
     if (source.readyState === EventSource.CLOSED) setTimeout(connect, 2000);
   };
   room.source = source;
+  refreshCost();
 }
 
 async function connect(chatId) {
@@ -1434,13 +1894,15 @@ async function connect(chatId) {
     const r = await fetch("/api/chat" + (chatId ? "?id=" + encodeURIComponent(chatId) : ""), { cache: "no-store" });
     const d = await r.json();
     if (!d.ok) {
-      bubble("note", d.error);
-      return;
+      toast(d.error);
+      return false;
     }
     if (d.chat !== room.chat || !room.source || room.source.readyState === EventSource.CLOSED) show(d.chat);
+    return true;
   } catch (e) {
     statusLine.textContent = "The studio is not answering. Start it again with: python app.py";
     setTimeout(connect, 3000);
+    return false;
   }
 }
 
@@ -1453,9 +1915,9 @@ async function say(words) {
   try {
     const d = await post("/api/say", { chat: room.chat, message: words, mind: room.mind });
     if (d.ok) return true;
-    bubble("note", d.error || "Something went wrong.");
+    note(d.error || "Something went wrong.");
   } catch (err) {
-    bubble("note", "The studio is not answering. Start it again with: python app.py");
+    note("The studio is not answering. Start it again with: python app.py");
   }
   return false;
 }
@@ -1465,6 +1927,7 @@ composer.addEventListener("submit", async (e) => {
   const words = text.value.trim();
   if (!words || !room.chat) return;
   text.value = "";
+  fitText();
   if (!(await say(words))) text.value = words;
   text.focus();
 });
@@ -1474,7 +1937,7 @@ stopButton.addEventListener("click", async () => {
   try {
     await post("/api/stop", { chat: room.chat });
   } catch (err) {
-    bubble("note", "The studio is not answering. Start it again with: python app.py");
+    note("The studio is not answering. Start it again with: python app.py");
     stopButton.disabled = false;
   }
 });
@@ -1484,14 +1947,140 @@ newButton.addEventListener("click", async () => {
     const d = await post("/api/chat/new", {});
     if (d.ok) show(d.chat);
   } catch (err) {
-    bubble("note", "The studio is not answering. Start it again with: python app.py");
+    toast("The studio is not answering. Start it again with: python app.py");
+    return;
   }
-  earlier.open = false;
+  setScreen("chat");
   text.focus();
 });
 
-const features = document.getElementById("features");
-const featuresList = document.getElementById("featuresList");
+async function openChat(c) {
+  if (c.id !== room.chat && !(await connect(c.id))) return;
+  room.title = c.title || c.first;
+  chatName.textContent = room.title;
+  setScreen(c.clips && c.clips.length ? "clip" : "chat");
+}
+
+async function loadHome() {
+  let d, s;
+  try {
+    [d, s] = await Promise.all([
+      fetch("/api/chats", { cache: "no-store" }).then((r) => r.json()),
+      fetch("/api/spent?currency=" + myCurrency(), { cache: "no-store" }).then((r) => r.json()),
+    ]);
+  } catch (err) {
+    gridEmpty.textContent = "The studio is not answering. Start it again with: python app.py";
+    gridEmpty.hidden = false;
+    return;
+  }
+  room.list = d.chats || [];
+  if (s && s.rate) {
+    room.rate = s.rate;
+    const month = new Date().toLocaleString("en", { month: "short" });
+    monthChip.replaceChildren(ico("cash", "sm"), moneyShort(s.month), el("small", null, month));
+    monthChip.setAttribute("aria-label", "Spent this month: " + moneyShort(s.month) + ". Show what Muse cost");
+    monthChip.hidden = false;
+  }
+  grid.replaceChildren(...room.list.map(tile));
+  gridEmpty.textContent = "No clips yet. Tap + to make your first one.";
+  gridEmpty.hidden = room.list.length > 0;
+  const known = listed(room.chat);
+  if (known && !room.title) {
+    room.title = known.title || known.first;
+    chatName.textContent = room.title;
+  }
+}
+
+function tile(c) {
+  const clips = c.clips || [];
+  const b = el("button", "tile" + (c.id === room.chat ? " here" : ""));
+  b.type = "button";
+  const shot = el("span", "shot");
+  const last = clips[clips.length - 1];
+  if (last) {
+    const img = el("img");
+    img.src = "/api/clip/" + last.file.replace(/\.mp4$/, ".jpg");
+    img.alt = "";
+    img.loading = "lazy";
+    shot.appendChild(img);
+  } else {
+    const none = el("span", "none");
+    none.appendChild(ico("bubble"));
+    shot.appendChild(none);
+  }
+  const minds = el("span", "badge minds");
+  minds.append(...mindIcons(c.minds));
+  if (minds.children.length) shot.appendChild(minds);
+  const usd = c.usd === undefined ? null : c.usd;
+  shot.appendChild(el("span", "badge cost", moneyShort(usd)));
+  if (clips.length > 1) {
+    const many = el("span", "badge many");
+    many.append(ico("stack", "sm"), String(clips.length));
+    shot.appendChild(many);
+  }
+  if (c.id === room.chat && room.open.size) shot.appendChild(el("span", "badge busy", "Working"));
+  const name = c.title || c.first || c.recording || "A chat";
+  b.append(shot, el("span", "tile-name", name));
+  b.setAttribute("aria-label", name + ", " + (clips.length || "no") + (clips.length === 1 ? " clip" : " clips") + ", " + ((c.minds || []).map((m) => mindName(m) + (m.local ? " on this computer" : " through an API")).join(" and ") || "no Muse yet") + ", " + (usd === null ? "cost not known" : moneyShort(usd)));
+  b.addEventListener("click", () => openChat(c));
+  return b;
+}
+
+const features = { loaded: false };
+
+async function loadFeatures() {
+  if (features.loaded) return;
+  featuresList.replaceChildren(el("p", "earlier-empty", "Looking…"));
+  try {
+    const r = await fetch("/api/features", { cache: "no-store" });
+    const d = await r.json();
+    const tabs = el("div", "feature-tabs");
+    tabs.setAttribute("role", "group");
+    tabs.setAttribute("aria-label", "Kinds of work");
+    const gridBox = el("div", "feature-grid");
+    const pick = el("div", "feature-pick");
+    pick.hidden = true;
+    const says = el("p");
+    const tryIt = el("button", "pill go");
+    tryIt.type = "button";
+    tryIt.append(ico("send", "sm"), "Try");
+    pick.append(says, tryIt);
+    const choose = (g, chip) => {
+      tabs.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", String(c === chip)));
+      pick.hidden = true;
+      gridBox.replaceChildren(...g.features.map((f) => {
+        const item = el("button", "feature");
+        item.type = "button";
+        item.setAttribute("aria-pressed", "false");
+        item.append(mini(f.show, f.name + ": " + f.says), el("span", null, f.name));
+        item.addEventListener("click", () => {
+          gridBox.querySelectorAll(".feature").forEach((x) => x.setAttribute("aria-pressed", String(x === item)));
+          says.textContent = f.says;
+          tryIt.onclick = () => {
+            closeSheet();
+            if (app.dataset.screen !== "chat") setScreen("chat");
+            text.value = f.ask;
+            fitText();
+            text.focus();
+          };
+          pick.hidden = false;
+        });
+        return item;
+      }));
+    };
+    d.groups.forEach((g) => {
+      const chip = el("button", "chip", g.name);
+      chip.type = "button";
+      chip.addEventListener("click", () => choose(g, chip));
+      tabs.appendChild(chip);
+    });
+    featuresList.replaceChildren(tabs, gridBox, pick);
+    if (d.groups.length) choose(d.groups[0], tabs.firstChild);
+    features.loaded = true;
+  } catch (err) {
+    featuresList.replaceChildren(el("p", "earlier-empty", "The studio is not answering."));
+  }
+}
 
 const MINI = {
   find: { parts: "rows fx", fx: "🔎" },
@@ -1589,92 +2178,23 @@ function mini(show, said) {
   return box;
 }
 
-function featureTile(f) {
-  const ask = el("button", "chip feature-ask", "Try");
-  ask.type = "button";
-  ask.title = f.ask;
-  ask.setAttribute("aria-label", "Try: " + f.ask);
-  ask.addEventListener("click", () => {
-    text.value = f.ask;
-    features.open = false;
-    text.focus();
-  });
-  const item = el("div", "feature");
-  item.append(mini(f.show, f.name + ": " + f.says), el("b", null, f.name), ask);
-  return item;
-}
-
-features.addEventListener("toggle", async () => {
-  if (!features.open || features.dataset.loaded) return;
-  featuresList.replaceChildren(el("p", "earlier-empty", "Looking…"));
-  try {
-    const r = await fetch("/api/features", { cache: "no-store" });
-    const d = await r.json();
-    const tabs = el("div", "feature-tabs");
-    tabs.setAttribute("role", "group");
-    tabs.setAttribute("aria-label", "Kinds of work");
-    const grid = el("div", "feature-grid");
-    const pick = (g, chip) => {
-      tabs.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", String(c === chip)));
-      grid.replaceChildren(...g.features.map(featureTile));
-      featuresList.scrollTop = 0;
-    };
-    d.groups.forEach((g) => {
-      const chip = el("button", "chip", g.name);
-      chip.type = "button";
-      chip.addEventListener("click", () => pick(g, chip));
-      tabs.append(chip);
-    });
-    featuresList.replaceChildren(tabs, grid);
-    if (d.groups.length) pick(d.groups[0], tabs.firstChild);
-    features.dataset.loaded = "1";
-  } catch (err) {
-    featuresList.replaceChildren(el("p", "earlier-empty", "The studio is not answering."));
-  }
-});
-
-earlier.addEventListener("toggle", async () => {
-  if (!earlier.open) return;
-  earlierList.replaceChildren(el("p", "earlier-empty", "Looking…"));
-  try {
-    const r = await fetch("/api/chats", { cache: "no-store" });
-    const d = await r.json();
-    earlierList.textContent = "";
-    if (!d.chats.length) earlierList.appendChild(el("p", "earlier-empty", "No earlier chats yet."));
-    d.chats.forEach((c) => {
-      const b = el("button", "earlier-chat" + (c.id === room.chat ? " here" : ""));
-      b.type = "button";
-      const meta = el("span", "meta", when(c.when));
-      (c.minds || []).forEach((m) => meta.appendChild(el("span", "mind-tag" + (m.local ? "" : " api"), mindName(m) + " · " + (m.local ? "local" : "API"))));
-      b.append(el("span", "first", c.title || c.first || c.recording), meta);
-      b.addEventListener("click", () => {
-        earlier.open = false;
-        connect(c.id);
-      });
-      earlierList.appendChild(b);
-    });
-  } catch (err) {
-    earlierList.replaceChildren(el("p", "earlier-empty", "The studio is not answering."));
-  }
-});
-
 async function fillNewest() {
   const box = log.querySelector(".welcome .newest");
   if (!box) return;
   try {
     const r = await fetch("/api/recordings", { cache: "no-store" });
     const d = await r.json();
-    box.textContent = "";
+    box.querySelectorAll(".recording:not(.pick), .earlier-empty").forEach((n) => n.remove());
     if (!d.recordings.length) box.appendChild(el("p", "earlier-empty", "No videos found in " + (d.folders.join(", ") || "any folder") + "."));
     d.recordings.forEach((rec) => {
       const b = el("button", "recording");
       b.type = "button";
-      b.append(el("span", "first", rec.name), el("span", "meta", [rec.length, rec.size, rec.when].filter(Boolean).join(" · ")));
+      b.append(ico("film"), el("span", "first", rec.name), el("span", "meta", [rec.length, rec.size, rec.when].filter(Boolean).join(" · ")));
       b.addEventListener("click", () => openRecording({ path: rec.path }));
       box.appendChild(b);
     });
   } catch (err) {
-    box.replaceChildren(el("p", "earlier-empty", "The studio is not answering."));
+    box.appendChild(el("p", "earlier-empty", "The studio is not answering."));
   }
 }
 
@@ -1684,11 +2204,12 @@ async function openRecording(body) {
     const d = await post("/api/open", Object.assign({ chat: room.chat, words: words, mind: room.mind, language: navigator.language || "" }, body));
     if (d.ok) {
       text.value = "";
+      fitText();
       return;
     }
-    bubble("note", d.error || "Something went wrong.");
+    note(d.error || "Something went wrong.");
   } catch (err) {
-    bubble("note", "The studio is not answering. Start it again with: python app.py");
+    note("The studio is not answering. Start it again with: python app.py");
   }
 }
 
@@ -1698,7 +2219,6 @@ function openFile(file) {
 
 log.addEventListener("click", (e) => {
   if (e.target.closest(".pick")) fileInput.click();
-  if (e.target.closest("#seeFeatures")) features.open = true;
 });
 
 fileInput.addEventListener("change", () => {
@@ -1724,8 +2244,16 @@ window.addEventListener("drop", (e) => {
   if (!carriesFiles(e)) return;
   e.preventDefault();
   dropCover.hidden = true;
+  if (app.dataset.screen === "home") setScreen("chat");
   openFile(e.dataTransfer.files[0]);
 });
+
+function fitText() {
+  text.style.height = "auto";
+  text.style.height = Math.min(text.scrollHeight + 2, window.innerHeight * 0.4) + "px";
+}
+
+text.addEventListener("input", fitText);
 
 text.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
@@ -1735,6 +2263,8 @@ text.addEventListener("keydown", (e) => {
 });
 
 showDetails(localStore("details") === "1");
-showDark(localStore("theme") === "dark");
+showTheme();
+history.replaceState({ screen: window.lcsReplay ? "chat" : "home" }, "");
+setScreen(window.lcsReplay ? "chat" : "home", false);
 health();
 connect();

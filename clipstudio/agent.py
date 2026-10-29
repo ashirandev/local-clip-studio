@@ -1500,15 +1500,18 @@ def find(chat_id):
 
 def earlier(limit=CHATS_LISTED):
     """The newest chats on disk that have at least one message: [{id, when, first, messages, recording, title,
-    minds}], title being the name Muse gave the chat (Job.name_chat), else the title of its newest finished clip, else
-    "", minds each Muse that answered in it, [{label, local}], local when it runs on this computer (no key). Tarm
-    10-28: the list read "yeti-c149d0193c.mp4" eight times over."""
+    minds, clips, usd}], title being the name Muse gave the chat (Job.name_chat), else the title of its newest finished
+    clip, else "", minds each Muse that answered in it, [{label, local}], local when it runs on this computer (no key),
+    clips each finished clip it handed over, oldest first, [{file, title, length}], and usd what its answers cost on a
+    mind that is not on this computer: 0 when it used none, None when it did but its answers were never priced. Tarm
+    10-28: the list read "yeti-c149d0193c.mp4" eight times over; 10-29: say which chat made which clip, and its cost."""
     folder = os.path.join(WORK, "chats")
     try:
         names = [n for n in os.listdir(folder) if n.endswith(".events.jsonl") and CHAT_ID.match(n[:-13])]
     except OSError:
         return []
     names.sort(key=lambda n: os.path.getmtime(os.path.join(folder, n)), reverse=True)
+    costs = spent.by_chat(os.path.join(WORK, "spent.jsonl"))
     out = []
     for name in names:
         events = _read(os.path.join(folder, name))
@@ -1518,11 +1521,19 @@ def earlier(limit=CHATS_LISTED):
             minds = list(dict.fromkeys(e["mind"] for e in events if e["kind"] == "job" and e.get("mind")))
             titles = [e["title"] for e in events if e["kind"] == "named"] or [
                 e["title"] for e in events if e["kind"] == "ready" and e.get("title")]
-            out.append({"id": name[:-13], "when": round(os.path.getmtime(os.path.join(folder, name))),
+            listed = [{"label": m, "local": not any(x.label == m and x.key_env for x in mind.MINDS.values())}
+                      for m in minds]
+            clips, seen = [], set()
+            for e in events:
+                if e["kind"] == "ready" and e.get("file") and e["file"] not in seen:
+                    seen.add(e["file"])
+                    clips.append({"file": e["file"], "title": e.get("title") or "", "length": e.get("length")})
+            cid = name[:-13]
+            paid = any(not m["local"] for m in listed)
+            out.append({"id": cid, "when": round(os.path.getmtime(os.path.join(folder, name))),
                         "first": said[0][:100], "messages": len(said), "recording": opened[-1] if opened else "",
-                        "title": titles[-1] if titles else "",
-                        "minds": [{"label": m, "local": not any(x.label == m and x.key_env for x in
-                                                                 mind.MINDS.values())} for m in minds]})
+                        "title": titles[-1] if titles else "", "minds": listed, "clips": clips,
+                        "usd": round(costs[cid], 4) if cid in costs else (None if paid else 0.0)})
         if len(out) >= limit:
             break
     return out

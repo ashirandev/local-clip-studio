@@ -69,10 +69,7 @@ def add(path, chat, job, brain, numbers):
             f.write(json.dumps(row) + "\n")
 
 
-def totals(path, chat=None, now=None):
-    """{chat, jobs, today, month, all, minds, unpriced}: US dollars, by this computer's calendar. jobs are the
-    messages of the chat, each {job, usd, answers, minds}; minds what each mind came to in all; unpriced how many
-    answers had no price."""
+def _rows(path):
     rows = []
     try:
         with open(path, encoding="utf-8") as f:
@@ -83,6 +80,24 @@ def totals(path, chat=None, now=None):
                     continue
     except OSError:
         pass
+    return rows
+
+
+def by_chat(path):
+    """{chat: usd} for every chat with a priced answer on a mind that is not on this computer. A chat missing here
+    that used such a mind was made before answers were written down, so what it cost is not known."""
+    out = {}
+    for r in _rows(path):
+        if r.get("usd") is not None and r.get("mind") != "local" and r.get("chat"):
+            out[r["chat"]] = out.get(r["chat"], 0.0) + r["usd"]
+    return out
+
+
+def totals(path, chat=None, now=None):
+    """{chat, jobs, today, month, all, minds, unpriced}: US dollars, by this computer's calendar. jobs are the
+    messages of the chat, each {job, usd, answers, minds}; minds what each mind came to in all; unpriced how many
+    answers had no price."""
+    rows = _rows(path)
     day = datetime.datetime.fromtimestamp(now or time.time())
     out = {"chat": 0.0, "jobs": [], "today": 0.0, "month": 0.0, "all": 0.0, "minds": {}, "unpriced": 0}
     jobs = {}

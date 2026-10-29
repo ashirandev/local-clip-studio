@@ -1,5 +1,6 @@
 (() => {
-  const NOTE = "This is a replay of a real run, so nothing runs here. Get the studio to make clips from your own videos.";
+  window.lcsReplay = true;
+  const NOTE ="This is a replay of a real run, so nothing runs here. Get the studio to make clips from your own videos.";
   const realFetch = window.fetch.bind(window);
   const data = realFetch("api/replay.json", { cache: "no-store" }).then((r) => r.json());
   let skip = false;
@@ -72,12 +73,12 @@
   line.textContent = "A replay of a real run.";
   const again = document.createElement("button");
   again.type = "button";
-  again.className = "ghost";
+  again.className = "pill";
   again.textContent = "Play again";
   again.addEventListener("click", () => location.reload());
   const end = document.createElement("button");
   end.type = "button";
-  end.className = "ghost end";
+  end.className = "pill end";
   end.textContent = "Show the end";
   end.addEventListener("click", () => {
     skip = true;
