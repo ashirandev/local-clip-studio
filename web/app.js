@@ -1546,7 +1546,7 @@ const MINI = {
   "channel-switch": { parts: "who tag", tag: "@sineysociety" },
   render: { parts: "scr bar" },
   check: { parts: "rows" },
-  post: { parts: "tag fx", tag: "#fyp #game", fx: "📋" },
+  post: { parts: "tag fx", tag: "#reels #game", fx: "📋" },
   undo: { parts: "who ttl fx", fx: "↶" },
 };
 

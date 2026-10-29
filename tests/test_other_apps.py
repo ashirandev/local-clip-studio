@@ -23,6 +23,15 @@ class OtherApps(unittest.TestCase):
                      "made for you", "#foryourinfo", "stock ตัวนี้", "ตึกต่อตึก", "#ikea"):
             self.assertIsNone(tools._other_apps(said), said)
 
+    def test_the_page_names_no_other_companys_app(self):
+        web = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
+        for name in sorted(os.listdir(web)):
+            if name.endswith((".html", ".js", ".css", ".json")):
+                with open(os.path.join(web, name), encoding="utf-8") as f:
+                    found = tools.OTHER_APPS.search(f.read())
+                self.assertIsNone(found, "%s says %r (10-29: the feature tile for a post showed #fyp)"
+                                  % (name, found and found.group(0)))
+
 
 if __name__ == "__main__":
     unittest.main()
