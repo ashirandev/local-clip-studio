@@ -541,6 +541,25 @@ class Tools(unittest.TestCase):
         self.assertEqual([p["text"] for p in self.chat.moments[0]["said"]],
                          ["ตั้งค่าเครื่องง่ายมาก", "ราคาถูกมาก"], "the check reads the line as the caption shows it")
 
+    def test_a_recording_talked_through_gets_its_captions_one_big_line_at_a_time(self):
+        said = ["เครื่องนี้ดูดความชื้นได้ดีมากจริงๆครับ", "บ้านไหนชื้นมากก็เก็บน้ำได้เต็มถังเลย"]
+        self.worker.phrases = [{"from": 1.0, "to": 9.0, "text": said[0]}, {"from": 9.2, "to": 18.5, "text": said[1]}]
+        _, steps = self.run_job(
+            *self.to_moment()[:2],
+            [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the review"}])],
+            json.dumps({"lines": said}, ensure_ascii=False),
+            [call("make_clip", moment=1, layout="subject", why="the review")],
+            [call("add_captions", why="say what he says")],
+            json.dumps({"texts": said}, ensure_ascii=False), "Done.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertTrue(self.chat.project.state()["captions"].get("one"), "a seller's review talked through 30 s had "
+                        "two small lines, as only clips joined by arrange_clips were found talked")
+        talk = [{"from": 0.0, "to": 16.0}]
+        self.assertTrue(tools._talked({}, talk, 20.0))
+        self.assertFalse(tools._talked({"recipe": "game"}, talk, 20.0), "a game keeps them small, under the action")
+        self.assertFalse(tools._talked({"talked": False}, talk, 20.0), "arrange_clips found it not talked")
+        self.assertFalse(tools._talked({}, [{"from": 0.0, "to": 11.0}], 20.0))
+
     def test_english_captions_are_whole_sentences_translated_and_checked_against_what_was_said(self):
         self.worker.phrases = [{"from": 2.0, "to": 2.6, "text": "ตั้งค่าเครื่อง"}, {"from": 2.8, "to": 4.0, "text": "ง่ายมาก"},
                                {"from": 5.0, "to": 8.0, "text": "ราคา 990 บาท"}]
