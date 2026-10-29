@@ -773,7 +773,7 @@ class Job:
         self.proofread = {}
         self.asking = None
         self.stopped = self.done = False
-        self.plan, self.plan_shown = [], "[]"
+        self.plan, self.plan_shown, self.worked = [], "[]", set()
         self.guesses = None
         self.steps = self.refused = self.fixed = self.guard_stops = 0
         self.seen = {}
@@ -1208,6 +1208,8 @@ class Job:
             self.seen[key] = {"result": text, "times": 1, "changed": self.chat.changed}
         if not ran:
             return self.refuse(shown, name, text)
+        if step:
+            self.worked.add(step)
         shown.update(self.shown_extra)
         if self.plan and not step and name != "set_plan":
             text += ("\n(This call named no plan_step, so the plan on the page did not move. Give every call the plan "
@@ -1233,7 +1235,7 @@ class Job:
 
     def set_plan(self, steps, why):
         changed = bool(self.plan)
-        self.plan = [{"text": s, "state": "todo"} for s in steps]
+        self.plan, self.worked = [{"text": s, "state": "todo"} for s in steps], set()
         self.show_plan(why=why, changed=changed)
 
     def tick(self, step):
@@ -1246,11 +1248,13 @@ class Job:
                 item["state"] = "todo"
 
     def finish_plan(self):
-        """Muse answered in words: the step being worked on is done, and so is a last step that only the answer
-        could do ("compare them", "tell the person"). Returns the steps no call has named: [(number, text)]."""
-        for item in self.plan:
+        """Muse answered in words: the step being worked on is done when a call on it went through, and so is a last
+        step that only the answer could do ("compare them", "tell the person"). A step whose every call was refused
+        is not done (10-29: English captions refused three times showed both steps ticked). Returns the steps no call
+        has named or none went through: [(number, text)]."""
+        for i, item in enumerate(self.plan, 1):
             if item["state"] == "now":
-                item["state"] = "done"
+                item["state"] = "done" if i in self.worked else "todo"
         if self.plan and all(item["state"] == "done" for item in self.plan[:-1]):
             self.plan[-1]["state"] = "done"
         self.show_plan()

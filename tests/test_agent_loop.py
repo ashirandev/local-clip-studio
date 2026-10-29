@@ -233,6 +233,9 @@ class Loop(unittest.TestCase):
                              "There is no travel recipe yet.")
         _, events = self.run_job(brain)
         self.assertEqual([e["kind"] for e in events if e["kind"] in ("answer", "note")], ["answer"])
+        plan = [e for e in events if e["kind"] == "plan"][-1]
+        self.assertEqual([p["state"] for p in plan["items"]], ["todo"] * 3,
+                         "a step whose only call was refused is not ticked done, nor the last after it")
 
     def test_the_answer_itself_does_the_last_plan_step(self):
         brain = ScriptedMind([call("set_plan", steps=["find both", "compare them"], why="plan")],
