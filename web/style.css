@@ -19,6 +19,7 @@
   --st-text: #E9EBEE;
   --st-muted: #A9B0BA;
   --st-line: #343941;
+  --st-edge: #7A828E;
   --st-accent: #5B9BFF;
   --st-on-accent: #0E1420;
   --st-mute: #FF8A80;
@@ -435,6 +436,7 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
   --sh-text: var(--text);
   --sh-muted: var(--muted);
   --sh-line: var(--line);
+  --sh-edge: var(--edge);
   --sh-accent: var(--accent);
   --sh-on-accent: var(--on-accent);
   position: fixed;
@@ -460,6 +462,7 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
   --sh-text: var(--st-text);
   --sh-muted: var(--st-muted);
   --sh-line: var(--st-line);
+  --sh-edge: var(--st-edge);
   --sh-accent: var(--st-accent);
   --sh-on-accent: var(--st-on-accent);
 }
@@ -517,7 +520,7 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .word-row.typed .w { font-style: italic; }
 .word-edit { display: grid; gap: 8px; margin-top: 12px; }
 .word-label { color: var(--sh-muted); font-size: 13px; }
-.word-edit textarea, .channel-input { min-width: 0; padding: 10px 12px; border: 1px solid var(--sh-line); border-radius: 12px; background: var(--sh-raise); color: var(--sh-text); font: inherit; }
+.word-edit textarea, .channel-input { min-width: 0; padding: 10px 12px; border: 1px solid var(--sh-edge); border-radius: 12px; background: var(--sh-raise); color: var(--sh-text); font: inherit; }
 .word-edit textarea { resize: vertical; }
 .channel-input::placeholder { color: var(--sh-muted); }
 .word-actions { display: flex; gap: 8px; }
@@ -532,6 +535,9 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .pop-head { margin: 10px 0 0; color: var(--sh-muted); font-size: 13px; font-weight: 700; }
 
 .s-sub small { margin-left: auto; font-size: 13px; font-weight: 500; }
+.api-form { display: grid; gap: 8px; }
+.api-form .channel-input { height: 44px; font-size: 15px; }
+.api-form .pill { justify-self: start; }
 .parts { display: grid; gap: 6px; }
 .part { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: var(--sh-raise); font-size: 14px; font-weight: 600; }
 .part small { color: var(--sh-muted); font-size: 13px; }

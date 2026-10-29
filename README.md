@@ -15,21 +15,32 @@ fixes what fails, and hands over a vertical clip ready to post. To change anythi
 
 ## Quick start
 
-You need Python 3.11 or newer. Then:
+**On Windows, double-click `setup.bat`.** The only things it asks are the endpoint and the key of a Muse API, and
+Enter skips them. Everything else it does by itself:
+- installs its own Python 3.11.9 in `python\` (nothing system-wide) and the studio's packages;
+- downloads the parts below that this computer is missing;
+- puts **Local Clip Studio** on the desktop and opens the studio.
+
+If anything stops, run `setup.bat` again: it carries on from where it stopped. Every file it downloads is checked
+against a size and SHA-256 pinned in the repository first. Measured on 10-29, on a clean copy of the studio with no
+FFmpeg on the PATH: Python, pip, the packages and FFmpeg, then the shortcut, and the studio answered on its own Python.
+
+**Elsewhere, or by hand:** with Python 3.11 or newer,
 
 ```
 pip install -r requirements.txt
 python app.py
 ```
 
-Open http://127.0.0.1:8899/ and press **Set up Muse** (it is also in Options). The studio shows what this computer
-already has and what it still needs, with each size, and downloads the rest with one button:
+then open http://127.0.0.1:8899/ and press **Set up Muse** (it is also in Options). The studio shows what this
+computer already has and what it still needs, with each size, and downloads the rest with one button
+(`python -m clipstudio.parts` does the same in a console):
 
 | Part | Size | From |
 |---|---|---|
 | FFmpeg 8.1.1, essentials build (Windows) | 109 MB | [gyan.dev](https://www.gyan.dev/ffmpeg/builds/), on [GitHub](https://github.com/GyanD/codexffmpeg/releases/tag/8.1.1) |
 | llama.cpp `llama-server`, build b11716 (Windows) | 579 MB (CUDA 13.4) or 659 MB (CUDA 12.4) | [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp/releases/tag/b11716) |
-| Muse Glimmer 30B, UD-Q3_K_XL, with its vision part | 14.8 GB | [unsloth/Muse-Glimmer-30B-GGUF](https://huggingface.co/unsloth/Muse-Glimmer-30B-GGUF) |
+| Muse Glimmer 30B, UD-Q3_K_XL, with its vision part | 14.8 GB | [unsloth/Muse-Glimmer-30B-GGUF](https://huggingface.co/unsloth/Muse-Glimmer-30B-GGUF), the vision part from Meta's [meta-models/Muse-Glimmer-30B-GGUF](https://huggingface.co/meta-models/Muse-Glimmer-30B-GGUF) |
 | Hearing: Omnilingual ASR CTC 1B v2 as int8 ONNX | 1.0 GB | the address in `LCS_HEARING_FROM` |
 
 Each file is used only after its size and SHA-256 match the ones pinned in `clipstudio/parts.py`; a file that does
@@ -101,7 +112,7 @@ own server. This is the exact setup the demo runs on:
 | Model file | `Muse-Glimmer-30B-UD-Q3_K_XL.gguf` from [unsloth/Muse-Glimmer-30B-GGUF](https://huggingface.co/unsloth/Muse-Glimmer-30B-GGUF) |
 | Size | 13,360,983,072 bytes |
 | SHA-256 | `820d18e00c59376331eba62dd716a6bcdcaa305c2316f5da3a2fab36c7c37e15` |
-| Vision part | `mmproj-kquant.gguf` from the same repository, 1,400,328,928 bytes, SHA-256 `f48b452316f9b213758e8659444029b961a24a07f99a1abb2a9f88b06f7c00c6`: the studio shows Muse pictures, so Glimmer needs it |
+| Vision part | `mmproj-Muse-Glimmer-30B-Q4_K_M.gguf` from Meta's own [meta-models/Muse-Glimmer-30B-GGUF](https://huggingface.co/meta-models/Muse-Glimmer-30B-GGUF) (unsloth ships the same bytes as `mmproj-kquant.gguf`), 1,400,328,928 bytes, SHA-256 `f48b452316f9b213758e8659444029b961a24a07f99a1abb2a9f88b06f7c00c6`: the studio shows Muse pictures, so Glimmer needs it |
 | Server | llama.cpp `llama-server`, build b11716 |
 | Graphics card | NVIDIA RTX 5070 Ti, 16 GB |
 | Context | 49,152 tokens: 13.6 GB of the card in use, the same speed as at 32,768 (measured 10-28) |
@@ -115,7 +126,7 @@ version = 1
 
 [muse-glimmer]
 model = Muse-Glimmer-30B-UD-Q3_K_XL.gguf
-mmproj = mmproj-kquant.gguf
+mmproj = mmproj-Muse-Glimmer-30B-Q4_K_M.gguf
 mmproj-offload = true
 c = 49152
 parallel = 1
@@ -137,18 +148,27 @@ The studio looks for it at `http://127.0.0.1:8863/v1` and names the model `muse-
 that runs one model without a preset works too, but then nothing that needs SAM can run beside it.
 
 **2. Muse Spark on Meta's API.** This route needs no graphics card. Set `META_API_KEY` to your own key before
-starting the studio. `LCS_SPARK_MODEL` picks the model (default `muse-spark-1.3`). The key is read from the
-environment and is never written anywhere.
+starting the studio, or type the endpoint (`https://api.meta.ai/v1`) and the key in Options > API.
+`LCS_SPARK_MODEL` picks the model (default `muse-spark-1.3`).
 
 **3. Muse Spark Open on a Modal shared endpoint.** The open-weight Spark (`meta-models/Muse-Spark-Open-816B-A42B`) on
 Modal's machines, paid per token, with no graphics card of your own. Make a shared endpoint for it in your Modal
-workspace (Endpoints), make a proxy token, and set `MODAL_KEY` and `MODAL_SECRET` to its two parts. `LCS_MODAL_MODEL`
+workspace (Endpoints), make a proxy token, and set `MODAL_KEY` and `MODAL_SECRET` to its two parts (or type the
+endpoint and the token, its two parts joined by a dot, in Options > API). `LCS_MODAL_MODEL`
 and `LCS_MODAL_URL` change the model and the address (default `https://inference.us-west.modal.direct/v1`). Each
 conversation stays on one Modal machine, so what it read before is billed at the cached price. Options says so when
 the workspace has no endpoint for the model yet.
 
-Keys can stay in a file of your own, outside the studio's folder: name it in `LCS_KEYS` (`KEY=VALUE` lines; several
-files separated by `;` on Windows, `:` elsewhere). The studio prints the names it read, never a value.
+**The endpoint and key typed in Options > API** (or asked by `setup.bat`) are kept in your own user folder, never in
+the studio's: `%APPDATA%\LocalClipStudio\keys.env` on Windows, `~/.config/LocalClipStudio/keys.env` elsewhere. The
+address decides which Muse it is for: a `*.modal.direct` address is Muse Spark Open on Modal, any other is Muse Spark.
+The Muse they reach is ready at once, without a restart. Only the page on the computer the studio runs on can set them
+or see the saved address, and the key is never shown again: from a phone on the same network, someone could otherwise
+point Muse at a server of theirs and be sent the recording's pictures. An address on another computer must use https,
+so the key is never sent in the clear.
+
+Keys can also stay in a file of your own: name it in `LCS_KEYS` (`KEY=VALUE` lines; several files separated by `;` on
+Windows, `:` elsewhere). The studio prints the names it read, never a value.
 
 **What it costs.** Each chat on the clips screen, each work card and each finished clip shows what Muse cost to make
 it ($0 on your own card, and a dash for a chat made before costs were written down, never a $0 that is not known);
@@ -398,6 +418,7 @@ Model weights are downloaded when they are first needed. None of them are commit
 | 2026-10-28, this build | The question apart that sorts a message into work or talk, 36 talk and 34 work messages | 70 of 70 right with each, Spark in a median 3.1 s, Glimmer in 5.1 s (Glimmer missed "มีไฟล์อะไรบ้าง" until asking which recordings you have was named as work). So it is asked only when Muse's first answer calls a tool |
 | 2026-10-29, this build | The Premiere export of the yeti review (7 pieces from 3 phone clips, 45.6 s), read back with OpenTimelineIO's Final Cut Pro 7 XML reader | 7 pieces on the video track and on the sound, each pointing at its own phone clip (83-109 s long) at the seconds the studio used, the timeline 45.60 s like the clip, the 6 reasons and the title as markers. Frames drawn from the originals with the exported scale and position matched the finished clip at each piece (mean difference 1.6-8.2 of 255, captions left out). Not yet opened in Premiere itself |
 | 2026-10-29, this build | Seven of our own sets, each asked for once in Thai the way a person types it, on Spark and on Glimmer (the brother's podcast on Glimmer only): a mic review in 8 phone clips, horse riding (7), Akihabara (12), an event (19), a talk, a 4-hour SIFU stream, a 1-hour podcast | Spark: 6 of 6 made a clip that passed every check, $0.21-0.46 a clip ($1.83 in all), 2.8-8.1 min. Glimmer: 7 of 7 after three fixes the runs found (a title place -12 px tall in the speaker layout, a podcast's hosts listed to blur, a blur one pixel short of the viewers' names), 2.4-7.9 min a clip, 3.9 on average. The podcast's clip came out 6.7 s: the hearing reads that stretch badly, and the talk recipe keeps only clear speech |
+| 2026-10-29, this build | Meta's own Glimmer file instead of unsloth's: `Muse-Glimmer-30B-KQuant-17GB-Q4_K_M.gguf` from [meta-models/Muse-Glimmer-30B-GGUF](https://huggingface.co/meta-models/Muse-Glimmer-30B-GGUF), 16,756,683,904 bytes, SHA-256 `4cc57c0f51040a226e5a72cc47b7613f7772950e460a665f7083de89f183f60e` as Meta lists it, as a second preset in the same router, chosen with `LCS_MIND_MODEL`; the mic review set asked once in Thai, one run | a 29.0 s clip that passed every check, 7 steps, 0 refused, $0, 15.7 min (the same set on UD-Q3_K_XL: 7.9 min). The file is larger than the 16 GB card, so part of it runs on the processor; UD-Q3_K_XL stays the default |
 
 New measurements are added here as the build is tested, each with its date.
 

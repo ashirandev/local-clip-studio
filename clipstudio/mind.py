@@ -22,6 +22,7 @@ import io
 import json
 import os
 import queue
+import re
 import socket
 import threading
 import time
@@ -39,17 +40,20 @@ PRICES = {
 }
 HOSTED_ROOM = 16384
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
+KEY_FILE = os.path.join(os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), ".config"),
+                        "LocalClipStudio", "keys.env")
 PRICED = ("Meta's price list (dev.meta.ai/docs/pricing-rate-limits) and Modal's for Muse Spark Open, both read on "
           "28 Oct 2026")
 
 
 def load_keys(named=None):
-    """Puts the KEY=VALUE lines of the files LCS_KEYS names (separated by ; on Windows, : elsewhere) into this
-    process's environment, so a key can stay in a file of the person's own, outside the studio's folder; a key already
-    in the environment wins. Lines may start with "export " and values may be quoted; blank lines and # lines are left
-    out. Returns the names it set, never a value; a file that cannot be read is left out."""
+    """Puts the KEY=VALUE lines of the files LCS_KEYS names (separated by ; on Windows, : elsewhere), then KEY_FILE,
+    into this process's environment, so a key can stay in a file of the person's own, outside the studio's folder; a
+    key already in the environment wins. Lines may start with "export " and values may be quoted; blank lines and #
+    lines are left out. Returns the names it set, never a value; a file that cannot be read is left out."""
     done = []
-    for path in [p.strip() for p in (os.environ.get("LCS_KEYS", "") if named is None else named).split(os.pathsep)]:
+    named = os.environ.get("LCS_KEYS", "") + os.pathsep + KEY_FILE if named is None else named
+    for path in [p.strip() for p in named.split(os.pathsep) if p.strip()]:
         try:
             with open(path, encoding="utf-8-sig") as f:
                 lines = f.read().splitlines()
@@ -66,6 +70,63 @@ def load_keys(named=None):
                 os.environ[name] = value
                 done.append(name)
     return done
+
+
+def api_names(url):
+    """The settings an endpoint and its key go into: Modal's for a *.modal.direct address (its proxy token is a key and
+    a secret), else Meta's API, the way Muse Spark is reached."""
+    if (urllib.parse.urlsplit(url).hostname or "").endswith(".modal.direct"):
+        return "LCS_MODAL_URL", ("MODAL_KEY", "MODAL_SECRET")
+    return "LCS_SPARK_URL", ("META_API_KEY",)
+
+
+def saved_api():
+    """The endpoint the person saved in KEY_FILE ("" when none), and whether a key is saved with it. Never the key."""
+    try:
+        with open(KEY_FILE, encoding="utf-8-sig") as f:
+            got = dict(line.partition("=")[::2] for line in f.read().splitlines() if "=" in line)
+    except OSError:
+        return "", False
+    url = got.get("LCS_MODAL_URL") or got.get("LCS_SPARK_URL") or ""
+    return url, bool(url) and all(got.get(name) for name in api_names(url)[1])
+
+
+def save_api(url, key):
+    """Keeps the endpoint and the API key the person typed in KEY_FILE, in their own user folder and never in the
+    studio's, and puts them in this process's environment at once, over what was there. Returns None, or a sentence
+    saying what to give instead. The key goes only to that endpoint, in the Authorization header of each question."""
+    url, key = url.strip().rstrip("/"), key.strip()
+    u = urllib.parse.urlsplit(url)
+    if not u.hostname or not (u.scheme == "https" or (u.scheme == "http" and u.hostname in LOOPBACK)):
+        return "Give the endpoint's address, starting with https://."
+    if not key:
+        return "Give the API key."
+    url_name, key_names = api_names(url)
+    if len(key_names) == 2:
+        parts = [p for p in re.split(r"[.:\s]+", key, maxsplit=1) if p]
+        if len(parts) != 2:
+            return "A Modal proxy token has two parts: give the key and the secret joined by a dot."
+        values = dict(zip(key_names, parts))
+    else:
+        values = {key_names[0]: key}
+    values[url_name] = url
+    gone = {"LCS_SPARK_URL", "LCS_MODAL_URL", "META_API_KEY", "MODAL_KEY", "MODAL_SECRET"}
+    try:
+        with open(KEY_FILE, encoding="utf-8-sig") as f:
+            kept = [line for line in f.read().splitlines() if line.partition("=")[0].strip() not in gone]
+    except OSError:
+        kept = []
+    os.makedirs(os.path.dirname(KEY_FILE), exist_ok=True)
+    tmp = KEY_FILE + ".tmp"
+    text = "\n".join(kept + ["%s=%s" % pair for pair in values.items()]) + "\n"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    with open(tmp, encoding="utf-8") as f:
+        if f.read() != text:
+            return "The key could not be written to %s." % KEY_FILE
+    os.replace(tmp, KEY_FILE)
+    os.environ.update(values)
+    return None
 
 
 class MindError(Exception):

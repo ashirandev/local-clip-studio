@@ -70,6 +70,10 @@ const partsBox = $("partsBox");
 const setUpButton = $("setUp");
 const setupLine = $("setupLine");
 const PART_ICONS = { ffmpeg: "film", engine: "gear", glimmer: "pc", hearing: "wave" };
+const apiForm = $("apiForm");
+const apiUrl = $("apiUrl");
+const apiKey = $("apiKey");
+const apiNote = $("apiNote");
 const idle = text.placeholder;
 
 const SHEETS = { caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
@@ -1807,6 +1811,7 @@ function openSheet(part) {
     mindWhy.hidden = true;
     drawMinds();
     loadParts();
+    loadKey();
   } else if (part === "features") {
     loadFeatures();
   }
@@ -1916,6 +1921,36 @@ async function connect(chatId) {
     return false;
   }
 }
+
+async function loadKey() {
+  if (window.lcsReplay) return;
+  let d;
+  try {
+    d = await fetch("/api/key", { cache: "no-store" }).then((r) => r.json());
+  } catch (e) {
+    return;
+  }
+  apiForm.hidden = !d.here;
+  if (d.url && !apiUrl.value) apiUrl.value = d.url;
+  apiKey.placeholder = d.saved ? "API key (saved)" : "API key";
+}
+
+apiForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  let d;
+  try {
+    d = await post("/api/key", { url: apiUrl.value, key: apiKey.value });
+  } catch (err) {
+    d = { ok: false, error: "The studio is not answering. Start it again with: python app.py" };
+  }
+  const ok = d.ok && d.mind.ok;
+  apiNote.classList.toggle("bad", !ok);
+  apiNote.textContent = !d.ok ? d.error : ok ? d.mind.label + " is ready." : d.mind.why;
+  if (!d.ok) return;
+  apiKey.value = "";
+  apiKey.placeholder = "API key (saved)";
+  health();
+});
 
 function sizeText(bytes) {
   return bytes < 1e9 ? Math.round(bytes / 1e6) + " MB" : (bytes / 1e9).toFixed(1) + " GB";

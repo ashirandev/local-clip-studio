@@ -37,7 +37,7 @@ TOOLS = os.path.join(WORK, "tools")
 FFMPEG_DIR = os.path.join(TOOLS, "ffmpeg")
 LLAMA_DIR = os.path.join(TOOLS, "llama")
 GLIMMER_NAME = "Muse-Glimmer-30B-UD-Q3_K_XL.gguf"
-VISION_NAME = "mmproj-kquant.gguf"
+VISION_NAME = "mmproj-Muse-Glimmer-30B-Q4_K_M.gguf"
 GLIMMER_FILE = os.environ.get("LCS_GLIMMER_FILE") or os.path.join(WORK, "models", "glimmer", GLIMMER_NAME)
 VISION_FILE = os.environ.get("LCS_GLIMMER_VISION") or os.path.join(WORK, "models", "glimmer", VISION_NAME)
 HEARING_DIR = os.environ.get("LCS_HEARING_MODELS") or os.path.join(WORK, "models", "hearing")
@@ -50,7 +50,8 @@ TIMEOUT = 60
 AGENT = "local-clip-studio-setup"
 LLAMA = "https://github.com/ggml-org/llama.cpp/releases/download/b11716/"
 FFMPEG = "https://github.com/GyanD/codexffmpeg/releases/download/8.1.1/"
-GLIMMER = "https://huggingface.co/unsloth/Muse-Glimmer-30B-GGUF/resolve/main/"
+GLIMMER = "https://huggingface.co/unsloth/Muse-Glimmer-30B-GGUF/resolve/faa5b025c584459c13febfa5c59883516710ae39/"
+META = "https://huggingface.co/meta-models/Muse-Glimmer-30B-GGUF/resolve/b44f1072cf75e918a1b82a3a17b45c4389b076e7/"
 
 FILES = {
     "ffmpeg": [(FFMPEG + "ffmpeg-8.1.1-essentials_build.zip", 109282242,
@@ -65,7 +66,7 @@ FILES = {
                 "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6")],
     "glimmer": [(GLIMMER + GLIMMER_NAME, 13360983072,
                  "820d18e00c59376331eba62dd716a6bcdcaa305c2316f5da3a2fab36c7c37e15"),
-                (GLIMMER + VISION_NAME, 1400328928,
+                (META + VISION_NAME, 1400328928,
                  "f48b452316f9b213758e8659444029b961a24a07f99a1abb2a9f88b06f7c00c6")],
     "hearing": [("model.int8.onnx", 1031964630, "543f58a53d4f319376a5374fb7a7c5a2f246f4938370961a6ba7f207a2bb02fc"),
                 ("letters.json", 70913, "88a785591bcd0b54b7fe1a82ecbe9c4f1b55b5600ff8e4440e3d4515656144ce")],
@@ -391,3 +392,71 @@ def stop_glimmer():
             p.wait(10)
         except subprocess.TimeoutExpired:
             p.kill()
+
+
+def _size(n):
+    return "%d MB" % round(n / 1e6) if n < 1e9 else "%.1f GB" % (n / 1e9)
+
+
+def ask_api(read=input, read_secret=None):
+    """Asks for the API endpoint and key in the console (Enter skips, or keeps the one saved). The key is read
+    without showing it."""
+    import getpass
+    read_secret = read_secret or getpass.getpass
+    url, saved = mind.saved_api()
+    print("Muse through an API (Meta's Muse Spark, or Muse Spark Open on Modal): its endpoint and your key.")
+    if saved:
+        print("  Saved: %s. Press Enter to keep it." % url)
+    while True:
+        try:
+            url = read("  Endpoint URL (Enter to skip): ").strip()
+            key = read_secret("  API key (it does not show while you type): ") if url else ""
+        except EOFError:
+            print()
+            return False
+        if not url:
+            return False
+        why = mind.save_api(url, key)
+        if not why:
+            print("  Saved in %s." % mind.KEY_FILE)
+            return True
+        print("  " + why)
+
+
+def main(argv=None):
+    """python -m clipstudio.parts, what setup.bat runs: asks for the API endpoint and key first (so the person can walk
+    away), then downloads every part this computer is missing, with a line of progress. Exit 1 when a download
+    stopped; running it again carries on from where it stopped. --no-key skips the question."""
+    argv = sys.argv[1:] if argv is None else argv
+    use_tools()
+    if "--no-key" not in argv and sys.stdin and sys.stdin.isatty():
+        ask_api()
+    gpu = card()
+    print("Graphics card: %s" % ("%s, %d GB" % (gpu["name"], round(gpu["mib"] / 1024)) if gpu else "none found"))
+    for p in parts(gpu, look=False):
+        print("  %-13s %s" % (p["label"], "ready" if p["ok"] else _size(p["size"]) + " to download" if p["size"]
+                              else "left out: " + (p["why"] or "")))
+    why = set_up()
+    if why:
+        print(why)
+        return 0 if why.startswith("Everything") else 1
+    while True:
+        with _lock:
+            job = dict(_job)
+        if not job["running"]:
+            break
+        label = next((p["label"] for p in parts(gpu, look=False) if p["key"] == job["part"]), "")
+        doing = {"check": "Checking", "unpack": "Unpacking"}.get(job["step"], "Downloading")
+        sys.stdout.write("\r  %s %s - %s of %s     " % (doing, label, _size(job["done"]), _size(job["total"])))
+        sys.stdout.flush()
+        threading.Event().wait(1)
+    print()
+    if job["error"]:
+        print(job["error"])
+        return 1
+    print("Everything that can be set up here is set up.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

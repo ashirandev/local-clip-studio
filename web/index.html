@@ -218,6 +218,13 @@
       <p class="s-sub"><svg class="ico sm"><use href="#i-muse"/></svg>Muse</p>
       <div class="big3" id="minds" role="radiogroup" aria-label="Which Muse does the work"></div>
       <p class="panel-why" id="mindWhy" hidden></p>
+      <form class="api-form" id="apiForm" autocomplete="off" hidden>
+        <p class="s-sub"><svg class="ico sm"><use href="#i-cloud"/></svg>API</p>
+        <input class="channel-input" type="url" id="apiUrl" placeholder="Endpoint URL" aria-label="Endpoint URL" spellcheck="false">
+        <input class="channel-input" type="password" id="apiKey" placeholder="API key" aria-label="API key">
+        <button type="submit" class="pill go"><svg class="ico sm"><use href="#i-check"/></svg>Save</button>
+        <p class="setup-line" id="apiNote" role="status"></p>
+      </form>
       <div id="partsBox" hidden>
         <p class="s-sub"><svg class="ico sm"><use href="#i-pc"/></svg>This computer<small id="cardName"></small></p>
         <div class="parts" id="parts"></div>

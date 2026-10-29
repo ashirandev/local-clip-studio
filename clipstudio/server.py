@@ -9,6 +9,9 @@ through a name it owns), and a POST must be JSON (another web page cannot send J
 - GET /api/parts: what this computer has of FFmpeg, llama.cpp, Muse Glimmer and the hearing model, what setting up
   the rest would download, its graphics card, and the setup running now. POST /api/parts {}: downloads the missing
   parts in the background (parts.py)
+- GET /api/key: the endpoint saved in Options and whether a key is saved with it (never the key), to the page on this
+  computer only. POST /api/key {url, key}: keeps them in the person's own user folder (mind.save_api) and makes the
+  Muse they reach ready at once; refused from any other device
 - GET /api/chat[?id=<chat>]: the chat the page shows (or an earlier one, opened again), and whether Muse is working
 - POST /api/chat/new: a new, empty chat
 - GET /api/chats: the earlier chats, newest first
@@ -104,6 +107,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "groups": agent.features()})
         elif path == "/api/parts":
             self.send_json(dict(parts.state(), ok=True))
+        elif path == "/api/key":
+            url, saved = mind.saved_api() if self.here() else ("", False)
+            self.send_json({"ok": True, "here": self.here(), "url": url, "saved": saved})
         elif path == "/api/chat":
             chat = agent.open_chat(query["id"]) if query.get("id") else agent.current()
             if chat is None:
@@ -161,7 +167,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = self.path.split("?", 1)[0]
         if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/open", "/api/undo", "/api/person",
-                        "/api/base", "/api/parts") + CHANGES:
+                        "/api/base", "/api/parts", "/api/key") + CHANGES:
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
             return
         body = self.read_json()
@@ -173,6 +179,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/parts":
             why = parts.set_up()
             self.send_json({"ok": why is None, "error": why})
+            return
+        if path == "/api/key":
+            self.save_key(body)
             return
         chat = agent.find(str(body.get("chat") or ""))
         if chat is None:
@@ -513,6 +522,23 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": "Open the studio by this computer's address, not by the name %s."
                                                   % (name or "(none)")}, HTTPStatus.FORBIDDEN)
             return False
+
+    def save_key(self, body):
+        """The endpoint and API key typed in Options, kept by mind.save_api. Only the page on this computer may set
+        them: from another device on the network, someone could point Muse at a server of theirs and be sent the
+        recording's pictures."""
+        if not self.here():
+            self.send_json({"ok": False, "error": "Set the key on the computer the studio runs on."},
+                           HTTPStatus.FORBIDDEN)
+            return
+        url = str(body.get("url") or "")
+        why = mind.save_api(url, str(body.get("key") or ""))
+        if why:
+            self.send_json({"ok": False, "error": why}, HTTPStatus.BAD_REQUEST)
+            return
+        mind.MINDS.update(mind.minds())
+        key = "modal" if mind.api_names(url)[0] == "LCS_MODAL_URL" else "spark"
+        self.send_json({"ok": True, "mind": mind.MINDS[key].status()})
 
     def here(self):
         """True when the page is on this computer, so a file dropped on it is on this computer too."""
