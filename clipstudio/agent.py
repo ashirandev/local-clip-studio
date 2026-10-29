@@ -1086,8 +1086,8 @@ class Job:
                     left = self.finish_plan()
                     if left and not nudged and not self.refused_last and not closing:
                         nudged = True
-                        self.emit("answer", final=False, text=got["text"], thinking=got["thinking"],
-                                  engine=got["engine"], mind=self.brain.label)
+                        self.emit("answer", final=False, text=words.unslipped(got["text"]),
+                                  thinking=got["thinking"], engine=got["engine"], mind=self.brain.label)
                         chat.add({"role": "user", "content": "[studio] Your plan has steps no call has named yet: %s. "
                                   "Do them now, or answer the person and say why they are not needed."
                                   % "; ".join("%d. %s" % s for s in left)})
@@ -1096,16 +1096,17 @@ class Job:
                         continue
                     if not covered and self.false_cover(got["text"]):
                         covered = True
-                        self.emit("answer", final=False, text=got["text"], thinking=got["thinking"],
-                                  engine=got["engine"], mind=self.brain.label)
+                        self.emit("answer", final=False, text=words.unslipped(got["text"]),
+                                  thinking=got["thinking"], engine=got["engine"], mind=self.brain.label)
                         chat.add({"role": "user", "content": NO_COVER})
                         self.emit("note", text="Muse spoke of a cover, and no cover is made, so the studio asked it "
                                                "to answer again.")
                         continue
                     with chat.cond:
                         more = bool(self.inbox) and not self.stopped
-                        self.emit("answer", final=not more, text=got["text"], thinking=got["thinking"],
-                                  engine=got["engine"], mind=self.brain.label, talk=self.talk)
+                        self.emit("answer", final=not more, text=words.unslipped(got["text"]),
+                                  thinking=got["thinking"], engine=got["engine"], mind=self.brain.label,
+                                  talk=self.talk)
                         if not more:
                             self.close(end, started)
                             return
@@ -1119,7 +1120,7 @@ class Job:
                     shown, text = self.call(call)
                     chat.add({"role": "tool", "tool_call_id": call["id"], "content": text + "\n\n" + self.state()})
                     first = i == 0
-                    self.emit("step", step=self.steps, said=got["text"] if first else "",
+                    self.emit("step", step=self.steps, said=words.unslipped(got["text"]) if first else "",
                               thinking=got["thinking"] if first else "", engine=got["engine"] if first else None,
                               **shown)
                     self.show_plan()
@@ -1304,7 +1305,7 @@ class Job:
             why, step, clean = tool.check(_arguments(raw), len(self.plan))
         except Refused as e:
             return self.refuse(shown, name, str(e))
-        shown.update(why=why, input=_named(clean, self.chat.clips), plan_step=step)
+        shown.update(why=words.unslipped(why), input=_named(clean, self.chat.clips), plan_step=step)
         key = name + json.dumps(clean, sort_keys=True, ensure_ascii=False)
         seen = self.seen.get(key)
         if seen and seen["changed"] == self.chat.changed and seen["times"] >= 2:

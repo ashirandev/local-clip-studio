@@ -54,6 +54,35 @@ MOST_CHANGED = 0.2
 GROWS = 2
 
 
+SLIPS = {"\u0e37": "\u0e4c", "\u0e49": "\u0e48\u0e31"}
+SLIP_ROUNDS = 4
+
+
+def unslipped(text):
+    """text with Glimmer's slips of the Thai marks put back where one swap makes words of bits no dictionary word
+    makes up: an ื written for ์ (เรนเดอรือีก), an ้ for ่ or ั (ที้, ห้ว). The slips grow as a job goes on and are
+    the model's own first choice, not the sampling: beat 1's step 14 replayed 20 times wrote one in every answer at
+    temperature 0.5, at 0.2, and with every earlier picture taken out (10-29). On beat 1's 25 why lines and 40
+    replayed answers the swaps took 117 such bits to 25, every change right; any look-alike swap made two wrong
+    words, and adding a missing ์ put it in the wrong place, so neither is done. A bit no single swap mends stays as
+    written."""
+    for _ in range(SLIP_ROUNDS):
+        bits = odd_thai(text)
+        best, fewest = None, len(bits)
+        for bit in bits:
+            at = text.find(bit)
+            for i in range(max(0, at), at + len(bit) if at >= 0 else 0):
+                for mark in SLIPS.get(text[i], ""):
+                    tried = text[:i] + mark + text[i + 1:]
+                    left = len(odd_thai(tried))
+                    if left < fewest:
+                        best, fewest = tried, left
+        if best is None:
+            return text
+        text = best
+    return text
+
+
 def odd_thai(words):
     """Bits of Thai in words that no dictionary word makes up, each with the words on either side: the place a tone
     mark or a vowel may be wrong (Glimmer writes ที้ for ที่, เพื่ม for เพิ่ม). PyThaiNLP's own corrections were
