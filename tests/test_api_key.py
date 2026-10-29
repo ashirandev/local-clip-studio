@@ -194,7 +194,7 @@ class Page(unittest.TestCase):
                   encoding="utf-8") as f:
             page = f.read()
         self.assertEqual({n: a["sub"] for n, a in forms.items()},
-                         {"meta": "Muse Spark", "modal": "Spark Open", "baseten": "Spark Open",
+                         {"meta": "4 Muse models", "modal": "Spark Open", "baseten": "Spark Open",
                           "fireworks": "Spark Open"})
         icons = [a["icon"] for a in forms.values()]
         self.assertEqual(len(set(icons)), 4, "a tile is told apart by its shape too")

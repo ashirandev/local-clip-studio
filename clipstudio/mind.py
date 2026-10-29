@@ -56,7 +56,7 @@ NOT_MEASURED = "on %s servers, with your own key (written to its API, not measur
 # own, so its address field is always shown.
 # Each is a tile of the page's own icon (never the provider's logo) and two words of what it serves.
 APIS = {
-    "meta": {"label": "Meta", "sub": "Muse Spark", "icon": "spark", "mind": "spark", "url": "https://api.meta.ai/v1",
+    "meta": {"label": "Meta", "sub": "4 Muse models", "icon": "spark", "mind": "spark", "url": "https://api.meta.ai/v1",
              "key": "Meta API key", "page": "https://dev.meta.ai/api-keys/"},
     "modal": {"label": "Modal", "sub": "Spark Open", "icon": "stack", "mind": "modal", "url": "",
               "where": "https://<your endpoint>.modal.direct/v1", "key": "Modal proxy token",
