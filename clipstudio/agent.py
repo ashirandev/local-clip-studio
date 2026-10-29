@@ -123,7 +123,7 @@ class Chat:
         self.live, self.live_rev = None, 0
         self.clip = self.recording = None
         self.looks, self.moments = [], None
-        self.clips = None
+        self.clips = self.counted = None
         self.project = project.Project()
         self.rendered = []
         self.checks = {}

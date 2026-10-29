@@ -18,6 +18,8 @@ After the clip, the viewer has felt the moment: what led up to it, the peak, and
   sounds such as laughter, a scream or a hit.
 - Start a few seconds before the peak, so the viewer sees what led to it.
 - The streamer's voice matters more than the game's music.
+- A countdown (a top 5, 5 อันดับ) only when the person asks for one in their own words: 3 to 5 moments, the best
+  last, each with a few words of what happens. Asked for the best moment, it is one clip of one moment.
 
 ## Rules
 

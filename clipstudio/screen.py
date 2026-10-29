@@ -50,7 +50,7 @@ MOST_WORDS = 40
 WORDS_FROM = 3
 NAME = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:[.-][A-Za-z0-9]+)*")
 MENU = ("DEATH", "YOUDIED", "GAMEOVER", "GIVEUP", "RETRY", "RESPAWN", "CONTINUE", "PAUSED", "RESUME", "QUITGAME",
-        "UNLOCK", "LOADING", "RESTART", "MAINMENU", "PRESSANYKEY", "PRESSANYBUTTON")
+        "UNLOCK", "LOADING", "RESTART", "MAINMENU", "PRESSANYKEY", "PRESSANYBUTTON", "RISE")
 MENU_SECONDS = 2.0
 LABEL = re.compile(r"(?<![A-Za-z])([A-Za-z]{3,})\s*[|:]?\s*\d|\d\s*[|:]?\s*([A-Za-z]{3,})(?![A-Za-z])")
 ENDINGS = {"com", "net", "org", "io", "ai", "co", "th", "dev", "app", "me", "tv", "gg", "info", "shop", "site", "xyz",

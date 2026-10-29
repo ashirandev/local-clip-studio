@@ -2527,6 +2527,7 @@ const MINI = {
   many: { parts: "reel" },
   folder: { parts: "reel fx", fx: "📁" },
   story: { parts: "reel" },
+  countdown: { parts: "reel fx", fx: "🏆" },
   card: { parts: "scr ring cap" },
   stack: { parts: "ring scr" },
   face: { parts: "who cap" },

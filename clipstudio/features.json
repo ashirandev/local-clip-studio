@@ -424,6 +424,14 @@
   "show": "story"
  },
  {
+  "tool": "make_countdown",
+  "group": "Clips",
+  "name": "Top 5 countdown",
+  "says": "Counts down the best moments of a game stream in one clip, the best last, each with its rank and a few words of what happens.",
+  "ask": "Make a top 5 of the best moments in my stream.",
+  "show": "countdown"
+ },
+ {
   "tool": "change_shot",
   "group": "Layout",
   "name": "Who is on screen",

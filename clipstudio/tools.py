@@ -20,7 +20,7 @@ import types
 import numpy as np
 
 from . import (channels, cover, cutout, effects, faces, focus, hearing, layouts, maps, mind, montage, pauses, person,
-               previews,
+               countdown, previews,
                project, recording, render, review, sends, voices,
                screen, spoken, takes, talk, text, thai, tracks, watch, words)
 from .recipes import RECIPES, SIGNALS
@@ -4284,6 +4284,191 @@ def _one_clip(job, rec, k, c, layout, blur, opened=None):
                                                            "; " + "; ".join(notes) if notes else "")
 
 
+def make_countdown(job, why, moments, story):
+    rec, proposed, looks = _counted_from(job)
+    n = countdown.asked([e["text"] for e in job.chat.events if e["kind"] == "person"])
+    if n is None:
+        raise Refused("Nobody asked for a countdown in their own words (a top 5, 5 อันดับ, นับถอยหลัง), so make the clip "
+                      "from the best moment with make_clip instead.")
+    if (job.chat.clip or {}).get("recipe") != "game":
+        raise Refused("A countdown is made from a game stream for now: make the clip from the best moment with "
+                      "make_clip, or load the game recipe when this is one.")
+    if 0 < n < countdown.FEWEST:
+        raise Refused("A top %d is no countdown: make the clip from the best moment with make_clip." % n)
+    want = min(n, countdown.MOST) if n else None
+    if not proposed:
+        raise Refused("No moments are proposed yet: look at the recording and propose the %s best, then count them "
+                      "down." % (want or "%d to %d" % (countdown.FEWEST, countdown.MOST)))
+    problems = []
+    if want and len(moments) != want:
+        problems.append("The person asked for a top %d%s: give %d moments, the best last." % (
+            n, ", and a countdown holds at most %d" % countdown.MOST if n > countdown.MOST else "", want))
+    numbers = [c["moment"] for c in moments]
+    twice = sorted({k for k in numbers if numbers.count(k) > 1})
+    if twice:
+        problems.append("Moment%s %s named twice: each moment goes in once." % (
+            "s" if len(twice) > 1 else "", ", ".join(map(str, twice))))
+    strange = sorted({k for k in numbers if not 1 <= k <= len(proposed)})
+    if strange:
+        problems.append("There is no moment %s: you proposed %d. Propose the others first." % (
+            ", ".join(map(str, strange)), len(proposed)))
+    clock, spans, fitted = recording.clock, [], []
+    chosen = [proposed[k - 1] for k in numbers if 1 <= k <= len(proposed)]
+    for c in moments:
+        if not 1 <= c["moment"] <= len(proposed):
+            continue
+        m = proposed[c["moment"] - 1]
+        if c.get("start") is None and c.get("end") is None:
+            look = looks[m["look"] - 1]
+            lo = max([(look.get("heard") or [look["start"]])[0], m["start"] - countdown.BEFORE - countdown.AFTER] +
+                     [p["end"] for p in chosen if p["end"] <= m["start"]])
+            try:
+                runs = _menu_runs(job, rec, lo, m["end"])
+            except screen.Stopped:
+                return "Not made: the person pressed Stop."
+            got = countdown.piece(m, runs, lo)
+            if got is None:
+                problems.append("Moment %d: the game's menu shows at %s with under %g s of play before it: propose it "
+                                "from the play that led there." % (c["moment"], ", ".join(clock(r[0]) for r in runs),
+                                                                   countdown.SHORTEST))
+                continue
+            a, b = got
+            if any(abs(b - r[0] - countdown.DEATH_SHOWN) < 0.01 for r in runs):
+                fitted.append("moment %d's piece ends %g s after the game's menu shows at %s, so it shows the play "
+                              "that led there" % (c["moment"], countdown.DEATH_SHOWN,
+                                                  clock(b - countdown.DEATH_SHOWN)))
+        else:
+            a = _time("moment %d's start" % c["moment"], c["start"]) if c.get("start") else m["start"]
+            b = _time("moment %d's end" % c["moment"], c["end"]) if c.get("end") else m["end"]
+            if round(a, 2) < m["start"] or round(b, 2) > m["end"] or \
+                    not countdown.SHORTEST <= round(b - a, 2) <= countdown.LONGEST:
+                problems.append("Moment %d: its piece %s-%s must be inside the moment (%s-%s) and %g to %g s long; "
+                                "leave start and end out for the %g s around its peak." % (
+                                    c["moment"], clock(a), clock(b), clock(m["start"]), clock(m["end"]),
+                                    countdown.SHORTEST, countdown.LONGEST, countdown.BEFORE + countdown.AFTER))
+                continue
+        a, b, moved = _snapped(looks[m["look"] - 1], a, b)
+        if moved:
+            fitted.append("moment %d's piece %s" % (c["moment"], moved))
+        spans.append([a, b])
+    total = sum(b - a for a, b in spans)
+    if not SHORTEST <= round(total) <= LONGEST:
+        problems.append("The pieces add up to %g s; a clip is %d to %d s: %s." % (
+            round(total, 1), SHORTEST, LONGEST, "give shorter pieces or fewer moments" if total > LONGEST else
+            "give longer pieces"))
+    thai = _thai_for_english(job, [c["words"] for c in moments])
+    if thai:
+        problems.append("The person asked for the words on the clip in English, so a viewer who reads no Thai can "
+                        "follow: write these in English: %s." % "; ".join('"%s"' % t for t in thai))
+    if problems:
+        raise Refused("Nothing was joined. Fix all of these, then call it again:\n- " + "\n- ".join(problems))
+    menu = _menu_start(job, rec, spans[0][0])
+    if menu:
+        raise Refused("Nothing was joined. " + menu)
+    try:
+        texts, spelling = _spell(job, [" ".join(c["words"].split()) for c in moments])
+    except hearing.Stopped:
+        return "Not made: the person pressed Stop."
+    count = len(spans)
+    lines = ["%d. %s" % (count - k, words) for k, words in enumerate(texts)]
+    for c, line in zip(moments, lines):
+        _fits_a_place(line, "the words over moment %d" % c["moment"], job.chat.clip["style"])
+    picked = [proposed[c["moment"] - 1] for c in moments]
+    at = countdown.starts(spans)
+    said = []
+    for m, (a, b), t in zip(picked, spans, at):
+        for s in looks[m["look"] - 1].get("said") or []:
+            x, y = max(s["from"], a), min(s["to"], b)
+            if y > x:
+                said.append(dict(s, **{"from": round(t + x - a, 2), "to": round(t + y - a, 2)}))
+    peaks = [round(t + min(max(0.0, (m["t"] if m.get("t") is not None else (a + b) / 2) - a), b - a), 2)
+             for m, (a, b), t in zip(picked, spans, at)]
+    out = countdown.target(rec, spans)
+    job.working("Joining %d moments into the countdown" % count)
+    try:
+        countdown.join(rec, spans, out, on_start=job.started_work)
+    except countdown.Stopped:
+        return "Not made: the person pressed Stop."
+    except countdown.CountdownError as e:
+        return "The countdown could not be joined: %s Tell the person." % e
+    finally:
+        job.done_working()
+    try:
+        joined = recording.probe(out)
+    except recording.NotOpened as e:
+        return "The joined countdown could not be read back: %s Tell the person." % e
+    job.chat.counted = {"out": out, "rec": rec, "moments": proposed, "looks": looks}
+    job.chat.open(joined, job=job.n)
+    end = round(joined["seconds"], 2)
+    titles = [{"piece": k + 1, "text": line, "start": t, "end": at[k + 1] if k + 1 < count else end}
+              for k, (line, t) in enumerate(zip(lines, at))]
+    look, moment = _countdown_moment(job, joined, said, peaks, story, titles)
+    job.chat.looks.append(look)
+    job.chat.moments = [moment]
+    job.show(look=look, moments=[moment])
+    head = ["Joined %d moments into one recording, %g s long, counting down to the best: %s" % (
+        count, round(end, 1), story)]
+    for m, (a, b), t, line in zip(picked, spans, at, lines):
+        head.append('%g s: "%s", moment %d, %s-%s of the recording' % (t, line, m["n"], clock(a), clock(b)))
+    if n > countdown.MOST:
+        head.append("The person asked for a top %d; a countdown holds at most %d moments, so this is a top %d: tell "
+                    "the person." % (n, countdown.MOST, count))
+    if fitted:
+        head.append("The program fitted the pieces: %s." % "; ".join(fitted))
+    if spelling:
+        head.append(spelling)
+    try:
+        made = make_clip(job, why, 1, "card")
+    except Refused as e:
+        made = "The clip is not made yet: %s" % e
+    return "\n".join(head) + "\n\n" + made
+
+
+def _menu_runs(job, rec, a, b):
+    """The runs of the game's menu (countdown.menu_runs) on the screen from a to b, [] when it cannot be read. Stop
+    raises screen.Stopped. Measured on the Sifu stream (10-29), about 35 s to read 36 s, a game running beside it."""
+    job.working("Reading the screen from %s to %s for the game's death screen" % (recording.clock(a),
+                                                                                 recording.clock(b)))
+    try:
+        return countdown.menu_runs(screen.readings(rec, a, b, on_start=job.started_work), MENU_LINES)
+    except screen.ScreenError:
+        return []
+    finally:
+        job.done_working()
+
+
+def _counted_from(job):
+    """(the recording, its proposed moments, its looks) a countdown is cut from: the open recording's or, when the open
+    one is the countdown made last, those of the recording it was cut from, so it can be counted down again in another
+    order or with other words."""
+    kept = job.chat.counted
+    if kept and job.chat.recording and job.chat.recording["path"] == kept["out"]:
+        rec = kept["rec"]
+        if not os.path.isfile(rec["path"]):
+            raise Refused("%s is no longer at %s. Tell the person, and ask where it is now." % (
+                rec["name"], rec["path"]))
+        return rec, kept["moments"], kept["looks"]
+    return _open(job, "count down"), job.chat.moments or [], job.chat.looks
+
+
+def _countdown_moment(job, rec, said, peaks, story, lines):
+    """The look and the one moment of a joined countdown: what is said in each piece, moved to the joined seconds, and
+    a picture at each piece's peak; the moment shows the last, the best."""
+    pictures = []
+    for t in peaks:
+        frame = recording.frame(rec, at=t)
+        if frame:
+            pictures.append({"t": t, "frame": frame})
+    end = round(rec["seconds"], 2)
+    look = {"n": len(job.chat.looks) + 1, "start": 0.0, "end": end, "pictures": pictures, "loudest": None,
+            "said": said, "heard": [0.0, end]}
+    best = pictures[-1] if pictures else {"t": end / 2, "frame": None}
+    moment = {"n": 1, "look": look["n"], "start": 0.0, "end": end, "reason": story, "snapped": None,
+              "frame": best["frame"], "t": best["t"], "said": _heard_said(look, 0.0, end), "lines": lines,
+              "preview": previews.cut(job.chat, job.n, rec, 0.0, end)}
+    return look, moment
+
+
 def _without_tags(words):
     """(the text without its lines of hashtags, those hashtags): the page shows the hashtags once, under the text."""
     kept, tags = [], []
@@ -5421,6 +5606,30 @@ TOOLS = {t.name: t for t in [
                                   "every clip for its whole length, such as a stream's chat box, which stays in one "
                                   "place. A game stream must give its chat box here."}},
          ["clips"], make_clips, changes=True),
+    Tool("make_countdown", "Made the countdown",
+         "Only when the person asked in their own words for a countdown of the best moments (a top 5, ท็อป 5, 5 อันดับ, "
+         "นับถอยหลัง): one clip of %d to %d of the moments you proposed, in countdown order, the best last. The "
+         "program cuts %g s around the peak of each (or the seconds you give), joins them into one recording and makes "
+         "the clip from it in the card layout, each piece with its rank and your words as a title (\"5. ...\" down to "
+         "\"1. ...\"). For the one best moment, make_clip; for a clip from each moment, make_clips."
+         % (countdown.FEWEST, countdown.MOST, countdown.BEFORE + countdown.AFTER),
+         {"moments": {"type": "array", "minItems": countdown.FEWEST, "maxItems": countdown.MOST, "items": {
+             "type": "object", "required": ["moment", "words"], "properties": {
+                 "moment": {"type": "integer", "minimum": 1, "maximum": MOST_MOMENTS,
+                            "description": "The moment's number, as you proposed it."},
+                 "words": {"type": "string", "maxLength": 40,
+                           "description": "A few words over its piece, after its rank, in the clip's language: what "
+                                          "happens, without giving the ending away."},
+                 "start": {"type": "string", "maxLength": 20,
+                           "description": "Where its piece starts, inside the moment, like 1:51:30. Leave start and "
+                                          "end out for the seconds around its peak."},
+                 "end": {"type": "string", "maxLength": 20,
+                         "description": "Where its piece ends, inside the moment."}}},
+                     "description": "The moments in countdown order: the first is the lowest rank, the last the best."},
+          "story": {"type": "string", "maxLength": 200,
+                    "description": "What is counted down, in one line in the person's language, such as the five "
+                                   "closest fights of the stream."}},
+         ["moments", "story"], make_countdown, changes=True),
     Tool("undo", "Took back the last change",
          "Take back the last change to the clip: a layout, a moved part, a style, a title, the captions, a blur, a hit, a "
          "look, a push, a sound, a mute or a decision about people. The "
