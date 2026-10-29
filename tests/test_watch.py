@@ -103,6 +103,25 @@ class Watch(unittest.TestCase):
             watch.LONGEST = old
         self.assertIn("Muse Wonder watches at most 15 s at a time, and 0:30-0:50 is 20 s.", steps[-1]["result"])
 
+    def test_a_game_clips_first_effect_asks_for_wonders_watch_once_and_a_watched_clip_is_not_asked(self):
+        script = self.to_moment()
+        _, steps = self.run_job(script[0], [call("load_recipe", type="game", why="a game stream")], *script[1:],
+                                [call("make_clip", moment=1, layout="card", why="the game")],
+                                [call("add_hit", at=5, kind="shake", why="the hit")],
+                                [call("add_hit", at=5, kind="shake", why="the hit, again")], "Done.")
+        asked, then = steps[-2:]
+        self.assertTrue(asked["refused"])
+        self.assertIn("Have Muse Wonder watch the clip first: watch_piece from 0:30.0 to 0:50.0 (at most 60 s at a "
+                      "time).", asked["result"])
+        self.assertFalse(then["refused"], "asked once a job: Muse may still go on without it")
+        self.wonder.key_value = ""
+        _, steps = self.run_job([call("add_hit", at=12, kind="flash", why="no key")], "Done.")
+        self.assertFalse(steps[-1]["refused"], "with no key nothing asks for a watch it cannot have")
+        self.wonder.key_value = "a key"
+        _, steps = self.run_job([call("watch_piece", start="0:30", end="0:50", why="what the words miss")],
+                                [call("add_sound", at=4.3, kind="thump", why="the yelp")], "Done.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+
     def test_an_answer_that_is_not_the_list_is_said_and_nothing_is_made_up(self):
         self.wonder.answer = "I saw a man playing a game."
         _, steps = self.run_job([call("open_recording", path=self.clip, why="open it")],

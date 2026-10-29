@@ -1747,6 +1747,30 @@ def _told_once(job, kind):
     return False
 
 
+WATCHED_RECIPES = ("game",)
+
+
+def _watch_first(job, state):
+    """Refuses, once a job, an effect on a game clip that Muse Wonder has not watched yet when it can: the effects
+    then land on what a viewer reacts to, which the words and a look's four pictures miss. Measured 10-29 on Tarm's
+    beat 1 (Glimmer, the SIFU stream): a shake and a sticker at 7.5 s, from the words alone, and watch_piece never
+    called."""
+    if job.n is None or (job.chat.clip or {}).get("recipe") not in WATCHED_RECIPES:
+        return
+    wonder = mind.MINDS.get("wonder")
+    if not wonder or not wonder.secret():
+        return
+    if any(e["kind"] == "step" and e.get("tool") == "watch_piece" and not e.get("refused") for e in job.chat.events):
+        return
+    if _told_once(job, "watch_first"):
+        return
+    a, b = state["clip"]["pieces"][0][0], state["clip"]["pieces"][-1][1]
+    raise Refused("Not added. Have Muse Wonder watch the clip first: watch_piece from %s to %s (at most %d s at a "
+                  "time). It sees and hears what a viewer reacts to, which the words miss, and names the effect for "
+                  "each second; then put the effects where it says, this one too if it fits."
+                  % (_tenth(a), _tenth(b), watch.LONGEST))
+
+
 FACES_ONLY = ("face", "talk", "speaker", "split")
 SCREENS = ("card", "stack")
 FACE_ASKED = "their face to fill the frame, in words such as 'only my face' or 'just me, big', or the recording has no " \
@@ -2452,6 +2476,7 @@ SOUNDS = {"thump": "a deep hit, for a punch-in or a shake", "whoosh": "air rushi
 def add_sound(job, why, kind, at, level=0):
     _open(job, "add a sound to")
     state = _clip_state(job)
+    _watch_first(job, state)
     length = state["length"]
     if not 0 <= at < length:
         raise Refused("at %g s is outside the clip, which is %g s long: use seconds of the clip." % (at, length))
@@ -3139,6 +3164,7 @@ def blur_box(job, why, box, start=None, end=None, person_said=None):
 
 def add_hit(job, why, at, kind, word=None):
     state = _clip_state(job)
+    _watch_first(job, state)
     length = state["length"]
     if not 0 <= at < length:
         raise Refused("at %g s is outside the clip, which is %g s long: use the second of the hit, from 0 to %g, in "
@@ -3163,6 +3189,7 @@ def add_sticker(job, why, sticker, at, length=STICKER_LENGTH, place=None, box=No
     asked = _asked(job, person_said)
     rec = _open(job, "put a sticker on")
     state = _clip_state(job)
+    _watch_first(job, state)
     clip_length = state["length"]
     if not 0 <= at < clip_length:
         raise Refused("at %g s is outside the clip, which is %g s long: use seconds of the clip." % (at, clip_length))
@@ -3223,6 +3250,7 @@ def add_flurry(job, why, stickers, at, move="burst", count=8, length=None, place
     asked = _asked(job, person_said)
     rec = _open(job, "put a flurry on")
     state = _clip_state(job)
+    _watch_first(job, state)
     clip_length = state["length"]
     if not 0 <= at < clip_length:
         raise Refused("at %g s is outside the clip, which is %g s long: use seconds of the clip." % (at, clip_length))
