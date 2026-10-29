@@ -12,7 +12,8 @@ Six minds, one request format (the OpenAI chat API):
 - modal: Muse Spark Open, the open-weight Spark, on a Modal shared endpoint of the person's own workspace, with their
   proxy token in MODAL_KEY and MODAL_SECRET (LCS_MODAL_MODEL names the endpoint's model).
 - baseten, fireworks: Muse Spark Open on Baseten's or Fireworks' API, with the person's own key in BASETEN_API_KEY or
-  FIREWORKS_API_KEY (LCS_BASETEN_MODEL, LCS_FIREWORKS_MODEL for a deployment of their own); not yet measured.
+  FIREWORKS_API_KEY (LCS_BASETEN_MODEL, LCS_FIREWORKS_MODEL for a deployment of their own); Fireworks not yet
+  measured.
 
 Every answer is streamed, so Muse's thinking can be shown while it is written, and a question in flight can be
 cancelled at once: Asking.cancel() shuts the connection, and llama-server drops the work ("stop: cancel task" in its
@@ -42,9 +43,12 @@ PRICES = {
     "muse-wonder-1.0": (4.00, 0.20, 20.00),
     "meta-models/Muse-Spark-Open-816B-A42B": (1.25, 0.15, 4.25),
     "accounts/fireworks/models/muse-spark-open": (1.25, 0.15, 4.25),
+    "meta-models/muse-spark-open-1026": (1.25, 0.15, 4.25),
+    "meta-models/muse-spark-open": (1.25, 0.15, 4.25),
 }
-# Baseten and Fireworks serve Muse Spark Open with the OpenAI chat API and a key, as the hackathon's guide offers them;
-# written to their documented addresses and model names, not yet run with a key of ours.
+# Baseten and Fireworks serve Muse Spark Open with the OpenAI chat API and a key, as the hackathon's guide offers them.
+# Baseten was run with a key of ours on 10-29 (a question, a tool call and a JSON answer, through this preset);
+# Fireworks is written to its documented address and model name, not yet run with a key of ours.
 NOT_MEASURED = "on %s servers, with your own key (written to its API, not measured)"
 HOSTED_ROOM = 16384
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
@@ -542,7 +546,7 @@ def minds():
         "baseten": Mind("baseten", "Muse Spark Open (Baseten)",
                         os.environ.get("LCS_BASETEN_URL", "https://inference.baseten.co/v1"),
                         model=os.environ.get("LCS_BASETEN_MODEL", "meta-models/muse-spark-open-1026"),
-                        key_env="BASETEN_API_KEY", provider="Baseten", where=NOT_MEASURED % "Baseten's"),
+                        key_env="BASETEN_API_KEY", provider="Baseten", where="on Baseten's servers, with your own key"),
         "fireworks": Mind("fireworks", "Muse Spark Open (Fireworks)",
                           os.environ.get("LCS_FIREWORKS_URL", "https://api.fireworks.ai/inference/v1"),
                           model=os.environ.get("LCS_FIREWORKS_MODEL", "accounts/fireworks/models/muse-spark-open"),

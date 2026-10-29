@@ -58,15 +58,16 @@ class Saved(unittest.TestCase):
                          ("wk-made-up", "ws-made-up", url))
         self.assertEqual(mind.minds()["modal"].secret(), "wk-made-up.ws-made-up")
 
-    def test_baseten_and_fireworks_serve_spark_open_with_the_persons_own_key_and_say_they_are_not_measured(self):
-        for key, url, name, model, label in (
+    def test_baseten_and_fireworks_serve_spark_open_with_the_persons_own_key_and_fireworks_says_it_is_not_measured(
+            self):
+        for key, url, name, model, label, measured in (
                 ("baseten", "https://inference.baseten.co/v1", "BASETEN_API_KEY", "meta-models/muse-spark-open-1026",
-                 "Baseten"),
+                 "Baseten", True),
                 ("fireworks", "https://api.fireworks.ai/inference/v1", "FIREWORKS_API_KEY",
-                 "accounts/fireworks/models/muse-spark-open", "Fireworks")):
+                 "accounts/fireworks/models/muse-spark-open", "Fireworks", False)):
             m = mind.minds()[key]
             self.assertEqual((m.url, m.model_id, m.key_env), (url, model, name))
-            self.assertIn("not measured", m.where)
+            self.assertEqual("not measured" in m.where, not measured, "run with a key of ours on 10-29: Baseten only")
             self.assertNotEqual(m.label, mind.minds()["modal"].label, "the page tells minds apart by their label")
             gone = m.status()
             self.assertFalse(gone["ok"])
@@ -78,7 +79,9 @@ class Saved(unittest.TestCase):
             self.assertEqual((m.status()["ok"], m.status()["name"]), (True, model))
         self.assertNotIn("BASETEN_API_KEY", self.read(), "one endpoint is kept, as with Modal's")
         self.assertEqual(mind.minds()["fireworks"].price(), (1.25, 0.15, 4.25))
-        self.assertIsNone(mind.minds()["baseten"].price(), "a price not read from Baseten is not shown")
+        self.assertEqual(mind.minds()["baseten"].price(), (1.25, 0.15, 4.25), "Baseten's own page, 10-29")
+        self.assertAlmostEqual(mind.minds()["baseten"].cost({"read_new": 26, "reused": 128, "written": 235}),
+                               0.00105, places=5)
         os.environ["LCS_FIREWORKS_MODEL"] = "accounts/someone/deployedModels/spark"
         self.assertEqual(mind.minds()["fireworks"].model_id, "accounts/someone/deployedModels/spark",
                          "a judge's own deployment is one setting")

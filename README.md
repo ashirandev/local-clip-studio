@@ -201,8 +201,9 @@ the workspace has no endpoint for the model yet.
 own key: set `BASETEN_API_KEY` (model `meta-models/muse-spark-open-1026` at `https://inference.baseten.co/v1`) or
 `FIREWORKS_API_KEY` (model `accounts/fireworks/models/muse-spark-open` at `https://api.fireworks.ai/inference/v1`),
 or type the address and the key in Options > API. `LCS_BASETEN_MODEL` / `LCS_FIREWORKS_MODEL` and `LCS_BASETEN_URL` /
-`LCS_FIREWORKS_URL` change the model and the address, for a deployment of your own. **Written to their documented
-API, not measured:** we have not run these two with a key of ours, and Options says so beside each.
+`LCS_FIREWORKS_URL` change the model and the address, for a deployment of your own. **Baseten is measured** (10-29,
+with a key of ours: a question, a tool call and a JSON answer, under Measured below). **Fireworks is written to its
+documented API, not measured:** we have not run it with a key of ours, and Options says so beside it.
 
 **The endpoint and key typed in Options > API** (or asked by `setup.bat`) are kept in your own user folder, never in
 the studio's: `%APPDATA%\LocalClipStudio\keys.env` on Windows, `~/.config/LocalClipStudio/keys.env` elsewhere. The
@@ -484,6 +485,7 @@ Model weights are downloaded when they are first needed. None of them are commit
 | 2026-10-29, this build | Muse Wonder watching 30 s of the author's own game stream (2:51:08-2:51:38), cut to 360 pixels at 10 frames a second with mono sound (1.46 MB), through `watch_piece` | 36 s, $0.059 (2,735 tokens read, 2,375 written, most of them thinking); 6 moments, none of them said: the yelp at the first hit, a throw, the death from behind, the laugh at his own death, the age jumping from 38 to 44 (the big word it gave was Thai, "แก่!", as the stream is in Thai), and the run around the hedges |
 | 2026-10-29, this build | Muse Voice Transcribe on 87 s of the author's own Thai review (8 phone clips' first) | asked whole: 3 turns, one 51 s long, in 17.5 s. Cut at its pauses into 11 pieces of at most 10 s and asked 6 at a time: 12 phrases of at most 10 s, 7.0 s, $0.004; the Thai written with its marks, a few doubled syllables at the start of a piece, "Logitech Yeti Orb" heard as "low detect Yeti Off" (Muse's fix from the context is for exactly that) |
 | 2026-10-29, this build | One short Thai question to Muse Spark Open on the author's Modal endpoint, and to Muse Wonder on Meta's API | Spark Open: right answer in 1.7 s, $0.002; Wonder: 7 s, $0.006 |
+| 2026-10-29, this build | Muse Spark Open on Baseten (`meta-models/muse-spark-open-1026` at `https://inference.baseten.co/v1`) with the author's key, through the studio's own preset: the three kinds of question the studio asks | a short Thai question: "พร้อมแล้ว" in 3.2 s; a tool call: the right tool and path in 1.3 s; an answer held to a JSON schema (work or talk, for "ฝนตกทั้งวันเลย"): "talk" in 3.8 s. $0.005 for the three at Baseten's listed price ($1.25 / $0.15 cached / $4.25 per million tokens); Baseten reported the cached part of the first question |
 
 New measurements are added here as the build is tested, each with its date.
 
