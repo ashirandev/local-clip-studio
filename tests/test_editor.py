@@ -2428,7 +2428,7 @@ class Tools(unittest.TestCase):
             [call("open_recording", path=self.clip, why="เปิดไฟล์ที่ระบุ")],
             [call("look_at_piece", start="0:30", end="0:50", why="ดูช่วงที่ไมไ่ด้ดู")],
             [call("propose_moments", why="เสนอ", moments=[{"look": 1, "reason": "ช่วงที่ต้วเลขชัด"}])],
-            "เสร็จแล้ว ต้วเลขครบ",
+            "เสร็จแล้ว ตวเลขครบ",
             '{"texts": ["ดูช่วงที่ไม่ได้ดู", "ช่วงที่ตัวเลขชัด", "เสร็จแล้ว ตัวเลขครบ"]}')
         self.chat.job.speller.join(10)
         spelled = [e for e in self.chat.events if e["kind"] == "spelled"]
@@ -2441,7 +2441,7 @@ class Tools(unittest.TestCase):
                 for c in m.get("tool_calls") or []]
         answers = [m["content"] for m in self.chat.messages if m["role"] == "assistant" and not m.get("tool_calls")]
         self.assertIn("ดูช่วงที่ไมไ่ด้ดู", whys, "what Muse reads back is not changed")
-        self.assertIn("เสร็จแล้ว ต้วเลขครบ", answers)
+        self.assertIn("เสร็จแล้ว ตวเลขครบ", answers)
 
         waiting = threading.Event()
 
@@ -2453,7 +2453,7 @@ class Tools(unittest.TestCase):
                 time.sleep(0.05)
             return '{"texts": ["too late"]}'
 
-        brain, steps = self.run_job([call("look_at_piece", start="0:10", end="0:20", why="ดูต้วอย่าง")], "ok",
+        brain, steps = self.run_job([call("look_at_piece", start="0:10", end="0:20", why="ดูตวอย่าง")], "ok",
                                     typed_meanwhile)
         self.assertTrue(waiting.wait(10))
         speller = self.chat.job.speller

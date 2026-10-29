@@ -43,7 +43,8 @@ def plain(text):
 
 THAI = re.compile("[\u0e01-\u0e5b]")
 CREATOR_WORDS = {"ไตเติล", "แคปชัน", "แคปชั่น", "แฮชแท็ก", "คอมโบ", "รีล", "รีลส์", "ช็อต", "ทรานซิชัน", "แอป", "เทส",
-                 "บอท", "บอต", "เกต", "คอปปี้", "คอมมิชชัน", "บูลีน", "สวีต", "มิลลิวินาที"}
+                 "บอท", "บอต", "เกต", "คอปปี้", "คอมมิชชัน", "บูลีน", "สวีต", "มิลลิวินาที", "เรนเดอร์",
+                 "สติกเกอร์", "สติ๊กเกอร์", "เอฟเฟกต์", "เอฟเฟ็กต์", "สตรีมเมอร์"}
 _WORDS = []
 SPELL_ASK = ("Fix only the spelling in each of these Thai texts: tone marks, vowels and letters that are wrong. Keep "
              "every word, every number, every hashtag and the meaning; do not reword or add anything. Give back the "
@@ -56,6 +57,7 @@ GROWS = 2
 
 SLIPS = {"\u0e37": "\u0e4c", "\u0e49": "\u0e48\u0e31"}
 SLIP_ROUNDS = 4
+MET = 100
 
 
 def unslipped(text):
@@ -64,8 +66,10 @@ def unslipped(text):
     the model's own first choice, not the sampling: beat 1's step 14 replayed 20 times wrote one in every answer at
     temperature 0.5, at 0.2, and with every earlier picture taken out (10-29). On beat 1's 25 why lines and 40
     replayed answers the swaps took 117 such bits to 25, every change right; any look-alike swap made two wrong
-    words, and adding a missing ์ put it in the wrong place, so neither is done. A bit no single swap mends stays as
-    written."""
+    words, and adding a missing ์ put it in the wrong place, so neither is done. The word a swap makes must be one the
+    Thai National Corpus has met MET times, or one of CREATOR_WORDS: อีกคร้ง (ครั้ง with its ั dropped) became คร่ง,
+    which the corpus never met, and then ครัง, met 6 times; the right fixes make ที่, ช่วง, ใส่, ตัว (12,059 to
+    818,364). A bit no single swap mends stays as written."""
     for _ in range(SLIP_ROUNDS):
         bits = odd_thai(text)
         best, fewest = None, len(bits)
@@ -75,12 +79,29 @@ def unslipped(text):
                 for mark in SLIPS.get(text[i], ""):
                     tried = text[:i] + mark + text[i + 1:]
                     left = len(odd_thai(tried))
-                    if left < fewest:
+                    if left < fewest and _met(tried, at, at + len(bit)):
                         best, fewest = tried, left
         if best is None:
             return text
         text = best
     return text
+
+
+def _met(text, a, b):
+    """Whether every Thai word of text that overlaps letters a to b is one the Thai National Corpus has met MET times,
+    is made of such words (อีกครั้ง, which the corpus counts as อีก and ครั้ง), or is one of CREATOR_WORDS: a swap
+    can also make words of a wrong cut (อีกครัง read as อี, กค, รัง)."""
+    from pythainlp.tokenize import word_tokenize
+    counts, trie = _counts()
+    at, ok = 0, True
+    for w in word_tokenize(text, engine="newmm", keep_whitespace=True, custom_dict=_WORDS[1]):
+        if at < b and a < at + len(w) and THAI.search(w):
+            word = w.strip()
+            parts = [p for p in word_tokenize(word, engine="newmm", custom_dict=trie) if p.strip()]
+            ok = ok and (counts.get(word, 0) >= MET or word in CREATOR_WORDS
+                         or (len(parts) > 1 and all(counts.get(p, 0) >= MET for p in parts)))
+        at += len(w)
+    return ok
 
 
 def odd_thai(words):
