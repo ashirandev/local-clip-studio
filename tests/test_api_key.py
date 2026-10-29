@@ -17,7 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from clipstudio import mind, parts, server  # noqa: E402
 
-NAMES = ("LCS_SPARK_URL", "LCS_MODAL_URL", "META_API_KEY", "MODAL_KEY", "MODAL_SECRET", "LCS_KEYS")
+NAMES = ("LCS_SPARK_URL", "LCS_MODAL_URL", "META_API_KEY", "MODAL_KEY", "MODAL_SECRET", "LCS_KEYS", "LCS_BASETEN_URL",
+         "BASETEN_API_KEY", "LCS_BASETEN_MODEL", "LCS_FIREWORKS_URL", "FIREWORKS_API_KEY", "LCS_FIREWORKS_MODEL")
 
 
 class Saved(unittest.TestCase):
@@ -56,6 +57,32 @@ class Saved(unittest.TestCase):
         self.assertEqual((os.environ["MODAL_KEY"], os.environ["MODAL_SECRET"], os.environ["LCS_MODAL_URL"]),
                          ("wk-made-up", "ws-made-up", url))
         self.assertEqual(mind.minds()["modal"].secret(), "wk-made-up.ws-made-up")
+
+    def test_baseten_and_fireworks_serve_spark_open_with_the_persons_own_key_and_say_they_are_not_measured(self):
+        for key, url, name, model, label in (
+                ("baseten", "https://inference.baseten.co/v1", "BASETEN_API_KEY", "meta-models/muse-spark-open-1026",
+                 "Baseten"),
+                ("fireworks", "https://api.fireworks.ai/inference/v1", "FIREWORKS_API_KEY",
+                 "accounts/fireworks/models/muse-spark-open", "Fireworks")):
+            m = mind.minds()[key]
+            self.assertEqual((m.url, m.model_id, m.key_env), (url, model, name))
+            self.assertIn("not measured", m.where)
+            self.assertNotEqual(m.label, mind.minds()["modal"].label, "the page tells minds apart by their label")
+            gone = m.status()
+            self.assertFalse(gone["ok"])
+            self.assertIn("Set %s to your own %s API key" % (name, label), gone["why"])
+            self.assertIsNone(mind.save_api(url, " made-up-%s " % key))
+            self.assertEqual(mind.saved_api(), (url, True))
+            m = mind.minds()[key]
+            self.assertEqual(m.headers()["Authorization"], "Bearer made-up-" + key)
+            self.assertEqual((m.status()["ok"], m.status()["name"]), (True, model))
+        self.assertNotIn("BASETEN_API_KEY", self.read(), "one endpoint is kept, as with Modal's")
+        self.assertEqual(mind.minds()["fireworks"].price(), (1.25, 0.15, 4.25))
+        self.assertIsNone(mind.minds()["baseten"].price(), "a price not read from Baseten is not shown")
+        os.environ["LCS_FIREWORKS_MODEL"] = "accounts/someone/deployedModels/spark"
+        self.assertEqual(mind.minds()["fireworks"].model_id, "accounts/someone/deployedModels/spark",
+                         "a judge's own deployment is one setting")
+        self.assertIsNone(mind.minds()["fireworks"].price(), "and its price is the judge's own")
 
     def test_a_second_endpoint_replaces_the_first_and_other_lines_stay(self):
         os.makedirs(os.path.dirname(mind.KEY_FILE))
@@ -129,6 +156,10 @@ class Page(unittest.TestCase):
         status, got, raw = self.ask("GET")
         self.assertEqual((got["url"], got["saved"], got["here"]), ("https://api.meta.ai/v1", True, True))
         self.assertNotIn("made-up-key", raw)
+        for url, key in (("https://inference.baseten.co/v1", "baseten"),
+                         ("https://api.fireworks.ai/inference/v1", "fireworks")):
+            status, got, _ = self.ask("POST", {"url": url, "key": "made-up-key"})
+            self.assertEqual((status, got["mind"]["key"], got["mind"]["ok"]), (200, key, True), url)
 
     def test_another_device_on_the_network_cannot_set_or_read_the_key(self):
         mind.save_api("https://api.meta.ai/v1", "made-up-key")

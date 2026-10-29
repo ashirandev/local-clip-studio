@@ -179,9 +179,17 @@ and `LCS_MODAL_URL` change the model and the address (default `https://inference
 conversation stays on one Modal machine, so what it read before is billed at the cached price. Options says so when
 the workspace has no endpoint for the model yet.
 
+**4. Muse Spark Open on Baseten or Fireworks.** The same open-weight Spark on the other two partners' APIs, with your
+own key: set `BASETEN_API_KEY` (model `meta-models/muse-spark-open-1026` at `https://inference.baseten.co/v1`) or
+`FIREWORKS_API_KEY` (model `accounts/fireworks/models/muse-spark-open` at `https://api.fireworks.ai/inference/v1`),
+or type the address and the key in Options > API. `LCS_BASETEN_MODEL` / `LCS_FIREWORKS_MODEL` and `LCS_BASETEN_URL` /
+`LCS_FIREWORKS_URL` change the model and the address, for a deployment of your own. **Written to their documented
+API, not measured:** we have not run these two with a key of ours, and Options says so beside each.
+
 **The endpoint and key typed in Options > API** (or asked by `setup.bat`) are kept in your own user folder, never in
 the studio's: `%APPDATA%\LocalClipStudio\keys.env` on Windows, `~/.config/LocalClipStudio/keys.env` elsewhere. The
-address decides which Muse it is for: a `*.modal.direct` address is Muse Spark Open on Modal, any other is Muse Spark.
+address decides which Muse it is for: a `*.modal.direct` address is Muse Spark Open on Modal, a `baseten.co` or
+`fireworks.ai` one is Muse Spark Open there, any other is Muse Spark.
 The Muse they reach is ready at once, without a restart. Only the page on the computer the studio runs on can set them
 or see the saved address, and the key is never shown again: from a phone on the same network, someone could otherwise
 point Muse at a server of theirs and be sent the recording's pictures. An address on another computer must use https,

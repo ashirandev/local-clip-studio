@@ -39,13 +39,17 @@ PRICES = {
     "muse-spark-1.3": (1.25, 0.15, 4.25),
     "muse-wonder-1.0": (4.00, 0.20, 20.00),
     "meta-models/Muse-Spark-Open-816B-A42B": (1.25, 0.15, 4.25),
+    "accounts/fireworks/models/muse-spark-open": (1.25, 0.15, 4.25),
 }
+# Baseten and Fireworks serve Muse Spark Open with the OpenAI chat API and a key, as the hackathon's guide offers them;
+# written to their documented addresses and model names, not yet run with a key of ours.
+NOT_MEASURED = "on %s servers, with your own key (written to its API, not measured)"
 HOSTED_ROOM = 16384
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 KEY_FILE = os.path.join(os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), ".config"),
                         "LocalClipStudio", "keys.env")
 PRICED = ("Meta's price list (dev.meta.ai/docs/pricing-rate-limits) and Modal's for Muse Spark Open, both read on "
-          "28 Oct 2026")
+          "28 Oct 2026, and Fireworks' model page, read on 29 Oct 2026")
 
 
 def load_keys(named=None):
@@ -76,10 +80,20 @@ def load_keys(named=None):
 
 def api_names(url):
     """The settings an endpoint and its key go into: Modal's for a *.modal.direct address (its proxy token is a key and
-    a secret), else Meta's API, the way Muse Spark is reached."""
-    if (urllib.parse.urlsplit(url).hostname or "").endswith(".modal.direct"):
+    a secret), Baseten's or Fireworks' for theirs, else Meta's API, the way Muse Spark is reached."""
+    host = urllib.parse.urlsplit(url).hostname or ""
+    if host.endswith(".modal.direct"):
         return "LCS_MODAL_URL", ("MODAL_KEY", "MODAL_SECRET")
+    if host == "baseten.co" or host.endswith(".baseten.co"):
+        return "LCS_BASETEN_URL", ("BASETEN_API_KEY",)
+    if host == "fireworks.ai" or host.endswith(".fireworks.ai"):
+        return "LCS_FIREWORKS_URL", ("FIREWORKS_API_KEY",)
     return "LCS_SPARK_URL", ("META_API_KEY",)
+
+
+ENDPOINTS = ("LCS_MODAL_URL", "LCS_BASETEN_URL", "LCS_FIREWORKS_URL", "LCS_SPARK_URL")
+ENDPOINT_MINDS = {"LCS_MODAL_URL": "modal", "LCS_BASETEN_URL": "baseten", "LCS_FIREWORKS_URL": "fireworks",
+                  "LCS_SPARK_URL": "spark"}
 
 
 def saved_api():
@@ -89,7 +103,7 @@ def saved_api():
             got = dict(line.partition("=")[::2] for line in f.read().splitlines() if "=" in line)
     except OSError:
         return "", False
-    url = got.get("LCS_MODAL_URL") or got.get("LCS_SPARK_URL") or ""
+    url = next((got[name] for name in ENDPOINTS if got.get(name)), "")
     return url, bool(url) and all(got.get(name) for name in api_names(url)[1])
 
 
@@ -112,7 +126,7 @@ def save_api(url, key):
     else:
         values = {key_names[0]: key}
     values[url_name] = url
-    gone = {"LCS_SPARK_URL", "LCS_MODAL_URL", "META_API_KEY", "MODAL_KEY", "MODAL_SECRET"}
+    gone = set(ENDPOINTS) | {"META_API_KEY", "MODAL_KEY", "MODAL_SECRET", "BASETEN_API_KEY", "FIREWORKS_API_KEY"}
     try:
         with open(KEY_FILE, encoding="utf-8-sig") as f:
             kept = [line for line in f.read().splitlines() if line.partition("=")[0].strip() not in gone]
@@ -219,16 +233,16 @@ class Asking:
 
 
 class Mind:
-    def __init__(self, key, label, url, model=None, key_env=None, reasoning_line=None, where=""):
+    def __init__(self, key, label, url, model=None, key_env=None, reasoning_line=None, where="", provider="Meta"):
         self.key, self.label, self.url, self.model_id = key, label, url.rstrip("/"), model
-        self.key_env, self.reasoning_line, self.where = key_env, reasoning_line, where
+        self.key_env, self.reasoning_line, self.where, self.provider = key_env, reasoning_line, where, provider
 
     def secret(self):
         return os.environ.get(self.key_env, "").strip() if self.key_env else ""
 
     def missing(self):
-        return ("Set %s to your own Meta API key, or name a file that holds it in LCS_KEYS, then start the studio "
-                "again." % self.key_env)
+        return ("Set %s to your own %s API key, or name a file that holds it in LCS_KEYS, then start the studio "
+                "again." % (self.key_env, self.provider))
 
     def price(self):
         """US dollars per million tokens (read new, read from the provider's cache, written) by the provider's price
@@ -523,6 +537,14 @@ def minds():
                         os.environ.get("LCS_MODAL_URL", "https://inference.us-west.modal.direct/v1"),
                         model=os.environ.get("LCS_MODAL_MODEL", "meta-models/Muse-Spark-Open-816B-A42B"),
                         key_env=("MODAL_KEY", "MODAL_SECRET"), where="on Modal's servers, with your own token"),
+        "baseten": Mind("baseten", "Muse Spark Open (Baseten)",
+                        os.environ.get("LCS_BASETEN_URL", "https://inference.baseten.co/v1"),
+                        model=os.environ.get("LCS_BASETEN_MODEL", "meta-models/muse-spark-open-1026"),
+                        key_env="BASETEN_API_KEY", provider="Baseten", where=NOT_MEASURED % "Baseten's"),
+        "fireworks": Mind("fireworks", "Muse Spark Open (Fireworks)",
+                          os.environ.get("LCS_FIREWORKS_URL", "https://api.fireworks.ai/inference/v1"),
+                          model=os.environ.get("LCS_FIREWORKS_MODEL", "accounts/fireworks/models/muse-spark-open"),
+                          key_env="FIREWORKS_API_KEY", provider="Fireworks", where=NOT_MEASURED % "Fireworks'"),
     }
 
 

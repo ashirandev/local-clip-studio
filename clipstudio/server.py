@@ -598,8 +598,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": why}, HTTPStatus.BAD_REQUEST)
             return
         mind.MINDS.update(mind.minds())
-        key = "modal" if mind.api_names(url)[0] == "LCS_MODAL_URL" else "spark"
-        self.send_json({"ok": True, "mind": mind.MINDS[key].status()})
+        self.send_json({"ok": True, "mind": mind.MINDS[mind.ENDPOINT_MINDS[mind.api_names(url)[0]]].status()})
 
     def here(self):
         """True when the page is on this computer, so a file dropped on it is on this computer too: a loopback
