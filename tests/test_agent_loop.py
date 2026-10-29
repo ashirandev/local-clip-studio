@@ -505,6 +505,18 @@ class Talk(unittest.TestCase):
         self.assertFalse(any(m.get("tool_calls") for m in self.chat.messages), "the call that was not run is not kept")
         self.assertEqual([m["role"] for m in self.chat.messages], ["system", "user", "assistant"])
 
+    def test_the_countdown_is_offered_only_once_the_person_asked_for_one(self):
+        def names(brain):
+            return {t["function"]["name"] for t in brain.offered[0]}
+
+        brain = ScriptedMind("ok")
+        self.say(brain, "ทำคลิปตลกจากไลฟ์นี้ 1 คลิป ใส่เอฟเฟกต์ตรงจังหวะฮาด้วย")
+        self.assertNotIn("make_countdown", names(brain), "it refuses unless asked, and offered it moved Glimmer's pick")
+        self.assertEqual(len(names(brain)), len(tools.TOOLS) - 1, "every other tool is still offered")
+        brain = ScriptedMind("ok")
+        self.say(brain, "ทำท็อป 5 ช่วงมันส์จากไลฟ์นี้")
+        self.assertIn("make_countdown", names(brain))
+
     def test_a_request_for_work_runs_its_tools(self):
         brain = ScriptedMind([call("find_recordings", why="หาไลฟ์")], '{"needs": "work"}', "เจอแล้ว")
         events = self.say(brain, "หาไลฟ์เมื่อวานให้หน่อย")

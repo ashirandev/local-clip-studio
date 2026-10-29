@@ -33,11 +33,11 @@ import threading
 import time
 import traceback
 
-from . import (asr, channels, chatname, faces, hearing, layer, maps, mind, montage, needs, previews, project, recording,
-               render, spent, text, words)
-from .tools import (CAPTION_LETTERS, LONGEST, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST, STYLES, TOOLS, Refused,
-                    _spoken, _subtitles, _undecided, channel_entries, channel_unfit, describe, faces_at, features,
-                    look_of, look_said)
+from . import (asr, channels, chatname, countdown, faces, hearing, layer, maps, mind, montage, needs, previews, project,
+               recording, render, spent, text, words)
+from .tools import (CAPTION_LETTERS, LONGEST, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST, STYLES, TOOLS, UNASKED,
+                    Refused, _spoken, _subtitles, _undecided, channel_entries, channel_unfit, describe, faces_at,
+                    features, look_of, look_said)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = os.environ.get("LCS_WORK") or os.path.join(ROOT, "work")
@@ -1063,7 +1063,7 @@ class Job:
                     chat.live = {"job": self.n, "step": self.steps + 1, "thinking": "", "text": ""}
                 self.emit("wait", step=self.steps + 1)
                 try:
-                    got = self.ask(tools=None) if closing else self.ask()
+                    got = self.ask(tools=None) if closing else self.ask(self.offered())
                     if got["tool_calls"] and self.only_talk():
                         got = self.ask(tools=None)
                 except mind.Cancelled:
@@ -1144,6 +1144,11 @@ class Job:
                       fault=traceback.format_exc())
         with chat.cond:
             self.close(end, started)
+
+    def offered(self):
+        """The tools Muse is offered at this step: make_countdown only once a person asked for a countdown (UNASKED)."""
+        said = [e["text"] for e in self.chat.events if e["kind"] == "person"]
+        return SCHEMAS if countdown.asked(said) is not None else UNASKED
 
     def only_talk(self):
         """True when the person's typed message only talks, so Muse answers it in words with no tools offered. Asked

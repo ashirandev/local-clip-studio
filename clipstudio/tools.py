@@ -5645,6 +5645,10 @@ TOOLS = {t.name: t for t in [
          {}, [], undo, changes=True),
 ]}
 SCHEMAS = [t.schema() for t in TOOLS.values()]
+# make_countdown refuses unless a person asked for a countdown in their own words, and offering it anyway moved the
+# moment Glimmer made the SIFU clip from (10-30: 1:51 in 3 of 3 runs before it was offered, in 0 of 3 after), so it
+# is offered only once someone asked.
+UNASKED = [s for s in SCHEMAS if s["function"]["name"] != "make_countdown"]
 FEATURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "features.json")
 FEATURE_GROUPS = ("Clips", "Layout", "Captions", "Text and titles", "Effects", "Colour", "Blur", "Cut-out", "Sound",
                   "Channel", "Check and post")
