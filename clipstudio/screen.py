@@ -49,6 +49,10 @@ SURE = 0.9
 MOST_WORDS = 40
 WORDS_FROM = 3
 NAME = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:[.-][A-Za-z0-9]+)*")
+MENU = ("DEATH", "YOUDIED", "GAMEOVER", "GIVEUP", "RETRY", "RESPAWN", "CONTINUE", "PAUSED", "RESUME", "QUITGAME",
+        "UNLOCK", "LOADING", "RESTART", "MAINMENU", "PRESSANYKEY", "PRESSANYBUTTON")
+MENU_SECONDS = 2.0
+LABEL = re.compile(r"(?<![A-Za-z])([A-Za-z]{3,})\s*[|:]?\s*\d|\d\s*[|:]?\s*([A-Za-z]{3,})(?![A-Za-z])")
 ENDINGS = {"com", "net", "org", "io", "ai", "co", "th", "dev", "app", "me", "tv", "gg", "info", "shop", "site", "xyz",
            "us", "uk", "jp"}
 NOT_NAMES = ENDINGS | {"www"}
@@ -291,6 +295,43 @@ def _pictures(rec, times):
 
     with ThreadPoolExecutor(READERS, thread_name_prefix="screen") as pool:
         return list(pool.map(one, times))
+
+
+def _menu_word(text):
+    """The menu word a line of the screen is, in capitals and joined (Give Up is GIVEUP), or None."""
+    word = re.sub(r"[^A-Za-z]", "", text).upper()
+    return word if word in MENU else None
+
+
+def menu(rec, a):
+    """The game's menu words the screen shows in the MENU_SECONDS from a, each as written and once: a death screen,
+    a pause menu or a skill tree shows two or more, play one at most (a button's hint). Read now, from three
+    pictures."""
+    seen = []
+    for r in _pictures(rec, [a, a + MENU_SECONDS / 2, a + MENU_SECONDS]):
+        for line in r["lines"]:
+            word = _menu_word(line["text"])
+            if line["sure"] >= SURE and word and word not in [_menu_word(s) for s in seen]:
+                seen.append(line["text"].strip())
+    return seen
+
+
+def labels(rec, a, b):
+    """The game's labels written on the screen from a to b, in capitals: a word of three letters or more joined to a
+    number (Age32, LEVEL 5, 500 COINS), or a menu word on a line of its own (DEATH). A name written alone, such as the
+    game's, is not a label. From the stretch's readings when it was read, else from WORDS_FROM pictures read now."""
+    read = kept(rec, a, b)
+    if read is None:
+        read = _pictures(rec, [a + (b - a) * (k + 0.5) / WORDS_FROM for k in range(WORDS_FROM)])
+    out = set()
+    for r in read:
+        for line in r["lines"]:
+            if line["sure"] < SURE or private(line["text"]):
+                continue
+            out.update(w.upper() for pair in LABEL.findall(line["text"]) for w in pair if w)
+            if _menu_word(line["text"]):
+                out.add(_menu_word(line["text"]))
+    return sorted(out)
 
 
 def words(rec, a, b):

@@ -1482,7 +1482,7 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     except hearing.Stopped:
         return "Not made: the person pressed Stop."
     recipe = (job.chat.clip or {}).get("recipe")
-    unasked = None if moved else _layout_unasked(job, recipe, [layout])
+    unasked = None if moved else _layout_unasked(job, recipe, [layout]) or _menu_start(job, rec, a)
     if unasked:
         raise Refused("Not made. " + unasked)
     if layout in ("talk", "speaker", "split"):
@@ -1705,6 +1705,48 @@ def _follow(rec, lay, pieces, span):
             rec["width"], rec["height"], whole / float(size[0]), moves, readable))
 
 
+def _menu_start(job, rec, a):
+    """The sentence refusing, once a job, a game clip that opens on the game's menu, or None. Tarm's beat 1, 10-29: the
+    clip started on SIFU's death screen (DEATH, GiveUp, UNLOCK) after the fight it came from, so it never showed the
+    death; the look's sound peak was the laugh after it."""
+    if (job.chat.clip or {}).get("recipe") != "game":
+        return None
+    job.working("Reading the screen at the clip's start")
+    try:
+        shown = screen.menu(rec, a)
+    except screen.ScreenError:
+        return None
+    finally:
+        job.done_working()
+    if len(shown) < MENU_LINES or _told_once(job, "menu_start"):
+        return None
+    return ("The clip would open on the game's menu: at %s the screen shows %s, and a viewer scrolls past a menu in "
+            "the first second. Start on the play that led to it: look at %s-%s and propose the moment from there. If "
+            "the menu is the point, make it again and it is made." % (recording.clock(a), ", ".join(shown),
+                                                                     recording.clock(max(0, a - LOOK_BACK)),
+                                                                     recording.clock(a)))
+
+
+def _labels_copied(job, rec, state, texts, what):
+    """The sentence refusing, once a job for each what, words on a game clip that copy a label the game writes on its
+    screen, or None. Beat 1, 10-29: the title and the post said "ตาย AGE 35 แล้วรีสตาร์ททันที", the screen's Age32
+    and the ending, against the recipe's own rule for the title."""
+    if (job.chat.clip or {}).get("recipe") != "game":
+        return None
+    clip = state["clip"]
+    a, b = clip.get("span") or (clip["pieces"][0][0], clip["pieces"][-1][1])
+    try:
+        shown = set(screen.labels(rec, a, b))
+    except screen.ScreenError:
+        return None
+    copied = sorted({w.upper() for t in texts for w in re.findall(r"[A-Za-z]{3,}", t or "")} & shown)
+    if not copied or _told_once(job, "labels_" + what):
+        return None
+    return ("%s copies what the game writes on its screen (%s): a viewer reads it there already, and it tells what "
+            "happens before it does. Say it in words a viewer would use, without giving the ending away." % (
+                what, ", ".join(copied)))
+
+
 def _reads_screen(job):
     clip = job.chat.clip
     return bool(clip) and (RECIPES.get(clip["recipe"]) or {}).get("read") == "screen"
@@ -1801,6 +1843,8 @@ def _told_once(job, kind):
 
 
 WATCHED_RECIPES = ("game",)
+MENU_LINES = 2
+LOOK_BACK = 30
 
 
 def _watch_first(job, state):
@@ -2302,6 +2346,9 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
         raise Refused("The person asked for the words on the clip in English, so a viewer who reads no Thai can "
                       "follow: write \"%s\" in English." % words)
     _other_apps(words)
+    copied = None if asked else _labels_copied(job, rec, state, [words], "The title")
+    if copied:
+        raise Refused("Not put on. " + copied)
     try:
         (words,), spelling = _spell(job, [words])
     except hearing.Stopped:
@@ -3789,6 +3836,9 @@ def hand_over(job, why, title, caption, hashtags, english=""):
         raise Refused("The post names %s, a place on this computer: viewers must never see where the files are kept. "
                       "Write the title and the post without it." % ", ".join('"%s"' % w for w in where))
     _other_apps(title, caption, english, *[_tag(h) for h in hashtags])
+    copied = _labels_copied(job, rec, state, [title, caption, english], "The title or the post")
+    if copied:
+        raise Refused("Not handed over. " + copied)
     wrong = _misspelled(" ".join([title, caption, english or ""] + list(hashtags)), _screen_words(job, rec, state))
     if wrong and not any(e["kind"] == "misspelled" and e.get("job") == job.n for e in job.chat.events):
         job.emit("misspelled", words=[w for w, _ in wrong])
