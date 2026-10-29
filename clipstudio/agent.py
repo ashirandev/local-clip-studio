@@ -13,7 +13,9 @@ What the loop keeps, whatever Muse writes:
   question apart (needs.py) asks whether the message asked for work, and if it did not, Muse is asked again with no
   tools at all, so it answers in words and nothing runs.
 - The loop ends the job, not Muse: when Muse answers in words (after one reminder of any plan steps it left open),
-  when it keeps repeating a refused call, or after MAX_STEPS steps.
+  when it keeps repeating a refused call, or after MAX_STEPS steps. A job whose last call handed the clip over is
+  done, so at MAX_STEPS Muse is asked once more, with no tools, for its closing words (SIFU on Spark, 10-29: the
+  hand-over was step 30, and the page said the studio had stopped it).
 - The person can steer at any time. Words typed while Muse works cancel the question in flight and go in as the
   newest message, so Muse answers them next; Stop cancels it and ends the job. Everything before the cut is still
   reused by llama-server.
@@ -776,6 +778,7 @@ class Job:
         self.plan, self.plan_shown, self.worked = [], "[]", set()
         self.guesses = None
         self.steps = self.refused = self.fixed = self.guard_stops = 0
+        self.handed = False
         self.seen = {}
         self.last_refused = {}
         self.refused_last = False
@@ -926,6 +929,7 @@ class Job:
 
     def run(self):
         chat, started, end, nudged = self.chat, time.time(), "answered", False
+        closing = False
         self.emit("job", mind=self.brain.label)
         try:
             while True:
@@ -933,11 +937,13 @@ class Job:
                 if self.stopped:
                     end = "stopped"
                     break
-                if self.steps >= MAX_STEPS:
-                    end = "too many steps"
-                    self.emit("note", text="Muse took %d steps on this message, the most one message may take, so the "
-                                           "studio stopped it here. Say what to do next." % self.steps)
-                    break
+                if self.steps >= MAX_STEPS and not closing:
+                    if not self.handed:
+                        end = "too many steps"
+                        self.emit("note", text="Muse took %d steps on this message, the most one message may take, so "
+                                               "the studio stopped it here. Say what to do next." % self.steps)
+                        break
+                    closing = True
                 with chat.cond:
                     if self.inbox or self.stopped:
                         continue
@@ -945,7 +951,7 @@ class Job:
                     chat.live = {"job": self.n, "step": self.steps + 1, "thinking": "", "text": ""}
                 self.emit("wait", step=self.steps + 1)
                 try:
-                    got = self.ask()
+                    got = self.ask(tools=None) if closing else self.ask()
                     if got["tool_calls"] and self.only_talk():
                         got = self.ask(tools=None)
                 except mind.Cancelled:
@@ -966,7 +972,7 @@ class Job:
                 chat.add(got["message"])
                 if not calls:
                     left = self.finish_plan()
-                    if left and not nudged and not self.refused_last:
+                    if left and not nudged and not self.refused_last and not closing:
                         nudged = True
                         self.emit("answer", final=False, text=got["text"], thinking=got["thinking"],
                                   engine=got["engine"], mind=self.brain.label)
@@ -1208,6 +1214,7 @@ class Job:
             self.seen[key] = {"result": text, "times": 1, "changed": self.chat.changed}
         if not ran:
             return self.refuse(shown, name, text)
+        self.handed = name == "hand_over"
         if step:
             self.worked.add(step)
         shown.update(self.shown_extra)

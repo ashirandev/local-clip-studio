@@ -6,6 +6,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -101,6 +102,26 @@ class Loop(unittest.TestCase):
         self.assertEqual((events[-1]["steps"], events[-1]["why"]), (3, "answered"))
         with open(self.chat.log_path, encoding="utf-8") as f:
             self.assertEqual([json.loads(line)["id"] for line in f], [e["id"] for e in self.chat.events])
+
+    def test_a_job_that_hands_over_on_its_last_step_ends_with_muses_words_not_a_stop(self):
+        handed = tools.Tool("hand_over", "Handed over", "", {}, [], lambda job, why: "handed over")
+        with mock.patch.dict(tools.TOOLS, {"hand_over": handed}), mock.patch.object(agent, "MAX_STEPS", 2):
+            brain = ScriptedMind([call("find_recordings", why="look")], [call("hand_over", why="give it")],
+                                 "Here it is.")
+            job, events = self.run_job(brain)
+        self.assertEqual((events[-1]["why"], events[-1]["steps"]), ("answered", 2),
+                         "SIFU on Spark, 10-29: the hand-over was step 30 and the page said the studio stopped it")
+        self.assertEqual([e for e in events if e["kind"] == "note"], [])
+        self.assertEqual([e["text"] for e in events if e["kind"] == "answer"], ["Here it is."])
+
+    def test_a_job_at_the_most_steps_without_a_hand_over_is_stopped_and_says_so(self):
+        with mock.patch.object(agent, "MAX_STEPS", 2):
+            brain = ScriptedMind([call("find_recordings", why="look")],
+                                 [call("find_recordings", words="sifu", why="narrow")], "never asked")
+            job, events = self.run_job(brain)
+        self.assertEqual(events[-1]["why"], "too many steps")
+        self.assertIn("the most one message may take", [e["text"] for e in events if e["kind"] == "note"][-1])
+        self.assertEqual(brain.script, ["never asked"])
 
     def test_a_recording_is_found_by_the_day_it_was_recorded_as_a_person_says_it(self):
         day = time.mktime((2026, 10, 12, 14, 17, 28, 0, 0, -1))
