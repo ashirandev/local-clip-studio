@@ -202,7 +202,8 @@ own key: set `BASETEN_API_KEY` (model `meta-models/muse-spark-open-1026` at `htt
 `FIREWORKS_API_KEY` (model `accounts/fireworks/models/muse-spark-open` at `https://api.fireworks.ai/inference/v1`),
 or type the address and the key in Options > API. `LCS_BASETEN_MODEL` / `LCS_FIREWORKS_MODEL` and `LCS_BASETEN_URL` /
 `LCS_FIREWORKS_URL` change the model and the address, for a deployment of your own. **Baseten is measured** (10-29,
-with a key of ours: a question, a tool call and a JSON answer, under Measured below). **Fireworks is written to its
+with a key of ours: a question, a tool call and a JSON answer, under Measured below). Baseten takes at most 8 pictures
+in one question, so the studio sends it the newest 8 and says the older ones were left out. **Fireworks is written to its
 documented API, not measured:** we have not run it with a key of ours, and Options says so beside it.
 
 **The endpoint and key typed in Options > API** (or asked by `setup.bat`) are kept in your own user folder, never in
@@ -486,6 +487,7 @@ Model weights are downloaded when they are first needed. None of them are commit
 | 2026-10-29, this build | Muse Voice Transcribe on 87 s of the author's own Thai review (8 phone clips' first) | asked whole: 3 turns, one 51 s long, in 17.5 s. Cut at its pauses into 11 pieces of at most 10 s and asked 6 at a time: 12 phrases of at most 10 s, 7.0 s, $0.004; the Thai written with its marks, a few doubled syllables at the start of a piece, "Logitech Yeti Orb" heard as "low detect Yeti Off" (Muse's fix from the context is for exactly that) |
 | 2026-10-29, this build | One short Thai question to Muse Spark Open on the author's Modal endpoint, and to Muse Wonder on Meta's API | Spark Open: right answer in 1.7 s, $0.002; Wonder: 7 s, $0.006 |
 | 2026-10-29, this build | Muse Spark Open on Baseten (`meta-models/muse-spark-open-1026` at `https://inference.baseten.co/v1`) with the author's key, through the studio's own preset: the three kinds of question the studio asks | a short Thai question: "พร้อมแล้ว" in 3.2 s; a tool call: the right tool and path in 1.3 s; an answer held to a JSON schema (work or talk, for "ฝนตกทั้งวันเลย"): "talk" in 3.8 s. $0.005 for the three at Baseten's listed price ($1.25 / $0.15 cached / $4.25 per million tokens); Baseten reported the cached part of the first question |
+| 2026-10-29, this build | The trip folder on Muse Spark Open through Baseten, one run | the question after the pieces were arranged held 9 pictures and Baseten refused it (HTTP 400, "Too many images: 9 (max 8)"); Modal took the same 9. Now Baseten is sent the newest 8: 9 plain-colour pictures in one question, twice each, were refused without that (HTTP 400 in 0.5 s) and answered with it (Muse counted 8, 3.7-5.3 s, $0.002-0.005) |
 
 New measurements are added here as the build is tested, each with its date.
 

@@ -267,6 +267,30 @@ class Modal(unittest.TestCase):
         self.assertEqual(mind.minds()["modal"].model_id, "meta-models/another")
         self.assertEqual(mind.minds()["modal"].key_env, ("MODAL_KEY", "MODAL_SECRET"))
 
+    def test_a_mind_that_takes_few_pictures_is_sent_the_newest_and_the_conversation_keeps_them_all(self):
+        def picture(n):
+            return {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,p%d" % n}}
+
+        talk = [{"role": "user", "content": [{"type": "text", "text": "look"}, picture(1), picture(2)]},
+                {"role": "assistant", "content": "ok"},
+                {"role": "user", "content": [picture(3)]},
+                {"role": "user", "content": [{"type": "text", "text": "the sheet"}, picture(4), picture(5)]}]
+
+        def sent():
+            return [[p["image_url"]["url"][-2:] if p["type"] == "image_url" else p["text"] for p in m["content"]]
+                    for m in Fake.asked[-1]["messages"] if isinstance(m["content"], list)]
+
+        few = mind.Mind("few", "Few pictures", self.mind.url, pictures=3)
+        few.ask(talk)
+        out = mind.LEFT_OUT % 3
+        self.assertEqual(sent(), [["look", out, out], ["p3"], ["the sheet", "p4", "p5"]])
+        self.assertEqual(talk[0]["content"][1]["image_url"]["url"][-2:], "p1", "the conversation keeps its pictures")
+        mind.Mind("all", "All pictures", self.mind.url).ask(talk)
+        self.assertEqual(sent(), [["look", "p1", "p2"], ["p3"], ["the sheet", "p4", "p5"]], "others get them all")
+        self.assertEqual({k: m.pictures for k, m in mind.minds().items()},
+                         {"local": None, "spark": None, "wonder": None, "modal": None, "baseten": 8,
+                          "fireworks": None}, "Baseten refused 9 pictures in one question (10-29)")
+
 
 if __name__ == "__main__":
     unittest.main()

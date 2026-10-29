@@ -50,6 +50,10 @@ PRICES = {
 # Baseten was run with a key of ours on 10-29 (a question, a tool call and a JSON answer, through this preset);
 # Fireworks is written to its documented address and model name, not yet run with a key of ours.
 NOT_MEASURED = "on %s servers, with your own key (written to its API, not measured)"
+# Baseten refuses a question holding more pictures (HTTP 400 "Too many images: 9 (max 8)", the trip demo, 10-29).
+BASETEN_PICTURES = 8
+LEFT_OUT = ("(A picture was here. This Muse takes at most %d pictures a question, so the oldest are left out of this "
+            "one: the tool that showed it shows it again.)")
 HOSTED_ROOM = 16384
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 KEY_FILE = os.path.join(os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), ".config"),
@@ -238,10 +242,31 @@ class Asking:
             conn.close()
 
 
+def newest_pictures(messages, most):
+    """The messages with only their newest `most` pictures, each older one a line saying it was left out. A copy: the
+    conversation keeps every picture for a mind that takes them all."""
+    seen, out = 0, []
+    for m in reversed(messages):
+        content = m.get("content")
+        if isinstance(content, list) and any(p.get("type") == "image_url" for p in content):
+            parts = []
+            for p in reversed(content):
+                if p.get("type") == "image_url":
+                    seen += 1
+                    if seen > most:
+                        p = {"type": "text", "text": LEFT_OUT % most}
+                parts.append(p)
+            m = dict(m, content=parts[::-1])
+        out.append(m)
+    return out[::-1]
+
+
 class Mind:
-    def __init__(self, key, label, url, model=None, key_env=None, reasoning_line=None, where="", provider="Meta"):
+    def __init__(self, key, label, url, model=None, key_env=None, reasoning_line=None, where="", provider="Meta",
+                 pictures=None):
         self.key, self.label, self.url, self.model_id = key, label, url.rstrip("/"), model
         self.key_env, self.reasoning_line, self.where, self.provider = key_env, reasoning_line, where, provider
+        self.pictures = pictures
 
     def secret(self):
         return os.environ.get(self.key_env, "").strip() if self.key_env else ""
@@ -358,6 +383,8 @@ class Mind:
                 msgs[0] = dict(msgs[0], content=self.reasoning_line + "\n\n" + msgs[0]["content"])
             else:
                 msgs.insert(0, {"role": "system", "content": self.reasoning_line})
+        if self.pictures is not None:
+            msgs = newest_pictures(msgs, self.pictures)
         body = {"messages": msgs, "temperature": temperature, "stream": True,
                 "stream_options": {"include_usage": True}}
         if self.model_id:
@@ -546,7 +573,8 @@ def minds():
         "baseten": Mind("baseten", "Muse Spark Open (Baseten)",
                         os.environ.get("LCS_BASETEN_URL", "https://inference.baseten.co/v1"),
                         model=os.environ.get("LCS_BASETEN_MODEL", "meta-models/muse-spark-open-1026"),
-                        key_env="BASETEN_API_KEY", provider="Baseten", where="on Baseten's servers, with your own key"),
+                        key_env="BASETEN_API_KEY", provider="Baseten", where="on Baseten's servers, with your own key",
+                        pictures=BASETEN_PICTURES),
         "fireworks": Mind("fireworks", "Muse Spark Open (Fireworks)",
                           os.environ.get("LCS_FIREWORKS_URL", "https://api.fireworks.ai/inference/v1"),
                           model=os.environ.get("LCS_FIREWORKS_MODEL", "accounts/fireworks/models/muse-spark-open"),
