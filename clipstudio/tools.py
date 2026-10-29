@@ -285,6 +285,10 @@ MOST_CLIPS = 30
 CLIP_SIZE = 1_000_000_000
 SHORTEST_PIECE, LONGEST_PIECE = 1.0, 8.0
 SHORTEST_FIT = 2.0
+# A piece of a long clip given no seconds starts this much before the middle picture of the clip's strip, one Muse saw,
+# so the picture stays in it however short it is cut to fit (SHORTEST_FIT at the least). Seen 10-29 on a trip seen
+# through glasses: seven pieces given no seconds all started at 0 s, the first one looking at the sky.
+MIDDLE_LEAD = 1.0
 OVER_LENGTH = 1.25
 LINE_EVERY = 15.0
 # A montage whose pieces are this much talk is told by its captions: no line of words is asked for each part, and a
@@ -495,8 +499,14 @@ def arrange_clips(job, why, story, clips, left_out=None, hook="", products=None)
         rec = clip["rec"]
         a = c.get("start", 0.0)
         b = min(c.get("end", rec["seconds"]), rec["seconds"])
-        frozen = [s for s in clip["stills"] if s[0] < b and a < s[1]]
         talk = c["clip"] in talking
+        if not talk and "start" not in c and "end" not in c and rec["seconds"] > LONGEST_PIECE:
+            seen = montage.strip_times(rec["seconds"])[len(montage.STRIP_AT) // 2]
+            a = round(max(0.0, min(seen - MIDDLE_LEAD, rec["seconds"] - LONGEST_PIECE)), 2)
+            b = round(a + LONGEST_PIECE, 2)
+            fitted.append("clip %d: no seconds were given, so its piece starts at %g s, by the middle picture of its "
+                          "strip (%g s); give a start and an end for other seconds" % (c["clip"], a, seen))
+        frozen = [s for s in clip["stills"] if s[0] < b and a < s[1]]
         if talk and ("start" not in c or "end" not in c):
             problems.append("Clip %d is someone talking for %g s: give its piece a start and an end around the lines "
                             "you keep, at the seconds the list gives them; a piece of it never starts at 0 s by "

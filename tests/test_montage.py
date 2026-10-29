@@ -350,6 +350,20 @@ class Arrange(unittest.TestCase):
         self.assertEqual(len(again.moments), 1)
         self.assertEqual(again.looks[again.moments[0]["look"] - 1]["end"], again.moments[0]["end"])
 
+    def test_a_long_clip_given_no_seconds_is_cut_by_the_middle_picture_muse_saw(self):
+        with mock.patch.object(tools, "LONGEST_PIECE", 2.0):
+            steps = self.run_job(*self.opened(), [call(
+                "arrange_clips", story="the day", why="order", left_out=[],
+                clips=[{"clip": 2, "words": "We arrive", "why": "where we are"}, {"clip": 1, "why": "what we did"},
+                       {"clip": 3, "start": 0.0, "end": 1.5, "why": "the last thing seen"}])], "Done.")
+        said = steps[-1]["result"]
+        self.assertFalse(steps[-1]["refused"], said)
+        self.assertIn("0 s: clip 2, 0.5-2.5 s of it", said, "the strip showed 0.45, 1.5 and 2.55 s")
+        self.assertIn("2 s: clip 1, 1-3 s of it", said)
+        self.assertIn("4 s: clip 3, 0-1.5 s of it", said, "seconds given are kept")
+        self.assertIn("clip 2: no seconds were given, so its piece starts at 0.5 s, by the middle picture of its strip "
+                      "(1.5 s)", said)
+
     def test_words_asked_for_in_english_go_on_in_english_unless_the_person_typed_them(self):
         self.chat.emit("person", job=None, text="ทำคลิปทริป ซับภาษาอังกฤษ เปิดด้วยคำว่า สถานีแรก")
         thai = [{"clip": 2, "start": 0.5, "end": 2.5, "words": "ถึงสถานีแล้ว", "why": "where we are"},
