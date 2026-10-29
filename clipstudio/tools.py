@@ -15,10 +15,12 @@ import re
 import shutil
 import subprocess
 import time
+import types
 
 import numpy as np
 
-from . import (channels, cutout, effects, faces, focus, hearing, layouts, maps, mind, montage, pauses, person, previews,
+from . import (channels, cover, cutout, effects, faces, focus, hearing, layouts, maps, mind, montage, pauses, person,
+               previews,
                project, recording, render, review, voices,
                screen, spoken, takes, talk, text, thai, tracks, watch, words)
 from .recipes import RECIPES, SIGNALS
@@ -3566,9 +3568,70 @@ def check_clip(job, why):
                                  kind == "game" else ""))
     if failed:
         out.append("Fix what failed, render again and check again, then hand it over.")
+    elif not _here(job):
+        out.append("Make the cover next (make_cover), then hand it over.")
     else:
         out.append("Hand it over next.")
     return "\n".join(out)
+
+
+def _here(job):
+    """True when the job's Muse runs on this computer (no key), so nothing of the person's leaves it unasked."""
+    return not getattr(job.brain, "key_env", None)
+
+
+def _cover_second(job, state):
+    """The clip second the cover is drawn from: the peak of the moment the clip was made from, else its middle."""
+    clip, moments = state["clip"], job.chat.moments or []
+    n = clip.get("moment")
+    m = moments[n - 1] if isinstance(n, int) and 1 <= n <= len(moments) else {}
+    peak = project.from_recording(clip["pieces"], m["t"]) if m.get("t") is not None else None
+    return min(max(0.0, peak if peak is not None else state["length"] / 2), state["length"] - 0.1)
+
+
+def _cover_of(job, name):
+    """The newest cover made in this chat for the finished file name: {cover, title}, or None."""
+    return next(({"cover": e["cover"], "title": e["title"]} for e in reversed(job.chat.events)
+                 if e["kind"] == "cover" and e.get("file") == name), None)
+
+
+def make_cover(job, why, title, again=False, asked=False):
+    rec, state = _open(job, "make a cover for"), _clip_state(job)
+    done = job.chat.finished()
+    if not done:
+        raise Refused("There is no finished file made from the clip as it is now. Render the clip first, then make "
+                      "its cover.")
+    if _here(job) and not asked:
+        raise Refused("You work on this computer, so no picture of the person's leaves it unasked: %s draws the cover "
+                      "on Meta's servers, with their key, for $%.2f. Make it only when the person asks for a cover or "
+                      "taps Make the cover; otherwise hand the clip over without one." % (cover.LABEL, cover.USD))
+    at = _cover_second(job, state)
+    try:
+        frame = render.frame(rec, state, at, (job.chat.clip or {}).get("style") or "clean", width=cover.WIDTH,
+                             words=False)
+    except render.NotDrawn as e:
+        raise Refused("The frame for the cover could not be drawn: %s" % e)
+    job.working("%s is drawing the cover" % cover.LABEL)
+    try:
+        got = cover.make(frame, title, _spoken(job, [title]), again=again)
+    except cover.CoverError as e:
+        got = {"usd": e.usd, "error": str(e)}
+    finally:
+        job.done_working()
+    if got["usd"]:
+        job.paid({"engine": {"read_new": None, "reused": None, "written": None, "usd": got["usd"]}},
+                 types.SimpleNamespace(key="image", label=cover.LABEL, model_id=cover.model()))
+    if got.get("error"):
+        raise Refused(got["error"])
+    name = os.path.basename(got["path"])
+    job.emit("cover", file=done["name"], cover=name, title=" ".join(title.split()), usd=got["usd"])
+    job.attach(got["path"], "The cover, as the person sees it:")
+    return ("%s the cover from the clip at %g s with the words \"%s\"%s. It comes next as a picture: check that the "
+            "words are spelled as you wrote them and whole, and that faces and the product are as shot. If not, make "
+            "it again with again: true; then hand the clip over, and the person gets the cover with it." % (
+                "Kept" if got["reused"] else "%s drew" % cover.LABEL, round(at, 2), " ".join(title.split()),
+                " (made before, at no cost)" if got["reused"] else " in %g s, for $%.2f" % (got["seconds"],
+                                                                                           got["usd"])))
 
 
 def _checked_before(job, moment):
@@ -3679,16 +3742,20 @@ def hand_over(job, why, title, caption, hashtags, english=""):
     mine = _tag(((channels.in_use() or {}).get("handle") or "").lstrip("@"))
     if mine and mine.lower() not in {t.lower() for t in tags}:
         tags.append(mine)
+    made = _cover_of(job, done["name"])
     ready = {"file": done["name"], "length": done["length"], "title": title, "caption": caption, "hashtags": tags,
-             "english": english, "checks": checks, "work": job.chat.worked(job.n, job.steps)}
+             "english": english, "checks": checks, "work": job.chat.worked(job.n, job.steps),
+             "cover": made["cover"] if made else None}
     job.emit("ready", **ready)
     job.show(ready=ready)
     pieces = _clip_state(job)["clip"]["pieces"]
-    return ("Handed over: the person sees the finished clip with its title, the post text and %d hashtags, a Copy all "
-            "button and a download. Tell them in one or two short lines; do not repeat the text, it is on the page. "
-            "The clip is %g s, from %s to %s of the recording: when you say its length or its times, say these, not "
-            "the ones asked for." % (len(tags), round(done["length"], 2), recording.clock(min(p[0] for p in pieces)),
-                                     recording.clock(max(p[1] for p in pieces)))) + (" " + spelling if spelling else "")
+    return ("Handed over: the person sees the finished clip%s with its title, the post text and %d hashtags, a Copy "
+            "all button and a download. Tell them in one or two short lines; do not repeat the text, it is on the "
+            "page. The clip is %g s, from %s to %s of the recording: when you say its length or its times, say these, "
+            "not the ones asked for." % (" and its cover" if made else "", len(tags), round(done["length"], 2),
+                                         recording.clock(min(p[0] for p in pieces)),
+                                         recording.clock(max(p[1] for p in pieces)))) + (
+        " " + spelling if spelling else "")
 
 
 LAYOUT_OF = {"explain": "card", "game": "card", "talk": "talk", "seller": "subject", "vlog": "card"}
@@ -4912,6 +4979,19 @@ TOOLS = {t.name: t for t in [
          "frame (seller), the length fits a Reel, it does not start black or silent, and no blurred face can be "
          "found. Each line says what it found. Run it after the render, before you hand the clip over.",
          {}, [], check_clip),
+    Tool("make_cover", "Made the cover",
+         "Have Muse Image draw the clip's cover, the picture the post shows before it plays: the finished clip's "
+         "frame at its peak, without its words, with your words written on it, the people and the product kept as "
+         "shot. It costs $%.2f on Meta's API with the person's key; the same words again cost nothing. Run it after "
+         "check_clip, before hand_over." % cover.USD,
+         {"title": {"type": "string", "maxLength": 60,
+                    "description": "The words on the cover, a few words in the clip's language for a stranger "
+                                   "scrolling past: what they get or what bothers them, no jargon."},
+          "again": {"type": "boolean", "description": "true draws a new cover for the same words, when the person "
+                                                      "asks or the last one has a word misspelled or cut off."},
+          "asked": {"type": "boolean", "description": "true only when the person asked for a cover in their own "
+                                                      "words or tapped Make the cover."}},
+         ["title"], make_cover),
     Tool("hand_over", "Handed over the clip",
          "Give the person the finished clip, ready to post: the page shows the file with your title, the post text "
          "and the hashtags, a Copy all button and a download. It needs a finished file made from the clip as it is "

@@ -809,6 +809,20 @@ function drawReady(j, e) {
   img.src = "/api/clip/" + e.file.replace(/\.mp4$/, ".jpg");
   img.alt = "";
   img.addEventListener("click", openClip);
+  const pics = el("div", "ready-pics");
+  pics.appendChild(img);
+  if (e.cover) {
+    const link = el("a");
+    link.href = "/api/cover/" + e.cover;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.title = "The cover, drawn by Muse Image";
+    const cover = el("img");
+    cover.src = link.href;
+    cover.alt = "Cover: " + e.title;
+    link.appendChild(cover);
+    pics.appendChild(link);
+  }
   const body = el("div", "ready-body");
   const title = el("p", "ready-title", e.title);
   title.addEventListener("click", openClip);
@@ -839,8 +853,11 @@ function drawReady(j, e) {
     room.ready = e;
     openSheet("out");
   });
-  go.append(open, save);
-  div.append(img, body, go);
+  const remake = iconButton("round", e.cover ? "Make the cover again" : "Make the cover", e.cover ? "again" : "spark");
+  remake.title = e.cover ? "Make the cover again" : "Make the cover with Muse Image";
+  remake.addEventListener("click", () => say(TAPPED + (e.cover ? "Make the cover again." : "Make the cover.")));
+  go.append(open, save, remake);
+  div.append(pics, body, go);
   j.flow.appendChild(div);
   clipTitle.textContent = e.title;
   clipSave.hidden = false;
@@ -2476,6 +2493,7 @@ const MINI = {
   recipe: { parts: "rows fx", fx: "🏷️" },
   map: { parts: "wave fx", fx: "📈" },
   watch: { parts: "scr fx", fx: "👀" },
+  cover: { parts: "who ttl", ttl: "Cover" },
   moments: { parts: "wave fx", fx: "⭐" },
   plan: { parts: "rows" },
   many: { parts: "reel" },

@@ -521,6 +521,17 @@ class Served(Clip):
 
 
 class Endpoints(Served):
+    def test_a_cover_is_sent_by_its_name_as_a_jpeg_and_nothing_else_reaches_the_disk(self):
+        folder = render.folder("covers")
+        for name in ("0123456789abcdef.jpg", "0123456789abcdef.2.jpg", "0123456789abcdef.x.jpg"):
+            with open(os.path.join(folder, name), "wb") as f:
+                f.write(b"\xff\xd8\xff a cover")
+        for name in ("0123456789abcdef.jpg", "0123456789abcdef.2.jpg"):
+            self.assertEqual(self.fetch("/api/cover/" + name), (200, "image/jpeg", b"\xff\xd8\xff a cover"))
+        for name in ("0123456789abcdeX.jpg", "0123456789abcdef.png", "..%5C0123456789abcdef.jpg",
+                     "0123456789abcdef.x.jpg", "fedcba9876543210.jpg"):
+            self.assertEqual(self.fetch("/api/cover/" + name)[0], 404, name)
+
     def test_the_panel_is_read_with_a_get(self):
         status, panel = self.ask("GET", "/api/panel?chat=" + self.chat.id)
         self.assertEqual((status, panel), (200, {"ok": True, "clip": False}))

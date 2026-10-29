@@ -480,6 +480,14 @@
   "show": "check"
  },
  {
+  "tool": "make_cover",
+  "group": "Check and post",
+  "name": "Cover by Muse Image",
+  "says": "Muse Image turns the clip's best frame into its cover, with the title written big, the people and the product kept as you shot them. With your Meta key, one cent a cover.",
+  "ask": "Make a cover for the clip.",
+  "show": "cover"
+ },
+ {
   "tool": "hand_over",
   "group": "Check and post",
   "name": "Ready to post",

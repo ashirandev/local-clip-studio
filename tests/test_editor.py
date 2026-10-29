@@ -2,6 +2,7 @@
 
     python -m unittest discover -s tests
 """
+import base64
 import json
 import os
 import random
@@ -11,6 +12,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -1013,6 +1015,67 @@ class Tools(unittest.TestCase):
         self.chat.edit({"do": "style", "name": "pop", "font": None, "colour": None})
         self.assertIn("the last finished file is older than the last change", self.chat.clip_line())
         self.assertEqual(agent.Chat.load(self.chat.id).rendered, self.chat.rendered)
+
+    def test_the_cover_is_the_peak_frame_without_words_paid_once_asked_on_this_computer_and_handed_over(self):
+        from unittest import mock
+        from test_cover import Images
+        import test_cover
+
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        drawn = os.path.join(self.tmp, "drawn.jpg")
+        api = Images(test_cover.picture(drawn, "color=c=0x4070D0:s=1280x1920"))
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            with mock.patch.dict(os.environ, {"META_API_KEY": "made-up", "LCS_IMAGE_URL": api.url}):
+                brain, steps = self.run_job(
+                    *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                    [call("decide_people", keep=[1], why="it is him")],
+                    [call("add_title", words="Boss down", start=0, end=20, place="middle", why="the hook")],
+                    [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
+                    [call("make_cover", title="บอสล้มสองรอบ", why="the cover")],
+                    [call("make_cover", title="บอสล้มสองรอบ", asked=True, why="the person asked")],
+                    [call("make_cover", title="บอสล้มสองรอบ", asked=True, why="again, same words")],
+                    [call("hand_over", title="Boss down", caption="He falls.", hashtags=["#gaming"], why="post")],
+                    "Done.")
+        finally:
+            render.export = had
+            api.close()
+        titled, rendered, checked, unasked, made, kept, ready = steps[-7:]
+        self.assertFalse(titled["refused"], titled["result"])
+        self.assertIn("Hand it over next.", checked["result"], "Muse on this computer is not sent to make a cover")
+        self.assertTrue(unasked["refused"])
+        self.assertIn("no picture of the person's leaves it unasked", unasked["result"])
+        self.assertFalse(made["refused"], made["result"])
+        self.assertIn("Muse Image drew the cover from the clip at", made["result"])
+        self.assertIn("for $0.01", made["result"])
+        self.assertFalse(kept["refused"], kept["result"])
+        self.assertIn("made before, at no cost", kept["result"])
+        self.assertEqual(len(api.got), 1, "one picture asked for and paid")
+        state = self.chat.project.state()
+        at = tools._cover_second(types.SimpleNamespace(chat=self.chat), state)
+        moment = self.chat.moments[0]
+        self.assertAlmostEqual(at, project.from_recording(state["clip"]["pieces"], moment["t"]), places=2)
+        plain = render.frame(self.chat.recording, state, at, "clean", width=1080, words=False)
+        worded = render.frame(self.chat.recording, state, at, "clean", width=1080)
+        with open(plain, "rb") as f:
+            sent = api.got[0]["body"]["images"][0]["image_url"]
+            self.assertEqual(sent, "data:image/jpeg;base64," + base64.b64encode(f.read()).decode("ascii"),
+                             "the clip's frame at its peak, without its title: Muse Image writes the words")
+        self.assertNotEqual(plain, worded)
+        self.assertIn("บอสล้มสองรอบ The title is in Thai", api.got[0]["body"]["prompt"])
+        cover = [e for e in self.chat.events if e["kind"] == "cover"][-1]
+        shown = [e for e in self.chat.events if e["kind"] == "ready"][-1]
+        self.assertEqual(shown["cover"], cover["cover"])
+        self.assertEqual(cover["file"], shown["file"])
+        self.assertIn("finished clip and its cover", ready["result"])
+        self.assertTrue(os.path.isfile(os.path.join(render.folder("covers"), cover["cover"])))
+        with open(os.path.join(agent.WORK, "spent.jsonl"), encoding="utf-8") as f:
+            paid = [json.loads(line) for line in f if '"image"' in line]
+        self.assertEqual([(r["mind"], r["label"], r["usd"]) for r in paid], [("image", "Muse Image", 0.01)])
 
     def test_muse_decides_who_is_blurred_and_a_blurred_face_is_followed_in_clip_seconds(self):
         brain, steps = self.run_job(

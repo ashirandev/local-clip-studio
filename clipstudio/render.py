@@ -260,11 +260,13 @@ def _picture_input(f, step=None):
     return (["-itsoffset", "%.6f" % step] if step is not None else []) + ["-loop", "1", "-framerate", str(FPS), "-i", f]
 
 
-def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH):
+def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH, words=True):
     """The clip's frame at clip second t, width pixels wide: the jpg's path in work/clipframes, made once. The
     extra pictures (masks, shadows, stickers) are opened from the last 1/30 s step at or before t, so FFmpeg does
     not read every picture frame before it (a frame late in a long clip draws as fast as the first), and their frames
-    fall on the steps the full render's do, so the frame shows each picture as the full render does."""
+    fall on the steps the full render's do, so the frame shows each picture as the full render does. With
+    words=False the titles, captions and big words are left out, as after_source leaves them (the cover's frame:
+    Muse Image writes the title itself)."""
     clip = state["clip"]
     if not clip:
         raise NotDrawn("There is no clip yet, so there is no frame to draw.")
@@ -272,7 +274,7 @@ def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH):
     if at is None:
         raise NotDrawn("%.2f s is outside the clip, which is %.2f s long." % (t, state["length"]))
     try:
-        graph, files = after_source(state, "src", "whole", 1, default)
+        graph, files = after_source(state, "src", "whole", 1, default, words)
     except ValueError as e:
         raise NotDrawn(str(e))
     # the frame's time is a whole tick worked out here: t/TB in FFmpeg can fall a hair under one (7.6 s at 1/1000 is

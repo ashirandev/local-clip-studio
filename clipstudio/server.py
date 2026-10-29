@@ -98,6 +98,7 @@ MOVE = re.compile(r"^/api/move/([a-z]+)\.mp4$")
 POSTER = re.compile(r"^/api/clip/([0-9a-f]{16})\.jpg$")
 LOOK = re.compile(r"^/api/look/([0-9a-z]+)\.png$")
 LAYER = re.compile(r"^/api/layer/([0-9a-f]{20}\.png)$")
+COVER = re.compile(r"^/api/cover/([0-9a-f]{16}(?:\.[0-9]{1,4})?\.jpg)$")
 BASE = re.compile(r"^/api/base/([0-9a-f]{16}\.mp4)$")
 POSTER_AT = 1.0
 READ_TRIES, READ_WAIT = 10, 0.05
@@ -176,6 +177,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_premiere(agent.find(query.get("chat", "")))
         elif LAYER.match(path):
             self.send_picture(render.folder("layers"), LAYER.match(path).group(1))
+        elif COVER.match(path):
+            self.send_picture(render.folder("covers"), COVER.match(path).group(1), "image/jpeg")
         elif BASE.match(path):
             self.send_video(render.folder("bases"), BASE.match(path).group(1), "preview")
         elif LOOK.match(path):
@@ -314,18 +317,18 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_json(dict(got, ok=True))
 
-    def send_picture(self, folder, name):
-        """A words picture the page lays over the video, by its name: nothing from the request but a name of hex
-        digits reaches the disk, so only files in folder are sent. A name is what the picture shows, so it never
-        changes."""
+    def send_picture(self, folder, name, kind="image/png"):
+        """A picture by its name, a words picture the page lays over the video or a cover: nothing from the request
+        but a name of hex digits reaches the disk, so only files in folder are sent. A name is what the picture shows,
+        so it never changes."""
         full = os.path.join(folder, name)
         if not os.path.isfile(full):
-            self.send_json({"ok": False, "error": "There is no words picture %s." % name}, HTTPStatus.NOT_FOUND)
+            self.send_json({"ok": False, "error": "There is no picture %s." % name}, HTTPStatus.NOT_FOUND)
             return
         with open(full, "rb") as f:
             body = f.read()
         self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Type", kind)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "max-age=3600")
         self.end_headers()
