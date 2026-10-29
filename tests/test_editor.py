@@ -2594,6 +2594,20 @@ class Tools(unittest.TestCase):
         self.assertIn("- middle (y 905 to 1075): never clear for 2 s or more; do not use it", steps[-1]["result"])
         self.assertIn("- top (y 285 to 520): clear of faces for the whole clip", steps[-1]["result"])
 
+    def test_captions_over_the_product_say_the_product_not_a_face(self):
+        self.faces = found([], size=(320, 180))
+        said = ["เครื่องนี้ดูดความชื้นได้ดีมากจริงๆครับ", "บ้านไหนชื้นมากก็เก็บน้ำได้เต็มถังเลย"]
+        self.worker.phrases = [{"from": 1.0, "to": 9.0, "text": said[0]}, {"from": 9.2, "to": 18.5, "text": said[1]}]
+        _, steps = self.run_job(
+            *self.to_moment()[:2],
+            [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the review"}])],
+            json.dumps({"lines": said}, ensure_ascii=False),
+            [call("make_clip", moment=1, layout="subject", product=[400, 450, 600, 900], why="the product")],
+            [call("add_captions", why="say what he says")], json.dumps({"texts": said}, ensure_ascii=False), "Done.")
+        caps = steps[-1]["result"]
+        self.assertIn("The captions cross the product's box", caps)
+        self.assertNotIn("cover a face", caps, "seen 10-29 on the seller's review: no face was under them")
+
     def test_the_next_message_starts_with_what_the_person_took_back(self):
         self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")], "Done.")
         self.chat.undo()

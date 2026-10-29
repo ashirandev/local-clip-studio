@@ -3132,10 +3132,14 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
                    "way is plain captions here. Keep them lit only if the person asked for it; otherwise put the "
                    "captions on again with lit false." % on_camera)
     times, every = _face_times(state, rec)
-    hit = _covered(band, times, every, 0, length)
+    product = _product_box(state)
+    hit = _covered(band, [(t, [b for b in boxes if b not in product]) for t, boxes in times], every, 0, length)
     if hit:
         out.append("The captions cover a face at %s. If that matters, make the clip again with a layout that keeps the "
                    "face higher." % _spans(hit))
+    if product and _covered(band, [(t, product) for t, _ in times], every, 0, length):
+        out.append("The captions cross the product's box, so they cover the product where it mostly stands. If that "
+                   "matters, make the clip again with a layout that keeps the product higher.")
     out += ["%s %s" % (recording.clock(line["from"]), line["text"].strip()) for line in lines[:8]]
     if len(lines) > 8:
         out.append("... and %d more lines." % (len(lines) - 8))
