@@ -2578,5 +2578,24 @@ class Tools(unittest.TestCase):
         self.assertEqual(self.chat.told, [])
 
 
+class FaceToFollow(unittest.TestCase):
+    """A trip seen through glasses, 10-29: riders' faces come and go, the layout follows none, and the answer said "No
+    face was found" a few lines above "11 people's faces are in the clip"."""
+
+    def face(self, seen, of=20):
+        found = {"samples": [{"t": float(t), "faces": [[100, 100, 40, 40, 0.9]] if t < seen else []}
+                             for t in range(of)]}
+        job = type("Job", (), {"find_faces": lambda self, rec, a, b: found})()
+        return tools._the_face(job, {"width": 1000, "height": 1000}, 0.0, 20.0, None)
+
+    def test_faces_that_come_and_go_are_not_called_none(self):
+        box, said = self.face(3)
+        self.assertIsNone(box)
+        self.assertIn("faces come and go, the one seen most in 3 of the moment's 20 pictures", said)
+        self.assertNotIn("No face was found", said)
+        self.assertEqual(self.face(0)[1], "No face was found in the moment's 20 pictures.")
+        self.assertIsNotNone(self.face(6)[0], "seen in a quarter of them: the layout follows it")
+
+
 if __name__ == "__main__":
     unittest.main()

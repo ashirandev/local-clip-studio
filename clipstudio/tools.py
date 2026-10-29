@@ -1424,6 +1424,9 @@ def _the_face(job, rec, a, b, face):
     if best and best["seen"] >= MOVING_FACE * n:
         return best["box"], ("The face moves; it is most often at %s on your grid (%d of %d pictures), and the layout "
                              "uses that place." % (_grid(best["box"], rec), best["seen"], n))
+    if best:
+        return None, ("No face stays in the picture for the layout to follow: faces come and go, the one seen most in "
+                      "%d of the moment's %d pictures." % (best["seen"], n))
     return None, "No face was found in the moment's %d pictures." % n
 
 
