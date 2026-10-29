@@ -428,14 +428,33 @@ class CaptionLines(unittest.TestCase):
                 own = [line for line in lines if line["phrase"] == k]
                 self.assertEqual("".join(line["text"] for line in own), phrase["text"])
                 for line in own:
-                    self.assertLessEqual(text._letters(line["text"]), most, line["text"])
+                    room = text.PARTICLE_ROOM if line["text"].rstrip().endswith(text.PARTICLES) else 0
+                    self.assertLessEqual(text._letters(line["text"]), most + room, line["text"])
                     self.assertEqual("".join(w["text"] for w in line["words"]), line["text"])
                 for m in text.thai.NUMBER.finditer(phrase["text"]):
                     if m.group(0) in ("สอง",):
                         continue
                     self.assertTrue(any(m.group(0) in line["text"] for line in own), (m.group(0), most))
-                for line in own[1:]:
-                    self.assertFalse(line["text"].lstrip().startswith(text.PARTICLES), line["text"])
+                breaks, at = set(), 0
+                for token in text._tokens(phrase["text"]):
+                    at += len(token)
+                    breaks.add(at)
+                at = 0
+                for line in own[:-1]:
+                    at += len(line["text"])
+                    self.assertIn(at, breaks, "a line ends inside a word: %r at most %d" % (line["text"], most))
+
+    def test_a_word_with_its_particles_is_not_cut_inside(self):
+        """The yeti review, 10-29: ไมโครโฟนนะครับ on lines of 12 was cut as ไมโครโฟนนะครั and บแล้วก็มีคู่มือ."""
+        said = [{"from": 0.0, "to": 3.0, "text": "จะมีไมโครโฟนนะครับแล้วก็มีคู่มือ"}]
+        self.assertEqual([line["text"] for line in text.caption_lines(said, 12)],
+                         ["จะมี", "ไมโครโฟนนะครับ", "แล้วก็มีคู่มือ"])
+        self.assertEqual([line["text"] for line in text.caption_lines(said, 8)],
+                         ["จะมี", "ไมโครโฟน", "นะครับ", "แล้วก็มีคู่มือ"])
+        long = [{"from": 0.0, "to": 2.0, "text": "ประชาสัมพันธ์"}]
+        most = text._letters(long[0]["text"]) - 1
+        self.assertTrue(all(text._letters(line["text"]) <= most for line in text.caption_lines(long, most)),
+                        "the room is for particles: a word one letter too long is still cut")
 
     def test_words_take_the_phrase_time_in_order(self):
         lines = text.caption_lines(SAID)

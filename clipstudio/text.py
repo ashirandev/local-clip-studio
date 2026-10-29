@@ -50,6 +50,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONTS = os.path.join(ROOT, "fonts")
 KINDS = ("title", "caption", "big")
 PARTICLES = ("ครับ", "ค่ะ", "คะ", "นะ", "จ้ะ", "จ้า", "เลย")
+PARTICLE_ROOM = 2
 THAI = re.compile("[\u0e00-\u0e7f]")
 DRAWN = 32
 RENDER_SECONDS = 60
@@ -1036,8 +1037,11 @@ def _phrase(k, phrase):
 
 
 def _pieces(said, most):
-    """[(start, end)] of said, cut at word breaks into pieces of at most `most` letters. Only a word longer than
-    `most` is cut inside, between its letters, and never inside a number."""
+    """[(start, end)] of said, cut at word breaks into pieces of at most `most` letters. A word with its particles stays
+    whole when only the particles take it past `most`, by at most PARTICLE_ROOM letters; else it is cut before a
+    particle rather than inside a word. The yeti review (10-29) captioned ไมโครโฟนนะครับ, 13 letters on lines of 12,
+    as ไมโครโฟนนะครั and บแล้วก็มีคู่มือ. Only a word longer than `most` is cut inside, between its letters, and never
+    inside a number."""
     locked = set()
     for m in thai.NUMBER.finditer(said):
         locked.update(range(m.start() + 1, m.end()))
@@ -1047,10 +1051,12 @@ def _pieces(said, most):
         words.add(at)
     pieces = []
     for s, e in _atoms(said):
-        while _letters(said[s:e]) > most:
+        while _letters(said[s:e]) > most and not _runs_on(said[s:e], most):
             fits = [k for k in range(s + 1, e) if k not in locked and not said[k:].startswith(PARTICLES)
                     and not unicodedata.category(said[k]).startswith("M") and _letters(said[s:k]) <= most]
-            breaks = [k for k in fits if k in words] or fits
+            near = [k for k in range(s + 1, e) if k in words and k not in locked and said[k:].startswith(PARTICLES)
+                    and _letters(said[s:k]) <= most]
+            breaks = [k for k in fits if k in words] or near or fits
             if not breaks:
                 number = next(m.group(0) for m in thai.NUMBER.finditer(said) if m.start() < e and m.end() > s)
                 raise ValueError("most %d is fewer letters than the number %r (%d letters), and a number is never "
@@ -1060,6 +1066,14 @@ def _pieces(said, most):
             s = breaks[-1]
         pieces.append((s, e))
     return pieces
+
+
+def _runs_on(piece, most):
+    """Whether piece is a word whose particles alone take it past most, by at most PARTICLE_ROOM letters."""
+    bare = piece.rstrip()
+    while bare.endswith(PARTICLES):
+        bare = bare[:-len(next(p for p in PARTICLES if bare.endswith(p)))]
+    return _letters(bare) <= most < _letters(piece) <= most + PARTICLE_ROOM
 
 
 def caption_lines(phrases, most=16):
