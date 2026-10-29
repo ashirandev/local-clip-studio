@@ -80,12 +80,30 @@ NAME_ROW = 64
 NAME_TOP = SAFE_BOTTOM - NAME_ROW
 SAFE = [56, 250, 968, SAFE_BOTTOM - 250]
 BUTTONS = [900, 1080, 180, 780]
-SAFE_SAID = ("Phones cover the clip's top 250 px (the status bar and the app's header), everything below y %d (the "
-             "name and the caption), the right side from x %d between y %d and %d (like, comment, share), and cut "
-             "51 px off each side. When you choose, keep words, stickers and faces inside x %d to %d, y %d to %d, and "
-             "left of x %d below y %d. When the person asks for a spot, put it there and tell them what a phone "
-             "covers." % (SAFE_BOTTOM, BUTTONS[0], BUTTONS[1], BUTTONS[1] + BUTTONS[3], SAFE[0], SAFE[0] + SAFE[2],
-                          SAFE[1], SAFE_BOTTOM, BUTTONS[0], BUTTONS[1]))
+
+
+def grid(px, axis, up=False):
+    """A pixel of the 1080x1920 frame along axis ("x" or "y") as a number on Muse's 0-1000 grid of the frame, which is
+    what its boxes are written on: rounded down, or up."""
+    at = px * 1000.0 / (W if axis == "x" else H)
+    return int(math.ceil(at - 1e-6) if up else math.floor(at + 1e-6))
+
+
+def on_grid(lo, hi, axis, inward=True):
+    """Pixels lo to hi of the frame along axis as "x 52 to 948" on Muse's grid: inward for a stretch it may use, so the
+    numbers sent back as a box land inside it; outward for one it must keep clear of. The seller beat 10-29 was told
+    "x 755 to 1015" in pixels, sent them back on its grid, and every title landed off the clear part."""
+    return "%s %d to %d" % (axis, grid(lo, axis, up=inward), grid(hi, axis, up=not inward))
+
+
+SAFE_SAID = ("On your 0-1000 grid of the clip's frame, phones cover its top %d (the status bar and the app's header), "
+             "everything below y %d (the name and the caption), the right side from x %d between y %d and %d (like, "
+             "comment, share), and %d off each side. When you choose, keep words, stickers and faces inside %s, %s, "
+             "and left of x %d below y %d. When the person asks for a spot, put it there and tell them what a phone "
+             "covers." % (grid(SAFE[1], "y", up=True), grid(SAFE_BOTTOM, "y"), grid(BUTTONS[0], "x"),
+                          grid(BUTTONS[1], "y"), grid(BUTTONS[1] + BUTTONS[3], "y", up=True), grid(51, "x", up=True),
+                          on_grid(SAFE[0], SAFE[0] + SAFE[2], "x"), on_grid(SAFE[1], SAFE_BOTTOM, "y"),
+                          grid(BUTTONS[0], "x"), grid(BUTTONS[1], "y")))
 SMALLEST_PART = 120
 BAND = {"saturation": 1.1, "brightness": -0.12, "sigma": 14}
 LEAVE_OUT = 3.0
@@ -209,7 +227,9 @@ def moved(layout, name, box):
         else:
             sy, sh = sy + (sh - sw / aspect) / 2, sw / aspect
         part["src"] = [sx, sy, sw, sh]
-    said = "As asked, the %s is at %s." % (name, part["dst"])
+    dst = part["dst"]
+    said = "As asked, the %s is at %s, %s on your grid." % (name, on_grid(dst[0], dst[0] + dst[2], "x"),
+                                                          on_grid(dst[1], dst[1] + dst[3], "y"))
     covered = unsafe(part["dst"])
     if covered:
         said += " On a phone, " + "; ".join(covered) + "."
@@ -217,7 +237,8 @@ def moved(layout, name, box):
     if on:
         said += " Words in the %s place%s would sit on it." % (" and ".join(on), "s" if len(on) > 1 else "")
     if name != "circle" and _overlap(lay["captions"], part["dst"]):
-        said += " The captions would cover it, from y %d to %d." % (lay["captions"][1], sum(lay["captions"][1::2]))
+        said += " The captions would cover it, from %s on your grid." % on_grid(
+            lay["captions"][1], sum(lay["captions"][1::2]), "y", inward=False)
     lay["notes"].append(said)
     return lay
 
@@ -228,14 +249,15 @@ def unsafe(box):
     x, y, w, h = box
     out = []
     if x < SAFE[0] or x + w > SAFE[0] + SAFE[2]:
-        out.append("the clip's sides are cut off (keep x from %d to %d)" % (SAFE[0], SAFE[0] + SAFE[2]))
+        out.append("the clip's sides are cut off (keep %s on your grid)" % on_grid(SAFE[0], SAFE[0] + SAFE[2], "x"))
     if y < SAFE[1]:
-        out.append("the status bar and the app's header cover the top (keep y from %d)" % SAFE[1])
+        out.append("the status bar and the app's header cover the top (keep y from %d on your grid)"
+                   % grid(SAFE[1], "y", up=True))
     if y + h > SAFE_BOTTOM:
-        out.append("the name and the caption cover everything below y %d" % SAFE_BOTTOM)
+        out.append("the name and the caption cover everything below y %d on your grid" % grid(SAFE_BOTTOM, "y"))
     if _overlap(box, BUTTONS):
-        out.append("the like, comment and share buttons cover x %d and right of it from y %d to %d"
-                   % (BUTTONS[0], BUTTONS[1], BUTTONS[1] + BUTTONS[3]))
+        out.append("the like, comment and share buttons cover x %d and right of it from %s on your grid"
+                   % (grid(BUTTONS[0], "x"), on_grid(BUTTONS[1], BUTTONS[1] + BUTTONS[3], "y", inward=False)))
     return out
 
 

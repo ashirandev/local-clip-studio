@@ -239,8 +239,10 @@ def _same_box(a, b, start, end):
 
 
 def _same_spot(a, b):
-    """Two titles in the same place at overlapping times: the later one replaces the earlier."""
-    return a["place"] == b["place"] and a["start"] < b["end"] and b["start"] < a["end"]
+    """Two titles in the same place, or drawn in the same box, at overlapping times: the later one replaces the earlier.
+    The box also matches a title saved when a box's place was named in pixels ("box at 100, 400")."""
+    same = a["place"] == b["place"] or (a.get("box") is not None and a.get("box") == b.get("box"))
+    return same and a["start"] < b["end"] and b["start"] < a["end"]
 
 
 def to_clip(pieces, t):

@@ -71,8 +71,8 @@ class Layouts(unittest.TestCase):
         lay, state = layouts.make("card", (1920, 1080), SIFU_FACE), {"captions": None, "channel": None}
         with self.assertRaises(tools.Refused) as row:
             tools._phone([60, 1325, 820, 144], lay, state, asked=False)
-        self.assertIn("On a phone, the row kept for the channel's name runs from y 1456 to 1520. Pick one of the "
-                      "layout's places, or a box inside x 56-1024, y 250-1456;", str(row.exception))
+        self.assertIn("On a phone, the row kept for the channel's name runs from y 758 to 792 on your grid. Pick one of "
+                      "the layout's places, or a box inside x 52 to 948, y 131 to 758 on your grid;", str(row.exception))
         self.assertEqual(tools._phone([60, 1312, 820, 144], lay, state, asked=False), [], "ending at 1456 is clear")
         self.assertEqual(tools.SAFE_ROWS, (250, 1456), "a title behind the person is placed above the row too")
 
@@ -460,8 +460,8 @@ class Tools(unittest.TestCase):
         self.assertIn("Made the clip from moment 1 (0:30-0:50, 20 s) in the subject layout.", step["result"])
         self.assertIn("A face sits at the same place in 30 of 40 pictures, at [438, 667, 562, 889] on your grid; the "
                       "layout uses it.", step["result"])
-        self.assertIn("- top (y 285 to 520): clear of faces at 0-4.7 s, 9.8-20 s", step["result"])
-        self.assertIn("- middle (y 905 to 1075): clear of faces for the whole clip", step["result"])
+        self.assertIn("- top (y 149 to 270): clear of faces at 0-4.7 s, 9.8-20 s", step["result"])
+        self.assertIn("- middle (y 472 to 559): clear of faces for the whole clip", step["result"])
         self.assertIn("comes next as a picture", step["result"])
         self.assertIn("Other people's faces in the clip: 1 (the faces the layout shows are not among them).", step["result"])
         self.assertIn("- person 1: seen in 10 of 40 pictures, 0:05-0:10 of the clip, at [438, 56, 562, 278] on your grid; "
@@ -487,7 +487,7 @@ class Tools(unittest.TestCase):
         beside, refused, drawn = steps[-3:]
         self.assertFalse(beside["refused"], beside["result"])
         self.assertIn("Centred, it would cover a face at 4.8-9.8 s, so it stands in the part of the top that is clear: "
-                      "x 65 to 318.", beside["result"],
+                      "x 61 to 294 on your grid.", beside["result"],
                       "the seller beat 10-29: no place was clear across its width and the clip went out untitled")
         placed = [e["entry"] for e in self.chat.events if e["kind"] == "edit" and e["entry"].get("do") == "title"]
         self.assertEqual(placed[0]["box"], [65, 285, 253, 235])
@@ -512,16 +512,45 @@ class Tools(unittest.TestCase):
                 [call("add_title", words="Boss down", start=0, end=15, place="top", why="the hook")],
                 [call("add_title", words="Boss down", start=0, end=7.5, place="top", why="the clear part")], "Done.")
         made, refused, drawn = steps[-3:]
-        self.assertIn("- top (y 285 to 520): never clear across its width, but from 0 to 7.5 s its part from x 65 to "
-                      "460 is: a title from the first frame given this place goes there when it fits", made["result"])
+        self.assertIn("- top (y 149 to 270): never clear across its width, but from 0 to 7.5 s its part from x 61 to "
+                      "425 is: a title from the first frame given this place goes there when it fits", made["result"])
         self.assertTrue(refused["refused"])
-        self.assertIn("Clear: top: its part from x 65 to 460 at 0-7.5 s;", refused["result"])
+        self.assertIn("Clear: top: its part at x 61 to 425, y 149 to 270 on your grid at 0-7.5 s;", refused["result"])
         self.assertFalse(drawn["refused"], drawn["result"])
-        self.assertIn("so it stands in the part of the top that is clear: x 65 to 460.", drawn["result"])
+        self.assertIn("so it stands in the part of the top that is clear: x 61 to 425 on your grid.", drawn["result"])
         self.assertIsNone(tools._clear_part(layouts.make("subject", (1080, 1920))["places"]["middle"], "Boss down",
                                             render.style_of({"style": None}, "clean"), None, [], 0.5, 0, 4,
                                             [[562, 538, 497, 1152]]),
                           "never beside the product: it moves in its shot (the dehumidifier crossed the clear left)")
+
+    def test_the_clear_part_a_refusal_names_sent_back_as_a_box_is_where_the_title_is_drawn(self):
+        """The seller beat 10-29: the refusals named the clear part in pixels of the frame ("x 755 to 1015"), Muse sent
+        them back as a box on its 0-1000 grid, and every title landed off the clear part until its 30 steps ran out."""
+        import re
+        from unittest import mock
+
+        def times(state, rec):
+            return [(k * 0.5, [[480, 300, 300, 400] if k * 0.5 < 8 else [65, 300, 950, 400]]) for k in range(41)], 0.5
+
+        def from_the_refusal(asking):
+            said = [e for e in self.chat.events if e["kind"] == "step"][-1]["result"]
+            x1, x2, y1, y2, end = re.search(r"its part at x (\d+) to (\d+), y (\d+) to (\d+) on your grid at 0-([\d.]+) "
+                                            r"s", said).groups()
+            return [call("add_title", words="Boss down", start=0, end=float(end),
+                         box=[int(x1), int(y1), int(x2), int(y2)], why="the clear part, as told")]
+
+        with mock.patch.object(tools, "_face_times", times):
+            brain, steps = self.run_job(
+                *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("add_title", words="Boss down", start=0, end=15, place="top", why="the hook")],
+                from_the_refusal, "Done.")
+        refused, drawn = steps[-2:]
+        self.assertTrue(refused["refused"])
+        self.assertFalse(drawn["refused"], drawn["result"])
+        x, y, w, h = [e["entry"] for e in self.chat.events if e["kind"] == "edit"
+                      and e["entry"].get("do") == "title"][-1]["box"]
+        self.assertTrue(65 <= x and x + w <= 460 and 285 <= y and y + h <= 520,
+                        "inside the clear part, x 65 to 460 and y 285 to 520 of the frame: %s" % [x, y, w, h])
 
     def test_wrong_title_input_says_what_to_send(self):
         brain, steps = self.run_job(
@@ -729,8 +758,8 @@ class Tools(unittest.TestCase):
         self.assertIn("SAM 3.1 found the person through the clip, 0:30 to 0:50 of the recording, 10 pictures a second",
                       grey["result"])
         self.assertIn("The grey look is on from 0 to 20 s of the 20 s clip:", grey["result"])
-        self.assertIn("On the frame the person is at [215, 612, 807, 1000] on your grid (x 232 to 872, y 1176 to 1920 "
-                      "on the frame). A title goes behind them only where they cross it, and it must still be read, so "
+        self.assertIn("On the frame the person is at [215, 612, 807, 1000] on your grid. A title goes behind them "
+                      "only where they cross it, and it must still be read, so "
                       "the top of their head should cut only the bottom of the letters: the places for words that "
                       "cross them: top at 5-10.2 s; middle at 5-10.2 s; for one line of words on top of their head, a "
                       "box such as [60, 546, 824, 668].", grey["result"],
@@ -742,7 +771,7 @@ class Tools(unittest.TestCase):
                       "lane 5 10-28: 'the last 5 seconds' of a 16.79 s clip came out as 10-15")
         self.assertTrue(missed["refused"])
         self.assertIn("Behind the person, the title must cross them for at least 1 s, and at the top they cross its "
-                      "words (y 377 to 428) for 0 s of 12 to 16 s; they are at [215, 612, 807, 1000] on your grid",
+                      "words (y 196 to 223 on your grid) for 0 s of 12 to 16 s; they are at [215, 612, 807, 1000] on your grid",
                       missed["result"], "lane 5 10-28: a behind title above the face circle went behind nobody")
         self.assertIn("Give a box such as [60, 546, 940, 668], on top of their head", missed["result"])
         self.assertFalse(moved["refused"], moved["result"])
@@ -939,7 +968,7 @@ class Tools(unittest.TestCase):
                       onface["result"])
         self.assertFalse(caps["refused"], caps["result"])
         self.assertRegex(caps["result"], r"^Captions on: 4 lines of what was said, numbers exactly as heard, in the band "
-                                         r"from y 1090 to 1250")
+                                         r"from y 567 to 652 on your grid")
         self.assertIn("0:00 this is the\n0:02 moment\n", caps["result"], "the clip opens 0.3 s before the first word")
         self.assertIn("plain words, none lit, so the eye stays on the picture", caps["result"])
         self.assertNotIn("on camera", caps["result"])
@@ -1034,7 +1063,7 @@ class Tools(unittest.TestCase):
             "Done.")
         made, middle, top = steps[-3:]
         self.assertIn("kept clear of the faces the program found and the product you named", made["result"])
-        self.assertIn("- middle (y 905 to 1075): never clear for 2 s or more; do not use it", made["result"])
+        self.assertIn("- middle (y 472 to 559): never clear for 2 s or more; do not use it", made["result"])
         self.assertTrue(middle["refused"])
         self.assertIn("At the middle, the title would cover a face or the product at 0-4 s.", middle["result"])
         self.assertFalse(top["refused"], top["result"])
@@ -1347,14 +1376,14 @@ class Tools(unittest.TestCase):
         self.assertIn("a sticker needs 0.4 s to pop in and fade out. Put it earlier.", late["result"])
         self.assertTrue(on_face["refused"])
         self.assertIn("The sticker would cover a face at", on_face["result"])
-        self.assertIn("- middle (y 905 to 1075): clear of faces for the whole clip", on_face["result"])
+        self.assertIn("- middle (y 472 to 559): clear of faces for the whole clip", on_face["result"])
         self.assertFalse(asked["refused"], asked["result"])
         self.assertIn("It covers a face at", asked["result"])
         self.assertIn("where the person asked for it; tell the person.", asked["result"])
         self.assertTrue(nowhere["refused"])
         self.assertIn("Give a box, or one of the layout's places for words: top, middle.", nowhere["result"])
         self.assertTrue(under["refused"])
-        self.assertIn("On a phone, the name and the caption cover everything below y 1520", under["result"])
+        self.assertIn("On a phone, the name and the caption cover everything below y 791 on your grid", under["result"])
         self.assertFalse(glass["refused"], glass["result"])
         self.assertIn("A dark glass box at [100, 440, 800, 555] on your grid from 1 to 5 s", glass["result"])
         self.assertIn("Dark glass, because the clean style's words are light.", glass["result"])
@@ -1370,7 +1399,7 @@ class Tools(unittest.TestCase):
         self.assertTrue(glass_face["refused"])
         self.assertIn("The glass box would cover a face at", glass_face["result"])
         self.assertTrue(low["refused"])
-        self.assertIn("On a phone, the name and the caption cover everything below y 1520", low["result"])
+        self.assertIn("On a phone, the name and the caption cover everything below y 791 on your grid", low["result"])
         state = self.chat.project.state()
         self.assertEqual([(k["name"], k["at"]) for k in state["stickers"]], [("fire", 1), ("star", 2.5)])
         self.assertEqual(state["stickers"][1]["png"], effects.sticker_png("star"))
@@ -1416,7 +1445,7 @@ class Tools(unittest.TestCase):
         self.assertTrue(many["refused"])
         self.assertIn("stickers must be a list of 1 to 6 names.", many["result"])
         self.assertTrue(low["refused"])
-        self.assertIn("On a phone, the name and the caption cover everything below y 1520", low["result"])
+        self.assertIn("On a phone, the name and the caption cover everything below y 791 on your grid", low["result"])
         self.assertTrue(after["refused"])
         self.assertIn("at 25 s is outside the clip, which is 20 s long", after["result"])
         state = self.chat.project.state()
@@ -2313,11 +2342,11 @@ class Tools(unittest.TestCase):
         self.assertTrue(claimed["refused"])
         self.assertIn('The person did not say "I want it at the very bottom" in this chat.', claimed["result"])
         self.assertTrue(low["refused"])
-        self.assertIn("On a phone, the name and the caption cover everything below y 1520", low["result"])
+        self.assertIn("On a phone, the name and the caption cover everything below y 791 on your grid", low["result"])
         self.assertIn("give person_said only when the person asked for this spot", low["result"])
         self.assertFalse(low_asked["refused"], low_asked["result"])
         self.assertIn("Placed where the person asked. On a phone, the name and the caption cover everything below y "
-                      "1520", low_asked["result"])
+                      "791 on your grid", low_asked["result"])
         self.assertFalse(face["refused"], face["result"])
         self.assertIn("Centred, it would cover a face at", face["result"], "unasked, it steps aside to the clear part")
         self.assertFalse(face_asked["refused"], face_asked["result"])
@@ -2619,8 +2648,8 @@ class Tools(unittest.TestCase):
             [call("make_clip", moment=1, layout="subject", product=[400, 450, 600, 900], why="the product")],
             "Done.")
         self.assertIn("No face was found in the moment's 0 pictures.", steps[-1]["result"])
-        self.assertIn("- middle (y 905 to 1075): never clear for 2 s or more; do not use it", steps[-1]["result"])
-        self.assertIn("- top (y 285 to 520): clear of faces for the whole clip", steps[-1]["result"])
+        self.assertIn("- middle (y 472 to 559): never clear for 2 s or more; do not use it", steps[-1]["result"])
+        self.assertIn("- top (y 149 to 270): clear of faces for the whole clip", steps[-1]["result"])
 
     def test_captions_over_the_product_say_the_product_not_a_face(self):
         self.faces = found([], size=(320, 180))

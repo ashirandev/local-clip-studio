@@ -250,7 +250,7 @@ class Words(Clip):
         self.assertIsNone(self.chat.set_words("title", 0, "Look", "Look here"))
         titles = self.chat.project.state()["titles"]
         self.assertEqual([(t["text"], t["place"], t["box"], t["key"]) for t in titles],
-                         [("Look here", "box at 100, 400", [100, 400, 400, 200], "Look")])
+                         [("Look here", "box at [93, 208, 463, 312] on your grid", [100, 400, 400, 200], "Look")])
         self.assertIsNone(self.chat.set_words("title", 0, "Look here", "See here"))
         self.assertEqual([(t["text"], t["key"]) for t in self.chat.project.state()["titles"]], [("See here", None)])
 
@@ -330,8 +330,8 @@ class Words(Clip):
         self.assertEqual(self.chat.set_words("title", 0, "Boss down", "x" * 81),
                          "words is too long; keep it under 80 characters.")
         self.assertRegex(self.chat.set_words("title", 0, "Boss down", " ".join(["WWWWWWWW"] * 8)),
-                         r"^These words take \d+ lines at the title size \(\d+ px tall\), and the top place holds "
-                         r"\d+ px: use fewer words\.$")
+                         r"^These words take \d+ lines at the title size \(\d+ tall on your grid\), and the top place holds "
+                         r"\d+: use fewer words\.$")
         self.assertEqual(self.chat.set_words("title", 0, "Boss down", " \n "), "Type the words first.")
         self.assertEqual(self.chat.project.entries, had)
         self.assertEqual(self.chat.told, [])

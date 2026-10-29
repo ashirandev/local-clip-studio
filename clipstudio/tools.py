@@ -811,8 +811,9 @@ def _fits_a_place(words, what, style):
     except ValueError as e:
         raise Refused("%s: %s" % (what, e))
     if size.w > band[2] or size.h > band[3]:
-        raise Refused("%s take %d lines at the title size; the place holds %d px of the %d px they need. Use fewer "
-                      "words." % (what[0].upper() + what[1:], len(size.lines), band[3], size.h))
+        raise Refused("%s take %d lines at the title size; the place holds %d of the %d they need on your grid. Use "
+                      "fewer words." % (what[0].upper() + what[1:], len(size.lines), layouts.grid(band[3], "y"),
+                                        layouts.grid(size.h, "y", up=True)))
 
 
 def _montage_moment(job, rec, pieces, at, story, lines):
@@ -1521,7 +1522,7 @@ def _place_lines(state, rec):
     lines = []
     for name, box in lay["places"].items():
         clear = _clear(_covered(box, times, every, 0, length), 0, length)
-        where = "%s (y %d to %d)" % (name, box[1], box[1] + box[3])
+        where = "%s (%s)" % (name, layouts.on_grid(box[1], box[1] + box[3], "y"))
         opening = None if clear else _longest(0, length, every, lambda t: max(
             (f for f in _free_x(box, times, every, 0, t, product) if f[1] - f[0] >= PART_LEAST),
             key=lambda f: f[1] - f[0], default=None))
@@ -1530,10 +1531,10 @@ def _place_lines(state, rec):
         elif clear:
             lines.append("- %s: clear of faces at %s" % (where, _spans(clear, inward=True)))
         elif opening:
-            lines.append("- %s: never clear across its width, but from 0 to %g s its part from x %d to %d is: a title "
-                         "from the first frame given this place goes there when it fits" % (
-                             where, math.floor(opening[0] * 10) / 10, math.ceil(opening[1][0]),
-                             math.floor(opening[1][1])))
+            lines.append("- %s: never clear across its width, but from 0 to %g s its part from %s is: a title from the "
+                         "first frame given this place goes there when it fits" % (
+                             where, math.floor(opening[0] * 10) / 10,
+                             layouts.on_grid(math.ceil(opening[1][0]), math.floor(opening[1][1]), "x")))
         else:
             lines.append("- %s: never clear for %g s or more; do not use it" % (where, LISTED))
     return lines
@@ -1691,9 +1692,9 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
         lines.append(private["said"])
     if lay.get("safe"):
         lines.append(lay["safe"]["said"])
-    lines.append("Places for words on screen, kept clear of the faces the program found%s (the band from y %d to %d "
-                 "is kept for the captions):" % (" and the product you named" if item else "", lay["captions"][1],
-                                                 lay["captions"][1] + lay["captions"][3]))
+    lines.append("Places for words on screen on your grid, kept clear of the faces the program found%s (the band "
+                 "from %s is kept for the captions):" % (" and the product you named" if item else "", layouts.on_grid(
+                     lay["captions"][1], lay["captions"][1] + lay["captions"][3], "y", inward=False)))
     lines += _place_lines(state, rec)
     if state["titles"]:
         times, every = _face_times(state, rec)
@@ -2210,8 +2211,9 @@ def _make_talk(job, rec, moment, m, pieces, cut, name="talk", kept=None):
     if private["said"]:
         lines.append(private["said"])
     lines += lay["notes"] + [lay["safe"]["said"]]
-    lines.append("Places for words on screen, kept clear of every person's head (the band from y %d to %d is kept for "
-                 "the captions):" % (lay["captions"][1], lay["captions"][1] + lay["captions"][3]))
+    lines.append("Places for words on screen on your grid, kept clear of every person's head (the band from %s is "
+                 "kept for the captions):" % layouts.on_grid(lay["captions"][1], lay["captions"][1] + lay["captions"][3],
+                                                             "y", inward=False))
     lines += _place_lines(state, rec)
     peak = project.from_recording(pieces, m["t"] if m.get("t") is not None else (a + b) / 2)
     at = min(max(0.0, peak if peak is not None else state["length"] / 2), state["length"] - 0.1)
@@ -2420,10 +2422,10 @@ def _covers(drawn, lay, state):
     out = layouts.unsafe(drawn)
     y, h = lay["captions"][1], lay["captions"][3]
     if state["captions"] and drawn[1] < y + h and y < drawn[1] + drawn[3]:
-        out.append("the captions run from y %d to %d" % (y, y + h))
+        out.append("the captions run from %s on your grid" % layouts.on_grid(y, y + h, "y", inward=False))
     if drawn[1] < layouts.SAFE_BOTTOM and drawn[1] + drawn[3] > layouts.NAME_TOP:
-        out.append("the row kept for the channel's name runs from y %d to %d" % (layouts.NAME_TOP,
-                                                                                layouts.SAFE_BOTTOM))
+        out.append("the row kept for the channel's name runs from %s on your grid" % layouts.on_grid(
+            layouts.NAME_TOP, layouts.SAFE_BOTTOM, "y", inward=False))
     return out
 
 
@@ -2432,10 +2434,10 @@ def _phone(drawn, lay, state, asked):
     when Muse chose it."""
     covers = _covers([round(v) for v in drawn], lay, state)
     if covers and not asked:
-        raise Refused("On a phone, %s. Pick one of the layout's places, or a box inside x %d-%d, y %d-%d; give "
+        raise Refused("On a phone, %s. Pick one of the layout's places, or a box inside %s, %s on your grid; give "
                       "person_said only when the person asked for this spot." % (
-                          "; ".join(covers), layouts.SAFE[0], layouts.SAFE[0] + layouts.SAFE[2], layouts.SAFE[1],
-                          layouts.NAME_TOP))
+                          "; ".join(covers), layouts.on_grid(layouts.SAFE[0], layouts.SAFE[0] + layouts.SAFE[2], "x"),
+                          layouts.on_grid(layouts.SAFE[1], layouts.NAME_TOP, "y")))
     return ["Placed where the person asked. On a phone, %s; tell the person." % "; ".join(covers)] if covers else []
 
 
@@ -2524,7 +2526,7 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
         raise Refused("Give one of the layout's places for words (%s), or a box." % ", ".join(lay["places"]))
     if box is not None:
         band = _frame_box("box", box)
-        place = "box at %d, %d" % (band[0], band[1])
+        place = "box at %s on your grid" % _grid(band, FRAME)
     elif place not in lay["places"]:
         raise Refused("The %s layout has no place called %s; its places are: %s. Or give a box." % (
             lay["kind"], place, ", ".join(lay["places"])))
@@ -2536,8 +2538,9 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
     except ValueError as e:
         raise Refused(str(e))
     if size.w > band[2] or size.h > band[3]:
-        raise Refused("These words take %d lines at the title size (%d px tall), and the %s place holds %d px: use "
-                      "fewer words." % (len(size.lines), size.h, place, band[3]))
+        raise Refused("These words take %d lines at the title size (%d tall on your grid), and the %s place holds %d: "
+                      "use fewer words." % (len(size.lines), layouts.grid(size.h, "y", up=True), place,
+                                            layouts.grid(band[3], "y")))
     fixed = ""
     try:
         text.title(words, start, end, band, st, key)
@@ -2566,9 +2569,9 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
     if part:
         band, size = part
         drawn = [band[0] + (band[2] - size.w) / 2, band[1] + (band[3] - size.h) / 2, size.w, size.h]
-        moved = "Centred, it would cover a face%s at %s, so it stands in the part of the %s that is clear: x %d to " \
-                "%d." % (" or the product" if state["clip"].get("product") else "", _spans(hit), place, band[0],
-                         band[0] + band[2])
+        moved = "Centred, it would cover a face%s at %s, so it stands in the part of the %s that is clear: %s on " \
+                "your grid." % (" or the product" if state["clip"].get("product") else "", _spans(hit), place,
+                                layouts.on_grid(band[0], band[0] + band[2], "x"))
         hit = []
     notes = _phone(drawn, lay, state, asked) + ([moved] if part else [])
     if crossed is not None:
@@ -2586,8 +2589,10 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
             opening = None if clear else _longest(start, end, every, lambda t: _clear_part(
                 box, words, st, key, times, every, start, t, product))
             others.append("%s: %s" % (name, _spans(clear, inward=True) if clear else (
-                "its part from x %d to %d at %g-%g s" % (opening[1][0][0], opening[1][0][0] + opening[1][0][2], start,
-                                                         math.floor(opening[0] * 10) / 10)) if opening else
+                "its part at %s, %s on your grid at %g-%g s" % (
+                    layouts.on_grid(opening[1][0][0], opening[1][0][0] + opening[1][0][2], "x"),
+                    layouts.on_grid(opening[1][0][1], opening[1][0][1] + opening[1][0][3], "y"), start,
+                    math.floor(opening[0] * 10) / 10)) if opening else
                 "never clear"))
         stuck = "" if any(not o.endswith("never clear") for o in others) else (
             " No place is clear for %g s or more: the faces%s fill the picture. %sor leave the title off." % (
@@ -3131,7 +3136,8 @@ def add_captions(job, why, on=True, lit=False, pop=None, language=""):
     if language and job.chat.clip is not None and (translated or target == said_in):
         job.chat.clip["subtitles"] = target
     under = ("each under the face of the person who says it" if entry.get("bands") and any(
-        line.get("who") for line in lines) else "in the band from y %d to %d" % (band[1], band[1] + band[3]))
+        line.get("who") for line in lines) else "in the band from %s on your grid" % layouts.on_grid(
+            band[1], band[1] + band[3], "y", inward=False))
     out = ["Captions on: %d lines %s, %s; %s."
            % (len(lines), "in %s, translated from the %d sentences said in %s, %s" % (
                target, len(units), said_in, "numbers kept" if not unnumbered else
@@ -3433,13 +3439,15 @@ def _share(box, other):
 
 
 def _where(lay, box):
-    """Where a box of the recording shows in the clip, part by part, in frame pixels."""
+    """Where a box of the recording shows in the clip, part by part, on Muse's grid of the frame."""
     out = []
     for part in lay["parts"]:
         f = layouts.to_frame({"parts": [part]}, box)
         if f:
             x, y, w, h = f[0]
-            out.append("in %s at x %d-%d, y %d-%d" % (PART_NAMES.get(part["name"], part["name"]), x, x + w, y, y + h))
+            out.append("in %s at %s, %s on your grid of the clip" % (
+                PART_NAMES.get(part["name"], part["name"]), layouts.on_grid(x, x + w, "x", inward=False),
+                layouts.on_grid(y, y + h, "y", inward=False)))
     return out
 
 
@@ -4650,8 +4658,7 @@ def _behind_band(frames, lay, state, start, end, tall, wide=None):
 
 
 def _where_said(who):
-    return "%s on your grid (x %d to %d, y %d to %d on the frame)" % (
-        _grid(who, FRAME), who[0], who[0] + who[2], who[1], who[1] + who[3])
+    return "%s on your grid" % _grid(who, FRAME)
 
 
 def _person_said(state, style):
@@ -4687,9 +4694,10 @@ def _not_crossed(frames, drawn, place, start, end, spans, lay, state, size):
         return ("From %g to %g s no picture shows the person, so the title would go behind nobody: pick a time when "
                 "the clip shows them, or put it on without behind." % (start, end))
     band = _behind_band(frames, lay, state, start, end, size.h, size.w)
-    return ("Behind the person, the title must cross them for at least %g s, and at the %s they cross its words (y %d "
-            "to %d) for %g s of %g to %g s; they are at %s. %s, or put it on without behind." % (
-                min(SHORTEST_WORDS, end - start), place, drawn[1], drawn[1] + drawn[3],
+    return ("Behind the person, the title must cross them for at least %g s, and at the %s they cross its words (%s "
+            "on your grid) for %g s of %g to %g s; they are at %s. %s, or put it on without behind." % (
+                min(SHORTEST_WORDS, end - start), place, layouts.on_grid(drawn[1], drawn[1] + drawn[3], "y",
+                                                                         inward=False),
                 round(sum(b - a for a, b in spans), 1), start, end, _where_said(who),
                 "Give a box such as %s, on top of their head" % _grid(band, FRAME) if band else
                 "Give a box across those rows"))

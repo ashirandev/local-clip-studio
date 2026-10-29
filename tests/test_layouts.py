@@ -274,7 +274,9 @@ class Phones(unittest.TestCase):
                         self.assertFalse(overlap(box, cover), "%s, %s: the %s place %s is under %s %s"
                                          % (what, lay["kind"], name, box, ui, cover))
                     self.assertEqual(layouts.unsafe(box), [], (what, lay["kind"], name))
-                self.assertIn("250", lay["safe"]["said"], "Muse is told where the phone covers the clip")
+                self.assertIn("phones cover its top 131", lay["safe"]["said"], "Muse is told where the phone covers the clip")
+                self.assertIn("keep words, stickers and faces inside x 52 to 948, y 131 to 791,", lay["safe"]["said"],
+                              "on its 0-1000 grid, inside what a phone shows: 56 to 1024 and 250 to 1520 of the frame")
 
     def test_the_card_and_the_stacks_game_show_whole_on_the_phone(self):
         for crop in (None, [600, 0, 700, 1080], [0, 300, 1920, 500]):
@@ -417,7 +419,7 @@ class Moved(unittest.TestCase):
         lay = layouts.make("subject", SIZE, FACE, crop=[0, 0, 1500, 1080])
         there = layouts.moved(lay, "circle", [80, 1150, 300, 300])
         self.face_shows_in(there, "subject")
-        self.assertEqual(there["notes"][-1], "As asked, the circle is at [80, 1150, 300, 300].",
+        self.assertEqual(there["notes"][-1], "As asked, the circle is at x 75 to 351, y 599 to 755 on your grid.",
                          "inside the safe zone the note says only where")
 
     def test_a_moved_card_shows_the_same_picture_unstretched(self):
