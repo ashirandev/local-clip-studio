@@ -11,6 +11,7 @@ import time
 import unittest
 import urllib.request
 from http.server import ThreadingHTTPServer
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -47,9 +48,12 @@ class EveryDrive(unittest.TestCase):
         self.c, self.d = os.path.join(self.tmp, "C"), os.path.join(self.tmp, "D")
         recording.WORK = os.path.join(self.d, "studio", "work")
         recording.drives, recording.SMALLEST = (lambda: [self.c, self.d]), 0
+        self.inbox = mock.patch.object(recording, "INBOX", os.path.join(self.d, "studio", "From phone"))
+        self.inbox.start()
         recording._swept.clear()
 
     def tearDown(self):
+        self.inbox.stop()
         videos, recording.WORK, recording.drives, recording.SMALLEST = self.had
         if videos is not None:
             os.environ["LCS_VIDEOS"] = videos

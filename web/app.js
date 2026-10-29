@@ -74,6 +74,10 @@ const apiForm = $("apiForm");
 const apiUrl = $("apiUrl");
 const apiKey = $("apiKey");
 const apiNote = $("apiNote");
+const phoneBox = $("phoneBox");
+const phoneLine = $("phoneLine");
+const phoneCodes = $("phoneCodes");
+const phoneFiles = $("phoneFiles");
 const idle = text.placeholder;
 
 const SHEETS = { caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
@@ -1812,6 +1816,7 @@ function openSheet(part) {
     drawMinds();
     loadParts();
     loadKey();
+    loadPhone();
   } else if (part === "features") {
     loadFeatures();
   }
@@ -1858,6 +1863,7 @@ async function health() {
       room.mind = ready ? ready.key : d.default;
     }
     document.body.classList.toggle("away", d.here === false);
+    $("add").setAttribute("aria-label", d.here === false ? "Send photos and videos from this phone" : "Open a video");
     $("homeSetUp").hidden = !room.minds.length || room.minds.some((m) => m.ok);
     drawMinds();
     refreshCost();
@@ -1951,6 +1957,115 @@ apiForm.addEventListener("submit", async (e) => {
   apiKey.placeholder = "API key (saved)";
   health();
 });
+
+async function loadPhone() {
+  if (window.lcsReplay || sheet.hidden || room.part !== "options") return;
+  let d;
+  try {
+    d = await fetch("/api/phone", { cache: "no-store" }).then((r) => r.json());
+  } catch (e) {
+    return;
+  }
+  drawPhone(d);
+}
+
+function drawPhone(d) {
+  phoneBox.hidden = !d.ok;
+  if (!d.ok) return;
+  drawSeg($("phoneSeg"), [["off", "Off"], ["on", "On", "phone"]], d.on ? "on" : "off", async (k) => {
+    phoneLine.textContent = k === "on" ? "Turning Phone on…" : "";
+    let got;
+    try {
+      got = await post("/api/phone", { on: k === "on" });
+    } catch (e) {
+      got = { ok: false, error: "The studio is not answering. Start it again with: python app.py" };
+    }
+    if (!got.ok) {
+      phoneLine.classList.add("bad");
+      phoneLine.textContent = got.error;
+      return;
+    }
+    drawPhone(got);
+    loadPhone();
+  });
+  $("phoneSeg").querySelectorAll("button").forEach((b) => { b.disabled = d.fixed; });
+  phoneLine.classList.toggle("bad", !!d.why);
+  phoneLine.textContent = d.why || (d.on ? "A phone on the same Wi-Fi or Tailscale opens the studio at an address below: scan its code with the phone's camera. Windows may ask once whether Python may use the network: choose Allow." : "Off: only this computer can use the studio.");
+  const open = d.on ? d.addresses.filter((a) => a.listening) : [];
+  const shown = open.map((a) => a.address).join(" ");
+  if (phoneCodes.dataset.shown !== shown) {
+    phoneCodes.dataset.shown = shown;
+    phoneCodes.replaceChildren(...open.map((a) => {
+      const fig = el("figure", "phone-code");
+      const img = el("img");
+      img.src = "/api/phone/qr.svg?address=" + encodeURIComponent(a.address);
+      img.alt = "Code that opens " + a.url;
+      const cap = el("figcaption");
+      cap.append(el("b", null, a.kind === "Wi-Fi" ? "Same Wi-Fi" : a.kind), el("span", null, a.url));
+      fig.append(img, cap);
+      return fig;
+    }));
+  }
+}
+
+function stamp(t) {
+  const two = (n) => String(n).padStart(2, "0");
+  return t.getFullYear() + "-" + two(t.getMonth() + 1) + "-" + two(t.getDate()) + " " + two(t.getHours()) + "." + two(t.getMinutes()) + "." + two(t.getSeconds());
+}
+
+function upload(file, batch, progress) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open("POST", "/api/upload?name=" + encodeURIComponent(file.name) + "&batch=" + encodeURIComponent(batch) + "&when=" + Math.round(file.lastModified / 1000));
+    x.setRequestHeader("Content-Type", "application/octet-stream");
+    x.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable) progress(e.loaded / e.total);
+    });
+    x.addEventListener("load", () => {
+      try {
+        resolve(JSON.parse(x.responseText));
+      } catch (e) {
+        reject(e);
+      }
+    });
+    x.addEventListener("error", () => reject(new Error("network")));
+    x.send(file);
+  });
+}
+
+async function sendFiles(files) {
+  const list = [...files];
+  if (!list.length) return;
+  if (app.dataset.screen === "home") setScreen("chat");
+  const batch = stamp(new Date());
+  const line = bubble("note sent");
+  const words = el("span");
+  line.append(ico("phone", "sm"), words);
+  const sent = [];
+  const failed = [];
+  for (let i = 0; i < list.length; i++) {
+    const f = list[i];
+    const head = "Sending " + (list.length > 1 ? (i + 1) + " of " + list.length + ", " : "") + f.name;
+    words.textContent = head;
+    try {
+      const d = await upload(f, batch, (part) => {
+        words.textContent = head + " · " + Math.round(part * 100) + "%";
+      });
+      if (d.ok) sent.push(d);
+      else failed.push(d.error);
+    } catch (e) {
+      failed.push(f.name + " did not reach the computer. Keep this page open while it sends, then send it again.");
+    }
+  }
+  const videos = sent.filter((d) => d.kind === "video");
+  const photos = sent.length - videos.length;
+  const said = [sent.length + " of " + list.length + " sent to " + (sent.length ? sent[0].folder : "the computer") + "."];
+  if (photos) said.push((photos === 1 ? "1 photo is" : photos + " photos are") + " kept there; Muse makes clips from videos.");
+  words.textContent = said.join(" ");
+  failed.forEach((why) => note(why));
+  if (videos.length === 1) openRecording({ path: videos[0].path });
+  else if (videos.length > 1) openRecording({ folder: videos[0].folder });
+}
 
 function sizeText(bytes) {
   return bytes < 1e9 ? Math.round(bytes / 1e6) + " MB" : (bytes / 1e9).toFixed(1) + " GB";
@@ -2297,7 +2412,7 @@ async function fillNewest() {
   try {
     const r = await fetch("/api/recordings", { cache: "no-store" });
     const d = await r.json();
-    box.querySelectorAll(".recording:not(.pick), .earlier-empty").forEach((n) => n.remove());
+    box.querySelectorAll(".recording:not(.pick):not(.from-phone), .earlier-empty").forEach((n) => n.remove());
     if (!d.recordings.length) box.appendChild(el("p", "earlier-empty", "No videos found in " + (d.folders.join(", ") || "any folder") + "."));
     d.recordings.forEach((rec) => {
       const b = el("button", "recording");
@@ -2330,8 +2445,20 @@ function openFile(file) {
   if (file) openRecording({ name: file.name, size: file.size, mtime: file.lastModified / 1000 });
 }
 
+$("add").addEventListener("click", () => {
+  if (document.body.classList.contains("away")) phoneFiles.click();
+  else fileInput.click();
+});
+
 log.addEventListener("click", (e) => {
   if (e.target.closest(".pick")) fileInput.click();
+  if (e.target.closest(".from-phone")) phoneFiles.click();
+});
+
+phoneFiles.addEventListener("change", () => {
+  const files = [...phoneFiles.files];
+  phoneFiles.value = "";
+  sendFiles(files);
 });
 
 fileInput.addEventListener("change", () => {

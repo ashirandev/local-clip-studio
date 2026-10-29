@@ -33,6 +33,7 @@
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
   <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18.5h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 12 3.3 3.3 0 0 0 7 18.5z"/></symbol>
   <symbol id="i-pc" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19.5h20"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></symbol>
   <symbol id="i-stack" viewBox="0 0 24 24"><rect x="7" y="3" width="12" height="15" rx="2"/><path d="M4 7v11a3 3 0 0 0 3 3h9"/></symbol>
   <symbol id="i-bubble" viewBox="0 0 24 24"><path d="M20 11.5a7.5 7.5 0 0 1-11 6.6L4 19.5l1.4-4.4A7.5 7.5 0 1 1 20 11.5z"/></symbol>
   <symbol id="i-film" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 3v18M16 3v18M4 8h4M4 16h4M16 8h4M16 16h4"/></symbol>
@@ -87,6 +88,7 @@
     <header class="c-top">
       <button type="button" class="round" id="toHome" aria-label="All clips"><svg class="ico"><use href="#i-back"/></svg></button>
       <div class="c-name"><b id="chatName">New clip</b><span id="chatSub"></span></div>
+      <button type="button" class="round" id="chatFeatures" data-sheet="features" aria-label="Features"><svg class="ico"><use href="#i-spark"/></svg></button>
       <button type="button" class="pill" id="chatMuse" data-sheet="options"></button>
       <button type="button" class="thumb" id="toClip" aria-label="Open the clip" hidden></button>
     </header>
@@ -95,6 +97,7 @@
         <p class="w-head"><svg class="ico sm"><use href="#i-film"/></svg>Pick a video</p>
         <div class="newest">
           <button type="button" class="recording pick"><svg class="ico"><use href="#i-folder"/></svg><span class="first">Browse…</span><span class="meta">or drop a video on this page</span></button>
+          <button type="button" class="recording from-phone"><svg class="ico"><use href="#i-phone"/></svg><span class="first">Send from this phone</span><span class="meta">Photos and videos go to the computer</span></button>
         </div>
         <p class="w-head"><svg class="ico sm"><use href="#i-spark"/></svg>Ideas</p>
         <div class="ideas">
@@ -107,6 +110,7 @@
       </div>
     </div>
     <form class="composer" id="composer">
+      <button type="button" class="round add" id="add" aria-label="Open a video"><svg class="ico"><use href="#i-plus"/></svg></button>
       <textarea id="text" rows="1" placeholder="Tell Muse what you want" aria-label="Your message"></textarea>
       <button type="submit" class="send" id="send" aria-label="Send"><svg class="ico"><use href="#i-send"/></svg></button>
       <button type="button" class="send stop" id="stop" aria-label="Stop" hidden><svg class="ico"><use href="#i-stop"/></svg></button>
@@ -225,6 +229,12 @@
         <button type="submit" class="pill go"><svg class="ico sm"><use href="#i-check"/></svg>Save</button>
         <p class="setup-line" id="apiNote" role="status"></p>
       </form>
+      <div id="phoneBox" hidden>
+        <p class="s-sub"><svg class="ico sm"><use href="#i-phone"/></svg>Phone<small>same Wi-Fi or Tailscale</small></p>
+        <div class="seg" id="phoneSeg" role="group" aria-label="Let phones on the same Wi-Fi or Tailscale use the studio"></div>
+        <p class="setup-line" id="phoneLine" role="status"></p>
+        <div class="phone-codes" id="phoneCodes"></div>
+      </div>
       <div id="partsBox" hidden>
         <p class="s-sub"><svg class="ico sm"><use href="#i-pc"/></svg>This computer<small id="cardName"></small></p>
         <div class="parts" id="parts"></div>
@@ -245,6 +255,7 @@
   </div>
 </section>
 <input type="file" id="file" accept="video/*,.mkv,.mov,.ts,.flv" hidden>
+<input type="file" id="phoneFiles" accept="video/*,image/*" multiple hidden>
 <div class="drop-cover" id="dropCover" hidden><p>Drop the video to open it where it is. Nothing is copied.</p></div>
 <script src="app.js"></script>
 </body>

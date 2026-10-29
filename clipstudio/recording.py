@@ -16,6 +16,7 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = os.environ.get("LCS_WORK") or os.path.join(ROOT, "work")
+INBOX = os.environ.get("LCS_INBOX") or os.path.join(ROOT, "From phone")
 VIDEO_TYPES = (".mp4", ".mkv", ".mov", ".m4v", ".webm", ".ts", ".flv", ".avi")
 SMALLEST = 1_000_000
 MOST_FILES_LOOKED_AT = 50_000
@@ -35,10 +36,21 @@ class NotOpened(Exception):
 
 def folders():
     """The folders recordings are kept in: LCS_VIDEOS (separated by ; on Windows, : elsewhere), else every drive
-    (drives()), so a person who never named a folder finds their videos wherever they keep them."""
+    (drives()), so a person who never named a folder finds their videos wherever they keep them. The folder a phone
+    sends to (INBOX) is always one of them."""
     named = os.environ.get("LCS_VIDEOS", "")
     found = [f.strip() for f in named.split(os.pathsep) if f.strip()] or drives()
-    return [os.path.realpath(f) for f in found if os.path.isdir(f)]
+    tops = [os.path.realpath(f) for f in found if os.path.isdir(f)]
+    inbox = os.path.realpath(INBOX)
+    if os.path.isdir(inbox) and not any(inside(inbox, t) for t in tops):
+        tops.append(inbox)
+    return tops
+
+
+def inside(real, top):
+    """True when the real path real is top or inside it. A drive root ends in its separator (C:\\), so the
+    separator is not added twice: with it doubled, nothing on a drive was inside it (10-29)."""
+    return real == top or real.startswith(top.rstrip(os.sep) + os.sep)
 
 
 def drives():
@@ -146,7 +158,7 @@ def find_music(name):
     where = ", ".join(tops) or "none"
     if os.path.isabs(name) or os.sep in name or "/" in name:
         real = os.path.realpath(name)
-        if not any(real == top or real.startswith(top + os.sep) for top in tops):
+        if not any(inside(real, top) for top in tops):
             raise NotOpened("%s is not inside the folders music may come from (%s). Ask the person to put it in one "
                             "of them." % (name, where))
         if not real.lower().endswith(MUSIC_TYPES) or not os.path.isfile(real):
@@ -196,7 +208,7 @@ def locate(name, size, mtime=None):
 def check_path(path):
     """The real path when it is a recording inside the folders, else NotOpened. The page cannot name other files."""
     real = os.path.realpath(path)
-    if not any(real == top or real.startswith(top + os.sep) for top in folders()):
+    if not any(inside(real, top) for top in folders()):
         raise NotOpened("%s is not inside the folders recordings are kept in (%s)." % (path, ", ".join(folders())))
     if not real.lower().endswith(VIDEO_TYPES) or not os.path.isfile(real):
         raise NotOpened("%s is not a recording on this computer." % path)
@@ -206,7 +218,7 @@ def check_path(path):
 def check_folder(path):
     """The real path when it is a folder inside the folders recordings are kept in, else NotOpened."""
     real = os.path.realpath(path)
-    if not any(real == top or real.startswith(top + os.sep) for top in folders()):
+    if not any(inside(real, top) for top in folders()):
         raise NotOpened("%s is not inside the folders recordings are kept in (%s)." % (path, ", ".join(folders())))
     if not os.path.isdir(real):
         raise NotOpened("%s is not a folder on this computer." % path)

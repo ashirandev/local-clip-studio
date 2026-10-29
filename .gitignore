@@ -14,3 +14,4 @@ models/
 *.wav
 *.m4a
 python/
+/From phone/

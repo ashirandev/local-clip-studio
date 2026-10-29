@@ -61,8 +61,8 @@ hearing (from a server on this computer) started on its own once its download wa
 Glimmer needs an NVIDIA card with 16 GB. Without one, setup leaves Glimmer and llama.cpp out and says why; Muse
 Spark (below) needs no graphics card. On Linux and macOS, install FFmpeg (with libass) and llama.cpp's
 `llama-server` from your packages; setup downloads Glimmer and the hearing model. The studio's own Python packages
-are OpenCV to find faces, pythainlp to break Thai words onto lines, NumPy, and onnxruntime with RapidOCR for the
-hearing and for reading the screen.
+are OpenCV to find faces, pythainlp to break Thai words onto lines, NumPy, onnxruntime with RapidOCR for the
+hearing and for reading the screen, and segno for the QR code a phone opens the studio with.
 
 The face finder's model (YuNet, 230 KB) is downloaded from OpenCV Zoo the first time it is needed; set
 `LCS_FACE_MODEL` to the file if you have it. The house font (Google Sans), Kanit, Pattaya and Taviraj are in `fonts/`.
@@ -85,6 +85,18 @@ Omnilingual's own loader (fairseq2) runs on Linux only; only whoever makes the f
 Drop a recording on the page, or tap one of your newest. It is opened where it is: a browser does not give the
 path of a dropped file, so the studio finds it in those folders by its name, size and time. Nothing is copied or
 uploaded, and the recording is only ever read.
+
+**From your phone**, over the same Wi-Fi or the same [Tailscale](https://tailscale.com/): the studio listens on the
+computer's Wi-Fi address and its Tailscale address too (only those), and Options shows each address with a QR code
+for the phone's camera. Windows asks once whether Python may use the network. On the phone, tap **+** beside the
+message box, or **Send from this phone**, and pick photos and videos: they go into the `From phone` folder next to the
+studio (a folder for each time you send), one video opens at once, and several open together for Muse to make one
+clip from. Muse makes clips from videos; photos are kept there. Several people can use the studio at once, so a
+group can try it from their own phones; there is nothing to pair, and anyone on that Wi-Fi or Tailscale can use it,
+your API key included (Tarm, 10-29: it is open source, and who shares their Wi-Fi is their call). Phone: Off in
+Options keeps it to this computer, and only this computer can set the key or turn Phone off. Measured on 10-29
+through the Wi-Fi address: a 4 s video arrived with the same bytes and was first in the newest recordings, and two
+photos sent from the page arrived whole. Not yet measured from a real phone.
 
 The screen stays simple, with pictures and icons more than words. The first screen is your clips: each chat shows
 as a picture of the clip it made, with which Muse made it (a computer for this one, a cloud for an API) and what it
@@ -229,7 +241,8 @@ Detailed steps the input, the result and the engine numbers.
   and the titles and each piece's reason as markers. Looks, stickers and blurs do not; the note lists what the clip
   had and did not come over, a blur first, since a hidden face or chat shows again there.
 - **One recipe per kind of video, and no questions.** Muse picks the kind (`recipes/seller.md` for a product review
-  or a selling live, `recipes/game.md` for a game stream), reads that recipe, and shows its guesses: the kind, the
+  or a selling live, `recipes/game.md` for a game stream, `recipes/vlog.md` for a vlog or an edited episode, kept
+  whole as a card so its own subtitles and logo are never cut), reads that recipe, and shows its guesses: the kind, the
   length, the style and the language. Each guess has a button to change it with one tap, and Muse plans again.
   What you type wins over the recipe and every guess. A kind with no recipe yet is refused, and Muse tells you so
   instead of using a recipe made for something else. A recipe is a Markdown file with front matter, like a
@@ -237,8 +250,11 @@ Detailed steps the input, the result and the engine numbers.
 - **Every step is written down.** `work/chats/<chat>.events.jsonl` is the job log the page is drawn from, and
   `<chat>.messages.jsonl` is exactly what Muse read.
 - **Muse looks before it guesses.** When a recording opens, Muse gets its length, picture size and sound tracks
-  (from ffprobe) and one picture from it. File names mislead: the demo's product review is called `trip_...mov`,
-  and from the name alone Muse called it a travel clip; with the picture it picked the product-review recipe.
+  (from ffprobe) and one picture from it; a recording of 3 minutes or more comes as four moments across it, two by two,
+  each marked with its time (about 570 tokens for an hour). File names mislead: the demo's product review is called
+  `trip_...mov`, and from the name alone Muse called it a travel clip; with the picture it picked the product-review
+  recipe. One picture misleads too: an hour-long travel episode opened on two people in a room, and Muse took it for a
+  podcast (10-29).
 - **A map before any look.** On a long recording Muse maps it first. One ffmpeg pass reads how loud every second is
   against the minutes around it, and how much the picture changes at every keyframe; only the keyframes are
   decoded, which is what makes it fast. The recipe says what ranks: sound and picture for a game stream, the
@@ -271,11 +287,11 @@ Detailed steps the input, the result and the engine numbers.
   the first take with the stop. A silence over a second is cut down to 0.3 s a side, and the clip opens and closes
   0.3 s from a word, but only while nothing moves on the screen: the answer streaming in while the speaker waits is
   the payoff, not dead air. A game keeps every second. Muse is told what was cut and why.
-- **In a conversation, every face stays on screen.** For two or more people talking, Muse picks one of three
-  layouts: cut to whoever speaks (with the listener's reaction during a long answer), keep everyone on screen with
-  whoever speaks filling the frame and the others in circles in the top corner away from the speaker's head, or, for
-  two people, split the screen into a top half and a bottom half for the whole clip. In the split each person's
-  captions sit under their own face. A Q&A's comment card is read like a tutorial's screen, and a viewer's handle on
+- **In a conversation, the clip cuts between the faces.** For two or more people talking, whoever speaks fills the
+  frame, with a short cut to the listener's reaction and to everyone when they laugh together. Two more layouts are
+  there when you ask for everyone on screen at once: the others in circles in the top corner away from the speaker's
+  head, or, for two people, the screen split into a top half and a bottom half, each person's captions under their
+  own face (Tarm, 10-29, on a clip with circles: cut between faces instead). A Q&A's comment card is read like a tutorial's screen, and a viewer's handle on
   it is hidden.
 - **Who speaks is heard, not guessed from lips.** On a real 720p Q&A, pixel change around two mouths could not tell
   the two speakers apart (every score about 1.1). Their voices could: every line one said sat at 97 to 137 Hz, every
@@ -383,6 +399,7 @@ Each piece is listed with its licence. The Status column says whether this build
 | [SAM 3.1](https://github.com/facebookresearch/sam3) (Meta) | finds the person frame by frame, for the cut-out looks and the titles behind the person (`cut_out`) | SAM License | used |
 | [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) (OpenCV Zoo) | finds faces, so the layouts frame them and words never cover one | MIT | used |
 | [OpenCV](https://opencv.org/) (`opencv-python`) | runs YuNet | Apache-2.0 | used |
+| [segno](https://github.com/heuer/segno) | draws the QR code a phone opens the studio with | BSD-3-Clause | used |
 | [PyThaiNLP](https://github.com/PyThaiNLP/pythainlp) | breaks Thai titles and captions at word boundaries | Apache-2.0 | used |
 | [NumPy](https://numpy.org/) | holds the pictures the face finder reads | BSD-3-Clause | used |
 | [RapidOCR](https://github.com/RapidAI/RapidOCR) (`rapidocr-onnxruntime`), with the PP-OCRv4 models it ships | reads the words on the screen at full size, so private lines can be hidden | Apache-2.0 | used |

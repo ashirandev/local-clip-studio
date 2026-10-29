@@ -1,9 +1,16 @@
 """The web server: the page, and the small JSON API the page talks to.
 
-Standard library only. It listens on 127.0.0.1, so the recordings it opens never leave this computer. LCS_HOST=0.0.0.0
-lets a phone on the same Wi-Fi use it too; then anyone on that network can open the videos in the folders.
-Two guards hold either way: a request must name the studio by an address or "localhost" (a web page cannot reach it
-through a name it owns), and a POST must be JSON (another web page cannot send JSON here without asking first).
+Standard library, and segno for the QR code a phone opens the studio with. It listens on 127.0.0.1, and with Phone
+on (Options; the default) also on this computer's Wi-Fi and Tailscale addresses, so a phone on the same Wi-Fi or
+Tailscale uses it as the computer does (phone.py); LCS_HOST names another address to listen on, or 0.0.0.0 for every
+one. Two guards hold either way: a request must name the studio by an address or "localhost" (a web page cannot reach
+it through a name it owns), and a POST must be JSON, or for an upload application/octet-stream (another web page
+cannot send either here without asking first). Setting the API key and Phone on or off are for the page on this
+computer only.
+- GET /api/phone: Phone on or off and each address a phone can use; GET /api/phone/qr.svg?address=<a>: the QR code
+  of that address. POST /api/phone {on}. All from the page on this computer only
+- POST /api/upload?name=<file>&batch=<YYYY-MM-DD HH.MM.SS>&when=<s>: a photo or video from a phone, as the body,
+  into the From phone folder (phone.receive)
 - GET /api/health: the minds and whether each can answer, whether the hearing worker is ready, and whether
   the page is on this computer
 - GET /api/parts: what this computer has of FFmpeg, llama.cpp, Muse Glimmer and the hearing model, what setting up
@@ -21,7 +28,8 @@ through a name it owns), and a POST must be JSON (another web page cannot send J
 - POST /api/stop {chat}: stops the job running now, at once
 - GET /api/recordings: the newest recordings, to open with one tap
 - POST /api/open {chat, path} or {chat, name, size, mtime}: opens a recording where it is (a dropped file is found
-  by its name, size and time) and tells Muse, with any words typed with it
+  by its name, size and time) and tells Muse, with any words typed with it. {chat, folder}: the videos a phone sent
+  together; one opens like a recording, more are for Muse to open together
 - GET /api/frame/<name>.jpg: a picture from an open recording
 - GET /api/look/<name>.png: the picture of one look of the words, for the person to pick from
 - GET /api/preview/<name>.mp4: the rough video of a proposed moment, in the byte range the browser asks for, so it
@@ -49,6 +57,7 @@ through a name it owns), and a POST must be JSON (another web page cannot send J
   Every page shows the chat the server has open: when another chat opens, the stream says "moved" and the page
   follows, so neither an address nor a second tab can leave a page working on another chat.
 """
+import io
 import ipaddress
 import json
 import os
@@ -62,8 +71,10 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, quote
 
-from . import (__version__, agent, effects, hearing, layer, mind, parts, premiere, previews, recording, render, spent,
-               text)
+import segno
+
+from . import (__version__, agent, effects, hearing, layer, mind, parts, phone, premiere, previews, recording, render,
+               spent, text)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
@@ -90,6 +101,8 @@ READ_TRIES, READ_WAIT = 10, 0.05
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 CHANGES = ("/api/captions", "/api/style", "/api/colour", "/api/words", "/api/remake", "/api/channel",
            "/api/channel/save", "/api/mute")
+UPLOAD_WAIT = 60
+ONLY_HERE = "Open Options on the computer the studio runs on to change this."
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -100,7 +113,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         path, _, query = self.path.partition("?")
         query = dict(parse_qsl(query))
-        if path == "/api/health":
+        if path == "/api/phone":
+            if self.here():
+                self.send_json(dict(phone_state(), ok=True))
+            else:
+                self.send_json({"ok": False, "error": ONLY_HERE}, HTTPStatus.FORBIDDEN)
+        elif path == "/api/phone/qr.svg":
+            self.send_qr(query)
+        elif path == "/api/health":
             self.send_json({"ok": True, "version": __version__, "default": mind.DEFAULT, "here": self.here(),
                             "minds": [m.status() for m in mind.MINDS.values()], "hearing": hearing.status()})
         elif path == "/api/features":
@@ -165,13 +185,19 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.named_well():
             return
-        path = self.path.split("?", 1)[0]
+        path, _, query = self.path.partition("?")
+        if path == "/api/upload":
+            self.receive_upload(dict(parse_qsl(query)))
+            return
         if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/open", "/api/undo", "/api/person",
-                        "/api/base", "/api/parts", "/api/key") + CHANGES:
+                        "/api/base", "/api/parts", "/api/key", "/api/phone") + CHANGES:
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
             return
         body = self.read_json()
         if body is None:
+            return
+        if path == "/api/phone":
+            self.change_phone(body)
             return
         if path == "/api/chat/new":
             self.send_json({"ok": True, "chat": agent.new().id})
@@ -299,7 +325,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def open_recording(self, chat, body):
         try:
-            if body.get("path"):
+            if body.get("folder"):
+                folder = recording.check_folder(str(body["folder"]))
+                videos = recording.clips_in(folder)
+                if not videos:
+                    raise recording.NotOpened("There is no video in %s." % folder)
+                if len(videos) > 1:
+                    job = chat.open_sent(folder, len(videos), str(body.get("words") or "").strip(),
+                                         body.get("mind"), str(body.get("language") or "")[:20])
+                    self.send_json({"ok": True, "chat": chat.id, "job": job.n, "path": folder})
+                    return
+                where = videos[0]
+            elif body.get("path"):
                 where = recording.check_path(str(body["path"]))
             else:
                 size, mtime = body.get("size"), body.get("mtime")
@@ -486,6 +523,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         try:
             while True:
+                if getattr(self.server, "closed", False):
+                    return
                 if agent.shown() not in (None, chat.id):
                     self.wfile.write(("event: moved\ndata: %s\n\n" % json.dumps({"chat": agent.shown()}))
                                      .encode("utf-8"))
@@ -551,6 +590,65 @@ class Handler(BaseHTTPRequestHandler):
             return client == self.connection.getsockname()[0].split("%", 1)[0]
         except OSError:
             return False
+
+    def send_qr(self, query):
+        """The QR code of one of the addresses Options shows, for a phone's camera to open, as SVG."""
+        address = query.get("address", "")
+        if not self.here():
+            self.send_json({"ok": False, "error": ONLY_HERE}, HTTPStatus.FORBIDDEN)
+            return
+        if address not in [a["address"] for a in phone_state()["addresses"] if a["listening"]]:
+            self.send_json({"ok": False, "error": "The studio is not listening on %s." % address},
+                           HTTPStatus.NOT_FOUND)
+            return
+        out = io.BytesIO()
+        segno.make("http://%s:%d/" % (address, PORT), error="m").save(
+            out, kind="svg", scale=5, border=2, dark="#000000", light="#ffffff")
+        body = out.getvalue()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", TYPES[".svg"])
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def change_phone(self, body):
+        """Phone on or off: from the page on this computer only."""
+        if not self.here():
+            self.send_json({"ok": False, "error": ONLY_HERE}, HTTPStatus.FORBIDDEN)
+            return
+        if body.get("on"):
+            phone.want(True)
+            listen_for_phones()
+        else:
+            phone.want(False)
+            stop_phones()
+        self.send_json(dict(phone_state(), ok=True))
+
+    def receive_upload(self, query):
+        """A photo or video the phone sends, as the request's body (phone.receive). The body must be
+        application/octet-stream, which another web page cannot send here without asking first."""
+        self.close_connection = True
+        if (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower() != "application/octet-stream":
+            self.send_json({"ok": False, "error": "Send the file as application/octet-stream."},
+                           HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or -1)
+        except ValueError:
+            length = -1
+        try:
+            when = float(query["when"]) if query.get("when") else None
+        except ValueError:
+            when = None
+        self.connection.settimeout(UPLOAD_WAIT)
+        try:
+            got = phone.receive(self.rfile.read, length, query.get("name", ""), query.get("batch", ""), when)
+        except phone.NotSent as e:
+            self.send_json({"ok": False, "error": str(e)}, HTTPStatus.BAD_REQUEST)
+            return
+        self.close_connection = False
+        self.send_json(dict(got, ok=True))
 
     def read_json(self):
         """The request body as a dict, or None after answering with a sentence."""
@@ -634,10 +732,77 @@ def newest():
 
 
 class Server(ThreadingHTTPServer):
+    closed = False
+
     def handle_error(self, request, client_address):
         """A page that closes its connection before the answer is sent is not an error worth a traceback."""
-        if not isinstance(sys.exc_info()[1], ConnectionError):
+        if not isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
             super().handle_error(request, client_address)
+
+
+_phones = {}
+_phones_lock = threading.Lock()
+_phones_why = {}
+
+
+def everywhere():
+    """True when LCS_HOST already makes the studio listen on every address."""
+    return HOST in ("0.0.0.0", "::")
+
+
+def listen_for_phones():
+    """Listens on each of this computer's phone addresses (phone.addresses) that has no listener yet, and stops
+    listening on any that is gone."""
+    found = dict(phone.addresses())
+    with _phones_lock:
+        for address in list(_phones):
+            if address not in found:
+                _close(_phones.pop(address))
+        _phones_why.clear()
+        for address in found:
+            if address in _phones or address == HOST or everywhere():
+                continue
+            try:
+                s = Server((address, PORT), Handler)
+            except OSError as e:
+                _phones_why[address] = e.strerror or str(e)
+                continue
+            _phones[address] = s
+            threading.Thread(target=s.serve_forever, name="phone " + address, daemon=True).start()
+
+
+def stop_phones():
+    with _phones_lock:
+        for s in _phones.values():
+            _close(s)
+        _phones.clear()
+        _phones_why.clear()
+
+
+def _close(s):
+    s.closed = True
+    s.shutdown()
+    s.server_close()
+
+
+def phone_state():
+    """What Options shows under Phone: whether it is on, each address a phone can use and whether the studio
+    listens there, and a word on any it could not."""
+    fixed = not ipaddress.ip_address(HOST).is_loopback
+    on = fixed or phone.wanted()
+    with _phones_lock:
+        mine, why = set(_phones), dict(_phones_why)
+    out = []
+    for address, kind in phone.addresses():
+        listening = on and (everywhere() or address == HOST or address in mine)
+        out.append({"address": address, "kind": kind, "url": "http://%s:%d/" % (address, PORT),
+                    "listening": listening, "why": why.get(address)})
+    said = None
+    if on and not out:
+        said = "This computer has no Wi-Fi or Tailscale address the studio can find."
+    elif on and why:
+        said = "The studio could not listen on %s." % ", ".join("%s (%s)" % kv for kv in why.items())
+    return {"on": on, "fixed": fixed, "port": PORT, "addresses": out, "why": said}
 
 
 def main():
@@ -651,11 +816,14 @@ def main():
     mind.MINDS.update(mind.minds())
     hearing.start()
     parts.start_glimmer()
+    if phone.wanted() or not ipaddress.ip_address(HOST).is_loopback:
+        listen_for_phones()
     print("Local Clip Studio %s: http://127.0.0.1:%d/" % (__version__, PORT), flush=True)
     if keys:
         print("Keys read from LCS_KEYS: %s" % ", ".join(keys), flush=True)
-    if not ipaddress.ip_address(HOST).is_loopback:
-        print("On a phone on the same Wi-Fi, open http://<this computer's address>:%d/" % PORT, flush=True)
+    for a in phone_state()["addresses"]:
+        if a["listening"]:
+            print("A phone on the same %s can open %s" % (a["kind"], a["url"]), flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
