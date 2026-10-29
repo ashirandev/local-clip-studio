@@ -36,7 +36,8 @@ its own kind, both hold; the person's own words win over both.
   colour under a talking face is a second place to look.
 - Words never cover each other, a face, the product or a price.
 - No sponsor's or brand's logo or name on the picture unless the person asks for it: a short cut loses the context
-  that keeps it fair to them.
+  that keeps it fair to them. A shop's or a place's name as its own sign writes it says where the viewer is, and
+  may be named there.
 
 ## The post
 

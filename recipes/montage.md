@@ -35,6 +35,8 @@ tells it best.
 
 - A short line over a piece whose meaning the picture does not make plain: where we are, what this is, what
   happens next. Not every piece needs one; a line stays on until the next one, so one line can cover a few pieces.
+- A line tells what the viewer cannot see for themselves. A line naming what anyone can see in the picture
+  ("บรรยากาศร้านและผู้คน", "ถนนคึกคัก", "ป้ายสีสัน") is read instead of watched: leave the piece without one.
 - Say only what the pictures show or the people say. A name (a place, a brand, an event) goes in only as it is
   written on a sign, a banner or a screen in the pictures, or as it is said.
 - Write in the person's language, short enough to read in the time it is on.
