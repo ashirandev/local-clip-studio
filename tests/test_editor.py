@@ -476,19 +476,52 @@ class Tools(unittest.TestCase):
         edits = [e for e in self.chat.events if e["kind"] == "edit"]
         self.assertEqual(edits[-1]["clip"]["layout"], "subject")
 
-    def test_a_title_over_a_face_is_refused_with_the_clear_times_and_a_clear_one_is_drawn(self):
+    def test_a_title_over_a_face_stands_in_the_clear_part_of_its_place_or_is_refused_with_the_clear_times(self):
         brain, steps = self.run_job(
             *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
             [call("add_title", words="Boss down", start=0, end=15, place="top", why="the hook")],
+            [call("add_title", words="The boss goes down after the longest fight of the whole night", start=0, end=15,
+                  place="top", why="the long hook")],
             [call("add_title", words="Boss down", start=0, end=4.5, place="top", why="before the face rises")],
             "Done.")
-        refused, drawn = steps[-2], steps[-1]
-        self.assertTrue(refused["refused"])
+        beside, refused, drawn = steps[-3:]
+        self.assertFalse(beside["refused"], beside["result"])
+        self.assertIn("Centred, it would cover a face at 4.8-9.8 s, so it stands in the part of the top that is clear: "
+                      "x 65 to 318.", beside["result"],
+                      "the seller beat 10-29: no place was clear across its width and the clip went out untitled")
+        placed = [e["entry"] for e in self.chat.events if e["kind"] == "edit" and e["entry"].get("do") == "title"]
+        self.assertEqual(placed[0]["box"], [65, 285, 253, 235])
+        self.assertTrue(refused["refused"], "too long for the clear part")
         self.assertIn("At the top, the title would cover a face at 4.8-9.8 s. Clear: top: 0-4.7 s, 9.8-20 s; middle: "
                       "0-20 s. Pick a time or a place from these.", refused["result"])
         self.assertFalse(drawn["refused"], drawn["result"])
         self.assertIn('The title "Boss down" is on screen at the top from 0 to 4.5 s: 1 line', drawn["result"])
         self.assertIn('words on screen: "Boss down" 0-4.5 s at the top', brain.sent[-1][-2]["content"])
+
+    def test_with_no_place_clear_across_its_width_the_title_is_offered_the_clear_part_of_the_opening(self):
+        """The seller beat 10-29: the face filled the top place's middle all clip long and the product the middle
+        place, so no place was clear and the clip went out with no title; the top's left was clear at the start."""
+        from unittest import mock
+
+        def times(state, rec):
+            return [(k * 0.5, [[480, 300, 300, 400] if k * 0.5 < 8 else [65, 300, 950, 400]]) for k in range(41)], 0.5
+
+        with mock.patch.object(tools, "_face_times", times):
+            brain, steps = self.run_job(
+                *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("add_title", words="Boss down", start=0, end=15, place="top", why="the hook")],
+                [call("add_title", words="Boss down", start=0, end=7.5, place="top", why="the clear part")], "Done.")
+        made, refused, drawn = steps[-3:]
+        self.assertIn("- top (y 285 to 520): never clear across its width, but from 0 to 7.5 s its part from x 65 to "
+                      "460 is: a title from the first frame given this place goes there when it fits", made["result"])
+        self.assertTrue(refused["refused"])
+        self.assertIn("Clear: top: its part from x 65 to 460 at 0-7.5 s;", refused["result"])
+        self.assertFalse(drawn["refused"], drawn["result"])
+        self.assertIn("so it stands in the part of the top that is clear: x 65 to 460.", drawn["result"])
+        self.assertIsNone(tools._clear_part(layouts.make("subject", (1080, 1920))["places"]["middle"], "Boss down",
+                                            render.style_of({"style": None}, "clean"), None, [], 0.5, 0, 4,
+                                            [[562, 538, 497, 1152]]),
+                          "never beside the product: it moves in its shot (the dehumidifier crossed the clear left)")
 
     def test_wrong_title_input_says_what_to_send(self):
         brain, steps = self.run_job(
@@ -2257,8 +2290,8 @@ class Tools(unittest.TestCase):
         self.assertFalse(low_asked["refused"], low_asked["result"])
         self.assertIn("Placed where the person asked. On a phone, the name and the caption cover everything below y "
                       "1520", low_asked["result"])
-        self.assertTrue(face["refused"])
-        self.assertIn("the title would cover a face at", face["result"])
+        self.assertFalse(face["refused"], face["result"])
+        self.assertIn("Centred, it would cover a face at", face["result"], "unasked, it steps aside to the clear part")
         self.assertFalse(face_asked["refused"], face_asked["result"])
         self.assertIn("It covers a face at", face_asked["result"])
         self.assertNotIn("clear of every face", face_asked["result"])

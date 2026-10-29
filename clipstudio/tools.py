@@ -1507,17 +1507,88 @@ def _spans(spans, inward=False):
 def _place_lines(state, rec):
     times, every = _face_times(state, rec)
     length, lay = state["length"], state["clip"]["layout"]
+    product = _product_box(state)
     lines = []
     for name, box in lay["places"].items():
         clear = _clear(_covered(box, times, every, 0, length), 0, length)
         where = "%s (y %d to %d)" % (name, box[1], box[1] + box[3])
+        opening = None if clear else _longest(0, length, every, lambda t: max(
+            (f for f in _free_x(box, times, every, 0, t, product) if f[1] - f[0] >= PART_LEAST),
+            key=lambda f: f[1] - f[0], default=None))
         if clear == [(0, length)]:
             lines.append("- %s: clear of faces for the whole clip" % where)
         elif clear:
             lines.append("- %s: clear of faces at %s" % (where, _spans(clear, inward=True)))
+        elif opening:
+            lines.append("- %s: never clear across its width, but from 0 to %g s its part from x %d to %d is: a title "
+                         "from the first frame given this place goes there when it fits" % (
+                             where, math.floor(opening[0] * 10) / 10, math.ceil(opening[1][0]),
+                             math.floor(opening[1][1])))
         else:
             lines.append("- %s: never clear for %g s or more; do not use it" % (where, LISTED))
     return lines
+
+
+# The narrowest part of a place worth naming: "นั่งไกล เสียงยังชัด" stands in it in two lines at the title size.
+PART_LEAST = 300
+
+
+def _product_box(state):
+    clip = state["clip"]
+    return layouts.to_frame(clip["layout"], clip["product"]) if clip.get("product") else []
+
+
+def _free_x(band, times, every, a, b, product=()):
+    """[(x from, x to)] of band, its whole height, that no face or product box (FACE_MARGIN around it) crosses from a
+    to b. None of a band the product's box crosses: the product moves in its shot and its box is where it mostly is
+    (on the seller beat, 10-29, the dehumidifier was carried over the part of the middle place left of its box)."""
+    x, y, w, h = band
+    if any(p[1] < y + h and y < p[1] + p[3] for p in product):
+        return []
+    taken = sorted((f[0] - FACE_MARGIN, f[0] + f[2] + FACE_MARGIN) for t, boxes in times
+                   if a - every / 2 < t < b + every / 2 for f in boxes
+                   if f[1] - FACE_MARGIN < y + h and y < f[1] + f[3] + FACE_MARGIN)
+    free, at = [], x
+    for lo, hi in taken:
+        if lo > at and at < x + w:
+            free.append((at, min(lo, x + w)))
+        at = max(at, hi)
+    if at < x + w:
+        free.append((at, x + w))
+    return free
+
+
+def _longest(a, b, every, fits):
+    """(t, what fits(t) gave) for the latest t from a + LISTED to b, a step of every apart, at which fits(t) still
+    gives something, or None: what fits from a to t only shrinks as t grows."""
+    ts = [t for t in (round(a + LISTED + k * every, 2) for k in range(int(max(0, b - a - LISTED) / every) + 1))
+          if t < b] + [b]
+    lo, hi, best = 0, len(ts) - 1, None
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        got = fits(ts[mid])
+        if got:
+            best, lo = (ts[mid], got), mid + 1
+        else:
+            hi = mid - 1
+    return best
+
+
+def _clear_part(band, words, st, key, times, every, a, b, product=()):
+    """(box, size): the widest part of band, its whole height, that no face or product crosses from a to b and that
+    holds the words at the title size; None when no part does. On the seller beat (10-29) the face filled the middle
+    of the top place, so a title centred in it covered the face while the left of it was clear, and the clip went
+    out with no title."""
+    for lo, hi in sorted(_free_x(band, times, every, a, b, product), key=lambda f: f[0] - f[1]):
+        part = [int(math.ceil(lo)), band[1], int(math.floor(hi) - math.ceil(lo)), band[3]]
+        try:
+            size = text.measure(words, st, "title", part[2])
+            text.title(words, a, b, part, st, key)
+        except ValueError:
+            continue
+        if size.w <= part[2] and size.h <= part[3]:
+            return part, size
+    return None
 
 
 def _clip_state(job):
@@ -2477,9 +2548,19 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
         hidden = _hidden(frames, drawn)
         if (hidden > HIDDEN_MOST).mean() > 0.5:
             raise Refused(_too_hidden(frames, place, start, end, hidden, words, lay, state, size))
-    notes = _phone(drawn, lay, state, asked)
     times, every = _face_times(state, rec)
     hit = _covered(drawn, times, every, start, end)
+    product = _product_box(state)
+    part = None if asked or behind or not hit else _clear_part(band, words, st, key, times, every, start, end,
+                                                               product)
+    if part:
+        band, size = part
+        drawn = [band[0] + (band[2] - size.w) / 2, band[1] + (band[3] - size.h) / 2, size.w, size.h]
+        moved = "Centred, it would cover a face%s at %s, so it stands in the part of the %s that is clear: x %d to " \
+                "%d." % (" or the product" if state["clip"].get("product") else "", _spans(hit), place, band[0],
+                         band[0] + band[2])
+        hit = []
+    notes = _phone(drawn, lay, state, asked) + ([moved] if part else [])
     if crossed is not None:
         notes.append("Behind the person: they cross the words %s and hide about %d%% of their width." % (
             _when(crossed, start, end), round(100 * float(np.median(hidden)))))
@@ -2492,7 +2573,12 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
         others = []
         for name, box in lay["places"].items():
             clear = _clear(_covered(box, times, every, 0, length), 0, length)
-            others.append("%s: %s" % (name, _spans(clear, inward=True) if clear else "never clear"))
+            opening = None if clear else _longest(start, end, every, lambda t: _clear_part(
+                box, words, st, key, times, every, start, t, product))
+            others.append("%s: %s" % (name, _spans(clear, inward=True) if clear else (
+                "its part from x %d to %d at %g-%g s" % (opening[1][0][0], opening[1][0][0] + opening[1][0][2], start,
+                                                         math.floor(opening[0] * 10) / 10)) if opening else
+                "never clear"))
         stuck = "" if any(not o.endswith("never clear") for o in others) else (
             " No place is clear for %g s or more: the faces%s fill the picture. %sor leave the title off." % (
                 LISTED, " and the product" if state["clip"].get("product") else "",
