@@ -148,6 +148,47 @@ class Join(unittest.TestCase):
         self.assertLess(max(seen[None][:2]), 120, "with no centre the top of the frame is the dim blurred copy")
         self.assertEqual(len({v[2] for v in seen.values()}), 3, "each crop is joined and kept apart")
 
+    def test_a_product_piece_fills_the_frame_around_it_pushes_in_and_the_face_rides_in_a_ringed_circle(self):
+        """Tarm 10-29 on the yeti review: the product stands out most, the face may ride in a circle. Here the product
+        is a green box at 300-500 x 400-700 of a blue 1920x1080 picture, the face a red box at 1500-1800 x 300-600 in a
+        red head reaching past the square the circle is cut from."""
+        lying = os.path.join(self.tmp, "review.mp4")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=blue:s=1920x1080:d=3,"
+                        "drawbox=x=300:y=400:w=200:h=300:c=0x00FF00:t=fill,drawbox=x=1380:y=150:w=540:h=600:c=red:t=fill",
+                        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", lying], check=True)
+        rec = recording.probe(lying)
+        focus = [156, 370, 260, 648]
+        piece = {"rec": rec, "from": 0.0, "to": 2.5, "centre": (156 + 260) / 2000.0, "focus": focus, "push": True,
+                 "face": [1500, 300, 300, 300]}
+        plain = dict(piece, push=False, face=None)
+        self.assertNotEqual(montage.target([piece], "review"), montage.target([plain], "review"))
+        self.assertEqual(montage.target([dict(plain, focus=[1, 2, 3, 4])], "review"), montage.target([plain], "review"),
+                         "a crop without push or circle is joined as before, so the files made before are kept")
+        out = montage.join([piece], montage.target([piece], "review"))
+
+        def at(t, x, y):
+            raw = subprocess.run([FFMPEG, "-v", "error", "-ss", "%g" % t, "-i", out, "-frames:v", "1", "-vf",
+                                  "crop=2:2:%d:%d" % (x, y), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                                 capture_output=True, check=True).stdout
+            return tuple(raw[:3])
+
+        x, y, d = montage.CIRCLE
+        r, g, b = at(0.1, 541, 978)
+        self.assertTrue(g > 180 and r < 90, "the product fills the middle of the frame: %s" % ((r, g, b),))
+        r, g, b = at(0.1, x + d // 2, y + d // 2)
+        self.assertTrue(r > 180 and g < 90 and b < 90, "the face rides in the circle: %s" % ((r, g, b),))
+        for side in (x - montage.RING // 2 - 1, x + d + montage.RING // 2):
+            r, g, b = at(0.1, side, y + d // 2)
+            self.assertTrue(min(r, g, b) > 200, "a white ring round it, at x %d: %s" % (side, (r, g, b)))
+        r, g, b = at(0.1, x + 4, y + 4)
+        self.assertTrue(b > 180 and r < 90, "outside the round, the corner of the circle's box is the picture, not the head: %s"
+                        % ((r, g, b),))
+        start, end = at(0.1, 727, 978), at(2.3, 727, 978)
+        self.assertTrue(start[2] > 180 and start[1] < 90, "just right of the product at the start: %s" % (start,))
+        self.assertTrue(end[1] > 180 and end[2] < 90, "the push has grown the product over it by the end: %s" % (end,))
+        r, g, b = at(2.3, x + d // 2, y + d // 2)
+        self.assertTrue(r > 180 and g < 90, "the circle holds still while the picture pushes in: %s" % ((r, g, b),))
+
     def test_a_held_picture_is_found(self):
         held, moving = os.path.join(self.tmp, "held.mp4"), os.path.join(self.tmp, "moving.mp4")
         make_clip(held, seconds=4.0, frozen_from=1.5)
@@ -390,6 +431,80 @@ class Fit(unittest.TestCase):
         self.assertEqual([round(p["to"] - p["from"], 2) for p in pieces], [5.0, 2.0, 7.0])
         tools._shortened(pieces, 30)
         self.assertEqual([round(p["to"] - p["from"], 2) for p in pieces], [5.0, 2.0, 7.0], "never longer")
+
+
+class ProductReview(unittest.TestCase):
+    """Tarm 10-29 on the yeti review cut around his face: "สินค้าจะต้องเด่นที่สุด อาจจะมีหน้าคนเป็นวงกลมลอยก็ได้"."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.made = tempfile.mkdtemp()
+        make_clip(os.path.join(cls.made, "a_box.mov"), size=(640, 360), seconds=3.0, shot="2026-03-10T14:00:00+0900")
+        make_clip(os.path.join(cls.made, "b_desk.mov"), size=(640, 360), seconds=3.0, shot="2026-03-10T15:00:00+0900")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.made, ignore_errors=True)
+
+    def setUp(self):
+        Arrange.setUp(self)
+        self.joined = []
+        real = montage.join
+
+        def join(pieces, out, on_start=None):
+            self.joined.append([dict(p) for p in pieces])
+            return real(pieces, out, on_start)
+
+        def sample(rec, a, b, every=0.5, on_start=None):
+            box = [500, 100, 80, 80, 0.9] if rec["name"] == "a_box.mov" else [100, 0, 80, 70, 0.9]
+            return {"size": [rec["width"], rec["height"]], "every": every,
+                    "samples": [{"t": a + k * every, "faces": [box]} for k in range(int((b - a) / every))]}
+
+        self.patches = [mock.patch.object(montage, "join", join), mock.patch.object(tools.faces, "sample", sample)]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        Arrange.tearDown(self)
+
+    def arrange(self, **more):
+        return [call("arrange_clips", story="the review", why="order", **dict({"clips": [
+            {"clip": 1, "words": "This mic", "why": "the box"}, {"clip": 2, "why": "on the desk"}]}, **more))]
+
+    def test_in_a_review_each_lying_clip_names_its_product_which_fills_the_frame_and_the_face_rides_beside_it(self):
+        self.chat.emit("person", job=self.chat.jobs + 1, text="ช่วยตัดคลิปรีวิวไมค์ให้หน่อย")
+        steps = Arrange.run_job(self, *Arrange.opened(self), self.arrange(), self.arrange(products=[
+            {"clip": 1, "box": [50, 100, 250, 900]}]), self.arrange(products=[
+                {"clip": 1, "box": [50, 100, 250, 900]}, {"clip": 2, "box": [600, 200, 900, 1000]}]), "Done.")
+        bare, half, joined = steps[2:5]
+        self.assertTrue(bare["refused"])
+        self.assertIn("This is a product review, so the product leads", bare["result"])
+        self.assertIn("clips 1, 2 lie on their side", bare["result"])
+        self.assertIn("clip 2 lies on its side", half["result"])
+        self.assertFalse(joined["refused"], joined["result"] + joined.get("fault", ""))
+        pieces = self.joined[-1]
+        self.assertEqual([p["focus"] for p in pieces], [[50, 100, 250, 900], [600, 200, 900, 1000]])
+        self.assertEqual([p["push"] for p in pieces], [True, True])
+        self.assertEqual(pieces[0]["face"], [500, 100, 80, 80], "the face sits outside the crop around the box")
+        self.assertIsNone(pieces[1]["face"], "a face cut by the picture's top edge is no face for a circle")
+        self.assertIn("pushes in on it slowly; the face, outside that, rides in a small circle at the right (clip 1)",
+                      joined["result"])
+
+    def test_a_trip_keeps_the_face_crop_and_a_review_piece_shown_whole_is_refused(self):
+        steps = Arrange.run_job(self, *Arrange.opened(self), self.arrange(), "Done.")
+        self.assertFalse(steps[2]["refused"], steps[2]["result"])
+        self.assertEqual([p.get("push") for p in self.joined[-1]], [None, None], "no push or circle on a trip")
+        self.chat.emit("person", job=self.chat.jobs + 1, text="review this mic")
+        steps = Arrange.run_job(self, *Arrange.opened(self), [call("arrange_clips", story="the review", why="order",
+                                                                    clips=[{"clip": 1, "words": "This mic",
+                                                                            "focus": [50, 100, 250, 900],
+                                                                            "why": "the box", "whole": True},
+                                                                           {"clip": 2, "focus": [600, 200, 900, 1000],
+                                                                            "why": "on the desk"}])], "Done.")
+        self.assertTrue(steps[2]["refused"])
+        self.assertIn("clip 1 lies on its side", steps[2]["result"])
 
 
 class Talking(unittest.TestCase):

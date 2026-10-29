@@ -451,7 +451,7 @@ def _take_cuts(c):
     return sorted(x["cut"] + [TAKE_CUT[x["why"]]] for x in clapped + again)
 
 
-def arrange_clips(job, why, story, clips, left_out=None, hook=""):
+def arrange_clips(job, why, story, clips, left_out=None, hook="", products=None):
     opened = job.chat.clips
     if not opened:
         raise Refused("No clips are open. Open a folder of clips with open_clips first.")
@@ -545,6 +545,16 @@ def arrange_clips(job, why, story, clips, left_out=None, hook=""):
                        "why": c["why"], "focus": c.get("focus"), "whole": c.get("whole")})
         if c.get("words"):
             lines.append({"piece": len(pieces), "last": len(pieces), "text": c["words"]})
+    boxes = {b["clip"]: b["box"] for b in products or []}
+    for p in pieces:
+        if not p.get("focus") and p["clip"] in boxes:
+            p["focus"] = boxes[p["clip"]]
+    review = bool(opened.get("review")) or _a_review(job, None)
+    bare = sorted({p["clip"] for p in pieces if review and not montage.fills(p["rec"]["width"], p["rec"]["height"])
+                   and (p.get("whole") or not p.get("focus"))})
+    if bare:
+        problems.append(PRODUCT_LEADS % ("clips %s lie" % ", ".join(map(str, bare)) if len(bare) > 1 else
+                                         "clip %d lies" % bare[0], "their" if len(bare) > 1 else "its"))
     middled = set()
     for p in pieces:
         if not montage.fills(p["rec"]["width"], p["rec"]["height"]) and not p.get("whole"):
@@ -596,6 +606,16 @@ def arrange_clips(job, why, story, clips, left_out=None, hook=""):
     for ln, words in zip(lines, texts):
         ln["text"] = words
         _fits_a_place(words, "the words over clip %d" % pieces[ln["piece"] - 1]["clip"], job.chat.clip["style"])
+    led = [p for p in pieces if review and p.get("focus") and p.get("centre") is not None]
+    for p in led:
+        p["push"] = True
+        p["face"] = _circle_face(p["rec"], p["from"], p["to"], p["centre"])
+    if led:
+        circled = sorted({p["clip"] for p in led if p["face"]})
+        fitted.append("in this product review each lying piece fills the frame around the product you named and "
+                      "pushes in on it slowly%s" % (
+                          "; the face, outside that, rides in a small circle at the right (clip%s %s)" % (
+                              "s" if len(circled) > 1 else "", ", ".join(map(str, circled))) if circled else ""))
     out = montage.target(pieces, os.path.basename(opened["folder"]))
     job.working("Joining %d pieces into one clip" % len(pieces))
     try:
@@ -664,6 +684,32 @@ def _the_cut(opened, hook, left_out):
                   **({"words": hook} if k == 0 else {})) for k, p in enumerate(cut["clips"])]
     mine = {c["clip"]: c for c in left_out or []}
     return clips, [mine.get(c["clip"], c) for c in cut["left_out"]]
+
+
+PRODUCT_LEADS = ("This is a product review, so the product leads (Tarm 10-29: the product stands out most, the face "
+                 "may ride in a circle): %s on %s side, so give each one the box around the product and "
+                 "the hands showing it, as products or as a piece's focus, on your 0-1000 grid of that clip's picture, "
+                 "and never whole. The program fills the upright frame around it, pushes in on it and puts the face "
+                 "in a small circle.")
+CIRCLE_SEEN = 0.5
+
+
+def _circle_face(rec, a, b, centre):
+    """The face box to show in a circle beside the product, in pixels of the recording: the face seen most from a to
+    b, when it is seen in at least CIRCLE_SEEN of the pictures, whole inside the picture (a face cut by the top edge
+    was a shoulder on the yeti takes) and outside what the upright crop around centre shows; else None."""
+    try:
+        best = faces.places(faces.sample(rec, a, b))
+    except (faces.NoFaces, faces.Stopped):
+        return None
+    if not best or best[0]["seen"] < CIRCLE_SEEN * best[0]["of"]:
+        return None
+    x, y, w, h = best[0]["box"]
+    edge = 0.01 * rec["height"]
+    if x < edge or y < edge or x + w > rec["width"] - edge or y + h > rec["height"] - edge:
+        return None
+    left, wide = montage.shown(rec, centre)
+    return None if left <= x + w / 2.0 <= left + wide else [round(v, 1) for v in (x, y, w, h)]
 
 
 def _upright_centre(rec, a, b, focus):
@@ -4547,7 +4593,8 @@ TOOLS = {t.name: t for t in [
                                   "description": "[x1, y1, x2, y2] on your 0-1000 grid of this clip's picture: what "
                                                  "must stay in the frame when a lying picture is cropped upright to "
                                                  "fill it, such as the product and the hands showing it. Leave it out "
-                                                 "to keep the face the program finds."},
+                                                 "to keep the face the program finds, except in a product review, "
+                                                 "where the product leads."},
                         "whole": {"type": "boolean",
                                   "description": "true shows a lying picture whole over a blurred copy of itself, "
                                                  "small in the middle of the frame: only for a screen or a wide view "
@@ -4567,7 +4614,19 @@ TOOLS = {t.name: t for t in [
           "hook": {"type": "string", "maxLength": 80,
                    "description": "The words over the first piece, in the person's language: with clips left empty, "
                                   "over the first piece of the program's cut. 2 to 6 words that make someone scrolling "
-                                  "past stay."}},
+                                  "past stay."},
+          "products": {"type": "array", "maxItems": MOST_CLIPS,
+                       "description": "In a product review, the product in each clip that lies on its side: every "
+                                      "piece of that clip fills the upright frame around it, unless the piece has a "
+                                      "focus of its own. Needed for the program's cut, whose pieces you do not list.",
+                       "items": {"type": "object", "properties": {
+                           "clip": {"type": "integer", "minimum": 1, "maximum": MOST_CLIPS,
+                                    "description": "The clip's number."},
+                           "box": {"type": "array", "minItems": 4, "maxItems": 4,
+                                   "items": {"type": "number", "minimum": 0, "maximum": 1000},
+                                   "description": "[x1, y1, x2, y2] on your 0-1000 grid of this clip's picture: the "
+                                                  "product and the hands showing it."}},
+                                 "required": ["clip", "box"]}}},
          ["story", "clips"], arrange_clips, changes=True),
     Tool("load_recipe", "Picked the kind of clip",
          "Read the recipe for this kind of video before you plan the clip, and give your guesses for it. The page "

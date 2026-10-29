@@ -21,9 +21,11 @@ import threading
 import cv2
 import numpy as np
 
-from . import recording
+from . import effects, recording
 
 W, H = 1080, 1920
+PUSH, PUSH_SHORTEST = 1.08, 1.0
+CIRCLE, RING, FACE_ROOM = (760, 800, 260), 6, 1.6
 FPS = 30
 RATE = 48000
 FILL = 0.74
@@ -247,12 +249,60 @@ def fills(width, height):
     return min(own, aspect) / max(own, aspect) >= FILL
 
 
+def _wide(rec, centre):
+    """(the lying picture's width scaled to the frame's height, the left edge of the upright crop around centre)."""
+    wide = int(round(rec["width"] * H / float(rec["height"]) / 2)) * 2
+    return wide, int(round(min(max(centre * wide - W / 2.0, 0), wide - W)))
+
+
 def upright(rec, centre):
     """FFmpeg's filter cropping a lying picture upright to fill the W x H frame: its full height, and the width the
     frame takes of it, around centre (0 to 1 of its width), kept inside the picture."""
-    wide = int(round(rec["width"] * H / float(rec["height"]) / 2)) * 2
-    x = int(round(min(max(centre * wide - W / 2.0, 0), wide - W)))
+    wide, x = _wide(rec, centre)
     return "scale=%d:%d,crop=%d:%d:%d:0" % (wide, H, W, H, x)
+
+
+def shown(rec, centre):
+    """(x, width) of the lying picture's own pixels that the upright crop around centre shows."""
+    wide, x = _wide(rec, centre)
+    k = rec["height"] / float(H)
+    return x * k, W * k
+
+
+def _on(rec, centre, focus):
+    """Where the middle of focus (a box on the 0-1000 grid of the picture) lands in the upright frame."""
+    wide, x = _wide(rec, centre)
+    return (focus[0] + focus[2]) / 2000.0 * wide - x, (focus[1] + focus[3]) / 2000.0 * H
+
+
+def _face_square(rec, face):
+    """[x, y, side, side] of the picture around a face box [x, y, w, h], FACE_ROOM times the face's size, kept
+    inside the picture, even numbers for FFmpeg."""
+    fx, fy, fw, fh = face
+    side = min(max(fw, fh) * FACE_ROOM, rec["width"], rec["height"])
+    x = min(max(fx + fw / 2.0 - side / 2.0, 0), rec["width"] - side)
+    y = min(max(fy + fh / 2.0 - side / 2.0, 0), rec["height"] - side)
+    return [int(v) // 2 * 2 for v in (x, y, side, side)]
+
+
+def _round(src, d, out):
+    """Graph text from [src] to [out]: the picture squeezed to d x d and cut round."""
+    return ("[%s]scale=%d:%d,format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':"
+            "a='255*lte(hypot(X-(W-1)/2,Y-(H-1)/2),W/2)'[%s]" % (src, d, d, out))
+
+
+def _circle(i, rec, face, base, out):
+    """Graph text drawing the face of piece i, from [f<i>], in a white-ringed circle at CIRCLE over [base] to
+    [out], so the person stays in the clip while the product fills the frame."""
+    x, y, side, _ = _face_square(rec, face)
+    cx, cy, d = CIRCLE
+    return ";".join([
+        "[f%d]crop=%d:%d:%d:%d,split[fa%d][fb%d]" % (i, side, side, x, y, i, i),
+        "[fb%d]drawbox=c=white:t=fill[fw%d]" % (i, i),
+        _round("fw%d" % i, d + 2 * RING, "ring%d" % i),
+        _round("fa%d" % i, d, "disk%d" % i),
+        "[%s][ring%d]overlay=%d:%d[cr%d]" % (base, i, cx - RING, cy - RING, i),
+        "[cr%d][disk%d]overlay=%d:%d[%s]" % (i, i, cx, cy, out)])
 
 
 def starts(pieces):
@@ -277,7 +327,15 @@ def graph(pieces):
         if fills(rec["width"], rec["height"]):
             chains.append("[%d:v:0]%s,setsar=1[p%d]" % (i, cover, i))
         elif p.get("centre") is not None:
-            chains.append("[%d:v:0]%s,setsar=1[p%d]" % (i, upright(rec, p["centre"]), i))
+            crop = upright(rec, p["centre"])
+            if p.get("push") and p.get("focus") and d >= PUSH_SHORTEST:
+                crop += "," + effects.push_filters(0, d, PUSH, _on(rec, p["centre"], p["focus"]), (W, H))
+            if p.get("face"):
+                chains.append("[%d:v:0]split[m%d][f%d]" % (i, i, i))
+                chains.append("[m%d]%s,setsar=1[c%d]" % (i, crop, i))
+                chains.append(_circle(i, rec, p["face"], "c%d" % i, "p%d" % i))
+            else:
+                chains.append("[%d:v:0]%s,setsar=1[p%d]" % (i, crop, i))
         else:
             chains.append("[%d:v:0]split[w%d][b%d];[b%d]%s,gblur=sigma=%d,eq=brightness=%g[g%d];"
                           "[w%d]scale=%d:%d:force_original_aspect_ratio=decrease[s%d];"
@@ -296,7 +354,8 @@ def graph(pieces):
 def target(pieces, name):
     """Where the joined recording of pieces is kept: the same pieces in the same order are joined once."""
     key = hashlib.sha1(json.dumps([[p["rec"]["path"], p["rec"]["size"], p["rec"]["mtime"], round(p["from"], 3),
-                                    round(p["to"], 3), p.get("centre")] for p in pieces]).encode("utf-8"))
+                                    round(p["to"], 3), p.get("centre")] + ([p.get("focus"), p.get("face")] if p.get(
+                                        "push") or p.get("face") else []) for p in pieces]).encode("utf-8"))
     key = key.hexdigest()[:10]
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name)[:40] or "clips"
     return os.path.join(recording.WORK, "montage", "%s-%s.mp4" % (safe, key))

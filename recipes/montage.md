@@ -55,6 +55,9 @@ tells it best.
 - The picture fills the frame. A clip shot lying down is cropped upright around the face the program finds, or
   around the focus you give its piece: the product and the hands showing it, and the face when it fits. Give whole
   only for a screen or a wide view where every part matters: it is shown small over a blurred copy of itself.
+- In a product review the product leads, never the face: give every clip shot lying down the box around the product
+  and the hands showing it (for a screen, the part of it being talked about). The program fills the upright frame
+  around it, pushes in on it slowly while it is shown, and puts the person's face in a small circle beside it.
 - The title says what the day or the event was, in the clip's language.
 
 ## Checked at the end
