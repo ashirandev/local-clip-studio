@@ -19,7 +19,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, asr, hearing, recording  # noqa: E402
+from clipstudio import agent, asr, hearing, recording, sends  # noqa: E402
 from test_agent_loop import ScriptedMind  # noqa: E402
 
 RATE = 16000
@@ -132,6 +132,7 @@ class Engine(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.meta = Meta()
         self.models, hearing.MODELS = hearing.MODELS, os.path.join(self.tmp, "no models")
+        self.work = agent.WORK, recording.WORK
         agent.WORK = recording.WORK = os.path.join(self.tmp, "work")
         self.env = mock.patch.dict(os.environ, {"LCS_SPARK_URL": self.meta.url, "META_API_KEY": "a key",
                                                 "LCS_HEARING": ""})
@@ -144,10 +145,15 @@ class Engine(unittest.TestCase):
     def tearDown(self):
         self.env.stop()
         hearing.MODELS = self.models
+        agent.WORK, recording.WORK = self.work
         self.meta.close()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_without_the_model_here_meta_hears_and_its_cost_is_written(self):
+    def test_without_the_model_here_meta_hears_only_with_the_switch_on_and_its_cost_is_written(self):
+        self.assertEqual(hearing.engine(), "local", "until the person turns the switch on, no sound goes to Meta by itself")
+        with mock.patch.object(hearing, "_health", lambda: None):
+            self.assertIn("Or turn on Meta sees pieces in Options", hearing.status()["why"])
+        sends.allow(True)
         self.assertEqual(hearing.engine(), "meta")
         self.assertTrue(hearing.status()["ok"])
         self.assertEqual(hearing.status()["where"], "Muse Voice Transcribe on Meta's servers, with your own key")

@@ -9,6 +9,8 @@ cannot send either here without asking first). Setting the API key and Phone on 
 computer only.
 - GET /api/phone: Phone on or off and each address a phone can use; GET /api/phone/qr.svg?address=<a>: the QR code
   of that address. POST /api/phone {on}. All from the page on this computer only
+- POST /api/sends {on}: the switch that lets Meta's models see and hear pieces of the person's videos without being
+  asked each time (sends.py); GET /api/key and /api/health say whether it is on. From the page on this computer only
 - POST /api/upload?name=<file>&batch=<YYYY-MM-DD HH.MM.SS>&when=<s>: a photo or video from a phone, as the body,
   into the From phone folder (phone.receive)
 - GET /api/health: the minds and whether each can answer, whether the hearing worker is ready, and whether
@@ -77,7 +79,7 @@ from urllib.parse import parse_qsl, quote
 import segno
 
 from . import (__version__, agent, effects, hearing, layer, mind, parts, phone, premiere, previews, recording, render,
-               spent, text)
+               sends, spent, text)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
@@ -126,14 +128,16 @@ class Handler(BaseHTTPRequestHandler):
             self.send_qr(query)
         elif path == "/api/health":
             self.send_json({"ok": True, "version": __version__, "default": mind.DEFAULT, "here": self.here(),
-                            "minds": [m.status() for m in mind.MINDS.values()], "hearing": hearing.status()})
+                            "minds": [m.status() for m in mind.MINDS.values()], "hearing": hearing.status(),
+                            "sends": sends.allowed()})
         elif path == "/api/features":
             self.send_json({"ok": True, "groups": agent.features()})
         elif path == "/api/parts":
             self.send_json(dict(parts.state(), ok=True))
         elif path == "/api/key":
             url, saved = mind.saved_api() if self.here() else ("", False)
-            self.send_json({"ok": True, "here": self.here(), "url": url, "saved": saved})
+            mine = {"sends": sends.allowed()} if self.here() else {}
+            self.send_json(dict({"ok": True, "here": self.here(), "url": url, "saved": saved}, **mine))
         elif path == "/api/chat":
             chat = agent.open_chat(query["id"]) if query.get("id") else agent.current()
             if chat is None:
@@ -196,7 +200,7 @@ class Handler(BaseHTTPRequestHandler):
             self.receive_upload(dict(parse_qsl(query)))
             return
         if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/open", "/api/undo", "/api/person",
-                        "/api/base", "/api/parts", "/api/key", "/api/phone") + CHANGES:
+                        "/api/base", "/api/parts", "/api/key", "/api/phone", "/api/sends") + CHANGES:
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
             return
         body = self.read_json()
@@ -204,6 +208,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/phone":
             self.change_phone(body)
+            return
+        if path == "/api/sends":
+            if not self.here():
+                self.send_json({"ok": False, "error": ONLY_HERE}, HTTPStatus.FORBIDDEN)
+                return
+            sends.allow(body.get("on") is True)
+            self.send_json({"ok": True, "sends": sends.allowed()})
             return
         if path == "/api/chat/new":
             self.send_json({"ok": True, "chat": agent.new().id})

@@ -75,6 +75,8 @@ const apiUrl = $("apiUrl");
 const apiKey = $("apiKey");
 const apiNote = $("apiNote");
 const phoneBox = $("phoneBox");
+const sendsBox = $("sendsBox");
+const sendsLine = $("sendsLine");
 const phoneLine = $("phoneLine");
 const phoneCodes = $("phoneCodes");
 const phoneFiles = $("phoneFiles");
@@ -84,7 +86,7 @@ const SHEETS = { trim: ["cut", "Trim"], caps: ["cc", "Captions"], style: ["aa", 
 const EDITS = ["trim", "caps", "style", "look", "sound", "words", "channel"];
 const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_ends: "cut", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", move_part: "move", mute_sound: "mute", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", show_people: "people", slow_push: "move", undo: "undo", use_channel_look: "at", watch_piece: "eye" };
 
-const room = { mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null };
+const room = { mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null, sends: false };
 
 function localStore(key, value) {
   try {
@@ -1888,10 +1890,10 @@ function drawChip() {
   if (!m) return;
   const dot = el("span", "dot " + (m.ok ? "ok" : "off"));
   dot.setAttribute("aria-hidden", "true");
-  museChip.append(dot, ico(m.local ? "pc" : "cloud", "sm"), el("b", null, mindName(m)), el("span", null, m.ok ? (m.local ? "on this computer" : "API, with your key") : "not ready"));
+  museChip.append(dot, ico(m.local ? "pc" : "cloud", "sm"), el("b", null, mindName(m)), el("span", null, m.ok ? (m.local ? (room.sends ? "on this computer, Meta sees pieces" : "on this computer") : "API, with your key") : "not ready"));
   chatMuse.append(ico(m.local ? "pc" : "cloud", "sm"), mindName(m));
   [museChip, chatMuse].forEach((chip) => {
-    chip.setAttribute("aria-label", "Muse: " + m.label + ", " + (m.local ? "on this computer" : "through an API, which costs money") + ". Change");
+    chip.setAttribute("aria-label", "Muse: " + m.label + ", " + (m.local ? (room.sends ? "on this computer, and Meta's models may see and hear pieces" : "on this computer") : "through an API, which costs money") + ". Change");
     chip.title = m.label + ", " + m.where;
   });
   museWhere.textContent = m.ok ? m.where.charAt(0).toUpperCase() + m.where.slice(1) : "Not ready yet";
@@ -2035,6 +2037,7 @@ async function health() {
     const d = await r.json();
     room.minds = d.minds || [];
     room.hearing = d.hearing || null;
+    room.sends = d.sends === true;
     if (!room.minds.some((m) => m.key === room.mind && m.ok)) {
       const ready = room.minds.find((m) => m.key === d.default && m.ok) || room.minds.find((m) => m.ok);
       room.mind = ready ? ready.key : d.default;
@@ -2116,6 +2119,31 @@ async function loadKey() {
   apiForm.hidden = !d.here;
   if (d.url && !apiUrl.value) apiUrl.value = d.url;
   apiKey.placeholder = d.saved ? "API key (saved)" : "API key";
+  drawSends(d);
+}
+
+function drawSends(d) {
+  sendsBox.hidden = !d.here;
+  if (!d.here) return;
+  room.sends = d.sends === true;
+  drawSeg($("sendsSeg"), [["off", "Off"], ["on", "On", "eye"]], room.sends ? "on" : "off", async (k) => {
+    let got;
+    try {
+      got = await post("/api/sends", { on: k === "on" });
+    } catch (e) {
+      got = { ok: false, error: "The studio is not answering. Start it again with: python app.py" };
+    }
+    if (!got.ok) {
+      sendsLine.classList.add("bad");
+      sendsLine.textContent = got.error;
+      return;
+    }
+    drawSends({ here: true, sends: got.sends });
+    drawChip();
+    health();
+  });
+  sendsLine.classList.remove("bad");
+  sendsLine.textContent = room.sends ? "On: with Muse on this computer, Muse Wonder may watch pieces of up to a minute with their sound and Muse Image may draw a cover from a frame, and Muse Voice Transcribe hears when the hearing model is not here: on Meta's servers, with your key." : "Off: with Muse on this computer, nothing of yours goes to Meta unless you ask for it in your message.";
 }
 
 apiForm.addEventListener("submit", async (e) => {

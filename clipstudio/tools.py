@@ -21,7 +21,7 @@ import numpy as np
 
 from . import (channels, cover, cutout, effects, faces, focus, hearing, layouts, maps, mind, montage, pauses, person,
                previews,
-               project, recording, render, review, voices,
+               project, recording, render, review, sends, voices,
                screen, spoken, takes, talk, text, thai, tracks, watch, words)
 from .recipes import RECIPES, SIGNALS
 
@@ -965,11 +965,13 @@ def look_at_piece(job, why, start, end, frames=LOOK_FRAMES):
     return "\n".join(lines)
 
 
-def watch_piece(job, why, start, end):
+def watch_piece(job, why, start, end, person_said=None):
     """Muse Wonder watches start to end, picture and sound (watch.py), and its moments come back to Muse as
     suggestions: each with its second in the recording and in the clip, what happens, and the tool call that would put
     its effect there. Whichever Muse runs the chat calls it; the watching is always Muse Wonder's, with the person's
-    Meta key."""
+    Meta key. With Muse on this computer nothing is sent unless the person asked for it in their own words
+    (person_said) or turned on the switch in Options (sends.py)."""
+    asked = _asked(job, person_said)
     rec = _open(job, "watch")
     clock = recording.clock
     a, b = _time("start", start), _time("end", end)
@@ -988,6 +990,11 @@ def watch_piece(job, why, start, end):
         raise Refused("Muse Wonder watches with the person's own Meta API key, and none is set, so nothing was sent. "
                       "Go on from your looks and what was heard. Tell the person once that Options > API takes the "
                       "key.")
+    if _here(job) and not asked and not sends.allowed():
+        raise Refused("Not watched, and nothing was sent: you work on this computer, so no piece of the person's "
+                      "video goes to Meta unless they ask for it in their own words (quote them in person_said) or "
+                      "turn on Meta sees pieces in Options. Go on from your looks and what was heard, without asking "
+                      "them about it.")
     started = time.time()
     try:
         job.working("Cutting %s-%s for Muse Wonder to watch" % (clock(a), clock(b)))
@@ -1804,7 +1811,7 @@ def _watch_first(job, state):
     if job.n is None or (job.chat.clip or {}).get("recipe") not in WATCHED_RECIPES:
         return
     wonder = mind.MINDS.get("wonder")
-    if not wonder or not wonder.secret():
+    if not wonder or not wonder.secret() or (_here(job) and not sends.allowed()):
         return
     if any(e["kind"] == "step" and e.get("tool") == "watch_piece" and not e.get("refused") for e in job.chat.events):
         return
@@ -3669,7 +3676,7 @@ def make_cover(job, why, title, again=False, asked=False):
     if not done:
         raise Refused("There is no finished file made from the clip as it is now. Render the clip first, then make "
                       "its cover.")
-    if _here(job) and not asked:
+    if _here(job) and not asked and not sends.allowed():
         raise Refused("You work on this computer, so no picture of the person's leaves it unasked: %s draws the cover "
                       "on Meta's servers, with their key, for $%.2f. Make it only when the person asks for a cover or "
                       "taps Make the cover; otherwise hand the clip over without one, and never say it has a cover." % (
@@ -4672,9 +4679,14 @@ TOOLS = {t.name: t for t in [
          "scream, a laugh, a fail, a surprise, a silent stare, each with its second and the effect that would land "
          "there. Call it on the clip's own stretch before you put effects on a game, a reaction or any clip whose fun "
          "is in the picture and the sound. It sends that stretch, small, to Meta with the person's own key, and costs "
-         "a few cents." % watch.LONGEST,
+         "a few cents. When you work on this computer it sends only what the person asked for in their own words, "
+         "unless they turned on Meta sees pieces in Options." % watch.LONGEST,
          {"start": {"type": "string", "maxLength": 20, "description": "Where the stretch starts, like 1:51:23."},
-          "end": {"type": "string", "maxLength": 20, "description": "Where it ends, written the same way."}},
+          "end": {"type": "string", "maxLength": 20, "description": "Where it ends, written the same way."},
+          "person_said": {"type": "string", "maxLength": 200,
+                          "description": "Only when the person asked for the clip to be watched with its sound, or "
+                                         "for Muse Wonder: their own words from the chat, quoted. The program checks "
+                                         "they said them."}},
          ["start", "end"], watch_piece),
     Tool("propose_moments", "Proposed the moments",
          "Propose the best moments for the clip, best first, each from a look you made. The person sees each as a "

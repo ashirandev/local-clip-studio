@@ -10,8 +10,9 @@ studio does not start one.
 What was heard is kept per file and stretch in work/heard, so hearing a stretch again is instant. Each phrase has
 its own time in the recording, from the model's own frames.
 
-Without the hearing model on this computer, and with the person's Meta key, Muse Voice Transcribe hears instead
-(asr.py), on Meta's servers; LCS_HEARING=meta chooses it, LCS_HEARING=local keeps the one here.
+Without the hearing model on this computer, with the person's Meta key and the switch in Options that lets Meta's
+models hear pieces (sends.py), Muse Voice Transcribe hears instead (asr.py), on Meta's servers; LCS_HEARING=meta
+chooses it, LCS_HEARING=local keeps the one here. Without the switch no sound leaves for Meta by itself.
 
 Names: a recogniser mishears a name it never learned (Eaglet came out as "egret"). When the screen shows words at
 the time, they are given with the question, and a line may change by as much more as the names it takes from them.
@@ -32,7 +33,7 @@ import threading
 import time
 import urllib.parse
 
-from . import asr, ears, mind, recording, thai
+from . import asr, ears, mind, recording, sends, thai
 
 VERSION = 2
 OWN_URL = os.environ.get("LCS_HEARING_URL", "")
@@ -90,14 +91,14 @@ def _health():
 
 
 def engine():
-    """"meta" when Muse Voice Transcribe hears: LCS_HEARING=meta, or the hearing model is not on this computer and a
-    Meta key is set; else "local"."""
+    """"meta" when Muse Voice Transcribe hears: LCS_HEARING=meta, or the hearing model is not on this computer, a
+    Meta key is set and the person let Meta's models hear pieces; else "local"."""
     wanted = os.environ.get("LCS_HEARING", "").strip().lower()
     if wanted in ("meta", "local"):
         return wanted
     here = OWN_URL or URL != OWN_DEFAULT or (ears.model_file(MODELS) and
                                              os.path.isfile(os.path.join(MODELS, "letters.json")))
-    return "meta" if not here and asr.secret() else "local"
+    return "meta" if not here and asr.secret() and sends.allowed() else "local"
 
 
 def status():
@@ -115,7 +116,10 @@ def status():
         return dict(out, ok=False, why="The hearing model is loading; this takes 2 to 10 s.")
     if got and got.get("error"):
         return dict(out, ok=False, why="The hearing model could not load (%s)." % got["error"])
-    return dict(out, ok=False, why=_state["why"] or "The hearing worker is not answering at %s." % URL)
+    why = _state["why"] or "The hearing worker is not answering at %s." % URL
+    if asr.secret() and not OWN_URL and URL == OWN_DEFAULT:
+        why += " Or turn on Meta sees pieces in Options, and Muse Voice Transcribe hears with your key."
+    return dict(out, ok=False, why=why)
 
 
 def key(rec, start, end):

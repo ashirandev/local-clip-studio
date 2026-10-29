@@ -17,7 +17,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, channels, effects, faces, focus, hearing, layouts, mind, project, recording, render, screen, talk, text, tools, words  # noqa: E402,E501
+from clipstudio import agent, channels, effects, faces, focus, hearing, layouts, mind, project, recording, render, screen, sends, talk, text, tools, words  # noqa: E402,E501
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_hearing import Worker  # noqa: E402
 from test_map import make_moment  # noqa: E402
@@ -1039,12 +1039,13 @@ class Tools(unittest.TestCase):
                     [call("make_cover", title="บอสล้มสองรอบ", why="the cover")],
                     [call("make_cover", title="บอสล้มสองรอบ", asked=True, why="the person asked")],
                     [call("make_cover", title="บอสล้มสองรอบ", asked=True, why="again, same words")],
+                    lambda asking: sends.allow(True) or [call("make_cover", title="บอสล้มสองรอบ", why="the switch")],
                     [call("hand_over", title="Boss down", caption="He falls.", hashtags=["#gaming"], why="post")],
                     "Done.")
         finally:
             render.export = had
             api.close()
-        titled, rendered, checked, unasked, made, kept, ready = steps[-7:]
+        titled, rendered, checked, unasked, made, kept, switched, ready = steps[-8:]
         self.assertFalse(titled["refused"], titled["result"])
         self.assertIn("Hand it over next.", checked["result"], "Muse on this computer is not sent to make a cover")
         self.assertTrue(unasked["refused"])
@@ -1054,6 +1055,7 @@ class Tools(unittest.TestCase):
         self.assertIn("for $0.01", made["result"])
         self.assertFalse(kept["refused"], kept["result"])
         self.assertIn("made before, at no cost", kept["result"])
+        self.assertFalse(switched["refused"], "with Meta sees pieces on in Options, the cover needs no asking")
         self.assertEqual(len(api.got), 1, "one picture asked for and paid")
         state = self.chat.project.state()
         at = tools._cover_second(types.SimpleNamespace(chat=self.chat), state)

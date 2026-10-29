@@ -14,7 +14,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import phone, recording, server  # noqa: E402
+from clipstudio import phone, recording, sends, server  # noqa: E402
 
 BATCH = "2026-10-29 11.40.00"
 
@@ -140,6 +140,19 @@ class Phone(unittest.TestCase):
                 r, _ = self.ask(method, path, body)
                 self.assertEqual(r.status, 403, path)
         self.assertTrue(phone.wanted(), "Phone is on until the computer turns it off")
+
+    def test_only_this_computer_lets_meta_see_pieces_and_it_starts_off(self):
+        self.assertFalse(sends.allowed(), "off until the person turns it on")
+        with self.away:
+            r, _ = self.ask("POST", "/api/sends", {"on": True})
+            self.assertEqual(r.status, 403)
+        self.assertFalse(sends.allowed())
+        r, got = self.ask("POST", "/api/sends", {"on": True})
+        self.assertTrue(json.loads(got)["sends"])
+        self.assertTrue(json.loads(self.ask("GET", "/api/key")[1])["sends"])
+        self.assertTrue(json.loads(self.ask("GET", "/api/health")[1])["sends"], "the corner label shows it")
+        r, got = self.ask("POST", "/api/sends", {"on": "yes"})
+        self.assertFalse(json.loads(got)["sends"], "only true turns it on")
 
     def test_phone_on_listens_on_the_phone_addresses_and_off_stops_at_once(self):
         port = free_port()

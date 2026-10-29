@@ -11,8 +11,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import mind, recording, watch  # noqa: E402
-from test_agent_loop import call  # noqa: E402
+from clipstudio import agent, mind, recording, sends, watch  # noqa: E402
+from test_agent_loop import ScriptedMind, call  # noqa: E402
 import test_editor  # noqa: E402
 
 
@@ -48,6 +48,7 @@ class Watch(unittest.TestCase):
         test_editor.Tools.setUp(self)
         self.real_wonder = mind.MINDS.get("wonder")
         self.wonder = mind.MINDS["wonder"] = FakeWonder(SAW)
+        sends.allow(True)
 
     def tearDown(self):
         mind.MINDS["wonder"] = self.real_wonder
@@ -121,6 +122,49 @@ class Watch(unittest.TestCase):
         _, steps = self.run_job([call("watch_piece", start="0:30", end="0:50", why="what the words miss")],
                                 [call("add_sound", at=4.3, kind="thump", why="the yelp")], "Done.")
         self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+
+    def test_on_this_computer_nothing_is_sent_unless_the_person_asks_or_turns_the_switch_on(self):
+        sends.allow(False)
+        _, steps = self.run_job([call("open_recording", path=self.clip, why="open it")],
+                                [call("watch_piece", start="0:30", end="0:50", why="unasked")], "Done.")
+        self.assertTrue(steps[-1]["refused"])
+        self.assertIn("Not watched, and nothing was sent: you work on this computer", steps[-1]["result"])
+        cut = os.path.join(watch.folder(), watch.name(self.chat.recording, 30.0, 50.0))
+        self.assertFalse(os.path.exists(cut), "not even cut")
+        _, steps = self.run_job([call("watch_piece", start="0:30", end="0:50", person_said="ให้ Wonder ดูด้วย",
+                                      why="claims a request")], "Done.")
+        self.assertTrue(steps[-1]["refused"], "a request nobody made sends nothing")
+        self.assertEqual(self.wonder.sent, [])
+        self.chat.emit("person", job=None, text="ตัดคลิปเกมนี้ ให้ Wonder ดูด้วยนะ")
+        _, steps = self.run_job([call("watch_piece", start="0:30", end="0:50", person_said="ให้ Wonder ดูด้วย",
+                                      why="they asked")], "Done.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertEqual(len(self.wonder.sent), 1)
+        sends.allow(True)
+        _, steps = self.run_job([call("watch_piece", start="0:00", end="0:10", why="the switch is on")], "Done.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertEqual(len(self.wonder.sent), 2)
+
+    def test_with_muse_on_metas_servers_watching_needs_no_switch(self):
+        sends.allow(False)
+        brain = ScriptedMind([call("open_recording", path=self.clip, why="open it")],
+                             [call("watch_piece", start="0:30", end="0:50", why="what the words miss")], "Done.")
+        brain.key_env = "META_API_KEY"
+        self.chat.jobs += 1
+        job = self.chat.job = agent.Job(self.chat, brain, "watch it")
+        job.run()
+        step = [e for e in self.chat.events if e.get("job") == job.n and e["kind"] == "step"][-1]
+        self.assertFalse(step["refused"], step["result"])
+        self.assertEqual(len(self.wonder.sent), 1)
+
+    def test_a_game_clip_on_this_computer_asks_for_no_watch_with_the_switch_off(self):
+        sends.allow(False)
+        script = self.to_moment()
+        _, steps = self.run_job(script[0], [call("load_recipe", type="game", why="a game stream")], *script[1:],
+                                [call("make_clip", moment=1, layout="card", why="the game")],
+                                [call("add_hit", at=5, kind="shake", why="the hit")], "Done.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertEqual(self.wonder.sent, [])
 
     def test_an_answer_that_is_not_the_list_is_said_and_nothing_is_made_up(self):
         self.wonder.answer = "I saw a man playing a game."
