@@ -2916,14 +2916,16 @@ def _numbers_differ(said, translated):
     return any(not c & told for c in heard) or bool(told - set().union(*heard))
 
 
-def _talked(clip, phrases, length):
+def _talked(clip, phrases, length, translated=False):
     """Whether the clip is talked through, so its captions come one line at a time, drawn big: as arrange_clips found
     it for clips joined, else when what is said fills TALKED of it, as there. Seen 10-29 on a seller's review talked
     through 30 s: the captions were two small lines, as only a clip joined by arrange_clips was ever found talked. A
-    game keeps them small, under the action."""
+    game keeps them small, under the action, and so do captions translated: ONE_LETTERS was measured on Thai, and an
+    English line cut at it leaves a word alone ("Easy to set", "up.")."""
     if "talked" in clip:
         return bool(clip["talked"])
-    return clip.get("recipe") != "game" and sum(p["to"] - p["from"] for p in phrases) >= TALKED * length
+    return not translated and clip.get("recipe") != "game" and \
+        sum(p["to"] - p["from"] for p in phrases) >= TALKED * length
 
 
 def add_captions(job, why, on=True, lit=False, pop=False, language=""):
@@ -2968,7 +2970,7 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
     typed = _typed(state["captions"])
     for piece in shown:
         piece["text"] = typed.get((piece["from"], piece["to"]), piece["text"])
-    one = _talked(job.chat.clip or {}, phrases, length)
+    one = _talked(job.chat.clip or {}, phrases, length, bool(translated))
     lines = text.caption_lines(shown, ONE_LETTERS if one else CAPTION_LETTERS)
     for line in lines:
         if translated:

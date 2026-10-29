@@ -557,6 +557,7 @@ class Tools(unittest.TestCase):
         talk = [{"from": 0.0, "to": 16.0}]
         self.assertTrue(tools._talked({}, talk, 20.0))
         self.assertFalse(tools._talked({"recipe": "game"}, talk, 20.0), "a game keeps them small, under the action")
+        self.assertFalse(tools._talked({}, talk, 20.0, translated=True), "ONE_LETTERS was measured on Thai")
         self.assertFalse(tools._talked({"talked": False}, talk, 20.0), "arrange_clips found it not talked")
         self.assertFalse(tools._talked({}, [{"from": 0.0, "to": 11.0}], 20.0))
 
