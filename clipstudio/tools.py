@@ -949,11 +949,11 @@ def _what_is_said(job, rec, look):
             ["%s %s%s" % (clock(p["from"]), p["text"], " (not sure)" if _unsure(p) else "") for p in inside])
 
 
-def _fixed_said(job, rec, look, a, b):
-    """The lines heard from a to b with misheard words fixed by Muse from the context and, when the recipe reads the
-    screen, from the words written on it: [{from, to, text, heard, kept, named}], where kept says why a line stays as
-    heard and named lists the names the fix took from the screen."""
-    said = [p for p in look.get("said") or [] if a <= p["from"] < b]
+def _fixed_said(job, rec, look, a, b, said=None):
+    """The lines heard from a to b (or the lines said, from the look) with misheard words fixed by Muse from the
+    context and, when the recipe reads the screen, from the words written on it: [{from, to, text, heard, kept,
+    named}], where kept says why a line stays as heard and named lists the names the fix took from the screen."""
+    said = [p for p in look.get("said") or [] if a <= p["from"] < b] if said is None else said
     if not said:
         return []
     heard = [p["text"] for p in said]
@@ -1019,7 +1019,7 @@ DEAD_AIR = 1.0
 KEPT_AIR = 0.3
 
 
-def _pieces(said, a, b, still, claps=(), slates=False, of="the moment"):
+def _pieces(said, a, b, still, claps=(), slates=False, of="the moment", edges=True):
     """(the pieces of the recording a clip from a to b is made of, a sentence for Muse or None): the earlier take of a
     line said again is cut (takes.said_again), and so is a take given up at a clap from claps (takes.heard_claps), with
     the clap, or the clap alone when it is a slate and slates (takes.at_claps); every silence longer than DEAD_AIR is
@@ -1028,7 +1028,8 @@ def _pieces(said, a, b, still, claps=(), slates=False, of="the moment"):
     happens on the picture from x to y: a silence while the answer streams onto the screen is the payoff, not dead
     air. still None keeps the moment whole (a game, where the action is the clip and nobody needs to speak). Measured
     on 10-27's five clips: three opened silent for 0.5 s or more and were not handed over, and one held a first take
-    and an 8 s stop before the line was said again."""
+    and an 8 s stop before the line was said again. edges False keeps the opening and the closing as they are: the
+    person put them there (change_ends)."""
     if still is None:
         return [[a, b]], None
     said = [p for p in said if p["to"] > p["from"]]
@@ -1045,8 +1046,10 @@ def _pieces(said, a, b, still, claps=(), slates=False, of="the moment"):
         quiet = []
     words = sorted((max(p["from"], x), min(p["to"], y)) for p in said if not pauses.filler(p["text"])
                    for x, y in pieces if p["from"] < y and x < p["to"])
-    if words:
+    if words and edges:
         quiet += [[pieces[0][0], words[0][0] - KEPT_AIR], [max(w[1] for w in words) + KEPT_AIR, pieces[-1][1]]]
+    if not edges:
+        quiet = [q for q in quiet if pieces[0][0] < q[0] and q[1] < pieces[-1][1]]
     quiet = [q for q in quiet if q[1] - q[0] >= 0.05 and still(q[0], q[1])]
     pieces = takes.without(pieces, quiet)
     gone = round((b - a) - sum(y - x for x, y in pieces), 1)
@@ -1337,7 +1340,7 @@ def _show_frame(job, state, rec, t, caption):
     return "Its frame at %g s comes next as a picture." % round(t, 2)
 
 
-def make_clip(job, why, moment, layout, crop=None, face=None, product=None, follow=True):
+def make_clip(job, why, moment, layout, crop=None, face=None, product=None, follow=True, moved=False):
     rec = _open(job, "make a clip from")
     moments = job.chat.moments
     if not moments:
@@ -1349,17 +1352,20 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
                                                           recording.clock(m["end"])) for m in moments)))
     m = moments[moment - 1]
     a, b = m["start"], m["end"]
+    made = {"layout": layout, "crop": crop, "face": face, "product": product, "follow": follow}
+    kept = {"made": made, "moved": True} if moved else {"made": made}
     try:
         _fix_moment(job, rec, m)
     except hearing.Stopped:
         return "Not made: the person pressed Stop."
     recipe = (job.chat.clip or {}).get("recipe")
-    unasked = _layout_unasked(job, recipe, [layout])
+    unasked = None if moved else _layout_unasked(job, recipe, [layout])
     if unasked:
         raise Refused("Not made. " + unasked)
     if layout in ("talk", "speaker", "split"):
         return _make_talk(job, rec, moment, m, *_pieces(m.get("said") or [], a, b, _still(rec, "talk", a, b, None),
-                                                        takes.heard_claps(rec, a, b)), name=layout)
+                                                        takes.heard_claps(rec, a, b), edges=not m.get("ends")),
+                          name=layout, kept=kept)
     try:
         if recipe == "vlog" and layout == "card" and not face:
             box, face_line = None, "A vlog keeps its whole picture: the card has no face circle, as nobody looks for one."
@@ -1372,7 +1378,8 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     except ValueError as e:
         raise Refused(str(e))
     still = _still(rec, recipe, a, b, layouts.face_room(lay))
-    pieces, cut = _pieces(m.get("said") or [], a, b, still, takes.heard_claps(rec, a, b) if still else [])
+    pieces, cut = _pieces(m.get("said") or [], a, b, still, takes.heard_claps(rec, a, b) if still else [],
+                          edges=not m.get("ends"))
     following = ""
     if lay["kind"] == "card" and follow and not crop and _reads_screen(job):
         lay, following = _follow(rec, lay, pieces, [a, b])
@@ -1387,9 +1394,9 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     if private is None:
         return "Not made: the person pressed Stop."
     people = _people(rec, pieces, box, [a, b])
-    state = job.edit({"do": "clip", "moment": moment, "pieces": pieces, "span": [a, b], "layout": lay, "product": item,
-                      "people": [{k: v for k, v in p.items() if k != "crop"} for p in people or []],
-                      "speech": _speech(rec, job.chat.looks[m["look"] - 1], pieces)})
+    state = job.edit(dict({"do": "clip", "moment": moment, "pieces": pieces, "span": [a, b], "layout": lay,
+                           "product": item, "people": [{k: v for k, v in p.items() if k != "crop"} for p in people or []],
+                           "speech": _speech(rec, job.chat.looks[m["look"] - 1], pieces)}, **kept))
     for f in private["shown"]:
         state = job.edit({"do": "blur", "box": f["box"], "start": f["start"], "end": f["end"], "private": f["kind"]})
     channel = _channel_on(job)
@@ -1440,6 +1447,100 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
 KEPT_AT_AN_EVENT = ("%d people's faces are in the clip, all kept as they are: at a trip or an event the people are "
                     "part of the day. Blur someone only when the person asks: show_people numbers the faces at the "
                     "second they mean, and decide_people blurs that number.")
+
+
+def change_ends(job, why, start=None, end=None):
+    """The clip's moment with the start or the end moved where the person wants it, made again as it was made (the
+    layout, crop, face and product make_clip was given), its edges kept where they were put. What sits on the footage
+    stays on it (project.state, a moved clip), so a cut-off start takes its captions with it, and a start taken
+    earlier is heard first when the look never heard it. The new moment is one more in the list, so Undo puts the
+    clip back as it was and the moment it was made from is still there."""
+    rec = _open(job, "change the ends of")
+    state = _clip_state(job)
+    clip, tenth = state["clip"], _tenth
+    moments, looks = job.chat.moments or [], job.chat.looks
+    if not clip.get("made"):
+        raise Refused("This clip's ends cannot be moved: it was made before the program kept how it was made. Make the "
+                      "clip again, then move its ends.")
+    if not 1 <= clip["moment"] <= len(moments):
+        raise Refused("The moment this clip was made from is no longer proposed, so its ends cannot be moved. Make the "
+                      "clip again from one of the moments.")
+    if start is None and end is None:
+        raise Refused("Give the new start, the new end, or both.")
+    m = moments[clip["moment"] - 1]
+    now_a, now_b = clip["pieces"][0][0], clip["pieces"][-1][1]
+    a = _time("start", start) if start is not None else now_a
+    b = _time("end", end) if end is not None else now_b
+    a, b = round(max(0.0, a), 2), round(min(rec["seconds"], b), 2)
+    if b <= a:
+        raise Refused("The end, %s, must come after the start, %s." % (tenth(b), tenth(a)))
+    if not SHORTEST <= round(b - a) <= LONGEST:
+        raise Refused("From %s to %s is %d s, and a clip is %d to %d s. The clip runs from %s to %s now." % (
+            tenth(a), tenth(b), round(b - a), SHORTEST, LONGEST, tenth(now_a), tenth(now_b)))
+    if abs(a - now_a) < 0.05 and abs(b - now_b) < 0.05:
+        raise Refused("The clip already starts at %s and ends at %s." % (tenth(now_a), tenth(now_b)))
+    look, heard_line = looks[m["look"] - 1], None
+    lo, hi = look.get("heard") or (look["start"], look["end"])
+    wider = None
+    if a < lo or b > hi:
+        wider = dict(look, n=len(looks) + 1, start=round(min(look["start"], a), 2), end=round(max(look["end"], b), 2))
+        try:
+            said_lines = _what_is_said(job, rec, wider)
+        except hearing.Stopped:
+            return "Not moved: the person pressed Stop."
+        if said_lines and said_lines[0].startswith("What is said here could not be heard"):
+            heard_line = said_lines[0]
+        look = wider
+    said = _ends_said(job, rec, look, m, [x for x in moments if x["look"] == m["look"]], a, b)
+    moment = dict(m, n=len(moments) + 1, look=look["n"], start=a, end=b, said=said, ends=True, snapped=None)
+    moment.pop("preview", None)
+    if wider:
+        looks.append(wider)
+    moments.append(moment)
+    job.chat.emit("ends", job=job.n, moments=moments, look=wider)
+    made = clip["made"]
+    said_back = make_clip(job, why, moment["n"], made["layout"], made.get("crop"), made.get("face"),
+                          made.get("product"), made.get("follow", True), moved=True)
+    if job.chat.project.state()["clip"]["moment"] != moment["n"]:
+        return said_back
+    lines = ["Moved the clip's ends: it now runs from %s to %s of the recording (it ran from %s to %s)." % (
+        tenth(a), tenth(b), tenth(now_a), tenth(now_b))]
+    if heard_line:
+        lines.append(heard_line)
+    caps = state["captions"]
+    new_words = [p for p in said if not now_a <= p["from"] < now_b]
+    if caps and new_words and not caps.get("language"):
+        try:
+            lines.append(add_captions(job, why, lit=bool(caps.get("lit")), pop=bool(caps.get("pop"))))
+        except Refused as e:
+            lines.append("The captions were not put on again: %s" % e)
+    elif caps and new_words:
+        lines.append("The captions are in %s, and the seconds the clip took in have none yet: put the captions on "
+                     "again so they are written for them too." % caps["language"])
+    return "\n".join(lines + [said_back])
+
+
+def _ends_said(job, rec, look, m, same_look, a, b):
+    """The moment's lines from a to b: the ones already fixed (in m, or in another moment from the same look), and
+    the new ones before and after them fixed now, or kept as heard when Muse cannot be asked (a tap on the page)."""
+    fixed = {round(p["from"], 2): p for x in same_look for p in x.get("said") or [] if p.get("kept") != LATER}
+    known = [p for p in m.get("said") or [] if a <= p["from"] < b]
+    first = known[0]["from"] if known else b
+    last = known[-1]["to"] - AIR if known else a
+    fresh = [fixed.get(round(p["from"], 2), p) for p in look.get("said") or [] if a <= p["from"] < b and (
+        p["to"] <= first + AIR or p["from"] >= last)]
+    unfixed = [p for p in fresh if "heard" not in p]
+    if unfixed:
+        done = {round(p["from"], 2): p for p in _fixed_said(job, rec, look, a, b, said=unfixed)}
+        fresh = [done.get(round(p["from"], 2), p) for p in fresh]
+    return sorted(known + fresh, key=lambda p: p["from"])
+
+
+def _tenth(t):
+    """A time of the recording to the tenth of a second, as 1:20.4 or 1:02:03.5."""
+    t = round(t, 1)
+    h, rest = divmod(t, 3600)
+    return ("%d:%02d:%04.1f" % (h, rest // 60, rest % 60)) if h else "%d:%04.1f" % (rest // 60, rest % 60)
 
 
 def _follow(rec, lay, pieces, span):
@@ -1701,7 +1802,7 @@ def _private_check(job, rec, state):
                                                                                "s") if shown else NOTHING_PRIVATE)
 
 
-def _make_talk(job, rec, moment, m, pieces, cut, name="talk"):
+def _make_talk(job, rec, moment, m, pieces, cut, name="talk", kept=None):
     """make_clip in a layout of people talking: the people found, who speaks when, and the shots that follow them
     (talk); the same with the others on screen in circles (speaker); or two people, one above the other, for the
     whole clip (split)."""
@@ -1735,9 +1836,10 @@ def _make_talk(job, rec, moment, m, pieces, cut, name="talk"):
     if private is None:
         return "Not made: the person pressed Stop."
     people = _people(rec, pieces, None, [a, b], shown=[p["box"] for p in persons])
-    state = job.edit({"do": "clip", "moment": moment, "pieces": pieces, "span": [a, b], "layout": lay, "product": None,
-                      "people": [{k: v for k, v in p.items() if k != "crop"} for p in people or []],
-                      "speech": _speech(rec, job.chat.looks[m["look"] - 1], pieces), "voices": spoken})
+    state = job.edit(dict({"do": "clip", "moment": moment, "pieces": pieces, "span": [a, b], "layout": lay,
+                           "product": None, "people": [{k: v for k, v in p.items() if k != "crop"} for p in people or []],
+                           "speech": _speech(rec, job.chat.looks[m["look"] - 1], pieces), "voices": spoken},
+                          **(kept or {})))
     for f in private["shown"]:
         state = job.edit({"do": "blur", "box": f["box"], "start": f["start"], "end": f["end"], "private": f["kind"]})
     lines = ["Made the clip from moment %d (%s-%s, %g s) in the %s layout. It follows %d people, numbered from the "
@@ -4379,8 +4481,8 @@ TOOLS = {t.name: t for t in [
          "in the moment's pictures and fixes what it safely can, and says what it did. The clip's frame comes back "
          "to you as a picture. Call it again to remake the clip from another moment, layout or crop; the words on "
          "screen stay.",
-         {"moment": {"type": "integer", "minimum": 1, "maximum": MOST_MOMENTS,
-                     "description": "The number of the moment you proposed."},
+         {"moment": {"type": "integer", "minimum": 1,
+                     "description": "The number of the moment you proposed, or of the one change_ends made."},
           "layout": {"type": "string", "enum": list(layouts.KINDS) + ["talk", "speaker", "split"],
                      "description": "Which layout."},
           "follow": {"type": "boolean",
@@ -4402,6 +4504,18 @@ TOOLS = {t.name: t for t in [
                       "description": "[x1, y1, x2, y2] on your 0-1000 grid around the product being sold, when there "
                                      "is one, so no words cover it. Leave it out otherwise."}},
          ["moment", "layout"], make_clip, changes=True),
+    Tool("change_ends", "Moved the clip's ends",
+         "Move where the clip starts or ends in the recording when the person asks: cut off its start or its end, or "
+         "take in more before or after it ('start earlier', 'cut the last bit', 'end after the laugh'). The program "
+         "makes the clip again from the same moment in the same layout, crop and face, and keeps its edges where you "
+         "put them; the captions, blurs, sounds and effects stay on what is said and shown, and the words on screen "
+         "stay at their time in the clip. The person can do the same from the Trim tab under the clip.",
+         {"start": {"type": "string", "maxLength": 20,
+                    "description": "The new start, a time of the recording like 1:51:30 or 6704.5. Leave it out to keep "
+                                   "the start."},
+          "end": {"type": "string", "maxLength": 20,
+                  "description": "The new end, a time of the recording. Leave it out to keep the end."}},
+         [], change_ends, changes=True),
     Tool("set_style", "Chose the look of the words",
          "Choose how the words on screen look: one of the looks (" + "; ".join("%s: %s" % kv for kv in STYLES.items())
          + "), with the font, the size and the colours the person asked for. The person sees every look as a "

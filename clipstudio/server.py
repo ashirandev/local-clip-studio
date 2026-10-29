@@ -41,6 +41,9 @@ computer only.
   program makes the edit Muse's tool makes, at once, without asking Muse; Undo takes it back, and Muse is told
 - POST /api/words {chat, kind, n, was, words}: the person's own words for a title or a caption phrase
 - POST /api/mute {chat, start, end, back}: the clip's own sound muted from start to end s of the clip, or brought back
+- POST /api/ends {chat, start, end}: the clip starts and ends there, in seconds of the recording: change_ends, run in
+  the background ({"ok": true} once it has started); a "moved" event says when the clip is made, a "not_moved" event
+  why it was not
 - POST /api/remake {chat}: makes the video again from the clip as it is now, as render_clip does, without Muse.
   Each answers {"ok": true}, or {"ok": false, "error"} with 404 when the clip or the words are not there and 400
   with the reason the change was refused. /api/captions {chat, language: "said"} puts the captions back in the words
@@ -100,7 +103,7 @@ POSTER_AT = 1.0
 READ_TRIES, READ_WAIT = 10, 0.05
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 CHANGES = ("/api/captions", "/api/style", "/api/colour", "/api/words", "/api/remake", "/api/channel",
-           "/api/channel/save", "/api/mute")
+           "/api/channel/save", "/api/mute", "/api/ends")
 UPLOAD_WAIT = 60
 ONLY_HERE = "Open Options on the computer the studio runs on to change this."
 
@@ -260,11 +263,16 @@ class Handler(BaseHTTPRequestHandler):
                 why = chat.use_channel(str(body.get("name") or ""))
             elif path == "/api/channel/save":
                 why = chat.save_channel(str(body.get("name") or ""), str(body.get("handle") or ""))
-            elif path == "/api/mute":
+            elif path in ("/api/mute", "/api/ends"):
                 start, end = body.get("start"), body.get("end")
                 said = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (start, end))
-                why = chat.set_mute(start, end, body.get("back") is True) if said else \
-                    "Send the start and the end of the part to mute, in seconds of the clip."
+                if not said:
+                    why = "Send the start and the end of the part to mute, in seconds of the clip." if \
+                        path == "/api/mute" else "Send the new start and end of the clip, in seconds of the recording."
+                elif path == "/api/mute":
+                    why = chat.set_mute(start, end, body.get("back") is True)
+                else:
+                    why = chat.set_ends(float(start), float(end))
             elif body.get("kind") not in ("title", "caption") or not isinstance(body.get("n"), int) or \
                     isinstance(body.get("n"), bool):
                 why = "Send which words to change: a title or a caption, and its number."

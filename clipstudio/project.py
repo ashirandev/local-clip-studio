@@ -8,7 +8,11 @@ the recording, and boxes on the frame are pixels of the 1080x1920 clip.
   recording box or None, "people": [{"n", "seen", "of", "from", "to", "box", "points": [[clip second, x, y, w, h]]}]:
   the other people's faces, followed through the clip, "speech": [[clip a, clip b]] when someone speaks, [] when
   nobody does, None when the moment was never heard, "span": [recording a, recording b] of the moment the faces
-  were looked for over, which the pieces lie inside}
+  were looked for over, which the pieces lie inside, "made": the layout, crop, face, product and follow it was made
+  with, "moved": True when it is the clip before it with its ends moved}. A moved clip keeps what sits on the footage
+  where the footage is: the captions, blurs, hits, stickers, flurries, sounds, slow pushes and cut-out looks follow
+  the seconds of the recording they were on (and go with them when those are cut off), while the titles and glass
+  boxes stay at their time in the clip, as a title opens the clip wherever it now starts
 - style: {"name", "font", "colour"}
 - title: {"text", "start", "end", "place", "box": the place's frame box, "key"}
 - captions: {"lines": text.caption_lines() lines in clip seconds, "band": [y, h], "pop": each word popped in as it is said, "lit": each word lit as it is
@@ -86,6 +90,12 @@ class Project:
         decided = {}
         for e in self.entries:
             if e["do"] == "clip":
+                if e.get("moved") and clip:
+                    move = _Mover(clip["pieces"], e["pieces"])
+                    captions = move.captions(captions)
+                    hits, stickers, flurries, sounds = (move.at(x) for x in (hits, stickers, flurries, sounds))
+                    pushes, cutouts = move.spans(pushes), move.spans(cutouts)
+                    blurs = move.spans([move.track(b) for b in blurs])
                 clip = e
                 decided = {}
                 blurs = [b for b in blurs if not b.get("private")]
@@ -154,6 +164,51 @@ class Project:
                 "channel": channel if clip else None,
                 "cutouts": sorted([c for c in cutouts if inside(c["start"])], key=lambda c: c["start"]),
                 "mutes": mutes}
+
+
+class _Mover:
+    """Clip seconds of the pieces before, as the clip seconds of the pieces after: the same second of the recording,
+    or gone when the pieces after do not play it."""
+
+    def __init__(self, before, after):
+        self.before, self.after = before, after
+
+    def span(self, a, b):
+        """(a, b) after, from the first to the last of the seconds still played, or None when none is."""
+        out = to_clip_spans(self.after, to_recording_spans(self.before, a, b))
+        return (out[0][0], out[-1][1]) if out else None
+
+    def point(self, t):
+        hit = to_clip(self.before, t)
+        return None if hit is None else from_recording(self.after, hit[1])
+
+    def at(self, entries):
+        return [dict(e, at=round(t, 3)) for e in entries for t in [self.point(e["at"])] if t is not None]
+
+    def spans(self, entries):
+        return [dict(e, start=round(s[0], 3), end=round(s[1], 3)) for e in entries
+                for s in [self.span(e["start"], e["end"])] if s and (e.get("track") is None or e["track"])]
+
+    def track(self, blur):
+        """A blur that moves with a face, its points at their new times."""
+        if "track" not in blur:
+            return blur
+        return dict(blur, track=[[round(t, 3)] + list(p[1:]) for p in blur["track"] for t in [self.point(p[0])]
+                                 if t is not None])
+
+    def captions(self, captions):
+        """The caption lines with each word at its new time; a word no longer played goes, and a line goes with its
+        last word."""
+        if not captions:
+            return captions
+        lines = []
+        for ln in captions["lines"]:
+            words = [dict(w, **{"from": round(s[0], 3), "to": round(s[1], 3)}) for w in ln["words"]
+                     for s in [self.span(w["from"], w["to"])] if s]
+            if words:
+                lines.append(dict(ln, words=words, text="".join(w["text"] for w in words) if len(words) < len(
+                    ln["words"]) else ln["text"], **{"from": words[0]["from"], "to": words[-1]["to"]}))
+        return dict(captions, lines=lines)
 
 
 def signature(entries):

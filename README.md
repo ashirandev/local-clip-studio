@@ -103,8 +103,8 @@ as a picture of the clip it made, with which Muse made it (a computer for this o
 cost, and the month's total sits at the top. In a chat, each message's work is one card: the plan as a bar, each step
 as an icon with its reason, the moments Muse proposes as short videos, and what Muse is thinking while it writes;
 each step opens to show how Muse decided, and a finished card can play its steps again. The editor shows the clip,
-a timeline of its words, and icon buttons (Captions, Style, Colour, Sound, Words, Channel), each opening pictures to
-pick from. **Options** has the switch between the Muses, **Simple or Detailed** steps (Detailed adds each step's
+a timeline of its words, and icon buttons (Trim, Captions, Style, Colour, Sound, Words, Channel), each opening
+pictures to pick from. **Options** has the switch between the Muses, **Simple or Detailed** steps (Detailed adds each step's
 input and result, the files it opens and its engine numbers), light or dark, the money costs are shown in, and this
 computer's setup.
 
@@ -167,7 +167,9 @@ that runs one model without a preset works too, but then nothing that needs SAM 
 
 **2. Muse Spark on Meta's API.** This route needs no graphics card. Set `META_API_KEY` to your own key before
 starting the studio, or type the endpoint (`https://api.meta.ai/v1`) and the key in Options > API.
-`LCS_SPARK_MODEL` picks the model (default `muse-spark-1.3`).
+`LCS_SPARK_MODEL` picks the model (default `muse-spark-1.3`). **Muse Wonder** (`muse-wonder-1.0`, Meta's model for
+long work with many tools) is a fourth choice on the same address and key, at $4 a million tokens read and $20
+written; `LCS_WONDER_MODEL` changes it. Measured 10-29: one short question in 7 s, $0.006.
 
 **3. Muse Spark Open on a Modal shared endpoint.** The open-weight Spark (`meta-models/Muse-Spark-Open-816B-A42B`) on
 Modal's machines, paid per token, with no graphics card of your own. Make a shared endpoint for it in your Modal
@@ -350,6 +352,13 @@ Detailed steps the input, the result and the engine numbers.
   the check on captions passes them as the person's own words. When the clip has changed since its video was made,
   Update video renders it as Muse's render does. Under Captions, As said puts them back in the words as
   said at a tap; English is a tap that asks Muse, which writes the translation.
+- **Trim, or take in more, at a tap.** Muse picks the moment; under Trim the person taps a spot on the timeline and
+  starts or ends the clip there, or takes in 2 s more before or after it at each tap, then Apply. The clip is made
+  again in the same layout, crop and face, and its edges stay where the person put them. The captions, blurs, hits,
+  stickers, sounds and slow pushes stay on what is said and shown, so a cut-off start takes its captions with it;
+  the titles stay at their time in the clip, so the opening title still opens it. Seconds the moment never heard are
+  heard first and captioned. Muse does the same when asked ("start 3 seconds earlier") with `change_ends`, and Undo
+  puts the old ends back.
 - **The preview changes at once.** The page plays the clip without its words (a base video, made once for each
   picture) and lays the words over it, drawn as see-through pictures by the same libass as the export. A change of
   words shows in about a second (0.55 s measured on the test clip, 10-28); only a change to the picture or the sound
@@ -391,6 +400,7 @@ Each piece is listed with its licence. The Status column says whether this build
 |---|---|---|---|
 | [Muse Glimmer 30B](https://huggingface.co/meta-models/Muse-Glimmer-30B) (Meta) | the agent's mind, on your own graphics card | Apache-2.0 | used |
 | Muse Spark (Meta API) | the same mind without a graphics card, with your own key | Meta's API terms | used |
+| Muse Wonder (Meta API) | the same mind, Meta's model for long work with many tools, with the same key | Meta's API terms | used |
 | [Muse Spark Open](https://huggingface.co/meta-models/Muse-Spark-Open-816B-A42B) (Meta) on a Modal shared endpoint | the same mind on Modal's machines, with your own token | Meta's model licence; Modal's terms | wired, not run yet |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) (llama-server) | runs Glimmer locally | MIT | used |
 | [FFmpeg](https://ffmpeg.org/) | reads each recording (ffprobe) and takes pictures from it; later cuts and renders the clip | LGPL-2.1+ (GPL for some builds; the Windows build setup downloads is GPL-3.0) | used |

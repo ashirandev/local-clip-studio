@@ -35,8 +35,9 @@ import traceback
 
 from . import (channels, chatname, faces, hearing, layer, maps, mind, montage, needs, previews, project, recording, render,
                spent, text, words)
-from .tools import (CAPTION_LETTERS, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, STYLES, TOOLS, Refused, _spoken, _subtitles,
-                    _undecided, channel_entries, channel_unfit, describe, faces_at, features, look_of, look_said)
+from .tools import (CAPTION_LETTERS, LONGEST, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST, STYLES, TOOLS, Refused,
+                    _spoken, _subtitles, _undecided, channel_entries, channel_unfit, describe, faces_at, features,
+                    look_of, look_said)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = os.environ.get("LCS_WORK") or os.path.join(ROOT, "work")
@@ -171,6 +172,10 @@ class Chat:
                     chat.looks.append(e["look"])
                 if e.get("moments"):
                     chat.moments = e["moments"]
+            elif e["kind"] == "ends":
+                chat.moments = e["moments"]
+                if e.get("look"):
+                    chat.looks.append(e["look"])
         chat.catch_up_previews()
         return chat
 
@@ -326,7 +331,7 @@ class Chat:
                 "looks": choices("look", COLOUR_LOOKS, str.capitalize, "set_look", lambda n: {"look": n}),
                 "words": self.words_on(state), "again": bool(self.rendered) and self.finished() is None,
                 "making": self.making is not None, "channels": self.channels_now(state),
-                "sound": {"mutes": state["mutes"], "has": self.has_sound()}}
+                "sound": {"mutes": state["mutes"], "has": self.has_sound()}, "ends": self.ends(state)}
 
     def channels_now(self, state):
         """The channel looks the page offers: each saved look with what it puts on a clip, the one in use, and the
@@ -450,6 +455,57 @@ class Chat:
         if look and look["handle"] == state["channel"]["name"]:
             channels.save(dict(look, spot=spot))
         return None
+
+    def ends(self, state):
+        """Where the clip starts and ends in the recording, for the Trim tab: {"start", "end", "pieces", "recording",
+        "shortest", "longest", "why"}, why the sentence when its ends cannot be moved, else None."""
+        clip, rec = state["clip"], self.recording or {}
+        n, moments = clip["moment"], self.moments or []
+        why = None if clip.get("made") and 1 <= n <= len(moments) else (
+            "Ask Muse to make the clip again first: this clip was made before its ends could be moved.")
+        return {"start": clip["pieces"][0][0], "end": clip["pieces"][-1][1], "pieces": clip["pieces"],
+                "recording": rec.get("seconds"), "shortest": SHORTEST, "longest": LONGEST, "why": why}
+
+    def set_ends(self, start, end):
+        """The person's new start and end of the clip in the recording, from the Trim tab: change_ends's own work,
+        run in the background as a render is, without asking Muse (the new words it hears stay as heard). Returns None
+        once it has started, or the sentence why not."""
+        state = self._clip_now()
+        why = self.ends(state)["why"]
+        if why:
+            return why
+        hand = Hand(self, page="ends", whole=True)
+        with self.cond:
+            if self.making:
+                return "The video is being made now. Move the ends when it is done."
+            if self.busy():
+                return "Muse is working on the clip now. Wait until it is done, or press Stop."
+            self.making = hand
+        threading.Thread(target=self._move, args=(hand, start, end), name="change-ends", daemon=True).start()
+        return None
+
+    def _move(self, hand, start, end):
+        before = self.project.state()["clip"]
+        try:
+            said = TOOLS["change_ends"].run(hand, TAPPED, start="%.2f" % start, end="%.2f" % end)
+            said = None if self.project.state()["clip"]["moment"] != before["moment"] else said
+        except Refused as e:
+            said = str(e)
+        except hearing.Stopped:
+            said = "Stopped."
+        except Exception as e:
+            said = "The studio broke while moving the clip's ends (%s)." % e
+        finally:
+            hand.done_working()
+            with self.cond:
+                self.making, hand.done = None, True
+        if said:
+            self.emit("not_moved", error=_first_sentence(said))
+            return
+        clip = self.project.state()["clip"]
+        self._tell("the person moved the clip's ends on the page: it now runs from %s to %s of the recording"
+                   % (recording.clock(clip["pieces"][0][0]), recording.clock(clip["pieces"][-1][1])))
+        self.emit("moved", clip=self.clip_view())
 
     def has_sound(self):
         """True when the clip's recording has sound to mute."""
@@ -1328,8 +1384,9 @@ class Hand(Job):
     knows a choice the tool would refuse, and why. page names what the hand makes for the page (the video, the
     preview), so the page shows each one's progress in its own place."""
 
-    def __init__(self, chat, trial=False, page="video"):
+    def __init__(self, chat, trial=False, page="video", whole=False):
         self.chat, self.trial, self.page, self.n, self.steps = chat, trial, page, None, 0
+        self.whole = whole
         self.proofread, self.pictures, self.shown_extra = {}, [], {}
         self.asking = self.stop_work = self.entry = None
         self.stopped = self.done = False
@@ -1346,8 +1403,10 @@ class Hand(Job):
             raise Refused(said)
         if self.trial:
             raise Allowed()
-        self.entry = entry
-        self.chat.edit(entry)
+        self.entry = self.entry or entry
+        state = self.chat.edit(entry)
+        if self.whole:
+            return state
         raise Made()
 
     def ask_aside(self, messages, schema, doing="", room=None):

@@ -581,6 +581,28 @@ class Endpoints(Served):
                          (200, {"ok": True}))
         self.assertEqual(self.chat.project.state()["mutes"], [])
 
+    def test_the_clips_ends_are_moved_with_a_post_and_muse_is_told(self):
+        self.make(SAID, call("add_captions", why="say it"))
+        panel = "/api/panel?chat=" + self.chat.id
+        ends = self.ask("GET", panel)[1]["ends"]
+        self.assertEqual((ends["start"], ends["end"], ends["shortest"], ends["longest"], ends["why"]),
+                         (31.7, 50.0, 10, 90, None))
+        self.assertEqual(self.ask("POST", "/api/ends", {"chat": self.chat.id, "start": "34", "end": 50}),
+                         (400, {"ok": False, "error": "Send the new start and end of the clip, in seconds of the "
+                                                      "recording."}))
+        self.assertEqual(self.ask("POST", "/api/ends", {"chat": self.chat.id, "start": 34.8, "end": 50}),
+                         (200, {"ok": True}))
+        self.until(lambda: self.chat.making is None and any(e["kind"] == "moved" for e in self.chat.events))
+        self.assertEqual(self.ask("GET", panel)[1]["ends"]["start"], 34.8)
+        self.assertIn("watch him", "".join(ln["text"] for ln in self.chat.project.state()["captions"]["lines"]))
+        self.assertTrue(any("the person moved the clip's ends on the page: it now runs from 0:35 to 0:50" in t
+                            for t in self.chat.told), self.chat.told)
+        self.assertEqual(self.ask("POST", "/api/ends", {"chat": self.chat.id, "start": 45, "end": 50}),
+                         (200, {"ok": True}))
+        self.until(lambda: self.chat.making is None and any(e["kind"] == "not_moved" for e in self.chat.events))
+        refused = [e for e in self.chat.events if e["kind"] == "not_moved"][-1]
+        self.assertTrue(refused["error"].startswith("From 0:45.0 to 0:50.0 is 5 s"), refused)
+
     def test_words_are_changed_with_a_post_naming_the_block_and_its_words(self):
         self.make(SAID, call("add_captions", why="say it"))
         body = {"chat": self.chat.id, "kind": "caption", "n": 0, "was": "this is the moment", "words": "this is it"}

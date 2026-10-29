@@ -189,6 +189,39 @@ class Projects(unittest.TestCase):
         p.undo()
         self.assertIn("one", "".join(ln["text"] for ln in p.state()["captions"]["lines"]), "undo brings them back")
 
+    def test_a_clip_with_its_ends_moved_keeps_the_footage_things_on_the_footage_and_the_titles_in_place(self):
+        lines = text.caption_lines([{"from": 0.5, "to": 2, "text": "one two"}, {"from": 4, "to": 6, "text": "hello there"}])
+        before = [{"do": "clip", "moment": 1, "pieces": [[10, 20]], "layout": {"kind": "card"}},
+                  {"do": "captions", "lines": lines, "band": [1500, 200]},
+                  {"do": "title", "text": "Boss", "start": 0, "end": 3, "place": "top", "box": [0, 0, 1, 1]},
+                  {"do": "hit", "kind": "flash", "at": 1.0}, {"do": "hit", "kind": "flash", "at": 5.0},
+                  {"do": "sound", "kind": "whoosh", "at": 4.5, "level": 0},
+                  {"do": "push", "start": 4, "end": 8, "zoom": 1.2, "centre": [540, 960]},
+                  {"do": "blur", "box": [0, 0, 10, 10], "start": 1, "end": 9},
+                  {"do": "blur", "track": [[1, 0, 0, 5, 5], [5, 1, 1, 5, 5]], "start": 1, "end": 5}]
+        p = project.Project(before)
+        was = p.state()
+        p.add({"do": "clip", "moment": 2, "pieces": [[13, 21]], "layout": {"kind": "card"}, "moved": True})
+        now = p.state()
+        words = [w for ln in now["captions"]["lines"] for w in ln["words"]]
+        self.assertEqual("".join(w["text"] for w in words).split(), ["hello", "there"], "the cut-off words go")
+        first = [w for ln in was["captions"]["lines"] for w in ln["words"] if w["text"].strip() == "hello"][0]
+        self.assertAlmostEqual(words[0]["from"], first["from"] - 3, places=3, msg="a word stays on its second")
+        self.assertEqual([(t["text"], t["start"], t["end"]) for t in now["titles"]], [("Boss", 0, 3)],
+                         "the title still opens the clip")
+        self.assertEqual([h["at"] for h in now["hits"]], [2.0], "the hit at 1 s was cut off; 5 s is now 2 s")
+        self.assertEqual([s["at"] for s in now["sounds"]], [1.5])
+        self.assertEqual([(x["start"], x["end"]) for x in now["pushes"]], [(1.0, 5.0)])
+        boxes = [b for b in now["blurs"] if "box" in b]
+        self.assertEqual([(b["start"], b["end"]) for b in boxes], [(0.0, 6.0)], "a blur keeps its seconds")
+        tracked = [b for b in now["blurs"] if "track" in b]
+        self.assertEqual([p_[0] for p_ in tracked[0]["track"]], [2.0], "a face blur's points move with the face")
+        p.undo()
+        self.assertEqual(p.state(), was, "undo puts the clip back exactly as it was")
+        p.add({"do": "clip", "moment": 2, "pieces": [[13, 21]], "layout": {"kind": "card"}})
+        self.assertEqual([h["at"] for h in p.state()["hits"]], [1.0, 5.0], "a clip made from another moment does not "
+                                                                         "move anything")
+
     def test_a_private_blur_belongs_to_its_clip_and_a_plain_one_is_kept(self):
         p = project.Project()
         p.add({"do": "clip", "moment": 1, "pieces": [[30, 50]], "layout": {"kind": "card"}})
@@ -848,6 +881,61 @@ class Tools(unittest.TestCase):
         self.assertEqual([round(x["from"], 2) for x in state["captions"]["lines"]][:1], [0.3],
                          "caption times are clip seconds: heard at 32 s of the recording, the clip opening at 31.7 s")
         self.assertEqual(state["blurs"][0]["box"], [128, 0, 64, 54])
+
+    def test_the_clips_ends_move_where_the_person_says_and_the_captions_go_with_the_words(self):
+        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "this is the moment"},
+                               {"from": 5.0, "to": 8.0, "text": "watch him fall down now"}]
+        script = self.to_moment()
+        _, steps = self.run_job(
+            *script[:2], [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "he falls"}])],
+            '{"lines": ["this is the moment", "watch him fall down now"]}',
+            [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("add_captions", why="say what he says")],
+            [call("add_hit", at=5.2, kind="word", word="POW", why="the fall")],
+            [call("change_ends", start="0:34.8", why="the person: cut the first line off")], "Done.")
+        trimmed = steps[-1]
+        self.assertFalse(trimmed["refused"], trimmed["result"])
+        self.assertTrue(trimmed["result"].startswith("Moved the clip's ends: it now runs from 0:34.8 to 0:50.0 of the "
+                                                     "recording (it ran from 0:31.7 to 0:50.0)."), trimmed["result"])
+        state = self.chat.project.state()
+        self.assertEqual(state["clip"]["pieces"], [[34.8, 50.0]])
+        self.assertEqual(state["clip"]["layout"]["kind"], "subject", "made again in the same layout")
+        said = "".join(ln["text"] for ln in state["captions"]["lines"])
+        self.assertNotIn("moment", said, "the line said before the new start is gone")
+        self.assertIn("watch him", said)
+        self.assertEqual([round(h["at"], 2) for h in state["hits"]], [2.1], "the hit stays on the fall, 3.1 s sooner")
+        self.assertEqual([m["n"] for m in self.chat.moments], [1, 2], "the moment Muse proposed is still there")
+        _, steps = self.run_job([call("change_ends", start="0:30", why="the person: start earlier")], "Done.")
+        earlier = steps[-1]
+        self.assertFalse(earlier["refused"], earlier["result"])
+        state = self.chat.project.state()
+        self.assertEqual(state["clip"]["pieces"][0][0], 30.0, "the person's start stays where it was put, though the "
+                                                              "picture is still and nobody speaks there")
+        self.assertIn("this is the moment", "".join(ln["text"] for ln in state["captions"]["lines"]),
+                      "the line the clip took in is captioned again")
+        self.assertEqual(state["clip"]["moment"], 3)
+        self.chat.undo()
+        self.chat.undo()
+        self.assertEqual(self.chat.project.state()["clip"]["pieces"], [[34.8, 50.0]], "undo puts the ends back")
+        again = agent.Chat.load(self.chat.id)
+        self.assertEqual([m["n"] for m in again.moments], [1, 2, 3], "the moved moments come back with the chat")
+
+    def test_a_start_before_what_was_heard_is_heard_first_and_wrong_ends_are_refused(self):
+        _, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("change_ends", start="0:45", why="too short")],
+            [call("change_ends", start="0:31", end="0:31.5", why="backwards")],
+            [call("change_ends", start="0:20", why="the person: start earlier")], "Done.")
+        short, wrong, earlier = steps[-3:]
+        self.assertTrue(short["refused"])
+        self.assertIn("From 0:45.0 to 0:50.0 is 5 s, and a clip is 10 to 90 s. The clip runs from 0:30.0 to 0:50.0 "
+                      "now.", short["result"])
+        self.assertTrue(wrong["refused"])
+        self.assertFalse(earlier["refused"], earlier["result"])
+        self.assertEqual(self.chat.project.state()["clip"]["pieces"], [[20.0, 50.0]])
+        self.assertEqual(len(self.chat.looks), 2, "a start before what the look heard is heard as a wider look")
+        self.assertEqual((self.chat.looks[1]["start"], self.chat.looks[1]["heard"]), (20.0, [14.0, 56.0]))
+        self.assertEqual(self.chat.moments[-1]["look"], 2)
 
     def test_words_stay_off_the_product_muse_names_and_a_key_inside_a_word_is_fixed(self):
         brain, steps = self.run_job(

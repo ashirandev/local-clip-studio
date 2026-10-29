@@ -32,6 +32,14 @@
   "show": "subject"
  },
  {
+  "tool": "change_ends",
+  "group": "Clips",
+  "name": "Trim or take in more",
+  "says": "Start the clip earlier or later, end it sooner or after the laugh. Tap Trim under the clip, or just say it: the layout stays, and the captions and effects stay on what is said and shown.",
+  "ask": "Start 3 seconds earlier and cut the last bit.",
+  "show": "trim"
+ },
+ {
   "tool": "move_part",
   "group": "Layout",
   "name": "Move a part",

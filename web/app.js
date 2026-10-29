@@ -80,11 +80,11 @@ const phoneCodes = $("phoneCodes");
 const phoneFiles = $("phoneFiles");
 const idle = text.placeholder;
 
-const SHEETS = { caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
-const EDITS = ["caps", "style", "look", "sound", "words", "channel"];
-const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", move_part: "move", mute_sound: "mute", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", show_people: "people", slow_push: "move", undo: "undo", use_channel_look: "at" };
+const SHEETS = { trim: ["cut", "Trim"], caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
+const EDITS = ["trim", "caps", "style", "look", "sound", "words", "channel"];
+const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_ends: "cut", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", move_part: "move", mute_sound: "mute", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", show_people: "people", slow_push: "move", undo: "undo", use_channel_look: "at" };
 
-const room = { mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {} };
+const room = { mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null };
 
 function localStore(key, value) {
   try {
@@ -619,7 +619,7 @@ function stopTimer() {
 
 function setBusy() {
   const busy = room.open.size > 0;
-  stopButton.hidden = !(busy || room.work.video || room.work.preview);
+  stopButton.hidden = !(busy || room.work.video || room.work.preview || room.work.ends);
   stopButton.disabled = false;
   text.placeholder = busy ? "Change what Muse is doing" : idle;
   showStatus();
@@ -699,7 +699,10 @@ function showClip(e) {
   const entry = e.kind === "edit" ? e.entry : null;
   if (entry && entry.do === "title") clipAt.value = (entry.start + entry.end) / 2;
   else if (entry && entry.do === "clip") clipAt.value = Math.min(clip.length / 2, clip.length - 0.1);
-  if (entry && entry.do === "clip") room.mute = {};
+  if (entry && entry.do === "clip") {
+    room.mute = {};
+    room.trim = null;
+  }
   drawClipFrame();
   clipTitle.textContent = room.ready ? room.ready.title : "Your clip";
   clipLine.textContent = clip.people ? "Tap a face to blur it, and tap it again to show it." : "";
@@ -1153,6 +1156,7 @@ function drawPanel(d) {
   drawChoices(looks, $("lookWhy"), d.looks, (c) => choose(looks, "/api/colour", { look: c.name }), lookPic);
   if (d.channels) drawChannels(d.channels);
   drawSound(d.sound);
+  drawTrim();
 }
 
 const muteFrom = $("muteFrom");
@@ -1216,6 +1220,135 @@ muteTo.addEventListener("click", () => {
 muteGo.addEventListener("click", () => {
   const m = room.mute || {};
   mute(Math.max(0, Math.min(m.from, m.to)), Math.max(m.from, m.to), false);
+});
+
+const trimSays = $("trimSays");
+const trimWhy = $("trimWhy");
+const trimGo = $("trimGo");
+const trimReset = $("trimReset");
+const TRIM_STEP = 2;
+
+function tenths(t) {
+  const m = Math.floor(t / 60);
+  const s = t - 60 * m;
+  return m + ":" + (s < 10 ? "0" : "") + s.toFixed(1);
+}
+
+function onRecording(t) {
+  const p = room.panel.ends.pieces;
+  let at = 0;
+  for (const [a, b] of p) {
+    if (t <= at + (b - a)) return a + Math.max(0, t - at);
+    at += b - a;
+  }
+  return p[p.length - 1][1];
+}
+
+function inClip(r) {
+  const p = room.panel.ends.pieces;
+  let at = 0;
+  for (const [a, b] of p) {
+    if (r < a) return at;
+    if (r <= b) return at + r - a;
+    at += b - a;
+  }
+  return at;
+}
+
+function trimNow() {
+  const e = room.panel.ends;
+  return room.trim || { start: e.start, end: e.end };
+}
+
+function setTrim(k, v) {
+  const e = room.panel.ends;
+  const t = Object.assign({}, trimNow());
+  t[k] = Math.round(Math.max(0, Math.min(e.recording || Infinity, v)) * 100) / 100;
+  room.trim = Math.abs(t.start - e.start) < 0.05 && Math.abs(t.end - e.end) < 0.05 ? null : t;
+  trimWhy.hidden = true;
+  drawTrim();
+  drawTrimMarks();
+}
+
+function drawTrim() {
+  const e = room.panel && room.panel.ends;
+  if (!e) return;
+  const t = trimNow();
+  const moved = Boolean(room.trim);
+  const parts = [];
+  if (moved && t.start < e.start) parts.push("starts " + (e.start - t.start).toFixed(1) + " s earlier");
+  if (moved && t.start > e.start) parts.push("cuts " + (t.start - e.start).toFixed(1) + " s off the start");
+  if (moved && t.end > e.end) parts.push("ends " + (t.end - e.end).toFixed(1) + " s later");
+  if (moved && t.end < e.end) parts.push("cuts " + (e.end - t.end).toFixed(1) + " s off the end");
+  trimSays.textContent = moved ? "New: " + tenths(t.start) + " to " + tenths(t.end) + " of your video (" + (t.end - t.start).toFixed(1) + " s): " + parts.join(", ") + "." : "The clip plays " + tenths(e.start) + " to " + tenths(e.end) + " of your video. Tap the timeline to choose a spot, then start or end the clip there, or take in " + TRIM_STEP + " s more at a time.";
+  const off = Boolean(e.why) || room.work.ends;
+  $("trimStart").disabled = $("trimEnd").disabled = off;
+  $("trimEarlier").disabled = off || t.start <= 0;
+  $("trimLater").disabled = off || Boolean(e.recording && t.end >= e.recording);
+  const span = t.end - t.start;
+  const fits = span >= e.shortest - 0.5 && span <= e.longest + 0.5;
+  trimGo.disabled = off || !moved || !fits;
+  trimReset.hidden = !moved;
+  trimGo.lastChild.textContent = moved && !fits ? (span < e.shortest ? "Too short" : "Too long") : "Apply";
+  if (e.why) {
+    trimWhy.textContent = e.why;
+    trimWhy.hidden = false;
+  } else if (moved && !fits) {
+    trimWhy.textContent = "A clip is " + e.shortest + " to " + e.longest + " s long.";
+    trimWhy.hidden = false;
+  }
+}
+
+function drawTrimMarks() {
+  const track = lanes.querySelector(".lane.film .track");
+  if (!track || !room.panel || !room.panel.ends) return;
+  track.querySelectorAll(".trim-span, .trim-more").forEach((n) => n.remove());
+  if (!room.trim) return;
+  const e = room.panel.ends;
+  const length = room.panel.length;
+  const shade = (a, b) => {
+    const s = el("i", "trim-span");
+    s.style.left = (100 * a / length) + "%";
+    s.style.width = (100 * Math.max(0, b - a) / length) + "%";
+    track.appendChild(s);
+  };
+  if (room.trim.start > e.start) shade(0, inClip(room.trim.start));
+  if (room.trim.end < e.end) shade(inClip(room.trim.end), length);
+  if (room.trim.start < e.start) track.appendChild(el("b", "trim-more left", "+" + (e.start - room.trim.start).toFixed(1) + " s"));
+  if (room.trim.end > e.end) track.appendChild(el("b", "trim-more right", "+" + (room.trim.end - e.end).toFixed(1) + " s"));
+}
+
+$("trimEarlier").addEventListener("click", () => setTrim("start", trimNow().start - TRIM_STEP));
+$("trimLater").addEventListener("click", () => setTrim("end", trimNow().end + TRIM_STEP));
+$("trimStart").addEventListener("click", () => setTrim("start", onRecording(clipNow())));
+$("trimEnd").addEventListener("click", () => setTrim("end", onRecording(clipNow())));
+
+trimReset.addEventListener("click", () => {
+  room.trim = null;
+  trimWhy.hidden = true;
+  drawTrim();
+  drawTrimMarks();
+});
+
+trimGo.addEventListener("click", async () => {
+  const t = room.trim;
+  if (!t) return;
+  trimGo.disabled = true;
+  trimWhy.hidden = true;
+  try {
+    const d = await post("/api/ends", { chat: room.chat, start: t.start, end: t.end });
+    if (d.ok) {
+      pageWork("ends", true);
+      againLine.textContent = "Making the clip again…";
+    } else {
+      trimWhy.textContent = d.error || "The clip could not be changed.";
+      trimWhy.hidden = false;
+    }
+  } catch (err) {
+    trimWhy.textContent = "The studio is not answering. Start it again with: python app.py";
+    trimWhy.hidden = false;
+  }
+  drawTrim();
 });
 
 const channelSave = $("channelSave");
@@ -1318,6 +1451,7 @@ function drawWords(d) {
   lanes.appendChild(head);
   drawWordList(d);
   drawMuteMarks();
+  drawTrimMarks();
   movePlayhead(room.made ? Number(clipAt.value) : 0);
   if (room.editing && !d.words.some((b) => b.kind === room.editing.kind && b.n === room.editing.n && b.text === room.editing.was)) closeWords();
 }
@@ -1592,6 +1726,15 @@ function on(e) {
     loadPanel();
     return;
   }
+  if (e.kind === "moved" || e.kind === "not_moved") {
+    pageWork("ends", false);
+    againLine.textContent = "";
+    if (e.kind === "moved") room.trim = null;
+    trimWhy.textContent = e.kind === "moved" ? "" : "The clip was not changed: " + e.error;
+    trimWhy.hidden = e.kind === "moved";
+    loadPanel();
+    return;
+  }
   if (e.kind === "base") {
     pageWork("preview", false);
     if (e.error) previewLine.textContent = "No quick preview: " + e.error;
@@ -1659,7 +1802,10 @@ function on(e) {
 
 function onThinking(live) {
   if (live.job === null) {
-    if (live.work && live.page === "preview") {
+    if (live.work && live.page === "ends") {
+      if (!room.work.ends) pageWork("ends", true);
+      againLine.textContent = live.work;
+    } else if (live.work && live.page === "preview") {
       if (!room.work.preview) pageWork("preview", true);
       previewLine.hidden = false;
       previewLine.textContent = live.work;
@@ -1694,6 +1840,8 @@ function showStatus() {
   const m = current();
   if (room.open.size) {
     statusLine.textContent = "Muse is working on it. Type to change what it does, or press Stop.";
+  } else if (room.work.ends) {
+    statusLine.textContent = "Making the clip again with its new start and end. Press Stop to end it.";
   } else if (room.work.video || room.work.preview) {
     statusLine.textContent = "Making the " + (room.work.video ? "video" : "preview") + ". Press Stop to end it.";
   } else if (m) {
@@ -2356,6 +2504,7 @@ const MINI = {
   sound: { parts: "who wave fx", fx: "💥" },
   music: { parts: "who wave fx", fx: "🎵" },
   mute: { parts: "who wave fx", fx: "🔇" },
+  trim: { parts: "reel fx", fx: "✂️" },
   "blur-box": { parts: "rows box" },
   people: { parts: "two who fx", fx: "2" },
   "blur-faces": { parts: "two who" },

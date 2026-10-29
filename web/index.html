@@ -150,6 +150,7 @@
     <p class="clip-line" id="clipLine"></p>
     <nav class="tools" id="partTabs" aria-label="Change the clip">
       <button type="button" class="tool muse" id="toChat"><svg class="ico"><use href="#i-muse"/></svg>Chat</button>
+      <button type="button" class="tool" data-show="trim" aria-pressed="false"><svg class="ico"><use href="#i-cut"/></svg>Trim</button>
       <button type="button" class="tool" data-show="caps" aria-pressed="false"><svg class="ico"><use href="#i-cc"/></svg>Captions</button>
       <button type="button" class="tool" data-show="style" aria-pressed="false"><svg class="ico"><use href="#i-aa"/></svg>Style</button>
       <button type="button" class="tool" data-show="look" aria-pressed="false"><svg class="ico"><use href="#i-drop"/></svg>Colour</button>
@@ -200,6 +201,20 @@
         <button type="button" class="act go" id="muteGo" disabled><svg class="ico"><use href="#i-mute"/></svg><span>Mute</span></button>
       </div>
       <div class="panel-row" id="mutedRow" role="group" aria-label="Parts muted now"></div>
+    </div>
+    <div class="panel-group" data-part="trim">
+      <p class="channel-says" id="trimSays"></p>
+      <div class="acts" id="trimRow">
+        <button type="button" class="act" id="trimEarlier"><svg class="ico"><use href="#i-back"/></svg><span>Start earlier</span></button>
+        <button type="button" class="act" id="trimStart"><svg class="ico"><use href="#i-from"/></svg><span>Start here</span></button>
+        <button type="button" class="act" id="trimEnd"><svg class="ico"><use href="#i-to"/></svg><span>End here</span></button>
+        <button type="button" class="act" id="trimLater"><svg class="ico flip"><use href="#i-back"/></svg><span>End later</span></button>
+      </div>
+      <div class="acts">
+        <button type="button" class="act" id="trimReset" hidden><svg class="ico"><use href="#i-x"/></svg><span>As it was</span></button>
+        <button type="button" class="act go" id="trimGo" disabled><svg class="ico"><use href="#i-cut"/></svg><span>Apply</span></button>
+      </div>
+      <p class="panel-why" id="trimWhy" role="status" hidden></p>
     </div>
     <div class="panel-group" data-part="words">
       <div class="word-list" id="wordList"></div>
