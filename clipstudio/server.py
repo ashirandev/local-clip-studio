@@ -541,8 +541,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json({"ok": True, "mind": mind.MINDS[key].status()})
 
     def here(self):
-        """True when the page is on this computer, so a file dropped on it is on this computer too."""
-        return ipaddress.ip_address(self.client_address[0].split("%", 1)[0]).is_loopback
+        """True when the page is on this computer, so a file dropped on it is on this computer too: a loopback
+        address, or the address the studio was reached at, since only this computer can connect from its own
+        address (the page opened by its network address, for a studio a phone also uses)."""
+        client = self.client_address[0].split("%", 1)[0]
+        if ipaddress.ip_address(client).is_loopback:
+            return True
+        try:
+            return client == self.connection.getsockname()[0].split("%", 1)[0]
+        except OSError:
+            return False
 
     def read_json(self):
         """The request body as a dict, or None after answering with a sentence."""

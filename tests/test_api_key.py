@@ -139,5 +139,18 @@ class Page(unittest.TestCase):
         self.assertEqual(mind.saved_api()[0], "https://api.meta.ai/v1")
 
 
+class SameComputer(unittest.TestCase):
+    def here(self, client, reached):
+        handler = mock.Mock(client_address=(client, 50000))
+        handler.connection.getsockname.return_value = (reached, 8899)
+        return server.Handler.here(handler)
+
+    def test_the_page_opened_by_this_computer_s_network_address_is_this_computer_and_a_phone_is_not(self):
+        self.assertTrue(self.here("127.0.0.1", "127.0.0.1"))
+        self.assertTrue(self.here("192.0.2.10", "192.0.2.10"), "the studio opened by its own network address")
+        self.assertFalse(self.here("192.0.2.20", "192.0.2.10"), "a phone on the same network")
+        self.assertTrue(self.here("::1", "::1"))
+
+
 if __name__ == "__main__":
     unittest.main()
