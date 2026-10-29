@@ -2620,6 +2620,11 @@ CAPTION_LETTERS = 16
 # Captions over a talked review: one line at a time, of 2 or 3 Thai words, drawn big (render._caption_style), as in
 # the reviews Tarm follows (Extreme IT, 10-28); 12 Thai letters at that size measure about 575 of the band's 830 px.
 ONE_LETTERS = 12
+KEYS_ASK = ("These are the caption lines of a short clip, in order. For each line, give the one word a viewer must not "
+            "miss, such as a number with its unit, a name or the thing the line is about, copied exactly as it is "
+            "written in the line, or \"\" when no word stands out. Give back one key for each line, in order.\n\n%s")
+KEYS_SCHEMA = {"type": "object", "properties": {"keys": {"type": "array", "items": {"type": "string"}}},
+               "required": ["keys"], "additionalProperties": False}
 SUBTITLES = {"English": ("english", "en", "eng", "อังกฤษ", "ภาษาอังกฤษ"), "Thai": ("thai", "th", "ไทย", "ภาษาไทย")}
 SENTENCE_GAP = 0.7
 SENTENCE_SHORT = 1.5
@@ -3012,6 +3017,30 @@ def _numbers_differ(said, translated):
     return any(not c & told for c in heard) or bool(told - set().union(*heard))
 
 
+def _caption_keys(job, lines, before):
+    """Each caption line's key, the one word a viewer must not miss, drawn in the key colour: Muse names them, apart
+    from the job, and a line keeps one only when it is a run of its whole words (text._caption_span), as Muse wrote it
+    or with Glimmer's slips put back. A tap on the page never asks Muse, so a line keeps the key a line of the same
+    words had (before: the lines the captions had). The look people know from caption apps, asked for by Tarm 10-29
+    for the judges, who often watch with the sound off. Returns how many lines have a key. Stop raises
+    hearing.Stopped."""
+    kept = {ln["text"]: ln["key"] for ln in before if ln.get("key")}
+    try:
+        got = json.loads(job.ask_aside([{"role": "user", "content": KEYS_ASK % json.dumps(
+            [ln["text"].strip() for ln in lines], ensure_ascii=False)}], KEYS_SCHEMA,
+            "Choosing the key word of each caption line"))["keys"]
+    except (mind.MindError, ValueError, KeyError, TypeError):
+        got = None
+    if not isinstance(got, list) or len(got) != len(lines):
+        got = [kept.get(ln["text"]) for ln in lines]
+    for ln, key in zip(lines, got):
+        for k in (key, words.unslipped(key)) if isinstance(key, str) else ():
+            if text._caption_span(ln["text"].strip(), k):
+                ln["key"] = k.strip()
+                break
+    return sum(1 for ln in lines if ln.get("key"))
+
+
 def _talked(clip, phrases, length, translated=False):
     """Whether the clip is talked through, so its captions come one line at a time, drawn big: as arrange_clips found
     it for clips joined, else when what is said fills TALKED of it, as there. Seen 10-29 on a seller's review talked
@@ -3024,7 +3053,7 @@ def _talked(clip, phrases, length, translated=False):
         sum(p["to"] - p["from"] for p in phrases) >= TALKED * length
 
 
-def add_captions(job, why, on=True, lit=False, pop=False, language=""):
+def add_captions(job, why, on=True, lit=False, pop=None, language=""):
     rec = _open(job, "caption")
     state = _clip_state(job)
     if lit and pop:
@@ -3075,6 +3104,12 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
             line["no_number"] = True
         if (shown[line["phrase"]]["from"], shown[line["phrase"]]["to"]) in typed:
             line["typed"] = True
+    if pop is None:
+        pop = one and not lit
+    try:
+        keyed = 0 if lit else _caption_keys(job, lines, (state["captions"] or {}).get("lines") or [])
+    except hearing.Stopped:
+        return "No captions: the person pressed Stop."
     if translated:
         first = [u["first"] for u in units]
     band = clip["layout"]["captions"]
@@ -3105,6 +3140,8 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
               "each word lights up as it is said" if lit else
               "each word pops in at its place as it is said and stays, so once said the line looks plain" if pop else
               "plain words, none lit, so the eye stays on the picture")]
+    if keyed:
+        out.append("In %d of the %d lines the word a viewer must not miss is in the key colour." % (keyed, len(lines)))
     if spelling:
         out.append(spelling)
     if translated:
@@ -5111,8 +5148,10 @@ TOOLS = {t.name: t for t in [
          ["words"], remove_title, changes=True),
     Tool("add_captions", "Put the captions on",
          "Put captions of what was said in the moment on the clip: the words as heard and fixed from the context, "
-         "numbers exactly as said, a few words a line. The program places them in the layout's caption band. They "
-         "are plain words unless you set lit or pop. Set on to false to take them off.",
+         "numbers exactly as said, a few words a line. The program places them in the layout's caption band, and "
+         "asks you apart for the one word in each line a viewer must not miss, which it draws in the key colour. "
+         "When the clip is talked through, they come one big line at a time and each word pops in as it is said; "
+         "otherwise they are plain words unless you set lit or pop. Set on to false to take them off.",
          {"on": {"type": "boolean", "description": "true to put captions on (the default), false to take them off."},
           "lit": {"type": "boolean",
                   "description": "true lights up each word as it is said, like karaoke. Use it only when nobody on "
@@ -5121,8 +5160,10 @@ TOOLS = {t.name: t for t in [
                                  "so leave it out, unless the person asked for lit words."},
           "pop": {"type": "boolean",
                   "description": "true pops each word in at its own place as it is said, and the line stays once "
-                                 "said, so nothing is lit and the eye can go back to the person. Use it when the "
-                                 "person asks for words that pop or appear as they are said. Not with lit."},
+                                 "said, so nothing is lit and the eye can go back to the person. Leave it out and "
+                                 "the words pop in when the clip is talked through; set it true when the person asks "
+                                 "for words that pop or appear as they are said, false when they ask for plain "
+                                 "lines. Not with lit."},
           "language": {"type": "string", "maxLength": 40,
                        "description": "The language to write the captions in, such as English, when the person wants "
                                       "subtitles in another language than the one spoken: the program has each "

@@ -55,7 +55,7 @@ SHOW_THINKING_EVERY = 0.4
 CHATS_LISTED = 20
 CHAT_ID = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{4}$")
 TAPPED = "the person tapped it on the page"
-CAPTION_CHOICES = {"off": {"on": False}, "plain": {}, "lit": {"lit": True}, "pop": {"pop": True}}
+CAPTION_CHOICES = {"off": {"on": False}, "plain": {"pop": False}, "lit": {"lit": True}, "pop": {"pop": True}}
 COLOUR_LOOKS = ("none",) + tuple(n for n in LOOKS if n != "none")
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"(])")
 PREVIEW_WAIT = 1.0

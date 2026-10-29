@@ -959,14 +959,26 @@ def _coloured_lines(text, lines, span, st):
     out, at = [], 0
     for line in lines:
         begin = text.find(line, at)
-        end = begin + len(line)
-        at = end
-        lo, hi = max(begin, span[0]), min(end, span[1])
-        if lo < hi:
-            line = (text[begin:lo] + "{\\1c%s&}" % _colour(st.key) + text[lo:hi] + "{\\1c%s&}" % _colour(st.colour)
-                    + text[hi:end])
-        out.append(line)
+        at = begin + len(line)
+        out.append(_tint(text, begin, at, span, st))
     return out
+
+
+def _tint(text, a, b, span, st):
+    """text[a:b], its letters inside span (from, to) wrapped in the key colour, then back to the style's colour."""
+    lo, hi = (max(a, span[0]), min(b, span[1])) if span else (b, b)
+    if lo >= hi:
+        return text[a:b]
+    return text[a:lo] + "{\\1c%s&}" % _colour(st.key) + text[lo:hi] + "{\\1c%s&}" % _colour(st.colour) + text[hi:b]
+
+
+def _caption_span(text, key):
+    """(from, to) of key in a caption line's text when it is a run of the line's whole words, else None: a key that
+    is not one leaves the line plain, so no word is cut and no mark falls off its letter."""
+    try:
+        return _key_span(text, key) if isinstance(key, str) and key.strip() else None
+    except ValueError:
+        return None
 
 
 # ---- big words ---------------------------------------------------------------------------------------------------
@@ -1117,7 +1129,8 @@ def _check_line(k, line):
         words = line["words"]
         ok = (all(isinstance(line[f], (int, float)) for f in ("from", "to")) and isinstance(line["text"], str)
               and words and "".join(w["text"] for w in words) == line["text"]
-              and all(isinstance(w["from"], (int, float)) and isinstance(w["to"], (int, float)) for w in words))
+              and all(isinstance(w["from"], (int, float)) and isinstance(w["to"], (int, float)) for w in words)
+              and (line.get("key") is None or isinstance(line["key"], str)))
     except (TypeError, KeyError):
         ok = False
     if not ok:
@@ -1130,7 +1143,9 @@ def captions(lines, style, band, lit=False, pop=False, one=False):
     (libass \\kf): for words over the picture that nobody on screen is saying, such as a voice-over or a song, since
     a lit word pulls the eye away from a person explaining on camera. With pop=True each word grows in at its own
     place in the line as it is said and stays to the page's end, so the page builds up word by word and, once its
-    last word is said, looks as the plain page does."""
+    last word is said, looks as the plain page does. A line's key, the word a viewer must not miss, is drawn in the
+    key colour, plain or popped, when it is a run of the line's whole words (_caption_span); lit lights every word in
+    that colour as it is said, so a key is not drawn apart there."""
     _check_style(style)
     if not isinstance(lit, bool):
         raise ValueError("lit %r is not True or False: use True to light each word as it is said, False for plain "
@@ -1195,10 +1210,16 @@ def captions(lines, style, band, lit=False, pop=False, one=False):
         if lit:
             words = _karaoke(page, start)
         else:
-            words = ["{\\1c%s&}%s" % (_colour(style.colour), line["text"].strip()) for line in page]
+            words = ["{\\1c%s&}%s" % (_colour(style.colour), _keyed(line, style)) for line in page]
         events += _dialogues(1, _cs_clock(start), _cs_clock(end), "%s_caption" % style.name, ax, ay, lh, words,
                              _glow_tags(style, "caption"))
     return events
+
+
+def _keyed(line, st):
+    """A caption line's text, its key in the key colour."""
+    shown = line["text"].strip()
+    return _tint(shown, 0, len(shown), _caption_span(shown, line.get("key")), st)
 
 
 def _popping(page, st, start, end, ax, ay, lh, boxes):
@@ -1215,6 +1236,7 @@ def _popping(page, st, start, end, ax, ay, lh, boxes):
         said = [w["text"] for w in line["words"]]
         said[0], said[-1] = said[0].lstrip(), said[-1].rstrip()
         shown = "".join(said)
+        span = _caption_span(shown, line.get("key"))
         upto = ["".join(said[:i + 1]) for i in range(len(said))]
         left = _draw_boxes(st, "caption", [shown] + upto, align=7)
         mid = _draw_boxes(st, "caption", [shown] + said, align=5)
@@ -1228,14 +1250,16 @@ def _popping(page, st, start, end, ax, ay, lh, boxes):
                 when = "%s,%s" % (_cs_clock(a), _cs_clock(b))
                 tags = "{\\an5\\pos(%.2f,%.2f)%s" % (x0 + left[ends][2] - mid[piece][2], y,
                                                      _pop(int(round(word["from"] * 1000)) - a * 10))
+                tinted = _tint(shown, len(ends) - len(piece), len(ends), span, st)
                 if glow:
-                    popping.append("Dialogue: 2,%s,%s_glow,,0,0,0,,%s%s}%s" % (when, name, tags, glow, piece))
-                popping.append("Dialogue: 2,%s,%s,,0,0,0,,%s%s}%s" % (when, name, tags, colour, piece))
+                    popping.append("Dialogue: 2,%s,%s_glow,,0,0,0,,%s%s}%s" % (when, name, tags, glow, tinted))
+                popping.append("Dialogue: 2,%s,%s,,0,0,0,,%s%s}%s" % (when, name, tags, colour, tinted))
             a, b = settled[i], min(end, settled[i + 1])
             if a < b:
                 unsaid = "".join(said[i + 1:])
                 rest += _dialogues(1, _cs_clock(a), _cs_clock(b), name, ax, ay + k * lh, lh,
-                                   ["{%s}%s%s" % (colour, ends, "{\\alpha&HFF&}" + unsaid if unsaid else "")], glow)
+                                   ["{%s}%s%s" % (colour, _tint(shown, 0, len(ends), span, st),
+                                                  "{\\alpha&HFF&}" + unsaid if unsaid else "")], glow)
     return rest + popping
 
 

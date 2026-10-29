@@ -788,6 +788,35 @@ class Captions(unittest.TestCase):
                          text.captions(lines, text.STYLES["pop"], (1350, 400), lit=False))
         self.assertNotIn("\\k", "".join(text.captions(lines, text.STYLES["pop"], (1350, 400))))
 
+    def test_a_lines_key_word_is_in_the_key_colour_plain_or_popped_and_no_letter_is_lost(self):
+        import re
+        import numpy as np
+        st = text.STYLES["pop"]
+        tag = "{\\1c%s&}" % text._colour(st.key)
+        lines = text.caption_lines(SAID[:1], most=10)
+        key = lines[0]["words"][1]["text"].strip()
+        keyed = [dict(lines[0], key=key)] + lines[1:]
+        for pop in (False, True):
+            events = text.captions(keyed, st, (1350, 400), pop=pop)
+            self.assertIn(tag + key, "".join(events), "pop %s" % pop)
+            self.assertNotEqual(events, text.captions(lines, st, (1350, 400), pop=pop))
+        plain = text.captions(keyed, st, (1350, 400))
+        self.assertEqual([re.sub(r"\{[^}]*\}", "", e.split(",,", 1)[1].split(",", 4)[-1]) for e in plain
+                          if "_glow" not in e.split(",")[3]], [ln["text"].strip() for ln in lines],
+                         "the tags sit between letters and take none away")
+        for wrong in (key[:-1], key[1:], "ไม่มี"):
+            self.assertEqual(text.captions([dict(lines[0], key=wrong)] + lines[1:], st, (1350, 400)),
+                             text.captions(lines, st, (1350, 400)), "%r is no run of whole words: plain" % wrong)
+        self.assertEqual(text.captions(keyed, st, (1350, 400), lit=True),
+                         text.captions(lines, st, (1350, 400), lit=True), "lit lights every word itself")
+        at = text._frame(lines[0]["to"]) - 2
+        yellow = []
+        for page in (keyed, lines):
+            frame = draw(doc(text.captions(page, st, (1350, 400))), [at], self.folder, first=0)[at].astype(int)
+            yellow.append(int(((frame[:, :, 0] > 200) & (frame[:, :, 1] > 170) & (frame[:, :, 2] < 90)).sum()))
+        self.assertGreater(yellow[0], 500, "the key word is drawn yellow")
+        self.assertEqual(yellow[1], 0, "and nothing is without one")
+
     def test_once_all_its_words_are_said_a_popped_page_is_the_plain_page(self):
         import numpy as np
         lines = text.caption_lines(POPPED)

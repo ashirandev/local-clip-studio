@@ -17,6 +17,9 @@ def call(name, **args):
     return {"type": "function", "function": {"name": name, "arguments": json.dumps(args)}}
 
 
+KEYS_SCHEMA = tools.KEYS_SCHEMA
+
+
 class ScriptedMind:
     """Answers with the next item of its script and keeps a copy of every conversation it was sent.
 
@@ -25,7 +28,8 @@ class ScriptedMind:
     is answered with its texts unchanged, unless the next item is a scripted spelling answer or a function. The
     question whether a message asks for work (needs.py) is answered work, and the chat's name (chatname.py) "a chat",
     unless the next item is a scripted answer to it ('{"needs": ...', '{"name": ...') or a function; one answered so
-    is not kept in sent, which holds the conversations a test scripted. offered and schemas keep the tools and the
+    is not kept in sent, which holds the conversations a test scripted. The key word of each caption line is answered
+    none ('{"keys": ...' names them), and kept out of sent the same way. offered and schemas keep the tools and the
     schema of every question.
     """
     label = "scripted"
@@ -42,6 +46,11 @@ class ScriptedMind:
                     isinstance(self.script[0], str) and self.script[0].startswith(start)))):
                 return {"text": default, "thinking": "", "tool_calls": [], "message": {"role": "assistant"},
                         "engine": {"read_new": 10, "reused": 0, "seconds": 0.1}}
+        if schema is KEYS_SCHEMA and not (self.script and (callable(self.script[0]) or (
+                isinstance(self.script[0], str) and self.script[0].startswith('{"keys"')))):
+            none = json.dumps({"keys": [""] * len(json.loads(messages[-1]["content"].rsplit("\n\n", 1)[1]))})
+            return {"text": none, "thinking": "", "tool_calls": [], "message": {"role": "assistant"},
+                    "engine": {"read_new": 10, "reused": 0, "seconds": 0.1}}
         self.sent.append(json.loads(json.dumps(messages)))
         if schema is words.SPELL_SCHEMA and not (self.script and (callable(self.script[0]) or (
                 isinstance(self.script[0], str) and self.script[0].startswith('{"texts"')))):

@@ -594,6 +594,34 @@ class Tools(unittest.TestCase):
         self.assertFalse(tools._talked({"talked": False}, talk, 20.0), "arrange_clips found it not talked")
         self.assertFalse(tools._talked({}, [{"from": 0.0, "to": 11.0}], 20.0))
 
+    def test_each_caption_line_has_the_word_a_viewer_must_not_miss_in_the_key_colour_when_it_is_a_whole_word(self):
+        said = ["เครื่องนี้ดูดความชื้นได้ดีมากจริงๆครับ", "บ้านไหนชื้นมากก็เก็บน้ำได้เต็มถังเลย"]
+        self.worker.phrases = [{"from": 1.0, "to": 9.0, "text": said[0]}, {"from": 9.2, "to": 18.5, "text": said[1]}]
+        keys = ["เครื้อง", "ความชื้น", "", "บ้านไหน", "น้ำได้", "ถังเ"]
+        brain, steps = self.run_job(
+            *self.to_moment()[:2],
+            [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the review"}])],
+            json.dumps({"lines": said}, ensure_ascii=False),
+            [call("make_clip", moment=1, layout="subject", why="the review")],
+            [call("add_captions", why="say what he says")], json.dumps({"texts": said}, ensure_ascii=False),
+            json.dumps({"keys": keys}, ensure_ascii=False), "Done.")
+        caps = steps[-1]
+        self.assertFalse(caps["refused"], caps["result"])
+        got = self.chat.project.state()["captions"]
+        self.assertEqual([ln["text"].strip() for ln in got["lines"]],
+                         ["เครื่องนี้ดูด", "ความชื้นได้ดีมาก", "จริงๆครับ", "บ้านไหนชื้นมากก็", "เก็บน้ำได้เต็ม", "ถังเลย"])
+        self.assertEqual([ln.get("key") for ln in got["lines"]],
+                         ["เครื่อง", "ความชื้น", None, "บ้านไหน", "น้ำได้", None],
+                         "Glimmer's slip put back; half a word (ถังเ) leaves its line plain")
+        self.assertTrue(got["pop"], "a clip talked through pops its words in as they are said")
+        self.assertIn("In 4 of the 6 lines the word a viewer must not miss is in the key colour.", caps["result"])
+        self.assertIn(tools.KEYS_SCHEMA, brain.schemas)
+        self.assertIsNone(self.chat.set_captions("plain"))
+        tapped = self.chat.project.state()["captions"]
+        self.assertFalse(tapped["pop"], "Plain on the page is plain")
+        self.assertEqual([ln.get("key") for ln in tapped["lines"]], [ln.get("key") for ln in got["lines"]],
+                         "a tap never asks Muse and keeps the keys")
+
     def test_english_captions_are_whole_sentences_translated_and_checked_against_what_was_said(self):
         self.worker.phrases = [{"from": 2.0, "to": 2.6, "text": "ตั้งค่าเครื่อง"}, {"from": 2.8, "to": 4.0, "text": "ง่ายมาก"},
                                {"from": 5.0, "to": 8.0, "text": "ราคา 990 บาท"}]
