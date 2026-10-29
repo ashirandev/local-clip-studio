@@ -52,8 +52,21 @@ class Piece(unittest.TestCase):
         self.assertEqual(countdown.piece(m, [[104.0, 106.0], [118.0, 125.0]]), [108.5, 119.5], "the latest before it")
         self.assertEqual(countdown.piece(m, [[112.0, 113.0], [118.0, 125.0]]), [113.0, 119.5], "not inside the one before")
         self.assertEqual(countdown.piece(m, [[124.0, 128.0]]), [114.5, 125.5], "else the first after the peak")
-        self.assertEqual(countdown.piece(m, [[96.0, 104.0]], earliest=90.0), [90.0, 97.5], "before the moment's start")
+        self.assertEqual(countdown.piece(dict(m, t=101.0), [[96.0, 104.0]], earliest=90.0), [90.0, 97.5],
+                         "before the moment's start")
         self.assertIsNone(countdown.piece(m, [[101.0, 130.0]]), "no play before it")
+
+    def test_a_peak_in_the_play_after_a_death_ends_its_piece_at_the_next_death(self):
+        """Moment 2 of the Sifu top 5, 10-30: its picture was at 35:46, in the fight after the death at 35:37 (35:37 to
+        35:43); the piece ended at that death with 1.5 s of play and was refused three times, though the fight from
+        35:43 ended in the death at 35:56."""
+        m = {"start": 100.0, "end": 130.0, "t": 110.0}
+        self.assertEqual(countdown.piece(m, [[102.0, 106.0], [118.0, 125.0]]), [108.5, 119.5], "the next death")
+        self.assertEqual(countdown.piece(dict(m, t=120.0), [[118.0, 125.0], [127.0, 129.0]]), [108.5, 119.5],
+                         "the death the peak is on comes before one after it")
+        self.assertEqual(countdown.piece(m, [[102.0, 106.0]]), [100.0, 103.5],
+                         "no death after it: the one before, as moment 5 picked a skill at 1:42:31 after its death")
+        self.assertIsNone(countdown.piece(dict(m, t=111.0), [[101.0, 106.0]]), "under 3 s of play before it")
 
     def test_a_run_of_the_menu_starts_at_its_first_word_and_ends_at_the_next_reading_without_one(self):
         def at(t, *words, sure=0.98):
@@ -242,12 +255,16 @@ class MakeCountdown(unittest.TestCase):
 
     def test_a_top_n_takes_n_moments_from_a_game_stream_each_inside_its_moment(self):
         steps = self.run_job("make a top 5 of the best moments", self.counted(),
-                             self.counted([dict(self.ORDER[0], start="0:01", end="0:10")] + self.ORDER[1:]))
+                             self.counted([dict(self.ORDER[0], start="0:01", end="0:10"),
+                                           dict(self.ORDER[1], start="0:23", end="0:24")] + self.ORDER[2:]))
         refused, outside = steps[-2:]
         self.assertTrue(refused["refused"])
         self.assertIn("The person asked for a top 5: give 5 moments, the best last.", refused["result"])
-        self.assertIn("Moment 1: its piece 0:01-0:10 must be inside the moment (0:06-0:21) and 3 to 20 s long",
+        self.assertIn("Moment 1: its piece 0:01-0:10 runs outside the moment (0:06-0:21); leave start and end out",
                       outside["result"])
+        self.assertIn("Moment 2: its piece 0:23-0:24 is 1 s long, and a piece is 3 to 20 s; leave start and end out",
+                      outside["result"], "said as what is wrong: a piece inside its moment, 26 s long, was told it "
+                      "must be inside the moment (Sifu top 5, 10-30)")
         self.chat = agent.Chat()
         steps = self.run_job("ทำ top 3 หน่อย", self.counted(), game=False)
         self.assertIn("A countdown is made from a game stream for now", steps[-1]["result"])

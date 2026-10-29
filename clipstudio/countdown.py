@@ -84,21 +84,24 @@ def menu_runs(readings, least):
 
 def piece(moment, runs=(), earliest=None):
     """[from, to] of the recording for a moment's piece, or None when no play fits before the game's menu. With no
-    run of the menu (menu_runs): BEFORE s before the moment's peak (the picture it showed, by its loudest second) to
-    AFTER s after, slid inside the moment. With one, the latest starting from earliest to the peak, else the first
-    after it, the piece ends DEATH_SHOWN s into it and starts BEFORE + AFTER s before that, not before earliest (the
-    moment's start when None) nor inside the run before: it shows the play that led to the death and the death
-    landing. A game moment's loudest second is often the laugh at the death screen after the fight: on the Sifu
-    countdown (10-29) 21 of its 30 pictures 2 s apart were death, skill and age screens."""
+    run of the menu (menu_runs): BEFORE s before the moment's peak (the picture it showed) to AFTER s after, slid
+    inside the moment. With runs starting from earliest (the moment's start when None) to the moment's end, the one
+    the peak is on, else the first after the peak, else the latest before it: the piece ends DEATH_SHOWN s into that
+    run and starts BEFORE + AFTER s before that, not before earliest nor inside the run before, so it shows the play
+    that led to the death and the death landing. A game moment's loudest second is often the laugh at the death
+    screen after the fight: on the Sifu countdown (10-29) 21 of its 30 pictures 2 s apart were death, skill and age
+    screens. A peak in the play between two deaths leads to the later one: moment 2 of the Sifu top 5 (10-30) showed
+    35:47, after the death at 35:37, and its fight ended in the death at 35:56."""
     a0, b0 = moment["start"], moment["end"]
     peak = moment["t"] if moment.get("t") is not None else (a0 + b0) / 2.0
     lo = a0 if earliest is None else earliest
+    on = [k for k, r in enumerate(runs) if lo <= r[0] <= peak <= r[1]]
     before = [k for k, r in enumerate(runs) if lo <= r[0] <= peak]
     after = [k for k, r in enumerate(runs) if peak < r[0] <= b0]
     if not before and not after:
         a = max(a0, min(peak - BEFORE, b0 - BEFORE - AFTER))
         return [round(a, 2), round(min(b0, a + BEFORE + AFTER), 2)]
-    k = before[-1] if before else after[0]
+    k = on[-1] if on else after[0] if after else before[-1]
     b = runs[k][0] + DEATH_SHOWN
     a = max([lo, b - BEFORE - AFTER] + [r[1] for r in runs[:k]])
     return [round(a, 2), round(b, 2)] if b - a >= SHORTEST else None

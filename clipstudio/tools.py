@@ -4348,12 +4348,16 @@ def make_countdown(job, why, moments, story):
         else:
             a = _time("moment %d's start" % c["moment"], c["start"]) if c.get("start") else m["start"]
             b = _time("moment %d's end" % c["moment"], c["end"]) if c.get("end") else m["end"]
-            if round(a, 2) < m["start"] or round(b, 2) > m["end"] or \
-                    not countdown.SHORTEST <= round(b - a, 2) <= countdown.LONGEST:
-                problems.append("Moment %d: its piece %s-%s must be inside the moment (%s-%s) and %g to %g s long; "
-                                "leave start and end out for the %g s around its peak." % (
-                                    c["moment"], clock(a), clock(b), clock(m["start"]), clock(m["end"]),
-                                    countdown.SHORTEST, countdown.LONGEST, countdown.BEFORE + countdown.AFTER))
+            wrong = []
+            if round(a, 2) < m["start"] or round(b, 2) > m["end"]:
+                wrong.append("runs outside the moment (%s-%s)" % (clock(m["start"]), clock(m["end"])))
+            if not countdown.SHORTEST <= round(b - a, 2) <= countdown.LONGEST:
+                wrong.append("is %g s long, and a piece is %g to %g s" % (round(b - a, 1), countdown.SHORTEST,
+                                                                          countdown.LONGEST))
+            if wrong:
+                problems.append("Moment %d: its piece %s-%s %s; leave start and end out for the %g s around its "
+                                "peak." % (c["moment"], clock(a), clock(b), " and ".join(wrong),
+                                           countdown.BEFORE + countdown.AFTER))
                 continue
         a, b, moved = _snapped(looks[m["look"] - 1], a, b)
         if moved:
