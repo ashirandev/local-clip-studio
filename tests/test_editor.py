@@ -984,13 +984,18 @@ class Tools(unittest.TestCase):
                 [call("hand_over", title="t", caption="c", hashtags=["a"], why="stale")],
                 [call("undo", why="back to what was rendered")],
                 [call("check_clip", why="before it goes out")],
+                [call("hand_over", title="Boss down", caption="He falls.\n#gaming #boss", why="many",
+                      hashtags=["#sifu", "#kungfu", "#streamer", "#clip", "#game"])],
                 [call("hand_over", title="Boss down", caption="He falls.\nTwice.\n#gaming #boss", why="post",
                       hashtags=["gaming", "#gaming", "sifu clip", "#"])],
                 "Done.")
         finally:
             render.export = had
-        early, undecided, kept, first, again, titled, stale, undone, checked, ready = steps[-10:]
+        early, undecided, kept, first, again, titled, stale, undone, checked, many, ready = steps[-11:]
         self.assertFalse(checked["refused"], checked["result"])
+        self.assertTrue(many["refused"])
+        self.assertIn("7 hashtags (#sifu #kungfu #streamer #clip #game #gaming #boss): give at most 5", many["result"],
+                      "the yeti review 10-29 was handed over with eight; the house standard says five")
         self.assertTrue(early["refused"])
         self.assertIn("Render the clip first, then hand it over.", early["result"])
         self.assertTrue(undecided["refused"])

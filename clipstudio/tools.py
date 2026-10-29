@@ -3475,7 +3475,8 @@ def add_glass(job, why, box, start, end, tint=None, shine=True, person_said=None
     return "\n".join(lines)
 
 
-MOST_TAGS = 8
+# The house standard's five (recipes/house.md): the yeti review of 10-29 was handed over with eight.
+MOST_TAGS = 5
 
 
 def render_clip(job, why):
@@ -3891,6 +3892,10 @@ def hand_over(job, why, title, caption, hashtags, english=""):
     caption, more = _without_tags(caption)
     english, also = _without_tags(english)
     tags = list(dict.fromkeys(t for t in (_tag(w) for w in list(hashtags) + more + also) if t))
+    if len(tags) > MOST_TAGS:
+        raise Refused("%d hashtags (%s): give at most %d, the first three about what the viewer is looking for or "
+                      "struggling with, because the apps show the first three, then two about the topic or the "
+                      "channel. Each more says less about this clip." % (len(tags), " ".join(tags), MOST_TAGS))
     try:
         (title, caption, *tags), spelling = _spell(job, [title, caption] + tags)
     except hearing.Stopped:
