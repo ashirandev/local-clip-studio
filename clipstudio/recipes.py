@@ -6,6 +6,9 @@ by, such as "sound 1, screen 1"), and, when the program must read the screen for
 body. The body
 says what a good clip of that kind is and which rules apply, in words, never in tool names, so it stays true as
 tools are added. Muse picks the recipe; the loop makes sure the rules that must hold are checked.
+
+recipes/house.md is not a recipe: it is the house standard, the way the studio's makers cut their own short clips
+(the opening line, whole sentences, words a stranger knows, no other app named...), and it ends every recipe's body.
 """
 import os
 
@@ -13,6 +16,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FOLDER = os.path.join(ROOT, "recipes")
 FIELDS = ("name", "title", "chip", "description", "length", "style", "map")
 SIGNALS = ("sound", "screen")
+HOUSE = "house.md"
 READS = ("screen",)
 
 
@@ -51,8 +55,13 @@ def weights(text, path):
 
 
 def load(folder=FOLDER):
-    return {r["name"]: r for r in (read(os.path.join(folder, n)) for n in sorted(os.listdir(folder))
-                                   if n.endswith(".md"))}
+    """The recipes in folder by name, each body ending with the house standard (HOUSE), the rules every clip
+    follows whatever its kind."""
+    with open(os.path.join(folder, HOUSE), encoding="utf-8") as f:
+        house = f.read().strip()
+    return {r["name"]: dict(r, body=r["body"] + "\n\n" + house)
+            for r in (read(os.path.join(folder, n)) for n in sorted(os.listdir(folder))
+                      if n.endswith(".md") and n != HOUSE)}
 
 
 RECIPES = load()

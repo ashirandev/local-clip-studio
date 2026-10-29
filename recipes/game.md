@@ -35,6 +35,8 @@ After the clip, the viewer has felt the moment: what led up to it, the peak, and
   the viewer watch.
 - The post text tells what happens and how the streamer took it, in words a viewer would use: not the screen's
   labels and numbers ("AGE 22", "DEATH") copied out.
+- Before placing effects, watch the stretch with its sound: a game's funniest moments are often silent (a fall, a
+  glitch, a look on the face), and each effect goes on one of them.
 - Look: vivid. One slow push on the build-up, ending on the peak.
 - Sounds: a thump on a punch or a shake, a whoosh on a flash. Only on the hits that matter.
 - Stickers: one on the peak, such as fire, collision or trophy, never on a face.

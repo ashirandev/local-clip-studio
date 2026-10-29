@@ -15,8 +15,9 @@ After the clip, the viewer has learned one thing they can use: one tip, one step
 
 ## Finding the moment
 
-- One moment is one complete idea: it starts where the person says what they will show, and ends after the result is
-  on screen, not in the middle of a step.
+- One moment is one complete idea: it opens on the line that names what the viewer will get (the problem, the
+  question or the result), never on a greeting or a "today I will show you", and ends after the result is on
+  screen, not in the middle of a step.
 - Rank the stretches by how much the screen changes while the person talks: a result appearing, a page changing, a
   before and after.
 - Skip waiting: loading, typing a long text, silence while a program thinks.
