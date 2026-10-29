@@ -110,13 +110,18 @@ class Saved(unittest.TestCase):
         self.assertEqual(os.environ["META_API_KEY"], "from-the-file")
 
     def test_setup_asks_once_in_the_console_and_never_shows_the_key(self):
-        answers = iter(["ftp://nope", "https://api.meta.ai/v1"])
+        answers = iter(["ftp://nope", "meta"])
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertTrue(parts.ask_api(read=lambda q: next(answers), read_secret=lambda q: "made-up-secret"))
         self.assertIn("Give the endpoint's address, starting with https://.", out.getvalue())
+        self.assertIn("Type meta (Meta's API, https://api.meta.ai/v1)", out.getvalue(), "a judge cannot guess it")
         self.assertNotIn("made-up-secret", out.getvalue())
         self.assertEqual(os.environ["META_API_KEY"], "made-up-secret")
+        self.assertEqual(mind.saved_api(), ("https://api.meta.ai/v1", True), "the word names Meta's address")
+        with redirect_stdout(io.StringIO()):
+            self.assertTrue(parts.ask_api(read=lambda q: " Baseten ", read_secret=lambda q: "made-up-baseten"))
+        self.assertEqual(mind.saved_api(), ("https://inference.baseten.co/v1", True))
         with redirect_stdout(io.StringIO()):
             self.assertFalse(parts.ask_api(read=lambda q: "", read_secret=lambda q: "x"), "Enter skips")
 

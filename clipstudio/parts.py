@@ -408,18 +408,22 @@ def _size(n):
 
 
 def ask_api(read=input, read_secret=None):
-    """Asks for the API endpoint and key in the console (Enter skips, or keeps the one saved). The key is read
-    without showing it."""
+    """Asks for the API endpoint and key in the console (Enter skips, or keeps the one saved); a word names Meta's,
+    Baseten's or Fireworks' endpoint (mind.NAMED), as nobody can guess an address. The key is read without showing
+    it."""
     import getpass
     read_secret = read_secret or getpass.getpass
     url, saved = mind.saved_api()
     print("Muse through an API (Meta's Muse Spark, or Muse Spark Open on Modal, Baseten or Fireworks): its endpoint "
           "and your key.")
+    print("  Type meta (Meta's API, %s), baseten or fireworks, or paste your Modal endpoint's address."
+          % mind.NAMED["meta"])
     if saved:
         print("  Saved: %s. Press Enter to keep it." % url)
     while True:
         try:
-            url = read("  Endpoint URL (Enter to skip): ").strip()
+            url = read("  Endpoint (Enter to skip): ").strip()
+            url = mind.NAMED.get(url.lower(), url)
             key = read_secret("  API key (it does not show while you type): ") if url else ""
         except EOFError:
             print()

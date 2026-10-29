@@ -50,6 +50,9 @@ PRICES = {
 # Baseten was run with a key of ours on 10-29 (a question, a tool call and a JSON answer, through this preset);
 # Fireworks is written to its documented address and model name, not yet run with a key of ours.
 NOT_MEASURED = "on %s servers, with your own key (written to its API, not measured)"
+# The endpoints a person may name in a word when setup asks for one; Modal's address is their own workspace's.
+NAMED = {"meta": "https://api.meta.ai/v1", "baseten": "https://inference.baseten.co/v1",
+         "fireworks": "https://api.fireworks.ai/inference/v1"}
 # Baseten refuses a question holding more pictures (HTTP 400 "Too many images: 9 (max 8)", the trip demo, 10-29).
 BASETEN_PICTURES = 8
 LEFT_OUT = ("(A picture was here. This Muse takes at most %d pictures a question, so the oldest are left out of this "
@@ -560,10 +563,10 @@ def minds():
         "local": Mind("local", "Muse Glimmer", os.environ.get("LCS_MIND_URL", "http://127.0.0.1:8863/v1"),
                       model=os.environ.get("LCS_MIND_MODEL", "muse-glimmer"), reasoning_line="Reasoning strength: low",
                       where="on this computer"),
-        "spark": Mind("spark", "Muse Spark", os.environ.get("LCS_SPARK_URL", "https://api.meta.ai/v1"),
+        "spark": Mind("spark", "Muse Spark", os.environ.get("LCS_SPARK_URL", NAMED["meta"]),
                       model=os.environ.get("LCS_SPARK_MODEL", "muse-spark-1.3"), key_env="META_API_KEY",
                       where="on Meta's servers, with your own key"),
-        "wonder": Mind("wonder", "Muse Wonder", os.environ.get("LCS_SPARK_URL", "https://api.meta.ai/v1"),
+        "wonder": Mind("wonder", "Muse Wonder", os.environ.get("LCS_SPARK_URL", NAMED["meta"]),
                        model=os.environ.get("LCS_WONDER_MODEL", "muse-wonder-1.0"), key_env="META_API_KEY",
                        where="on Meta's servers, with your own key"),
         "modal": Shared("modal", "Muse Spark Open",
@@ -571,12 +574,12 @@ def minds():
                         model=os.environ.get("LCS_MODAL_MODEL", "meta-models/Muse-Spark-Open-816B-A42B"),
                         key_env=("MODAL_KEY", "MODAL_SECRET"), where="on Modal's servers, with your own token"),
         "baseten": Mind("baseten", "Muse Spark Open (Baseten)",
-                        os.environ.get("LCS_BASETEN_URL", "https://inference.baseten.co/v1"),
+                        os.environ.get("LCS_BASETEN_URL", NAMED["baseten"]),
                         model=os.environ.get("LCS_BASETEN_MODEL", "meta-models/muse-spark-open-1026"),
                         key_env="BASETEN_API_KEY", provider="Baseten", where="on Baseten's servers, with your own key",
                         pictures=BASETEN_PICTURES),
         "fireworks": Mind("fireworks", "Muse Spark Open (Fireworks)",
-                          os.environ.get("LCS_FIREWORKS_URL", "https://api.fireworks.ai/inference/v1"),
+                          os.environ.get("LCS_FIREWORKS_URL", NAMED["fireworks"]),
                           model=os.environ.get("LCS_FIREWORKS_MODEL", "accounts/fireworks/models/muse-spark-open"),
                           key_env="FIREWORKS_API_KEY", provider="Fireworks", where=NOT_MEASURED % "Fireworks'"),
     }

@@ -7,8 +7,9 @@
    libass, or `sudo apt install python3.12 python3.12-venv ffmpeg`). On a Mac: Apple silicon and macOS 14 or newer,
    the only Macs onnxruntime is built for. No graphics card is needed to try it through an API. The first setup
    downloads about 1.4 GB (the Python packages and the hearing model).
-2. **Paste one key.** Setup asks for it, or open Options > API: the endpoint and your own key for Meta's API (Muse
-   Spark), or Muse Spark Open on Modal, Baseten or Fireworks.
+2. **Paste one key.** Setup asks for the endpoint and your own key: type `meta` for Meta's API (Muse Spark,
+   `https://api.meta.ai/v1`), `baseten` or `fireworks` for Muse Spark Open there, or paste your Modal endpoint's
+   address. Or open Options > API and give the address there.
 3. **Open a recording.** Drop a video on the page, or type the path of a recording or of a folder of clips.
 4. **Type one line**, such as "make a short clip ready to post". Muse plans, cuts, checks and hands over the clip,
    with a reason for every step.
