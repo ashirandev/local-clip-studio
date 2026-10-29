@@ -79,6 +79,7 @@
     <p class="sub" id="museWhere" hidden></p>
     <section class="grid" id="grid" aria-label="Chats and the clips they made"></section>
     <p class="grid-empty" id="gridEmpty" hidden>No clips yet. Tap + to make your first one.</p>
+    <p class="home-setup" id="homeSetUp" hidden><button type="button" class="pill go" data-sheet="options"><svg class="ico sm"><use href="#i-save"/></svg>Set up Muse</button></p>
     <button type="button" class="fab" id="new" aria-label="New clip"><svg class="ico"><use href="#i-plus"/></svg></button>
   </main>
 
@@ -216,6 +217,14 @@
     <div class="panel-group" data-part="options">
       <p class="s-sub"><svg class="ico sm"><use href="#i-muse"/></svg>Muse</p>
       <div class="big3" id="minds" role="radiogroup" aria-label="Which Muse does the work"></div>
+      <p class="panel-why" id="mindWhy" hidden></p>
+      <div id="partsBox" hidden>
+        <p class="s-sub"><svg class="ico sm"><use href="#i-pc"/></svg>This computer<small id="cardName"></small></p>
+        <div class="parts" id="parts"></div>
+        <div class="setup-bar" id="setupBar" hidden><i></i></div>
+        <p class="setup-line" id="setupLine" role="status"></p>
+        <button type="button" class="pill go" id="setUp" hidden></button>
+      </div>
       <p class="s-sub"><svg class="ico sm"><use href="#i-list"/></svg>Steps</p>
       <div class="seg" id="stepsSeg" role="group" aria-label="How much of Muse's work to show"></div>
       <p class="s-sub"><svg class="ico sm"><use href="#i-auto"/></svg>Look</p>

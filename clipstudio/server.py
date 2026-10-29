@@ -6,6 +6,9 @@ Two guards hold either way: a request must name the studio by an address or "loc
 through a name it owns), and a POST must be JSON (another web page cannot send JSON here without asking first).
 - GET /api/health: the minds and whether each can answer, whether the hearing worker is ready, and whether
   the page is on this computer
+- GET /api/parts: what this computer has of FFmpeg, llama.cpp, Muse Glimmer and the hearing model, what setting up
+  the rest would download, its graphics card, and the setup running now. POST /api/parts {}: downloads the missing
+  parts in the background (parts.py)
 - GET /api/chat[?id=<chat>]: the chat the page shows (or an earlier one, opened again), and whether Muse is working
 - POST /api/chat/new: a new, empty chat
 - GET /api/chats: the earlier chats, newest first
@@ -56,7 +59,8 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, quote
 
-from . import __version__, agent, effects, hearing, layer, mind, premiere, previews, recording, render, spent, text
+from . import (__version__, agent, effects, hearing, layer, mind, parts, premiere, previews, recording, render, spent,
+               text)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
@@ -98,6 +102,8 @@ class Handler(BaseHTTPRequestHandler):
                             "minds": [m.status() for m in mind.MINDS.values()], "hearing": hearing.status()})
         elif path == "/api/features":
             self.send_json({"ok": True, "groups": agent.features()})
+        elif path == "/api/parts":
+            self.send_json(dict(parts.state(), ok=True))
         elif path == "/api/chat":
             chat = agent.open_chat(query["id"]) if query.get("id") else agent.current()
             if chat is None:
@@ -155,7 +161,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = self.path.split("?", 1)[0]
         if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/open", "/api/undo", "/api/person",
-                        "/api/base") + CHANGES:
+                        "/api/base", "/api/parts") + CHANGES:
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
             return
         body = self.read_json()
@@ -163,6 +169,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/chat/new":
             self.send_json({"ok": True, "chat": agent.new().id})
+            return
+        if path == "/api/parts":
+            why = parts.set_up()
+            self.send_json({"ok": why is None, "error": why})
             return
         chat = agent.find(str(body.get("chat") or ""))
         if chat is None:
@@ -217,8 +227,9 @@ class Handler(BaseHTTPRequestHandler):
                 why = chat.save_channel(str(body.get("name") or ""), str(body.get("handle") or ""))
             elif path == "/api/mute":
                 start, end = body.get("start"), body.get("end")
-                why = chat.set_mute(start, end, body.get("back") is True) if all(
-                    isinstance(v, (int, float)) and not isinstance(v, bool) for v in (start, end)) else                     "Send the start and the end of the part to mute, in seconds of the clip."
+                said = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (start, end))
+                why = chat.set_mute(start, end, body.get("back") is True) if said else \
+                    "Send the start and the end of the part to mute, in seconds of the clip."
             elif body.get("kind") not in ("title", "caption") or not isinstance(body.get("n"), int) or \
                     isinstance(body.get("n"), bool):
                 why = "Send which words to change: a title or a caption, and its number."
@@ -588,15 +599,24 @@ def newest():
     return out
 
 
+class Server(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        """A page that closes its connection before the answer is sent is not an error worth a traceback."""
+        if not isinstance(sys.exc_info()[1], ConnectionError):
+            super().handle_error(request, client_address)
+
+
 def main():
+    parts.use_tools()
     try:
-        server = ThreadingHTTPServer((HOST, PORT), Handler)
+        server = Server((HOST, PORT), Handler)
     except OSError as e:
         sys.exit("Port %d on this computer is taken (%s). Set LCS_PORT to a free port and start again."
                  % (PORT, e.strerror))
     keys = mind.load_keys()
     mind.MINDS.update(mind.minds())
     hearing.start()
+    parts.start_glimmer()
     print("Local Clip Studio %s: http://127.0.0.1:%d/" % (__version__, PORT), flush=True)
     if keys:
         print("Keys read from LCS_KEYS: %s" % ", ".join(keys), flush=True)

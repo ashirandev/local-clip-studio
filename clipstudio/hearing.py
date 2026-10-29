@@ -29,7 +29,7 @@ import threading
 import time
 import urllib.parse
 
-from . import ears, recording, thai
+from . import ears, mind, recording, thai
 
 VERSION = 2
 OWN_URL = os.environ.get("LCS_HEARING_URL", "")
@@ -72,6 +72,8 @@ def _start():
 
 def _health():
     """The worker's /health answer, or None when nothing answers."""
+    if not mind.listens(URL):
+        return None
     try:
         conn = http.client.HTTPConnection(urllib.parse.urlsplit(URL).hostname, urllib.parse.urlsplit(URL).port,
                                           timeout=3)

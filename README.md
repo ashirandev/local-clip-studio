@@ -15,14 +15,37 @@ fixes what fails, and hands over a vertical clip ready to post. To change anythi
 
 ## Quick start
 
-Python 3.11 or newer, and [FFmpeg](https://ffmpeg.org/) (`ffmpeg` and `ffprobe` on the PATH, built with libass,
-as the common builds are). The studio uses three Python packages: OpenCV to find faces, pythainlp to break Thai
-words onto lines, and NumPy.
+You need Python 3.11 or newer. Then:
 
 ```
 pip install -r requirements.txt
 python app.py
 ```
+
+Open http://127.0.0.1:8899/ and press **Set up Muse** (it is also in Options). The studio shows what this computer
+already has and what it still needs, with each size, and downloads the rest with one button:
+
+| Part | Size | From |
+|---|---|---|
+| FFmpeg 8.1.1, essentials build (Windows) | 109 MB | [gyan.dev](https://www.gyan.dev/ffmpeg/builds/), on [GitHub](https://github.com/GyanD/codexffmpeg/releases/tag/8.1.1) |
+| llama.cpp `llama-server`, build b11716 (Windows) | 579 MB (CUDA 13.4) or 659 MB (CUDA 12.4) | [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp/releases/tag/b11716) |
+| Muse Glimmer 30B, UD-Q3_K_XL, with its vision part | 14.8 GB | [unsloth/Muse-Glimmer-30B-GGUF](https://huggingface.co/unsloth/Muse-Glimmer-30B-GGUF) |
+| Hearing: Omnilingual ASR CTC 1B v2 as int8 ONNX | 1.0 GB | the address in `LCS_HEARING_FROM` |
+
+Each file is used only after its size and SHA-256 match the ones pinned in `clipstudio/parts.py`; a file that does
+not match is deleted, and a download that is cut off carries on from where it stopped. Everything goes in `work/`
+(`work/tools` and `work/models`), and a part already on the computer (on the PATH, or a server already running) is
+used as it is. The graphics driver picks the llama.cpp build: CUDA 13.4 when the driver offers CUDA 13 (an RTX 50 card
+needs it), else CUDA 12.4. Once Glimmer and llama-server are there, the studio starts llama-server itself, as
+[the mind](#the-mind-three-ways-to-run-muse) shows, and stops it when the studio stops. Measured here on 10-29:
+FFmpeg in 5 s and llama.cpp in 23 s from GitHub, `llama-server --version` ran from the unpacked folder, and the
+hearing (from a server on this computer) started on its own once its download was checked.
+
+Glimmer needs an NVIDIA card with 16 GB. Without one, setup leaves Glimmer and llama.cpp out and says why; Muse
+Spark (below) needs no graphics card. On Linux and macOS, install FFmpeg (with libass) and llama.cpp's
+`llama-server` from your packages; setup downloads Glimmer and the hearing model. The studio's own Python packages
+are OpenCV to find faces, pythainlp to break Thai words onto lines, NumPy, and onnxruntime with RapidOCR for the
+hearing and for reading the screen.
 
 The face finder's model (YuNet, 230 KB) is downloaded from OpenCV Zoo the first time it is needed; set
 `LCS_FACE_MODEL` to the file if you have it. The house font (Google Sans), Kanit, Pattaya and Taviraj are in `fonts/`.
@@ -33,8 +56,8 @@ drives here) and keeps that list 30 s. Set `LCS_VIDEOS` to the folders your reco
 Windows) to keep it to those.
 
 **Hearing what is said** uses Meta's Omnilingual ASR (CTC 1B v2), run by onnxruntime inside the studio, on the
-processor, so the graphics card stays with Muse. It needs no Docker. Its model goes in `work/models/hearing` (or the
-folder `LCS_HEARING_MODELS` names): `model.int8.onnx` (1.0 GB) and `letters.json`; `model.onnx` with
+processor, so the graphics card stays with Muse. It needs no Docker. Set up puts its model in `work/models/hearing`
+(or the folder `LCS_HEARING_MODELS` names): `model.int8.onnx` (1.0 GB) and `letters.json`; `model.onnx` with
 `model.onnx.data` (3.9 GB) works too and is used when the int8 file is not there. The studio starts the hearing by
 itself, before Muse is asked anything; it takes about 1 GB of memory. Without the model the studio still works;
 Muse just cannot hear, and says so.
@@ -78,18 +101,22 @@ own server. This is the exact setup the demo runs on:
 | Model file | `Muse-Glimmer-30B-UD-Q3_K_XL.gguf` from [unsloth/Muse-Glimmer-30B-GGUF](https://huggingface.co/unsloth/Muse-Glimmer-30B-GGUF) |
 | Size | 13,360,983,072 bytes |
 | SHA-256 | `820d18e00c59376331eba62dd716a6bcdcaa305c2316f5da3a2fab36c7c37e15` |
+| Vision part | `mmproj-kquant.gguf` from the same repository, 1,400,328,928 bytes, SHA-256 `f48b452316f9b213758e8659444029b961a24a07f99a1abb2a9f88b06f7c00c6`: the studio shows Muse pictures, so Glimmer needs it |
 | Server | llama.cpp `llama-server`, build b11716 |
 | Graphics card | NVIDIA RTX 5070 Ti, 16 GB |
 | Context | 49,152 tokens: 13.6 GB of the card in use, the same speed as at 32,768 (measured 10-28) |
 
-Start it in router mode, from a preset file, so the studio can ask it to step off the graphics card while SAM cuts a
-person out, and load it again after. `glimmer.ini` (use full paths to your files):
+Set up does all of this for you: it downloads both files, writes this preset to `work/tools/glimmer.ini` and starts
+the server. To run it yourself, start it in router mode, from a preset file, so the studio can ask it to step off the
+graphics card while SAM cuts a person out, and load it again after. `glimmer.ini` (use full paths to your files):
 
 ```ini
 version = 1
 
 [muse-glimmer]
 model = Muse-Glimmer-30B-UD-Q3_K_XL.gguf
+mmproj = mmproj-kquant.gguf
+mmproj-offload = true
 c = 49152
 parallel = 1
 jinja = true
@@ -324,7 +351,7 @@ Each piece is listed with its licence. The Status column says whether this build
 | Muse Spark (Meta API) | the same mind without a graphics card, with your own key | Meta's API terms | used |
 | [Muse Spark Open](https://huggingface.co/meta-models/Muse-Spark-Open-816B-A42B) (Meta) on a Modal shared endpoint | the same mind on Modal's machines, with your own token | Meta's model licence; Modal's terms | wired, not run yet |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) (llama-server) | runs Glimmer locally | MIT | used |
-| [FFmpeg](https://ffmpeg.org/) | reads each recording (ffprobe) and takes pictures from it; later cuts and renders the clip | LGPL-2.1+ (GPL for some builds) | used |
+| [FFmpeg](https://ffmpeg.org/) | reads each recording (ffprobe) and takes pictures from it; later cuts and renders the clip | LGPL-2.1+ (GPL for some builds; the Windows build setup downloads is GPL-3.0) | used |
 | [Omnilingual ASR](https://github.com/facebookresearch/omnilingual-asr) (Meta), CTC 1B v2 | writes down what is said, in many languages, with the time of every phrase | Apache-2.0 | used |
 | [FLEURS](https://huggingface.co/datasets/google/fleurs) (Google), Thai *train* transcripts | counted once into `clipstudio/thai_marks.json`, which puts back the Thai vowel marks Omnilingual cannot write | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | used |
 | [SAM 3.1](https://github.com/facebookresearch/sam3) (Meta) | finds the person frame by frame, for the cut-out looks and the titles behind the person (`cut_out`) | SAM License | used |

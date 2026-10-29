@@ -65,6 +65,11 @@ const costBox = $("costBox");
 const outRow = $("outRow");
 const postBox = $("postBox");
 const featuresList = $("featuresList");
+const mindWhy = $("mindWhy");
+const partsBox = $("partsBox");
+const setUpButton = $("setUp");
+const setupLine = $("setupLine");
+const PART_ICONS = { ffmpeg: "film", engine: "gear", glimmer: "pc", hearing: "wave" };
 const idle = text.placeholder;
 
 const SHEETS = { caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
@@ -1716,10 +1721,13 @@ function drawMinds() {
     b.type = "button";
     b.setAttribute("role", "radio");
     b.setAttribute("aria-checked", String(m.key === room.mind));
-    b.disabled = !m.ok;
+    if (!m.ok) b.setAttribute("aria-disabled", "true");
     b.append(ico(m.local ? "pc" : "cloud"), mindName(m), el("small", null, m.ok ? (m.local ? "This computer · free" : "API · costs money") : "Not ready"));
     b.title = m.ok ? m.where : m.why;
     b.addEventListener("click", () => {
+      mindWhy.textContent = m.ok ? "" : m.why;
+      mindWhy.hidden = m.ok;
+      if (!m.ok) return;
       room.mind = m.key;
       localStore("mind", m.key);
       drawMinds();
@@ -1796,7 +1804,9 @@ function openSheet(part) {
   } else if (part === "out") {
     drawOut();
   } else if (part === "options") {
+    mindWhy.hidden = true;
     drawMinds();
+    loadParts();
   } else if (part === "features") {
     loadFeatures();
   }
@@ -1843,6 +1853,7 @@ async function health() {
       room.mind = ready ? ready.key : d.default;
     }
     document.body.classList.toggle("away", d.here === false);
+    $("homeSetUp").hidden = !room.minds.length || room.minds.some((m) => m.ok);
     drawMinds();
     refreshCost();
   } catch (e) {
@@ -1905,6 +1916,73 @@ async function connect(chatId) {
     return false;
   }
 }
+
+function sizeText(bytes) {
+  return bytes < 1e9 ? Math.round(bytes / 1e6) + " MB" : (bytes / 1e9).toFixed(1) + " GB";
+}
+
+async function loadParts() {
+  if (window.lcsReplay) return;
+  let d;
+  try {
+    d = await fetch("/api/parts", { cache: "no-store" }).then((r) => r.json());
+  } catch (e) {
+    return;
+  }
+  room.parts = d;
+  drawParts();
+  clearTimeout(room.partsTimer);
+  if (d.setup.running) {
+    room.setting = true;
+    room.partsTimer = setTimeout(loadParts, 1000);
+  } else if (room.setting) {
+    room.setting = false;
+    health();
+  }
+}
+
+function drawParts() {
+  const d = room.parts;
+  const s = d.setup;
+  partsBox.hidden = d.parts.every((p) => p.ok) && !s.running && !s.error && !d.engine;
+  $("cardName").textContent = d.card ? d.card.name.replace(/^NVIDIA (GeForce )?/, "") + " · " + d.card.gb + " GB" : "";
+  const said = new Set();
+  $("parts").replaceChildren(...d.parts.map((p) => {
+    const row = el("div", "part");
+    row.append(ico(PART_ICONS[p.key]), el("span", null, p.label), p.ok ? ico("check", "sm ok") : p.size ? el("small", null, sizeText(p.size)) : ico("warn", "sm bad"));
+    if (!p.ok && p.why && !said.has(p.why)) row.appendChild(el("p", "why", p.why));
+    said.add(p.why);
+    row.title = p.what;
+    return row;
+  }));
+  const bar = $("setupBar");
+  bar.hidden = !s.running;
+  bar.firstElementChild.style.width = s.total ? Math.min(100, (100 * s.done) / s.total) + "%" : "0";
+  setupLine.classList.toggle("bad", !s.running && !!(s.error || d.engine));
+  if (s.running) {
+    const part = d.parts.find((p) => p.key === s.part);
+    const doing = { check: "Checking", unpack: "Unpacking" }[s.step] || "Downloading";
+    setupLine.textContent = doing + " " + (part ? part.label : "") + " · " + sizeText(s.done) + " of " + sizeText(s.total);
+  } else {
+    setupLine.textContent = s.error || d.engine || "";
+  }
+  setUpButton.hidden = s.running || !d.needed;
+  setUpButton.replaceChildren(ico("save", "sm"), "Set up · " + sizeText(d.needed));
+}
+
+setUpButton.addEventListener("click", async () => {
+  setUpButton.disabled = true;
+  let d;
+  try {
+    d = await post("/api/parts", {});
+  } catch (e) {
+    d = { ok: false, error: "The studio is not answering. Start it again with: python app.py" };
+  }
+  setUpButton.disabled = false;
+  if (d.ok) return loadParts();
+  setupLine.classList.add("bad");
+  setupLine.textContent = d.error;
+});
 
 async function post(path, body) {
   const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });

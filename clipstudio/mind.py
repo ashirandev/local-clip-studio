@@ -38,6 +38,7 @@ PRICES = {
     "meta-models/Muse-Spark-Open-816B-A42B": (1.25, 0.15, 4.25),
 }
 HOSTED_ROOM = 16384
+LOOPBACK = ("127.0.0.1", "localhost", "::1")
 PRICED = ("Meta's price list (dev.meta.ai/docs/pricing-rate-limits) and Modal's for Muse Spark Open, both read on "
           "28 Oct 2026")
 
@@ -200,6 +201,8 @@ class Mind:
             return dict(out, ok=False, why=self.missing())
         if self.key_env:
             return dict(out, ok=True, name=self.model_id)
+        if not listens(self.url):
+            return dict(out, ok=False, why=self.unreachable(ConnectionRefusedError("nothing is listening there")))
         try:
             got = self._call("/models")
         except (OSError, ValueError) as e:
@@ -248,8 +251,8 @@ class Mind:
     def unreachable(self, e):
         if self.key_env:
             return "Meta's API did not answer at %s (%s)." % (self.url, _reason(e))
-        return ("Muse is not answering at %s (%s). Start llama-server with Muse Glimmer, as the README shows."
-                % (self.url, _reason(e)))
+        return ("Muse Glimmer is not running at %s (%s). Open Options and press Set up, or start llama-server as "
+                "the README shows." % (self.url, _reason(e)))
 
     def ask(self, messages, tools=None, temperature=CHAT_TEMPERATURE, max_tokens=None, on_delta=None,
             asking=None, schema=None):
@@ -425,6 +428,19 @@ def engine(got, seconds):
 
 def _reason(e):
     return str(getattr(e, "reason", None) or e)
+
+
+def listens(url):
+    """False at once when nothing listens at a server on this computer (Windows takes 2 s to say that a connection
+    to this computer was refused); True for a server elsewhere, which only asking can tell."""
+    u = urllib.parse.urlsplit(url)
+    if u.hostname not in LOOPBACK:
+        return True
+    try:
+        socket.create_connection((u.hostname, u.port or 80), timeout=0.3).close()
+        return True
+    except OSError:
+        return False
 
 
 def minds():
