@@ -58,6 +58,22 @@ GROWS = 2
 SLIPS = {"\u0e37": "\u0e4c", "\u0e49": "\u0e48\u0e31"}
 SLIP_ROUNDS = 4
 MET = 100
+UNMARKED = re.compile("(\u0e40[\u0e01-\u0e2e]{1,2}\u0e2d\u0e23)(?![\u0e01-\u0e2e\u0e30-\u0e3a\u0e47-\u0e4e\ufffd])")
+
+
+def marked(text):
+    """text with the \u0e4c put back on a loanword's last syllable written \u0e40-\u0e2d\u0e23 without it (\u0e04\u0e2d\u0e21\u0e1e\u0e34\u0e27\u0e40\u0e15\u0e2d\u0e23, \u0e42\u0e1f\u0e25\u0e40\u0e14\u0e2d\u0e23,
+    \u0e1b\u0e4a\u0e2d\u0e1b\u0e04\u0e31\u0e25\u0e40\u0e08\u0e2d\u0e23): where the syllable ends the word, it takes the \u0e4c when the Thai National Corpus has met it so MET
+    times and without it fewer. Thai words hardly end so: the corpus has two such words, met 7 times in all (the name
+    \u0e40\u0e2d\u0e21\u0e2d\u0e23 6 of them), against 37,799 times for words ending \u0e2d\u0e23\u0e4c. Measured 10-29 on everything Muse had written: \u0e2d\u0e23\u0e4c 664 times, and 24 without the \u0e4c,
+    every one of them dropped (\u0e2a\u0e15\u0e23\u0e35\u0e21\u0e40\u0e21\u0e2d\u0e23, \u0e40\u0e23\u0e19\u0e40\u0e14\u0e2d\u0e23, \u0e04\u0e2d\u0e21\u0e1e\u0e34\u0e27\u0e40\u0e15\u0e2d\u0e23). The dictionary flags none of them, as the bare
+    syllables cut into words it has (\u0e40\u0e08\u0e2d and \u0e23), and it flags the right ones, which it lacks; so neither odd_thai nor
+    Muse's spelling check could put the \u0e4c back. A \u0e23 a word goes on from (\u0e40\u0e08\u0e2d\u0e23\u0e16, \u0e40\u0e18\u0e2d\u0e23\u0e39\u0e49) is left as it is."""
+    if not isinstance(text, str) or not UNMARKED.search(text):
+        return text
+    counts = _counts()[0]
+    return UNMARKED.sub(lambda m: m.group(1) + "\u0e4c" if counts.get(m.group(1) + "\u0e4c", 0) >= MET > counts.get(
+        m.group(1), 0) else m.group(1), text)
 
 
 def unslipped(text):
@@ -69,7 +85,8 @@ def unslipped(text):
     words, and adding a missing ์ put it in the wrong place, so neither is done. The word a swap makes must be one the
     Thai National Corpus has met MET times, or one of CREATOR_WORDS: อีกคร้ง (ครั้ง with its ั dropped) became คร่ง,
     which the corpus never met, and then ครัง, met 6 times; the right fixes make ที่, ช่วง, ใส่, ตัว (12,059 to
-    818,364). A bit no single swap mends stays as written."""
+    818,364). A bit no single swap mends stays as written. A ์ dropped from a last syllable is put back first (marked)."""
+    text = marked(text)
     for _ in range(SLIP_ROUNDS):
         bits = odd_thai(text)
         best, fewest = None, len(bits)

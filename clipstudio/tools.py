@@ -2903,7 +2903,7 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
                       "off, and say so in your answer.")
     translated, first, unnumbered = None, list(range(len(phrases))), set()
     try:
-        texts, spelling = _spell(job, [p["text"] for p in phrases])
+        texts, spelling = _spell(job, [p["text"] for p in phrases], heard=True)
         for phrase, p, words_ in zip(phrases, heard, texts):
             phrase["text"] = p["text"] = words_
         said_in = _spoken(job, texts)
@@ -3812,17 +3812,23 @@ LOOK_AT_IT = ("%d pictures of the finished clip come next, as a viewer sees it. 
 _odd_thai = words.odd_thai
 
 
-def _spell(job, texts):
+def _spell(job, texts, heard=False):
     """(texts with the Thai spelling fixed in a short conversation of Muse's own, a sentence naming each fix or "").
-    When Muse cannot be asked, the texts stay as written. Stop raises hearing.Stopped."""
+    Texts Muse wrote have Glimmer's slips put back first (words.unslipped), which Muse's check passed: ป๊อปคัลเจอร
+    in a trip clip's title (10-29), as the dictionary has the bare syllables and not the right word. Words heard are
+    not: on 1,800 heard lines the swaps changed 15, most of them wrong (รองว้ย to รองวัย), as hearing slips are not
+    Glimmer's. The ์ goes back after Muse's check too, whose rules would keep it dropped again: the dictionary flags
+    คัลเจอร์ and not คัลเจอร. When Muse cannot be asked, the texts stay as they are then. Stop raises hearing.Stopped."""
+    first = list(texts) if heard else [words.unslipped(t) for t in texts]
     try:
-        fixed, changed = words.spelled(lambda m, s: job.ask_aside(m, s, "Checking the Thai spelling"), texts,
-                                       every=True, kept=job.proofread)
+        fixed, _ = words.spelled(lambda m, s: job.ask_aside(m, s, "Checking the Thai spelling"), first,
+                                 every=True, kept=job.proofread)
     except mind.MindError:
-        return list(texts), ""
+        fixed = first
+    fixed = fixed if heard else [words.marked(t) for t in fixed]
     return fixed, " ".join('The program fixed the Thai spelling: "%s" is now "%s".' % (" ".join(a.split()),
                                                                                        " ".join(b.split()))
-                           for a, b in changed)
+                           for a, b in zip(texts, fixed) if isinstance(a, str) and a != b)
 
 
 def _tag(word):
