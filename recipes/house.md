@@ -31,6 +31,9 @@ its own kind, both hold; the person's own words win over both.
   a feature.
 - A number on the picture is exactly the one on the screen or the one said. When the hearing and the screen
   disagree, the screen wins. Never round, convert or guess a number.
+- Claim only what the person said or the picture shows, never more, in the title, the cover, the post and the
+  words on the picture. "ถ้าบ้านชื้นมาก เก็บสองวันก็เต็ม" was said; "บ้านชื้นแค่ไหนก็เอาอยู่" and "ลดเชื้อราได้จริง"
+  were not, so they are made up. A viewer who buys on a claim nobody made stops trusting the channel.
 - Never a middle dot (·) between phrases: a space, or a new line.
 - Captions are plain when a person talks on camera. Words lit one by one only over a voice-over or a song: a moving
   colour under a talking face is a second place to look.

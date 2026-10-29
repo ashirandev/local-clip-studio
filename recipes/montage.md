@@ -35,6 +35,9 @@ tells it best.
 
 - A short line over a piece whose meaning the picture does not make plain: where we are, what this is, what
   happens next. Not every piece needs one; a line stays on until the next one, so one line can cover a few pieces.
+  Read each line against every piece it stays over: when a later piece shows something it no longer fits, give
+  that piece a line of its own. On the horse ride, "เข้าป่าเขียวร่มรื่น" stayed on over the open dirt road after the
+  forest.
 - A line tells what the viewer cannot see for themselves. A line naming what anyone can see in the picture
   ("บรรยากาศร้านและผู้คน", "ถนนคึกคัก", "ป้ายสีสัน") is read instead of watched: leave the piece without one.
 - Say only what the pictures show or the people say. A name (a place, a brand, an event) goes in only as it is
