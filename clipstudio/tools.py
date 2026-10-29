@@ -1148,6 +1148,24 @@ def _fix_moment(job, rec, m):
 AIR = 0.25
 SNAP_REACH = 2.0
 FINISH_REACH = 4.0
+CARRY_GAP = 0.6
+CARRY_REACH = 8.0
+CARRY_SHOWN = 30
+NUMBER = "(?:\\d|หนึ่ง|สอง|สาม|สี่|ห้า|หก|เจ็ด|แปด|เก้า|สิบ|ยี่|(?<!เรียบ)ร้อย|(?<!ผูก)พัน|หมื่น|แสน|ล้าน)"
+NUMBER_ENDS = re.compile(NUMBER + "\\W*$")
+NUMBER_STARTS = re.compile("^\\W*" + NUMBER)
+UNIT_STARTS = re.compile("^\\W*(?:มิลลิ|มิลิ|ลิตร|ลิต|ตาราง|ตร\\.|เมตร|เซน|กิโล|บาท|เปอร์เซ็น|วัตต์|องศา|นาที|ชั่วโมง|วินาที)")
+
+
+def _carried(before, line):
+    """Whether line goes on from before, the line said just ahead of it: a number and what it counts are one thing to
+    hear. Measured 10-29 on the 133 recordings heard so far: a line after one ending in a number starts 0.14 s later
+    (median; 96% within CARRY_GAP), one starting with a unit 0.18 s (all 15), any other line 0.28 s. A line that is
+    only a number goes on from the line before it. A joining word (ซึ่ง, แต่ว่า, แล้วก็) does not count: lines starting
+    with one come 0.40 s after the line before, as many after a breath as any other (62% within CARRY_GAP)."""
+    text = " ".join(line["text"].split())
+    return bool(NUMBER_ENDS.search(before["text"]) or UNIT_STARTS.search(text)
+                or (NUMBER_STARTS.search(text) and NUMBER_ENDS.search(text)))
 
 
 def _snapped(look, a, b):
@@ -1155,7 +1173,10 @@ def _snapped(look, a, b):
     the line the start falls in when it began within SNAP_REACH, and just after the line the end falls in when it
     finishes within FINISH_REACH (a sentence cut short is worse than an opening), AIR seconds from the words; never
     outside what was heard. A model's own edges sit in a pause about half the time (measured by lane 5 on Tarm's own
-    edits: 47%, 77% within 0.6 s), so a clip would often open or close on half a word."""
+    edits: 47%, 77% within 0.6 s), so a clip would often open or close on half a word. A start in the pause before a
+    line that goes on from the line ahead of it (_carried) moves to that line's start, within CARRY_REACH: seen 10-29
+    on a seller's review, a moment at 1:20 opened on "มิลลิลิตรต่อวัน" (millilitres a day), the 750 and what it
+    measured said in the 4 s before."""
     na, nb, said = a, b, look.get("said") or []
     lo, hi = look.get("heard") or (look["start"], look["end"])
     for p in said:
@@ -1163,8 +1184,19 @@ def _snapped(look, a, b):
             na = max(lo, p["from"] - AIR)
         if p["from"] < b < p["to"] and p["to"] - b <= FINISH_REACH:
             nb = min(hi, p["to"] + AIR)
+    lines = sorted((p for p in said if p["to"] > p["from"]), key=lambda p: p["from"])
+    k = next((i for i, p in enumerate(lines) if p["from"] >= na), None)
+    opened = lines[k] if k is not None else None
+    while k and lines[k]["from"] - lines[k - 1]["to"] <= CARRY_GAP and a - lines[k - 1]["from"] <= CARRY_REACH \
+            and lines[k - 1]["from"] - AIR >= lo and nb - lines[k - 1]["from"] + AIR <= LONGEST \
+            and _carried(lines[k - 1], lines[k]):
+        k -= 1
     moved = []
-    if na != a:
+    if opened is not None and lines[k] is not opened:
+        na = round(lines[k]["from"] - AIR, 2)
+        moved.append("starts %.1f s earlier, so it opens where the words start: \"%s\" goes on from what is said "
+                     "before it" % (a - na, " ".join(opened["text"].split())[:CARRY_SHOWN]))
+    elif na != a:
         moved.append("starts %.1f s earlier, so it opens before a line rather than inside it" % (a - na))
     if nb != b:
         moved.append("ends %.1f s later, so it closes after a line rather than inside it" % (nb - b))

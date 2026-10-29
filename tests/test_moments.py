@@ -308,6 +308,37 @@ class Snap(unittest.TestCase):
                          "keeps it")
         self.assertEqual(tools._snapped(look, 50.0, 65.0)[1], 65.0, "5 s from the line's end is past FINISH_REACH")
 
+    SELLER = {"start": 80.0, "end": 110.0, "heard": [74.32, 115.96], "said": [
+        {"from": 75.16, "to": 75.30, "text": "ลิต"},
+        {"from": 76.02, "to": 78.62, "text": "ซึ่งการเก็บความชื้นได้สูงสุด"},
+        {"from": 79.10, "to": 79.82, "text": "เจ็ด้ยห้าสิ0"},
+        {"from": 80.12, "to": 83.86, "text": "มิลิลิต์ต่อวันนี่ยเท่ากับว่าถ้าบ้านไหนชื้นมากก็คือเก็บสองวันก็เต็มละ"},
+        {"from": 83.96, "to": 87.93, "text": "แต่ว่าถ้าบ้านไหนไม่ได้ชื้นนะครับก็อาจจะหลายวันกว่าจะเต็ม"},
+        {"from": 88.69, "to": 91.35, "text": "ซึ่งวิธีการใช้ง่ายมากครับเราก็แค่ใส่ทุกอย่างเข้าไป"}]}
+
+    def test_a_start_on_a_unit_moves_back_to_the_number_and_what_it_measures(self):
+        a, b, said = tools._snapped(self.SELLER, 80.0, 110.0)
+        self.assertEqual((a, b), (75.77, 110.0), "the seller's review opened on มิลลิลิตร, the 750 said before it")
+        self.assertIn("starts 4.2 s earlier", said)
+        self.assertIn('"มิลิลิต์ต่อวัน', said)
+
+    def test_a_line_after_a_number_and_a_unit_after_a_misheard_one_go_on_from_it(self):
+        model = dict(self.SELLER, said=[{"from": 79.10, "to": 79.82, "text": "ใช้โมเดลยี่สิบเจ็ด"},
+                                        {"from": 80.12, "to": 83.86, "text": "บีรันบนการ์ดนี้ได้"}])
+        self.assertEqual(tools._snapped(model, 80.0, 110.0)[0], 78.85, "27 B")
+        unit = dict(self.SELLER, said=[{"from": 79.10, "to": 79.82, "text": "เก็บได้สูงสุดเจ็ด้ยห้าสิ"},
+                                       {"from": 80.12, "to": 83.86, "text": "มิลิลิตต่อวัน"}])
+        self.assertEqual(tools._snapped(unit, 80.0, 110.0)[0], 78.85, "the hearing dropped the บ of ห้าสิบ")
+
+    def test_a_joining_word_a_breath_or_what_was_not_heard_keeps_the_start(self):
+        self.assertEqual(tools._snapped(self.SELLER, 83.9, 110.0)[0], 83.9, "แต่ว่า after no number")
+        self.assertEqual(tools._snapped(self.SELLER, 88.5, 110.0)[0], 88.5, "ซึ่ง after a breath")
+        self.assertEqual(tools._snapped(dict(self.SELLER, heard=[79.2, 115.96]), 80.0, 110.0)[0], 80.0)
+        self.assertEqual(tools._snapped(self.SELLER, 80.0, 166.0)[0], 78.85, "no further than a clip may be long")
+        done = dict(self.SELLER, said=[{"from": 79.10, "to": 79.82, "text": "ประกอบเสร็จเรียบร้อย"},
+                                       {"from": 80.12, "to": 83.86, "text": "ต่อไปดูวิธีใช้กันครับ"}])
+        self.assertEqual(tools._snapped(done, 80.0, 110.0)[0], 80.0, "เรียบร้อย ends in ร้อย and is no number")
+
 
 class Faces(unittest.TestCase):
     def test_faces_found_over_the_moment_serve_its_pieces(self):
