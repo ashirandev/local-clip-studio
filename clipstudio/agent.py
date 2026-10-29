@@ -33,8 +33,8 @@ import threading
 import time
 import traceback
 
-from . import (channels, chatname, faces, hearing, layer, maps, mind, montage, needs, previews, project, recording, render,
-               spent, text, words)
+from . import (asr, channels, chatname, faces, hearing, layer, maps, mind, montage, needs, previews, project, recording,
+               render, spent, text, words)
 from .tools import (CAPTION_LETTERS, LONGEST, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST, STYLES, TOOLS, Refused,
                     _spoken, _subtitles, _undecided, channel_entries, channel_unfit, describe, faces_at, features,
                     look_of, look_said)
@@ -925,7 +925,8 @@ class Job:
         """Hears start to end for a tool: the page says so, and Stop ends it at once (hearing.Stopped)."""
         self.working("Writing down what is said in %s-%s" % (recording.clock(start), recording.clock(end)))
         try:
-            return hearing.hear(rec, start, end, on_start=self.started_work)
+            return hearing.hear(rec, start, end, on_start=self.started_work, on_paid=lambda usd: spent.add(
+                os.path.join(WORK, "spent.jsonl"), self.chat.id, self.n, asr.VOICE, {"usd": round(usd, 6)}))
         finally:
             self.done_working()
 

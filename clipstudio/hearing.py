@@ -10,6 +10,9 @@ studio does not start one.
 What was heard is kept per file and stretch in work/heard, so hearing a stretch again is instant. Each phrase has
 its own time in the recording, from the model's own frames.
 
+Without the hearing model on this computer, and with the person's Meta key, Muse Voice Transcribe hears instead
+(asr.py), on Meta's servers; LCS_HEARING=meta chooses it, LCS_HEARING=local keeps the one here.
+
 Names: a recogniser mishears a name it never learned (Eaglet came out as "egret"). When the screen shows words at
 the time, they are given with the question, and a line may change by as much more as the names it takes from them.
 
@@ -29,11 +32,12 @@ import threading
 import time
 import urllib.parse
 
-from . import ears, mind, recording, thai
+from . import asr, ears, mind, recording, thai
 
 VERSION = 2
 OWN_URL = os.environ.get("LCS_HEARING_URL", "")
-URL = OWN_URL or "http://127.0.0.1:8802"
+OWN_DEFAULT = "http://127.0.0.1:8802"
+URL = OWN_URL or OWN_DEFAULT
 MODELS = os.environ.get("LCS_HEARING_MODELS") or os.path.join(recording.WORK, "models", "hearing")
 HEAR_SECONDS = 600
 LINES_PER_QUESTION = 12
@@ -85,8 +89,24 @@ def _health():
         conn.close()
 
 
+def engine():
+    """"meta" when Muse Voice Transcribe hears: LCS_HEARING=meta, or the hearing model is not on this computer and a
+    Meta key is set; else "local"."""
+    wanted = os.environ.get("LCS_HEARING", "").strip().lower()
+    if wanted in ("meta", "local"):
+        return wanted
+    here = OWN_URL or URL != OWN_DEFAULT or (ears.model_file(MODELS) and
+                                             os.path.isfile(os.path.join(MODELS, "letters.json")))
+    return "meta" if not here and asr.secret() else "local"
+
+
 def status():
     """{ok, label, where, url, name} or {ok: False, ..., why} with a sentence."""
+    if engine() == "meta":
+        out = {"label": "Hearing", "where": "Muse Voice Transcribe on Meta's servers, with your own key",
+               "url": asr.url(), "name": asr.MODEL}
+        return dict(out, ok=True) if asr.secret() else dict(out, ok=False, why="Muse Voice Transcribe needs your Meta "
+                                                                                 "API key: Options > API takes it.")
     out = {"label": "Hearing", "where": "Omnilingual ASR on the processor", "url": URL}
     got = _health()
     if got and got.get("ok"):
@@ -100,7 +120,8 @@ def status():
 
 def key(rec, start, end):
     st = os.stat(rec["path"])
-    return hashlib.sha1(("%d|%s|%d|%s|%.2f|%.2f" % (VERSION, rec["path"], st.st_size, st.st_mtime, start, end))
+    who = "" if engine() == "local" else "|" + asr.MODEL
+    return hashlib.sha1(("%d|%s|%d|%s|%.2f|%.2f%s" % (VERSION, rec["path"], st.st_size, st.st_mtime, start, end, who))
                         .encode("utf-8")).hexdigest()[:16]
 
 
@@ -122,9 +143,10 @@ def keep(rec, start, end, said):
     os.replace(target + ".part", target)
 
 
-def hear(rec, start, end, on_start=None):
+def hear(rec, start, end, on_start=None, on_paid=None):
     """[{from, to, text}] said between start and end, in seconds of the recording, the Thai marks put back.
-    on_start(stop) hands over a function that ends the hearing at once (then Stopped is raised)."""
+    on_start(stop) hands over a function that ends the hearing at once (then Stopped is raised). Heard by Muse Voice
+    Transcribe (engine), on_paid(usd) gets what it cost."""
     tool = shutil.which("ffmpeg")
     if not tool:
         raise HearingError("FFmpeg is not installed, so the studio cannot hear the recording.")
@@ -151,6 +173,8 @@ def hear(rec, start, end, on_start=None):
             raise Stopped()
         if sound.returncode != 0 or not pcm:
             raise HearingError("ffmpeg could not read the sound of %s at %s." % (rec["name"], recording.clock(start)))
+        if engine() == "meta":
+            return _hear_meta(pcm, start, stopped, on_paid)
         u = urllib.parse.urlsplit(URL)
         conn = http.client.HTTPConnection(u.hostname, u.port, timeout=HEAR_SECONDS)
         parts["ask"] = conn.close
@@ -168,6 +192,19 @@ def hear(rec, start, end, on_start=None):
         raise HearingError("The hearing worker could not hear it (%s)." % got.get("error"))
     return [{"from": round(start + p["from"], 2), "to": round(start + p["to"], 2), "text": thai.repair(p["text"]),
              "sure": p.get("sure", 1.0)} for p in got["phrases"] if p["text"].strip()]
+
+
+def _hear_meta(pcm, start, stopped, on_paid):
+    try:
+        said, usd = asr.hear(pcm, stopped=stopped.is_set)
+    except asr.VoiceError as e:
+        raise HearingError(str(e))
+    if stopped.is_set():
+        raise Stopped()
+    if on_paid:
+        on_paid(usd)
+    return [{"from": round(start + p["from"], 2), "to": round(start + p["to"], 2), "text": p["text"], "sure": 1.0}
+            for p in said]
 
 
 def fix(ask, lines, kind, before=(), names=()):
