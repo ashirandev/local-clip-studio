@@ -391,6 +391,23 @@ class Words(Clip):
         self.assertEqual("".join(ln["text"] for ln in lines), "นี่คือช่วงนั้นดูเขาล้มสิ")
         self.assertEqual({ln["said"] for ln in lines}, {"this is the moment", "watch him fall down now"})
 
+    def test_captions_muse_could_not_translate_leave_the_taps_working(self):
+        def refused(asking):
+            raise mind.MindError("Muse Spark refused the question (HTTP 400)")
+
+        self.make(SAID, call("add_captions", why="say it"))
+        _, steps = self.run_job([call("load_recipe", type="talk", why="the kind")],
+                                [call("add_captions", language="Thai", why="for Thai viewers")], refused, "Done.")
+        self.assertFalse(steps[0]["refused"], steps[0]["result"])
+        self.assertTrue(steps[1]["refused"], steps[1]["result"])
+        self.assertIsNotNone(self.chat.clip)
+        self.assertNotEqual(self.chat.clip.get("subtitles"), "Thai",
+                            "10-29: the clip kept the language Muse never wrote, and every tap after asked for it")
+        self.assertEqual([c["why"] for c in self.chat.panel()["captions"]], [None] * 4)
+        self.assertIsNone(self.chat.set_captions("lit"))
+        caps = self.chat.project.state()["captions"]
+        self.assertEqual((caps["lit"], caps.get("language")), (True, None))
+
     def test_a_line_nobody_said_or_typed_still_fails_the_check(self):
         self.make(SAID, call("add_captions", why="say it"), call("decide_people", keep=[1], why="him"))
         caps = self.chat.project.state()["captions"]

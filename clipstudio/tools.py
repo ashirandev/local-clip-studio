@@ -2541,8 +2541,6 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
     if lit and pop:
         raise Refused("Captions are lit or popped, not both: a popped word already moves as it is said. Choose one.")
     target = _subtitles(language or (job.chat.clip or {}).get("subtitles") or (state["captions"] or {}).get("language"))
-    if language and job.chat.clip is not None:
-        job.chat.clip["subtitles"] = target
     clip, length = state["clip"], state["length"]
     if not on:
         if not state["captions"]:
@@ -2606,6 +2604,8 @@ def add_captions(job, why, on=True, lit=False, pop=False, language=""):
             line["who"] = owners[k] if k < len(owners) else None
         entry["bands"] = {n: [b[1], b[3]] for n, b in bands.items()}
     state = job.edit(entry)
+    if language and job.chat.clip is not None and (translated or target == said_in):
+        job.chat.clip["subtitles"] = target
     under = ("each under the face of the person who says it" if entry.get("bands") and any(
         line.get("who") for line in lines) else "in the band from y %d to %d" % (band[1], band[1] + band[3]))
     out = ["Captions on: %d lines %s, %s; %s."
