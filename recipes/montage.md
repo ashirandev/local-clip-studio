@@ -64,6 +64,8 @@ tells it best.
   and the hands showing it (for a screen, the part of it being talked about). The program fills the upright frame
   around it, pushes in on it slowly while it is shown, and puts the person's face in a small circle beside it.
 - The title says what the day or the event was, in the clip's language.
+- The post tells it the same way: only what the pictures show or the people say. What a picture cannot carry (the
+  wind, the cold, a smell, a taste) goes in only when someone says it.
 
 ## Checked at the end
 
