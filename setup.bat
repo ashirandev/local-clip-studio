@@ -16,9 +16,30 @@ echo.
 echo  Local Clip Studio: setting up this computer.
 echo  Each file is checked before it is used. If anything stops, run setup.bat again: it carries on.
 echo.
-if not exist "%DL%" mkdir "%DL%"
-
 if exist "%PY%" goto pip
+if defined LCS_PLACED goto placed
+echo  Choose where the studio goes in the window that opens. It makes a "Local Clip Studio" folder there
+echo  and keeps everything in it: about 18 GB with Muse Glimmer.
+set "DEST=%LCS_INSTALL_DIR%"
+if not defined DEST for /f "usebackq delims=" %%d in (`powershell -NoProfile -STA -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.Form -Property @{TopMost = $true}; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Where should Local Clip Studio go?'; $d.SelectedPath = $env:HERE; if ($d.ShowDialog($f) -eq 'OK') { $d.SelectedPath }"`) do set "DEST=%%d"
+if not defined DEST (
+  echo  No folder was chosen, so nothing was installed. Run setup.bat again to choose one.
+  pause
+  exit /b 1
+)
+if "%DEST:~-1%"=="\" set "DEST=%DEST:~0,-1%"
+if /i "%DEST%"=="%HERE:~0,-1%" goto placed
+if /i not "%DEST:~-17%"=="Local Clip Studio" set "DEST=%DEST%\Local Clip Studio"
+if /i "%DEST%"=="%HERE:~0,-1%" goto placed
+echo  Installing in %DEST%
+robocopy "%HERE:~0,-1%" "%DEST%" /E /XD "%HERE%python" "%HERE%work" "%HERE%.git" "%DEST%" __pycache__ /NFL /NDL /NJH /NJS /NP >nul
+if errorlevel 8 goto notcopied
+set "LCS_PLACED=1"
+call "%DEST%\setup.bat"
+exit /b %errorlevel%
+
+:placed
+if not exist "%DL%" mkdir "%DL%"
 echo  [1/4] Python 3.11.9 for the studio (11 MB)
 call :fetch "%PYURL%" "%DL%\%PYZIP%" %PYSHA% || goto failed
 if exist "%HERE%python.new" rmdir /s /q "%HERE%python.new"
@@ -27,6 +48,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralP
 move "%HERE%python.new" "%HERE%python" >nul || goto failed
 
 :pip
+if not exist "%DL%" mkdir "%DL%"
 "%PY%" -m pip --version >nul 2>&1 && goto packages
 call :fetch "%PIPURL%" "%DL%\%PIPWHL%" %PIPSHA% || goto failed
 "%PY%" -c "import runpy, sys; sys.path.insert(0, sys.argv[1]); sys.argv = ['-c', 'install', '--no-index', '--no-warn-script-location', '-q', sys.argv[1]]; runpy.run_module('pip', run_name='__main__')" "%DL%\%PIPWHL%" || goto failed
@@ -60,6 +82,11 @@ if /i not "%GOT%"=="%~3" (
 )
 move /y "%~2.part" "%~2" >nul
 exit /b 0
+
+:notcopied
+echo  The studio could not be copied to %DEST%. Run setup.bat again and choose a folder you can write in.
+pause
+exit /b 1
 
 :failed
 echo.

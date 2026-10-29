@@ -113,6 +113,28 @@ class Fetch(unittest.TestCase):
         with open(self.dest, "rb") as f:
             self.assertEqual(f.read(), self.blob)
 
+    def test_a_file_not_at_its_address_yet_says_so_and_nothing_is_kept(self):
+        url = "http://127.0.0.1:%d/not-yet.bin" % self.http.server_port
+        with self.assertRaises(parts.PartError) as said:
+            parts.fetch(url, 10, sha(b"0123456789"), self.dest)
+        self.assertEqual(str(said.exception), "blob.bin is not at %s yet, so it was left out." % url)
+        self.assertFalse(os.path.exists(self.dest + ".part"))
+
+    def test_a_part_that_fails_does_not_stop_the_parts_after_it(self):
+        done = []
+
+        def part(key, kind):
+            if key == "hearing":
+                raise parts.PartError("model.int8.onnx is not at its address yet, so it was left out.")
+            done.append(key)
+        with mock.patch.object(parts, "_set_up_part", part), mock.patch.object(parts, "start_glimmer") as started:
+            parts._set_up([{"key": "ffmpeg"}, {"key": "hearing"}, {"key": "glimmer"}], "cuda13")
+        self.assertEqual(done, ["ffmpeg", "glimmer"])
+        self.assertTrue(started.called)
+        self.assertEqual(parts.state()["setup"]["error"],
+                         "model.int8.onnx is not at its address yet, so it was left out.")
+        self.assertFalse(parts.state()["setup"]["running"])
+
     def test_zips_are_unpacked_beside_their_folder_and_moved_in_whole(self):
         made = io.BytesIO()
         with zipfile.ZipFile(made, "w") as z:

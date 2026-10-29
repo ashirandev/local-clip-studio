@@ -15,8 +15,10 @@ fixes what fails, and hands over a vertical clip ready to post. To change anythi
 
 ## Quick start
 
-**On Windows, double-click `setup.bat`.** The only things it asks are the endpoint and the key of a Muse API, and
-Enter skips them. Everything else it does by itself:
+**On Windows, double-click `setup.bat`.** It asks where to install (a folder window; it makes a `Local Clip Studio`
+folder there, about 18 GB with Muse Glimmer), then the endpoint and the key of a Muse API, and Enter skips those.
+Everything else it does by itself:
+- copies the studio into the folder chosen, and keeps everything there from then on;
 - installs its own Python 3.11.9 in `python\` (nothing system-wide) and the studio's packages;
 - downloads the parts below that this computer is missing;
 - puts **Local Clip Studio** on the desktop and opens the studio.
@@ -24,6 +26,9 @@ Enter skips them. Everything else it does by itself:
 If anything stops, run `setup.bat` again: it carries on from where it stopped. Every file it downloads is checked
 against a size and SHA-256 pinned in the repository first. Measured on 10-29, on a clean copy of the studio with no
 FFmpeg on the PATH: Python, pip, the packages and FFmpeg, then the shortcut, and the studio answered on its own Python.
+Installed again from the repository folder into another drive (H:), it copied 13 MB of the studio there, set up 369 MB
+in all, and the shortcut and the studio ran from H:. To remove it, delete that folder, the shortcut, and
+`%APPDATA%\LocalClipStudio` (the saved endpoint and key).
 
 **Elsewhere, or by hand:** with Python 3.11 or newer,
 
@@ -41,10 +46,11 @@ computer already has and what it still needs, with each size, and downloads the 
 | FFmpeg 8.1.1, essentials build (Windows) | 109 MB | [gyan.dev](https://www.gyan.dev/ffmpeg/builds/), on [GitHub](https://github.com/GyanD/codexffmpeg/releases/tag/8.1.1) |
 | llama.cpp `llama-server`, build b11716 (Windows) | 579 MB (CUDA 13.4) or 659 MB (CUDA 12.4) | [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp/releases/tag/b11716) |
 | Muse Glimmer 30B, UD-Q3_K_XL, with its vision part | 14.8 GB | [unsloth/Muse-Glimmer-30B-GGUF](https://huggingface.co/unsloth/Muse-Glimmer-30B-GGUF), the vision part from Meta's [meta-models/Muse-Glimmer-30B-GGUF](https://huggingface.co/meta-models/Muse-Glimmer-30B-GGUF) |
-| Hearing: Omnilingual ASR CTC 1B v2 as int8 ONNX | 1.0 GB | the address in `LCS_HEARING_FROM` |
+| Hearing: Omnilingual ASR CTC 1B v2 as int8 ONNX | 1.0 GB | this repository's release [hearing-1](https://github.com/ashirandev/local-clip-studio/releases/tag/hearing-1), made from Meta's checkpoint by `hearing/export_onnx.py` (Apache-2.0, with its NOTICE); `LCS_HEARING_FROM` names another address |
 
 Each file is used only after its size and SHA-256 match the ones pinned in `clipstudio/parts.py`; a file that does
-not match is deleted, and a download that is cut off carries on from where it stopped. Everything goes in `work/`
+not match is deleted, and a download that is cut off carries on from where it stopped. A part that cannot be set up
+is left out with the reason, and the parts after it are still set up. Everything goes in `work/`
 (`work/tools` and `work/models`), and a part already on the computer (on the PATH, or a server already running) is
 used as it is. The graphics driver picks the llama.cpp build: CUDA 13.4 when the driver offers CUDA 13 (an RTX 50 card
 needs it), else CUDA 12.4. Once Glimmer and llama-server are there, the studio starts llama-server itself, as

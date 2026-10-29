@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -41,7 +42,8 @@ VISION_NAME = "mmproj-Muse-Glimmer-30B-Q4_K_M.gguf"
 GLIMMER_FILE = os.environ.get("LCS_GLIMMER_FILE") or os.path.join(WORK, "models", "glimmer", GLIMMER_NAME)
 VISION_FILE = os.environ.get("LCS_GLIMMER_VISION") or os.path.join(WORK, "models", "glimmer", VISION_NAME)
 HEARING_DIR = os.environ.get("LCS_HEARING_MODELS") or os.path.join(WORK, "models", "hearing")
-HEARING_FROM = os.environ.get("LCS_HEARING_FROM", "").rstrip("/")
+HEARING_FROM = os.environ.get("LCS_HEARING_FROM",
+                              "https://github.com/ashirandev/local-clip-studio/releases/download/hearing-1").rstrip("/")
 LOCAL_URL = "http://127.0.0.1:8863/v1"
 GLIMMER_CARD_MIB = 15000
 SPARE = 1 << 30
@@ -227,35 +229,38 @@ def set_up():
 
 
 def _set_up(todo, kind):
+    """Sets up each part in turn. A part that fails does not stop the others: the hearing model missing from its
+    address must not leave the person without Glimmer."""
+    why = []
     try:
         for p in todo:
             with _lock:
                 _job["part"] = p["key"]
-            if p["key"] == "ffmpeg":
-                _unzip_all(FILES["ffmpeg"], FFMPEG_DIR, strip=True)
-                use_tools()
-            elif p["key"] == "engine":
-                _unzip_all(FILES[kind], LLAMA_DIR)
-            elif p["key"] == "glimmer":
-                for (url, size, sha), dest in zip(FILES["glimmer"], (GLIMMER_FILE, VISION_FILE)):
-                    fetch(url, size, sha, dest)
-            elif p["key"] == "hearing":
-                for name, size, sha in FILES["hearing"]:
-                    fetch(HEARING_FROM + "/" + name, size, sha, os.path.join(HEARING_DIR, name))
-                hearing.start()
+            try:
+                _set_up_part(p["key"], kind)
+            except PartError as e:
+                why.append(str(e))
+            except OSError as e:
+                why.append("Set up could not write its files in %s (%s)." % (WORK, e))
         start_glimmer()
-    except PartError as e:
-        _failed(str(e))
-    except OSError as e:
-        _failed("Set up could not write its files in %s (%s)." % (WORK, e))
     finally:
         with _lock:
-            _job.update(running=False, part=None, step=None)
+            _job.update(running=False, part=None, step=None, error=" ".join(why) or None)
 
 
-def _failed(why):
-    with _lock:
-        _job["error"] = why
+def _set_up_part(key, kind):
+    if key == "ffmpeg":
+        _unzip_all(FILES["ffmpeg"], FFMPEG_DIR, strip=True)
+        use_tools()
+    elif key == "engine":
+        _unzip_all(FILES[kind], LLAMA_DIR)
+    elif key == "glimmer":
+        for (url, size, sha), dest in zip(FILES["glimmer"], (GLIMMER_FILE, VISION_FILE)):
+            fetch(url, size, sha, dest)
+    elif key == "hearing":
+        for name, size, sha in FILES["hearing"]:
+            fetch(HEARING_FROM + "/" + name, size, sha, os.path.join(HEARING_DIR, name))
+        hearing.start()
 
 
 def _step(name):
@@ -298,6 +303,10 @@ def fetch(url, size, sha256, dest):
                             break
                         f.write(piece)
                         _moved(len(piece))
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                raise PartError("%s is not at %s yet, so it was left out." % (os.path.basename(dest), url))
+            raise PartError(_stopped(dest, e.reason))
         except (OSError, http.client.HTTPException) as e:
             raise PartError(_stopped(dest, getattr(e, "reason", None) or e))
         if os.path.getsize(part) < size:
