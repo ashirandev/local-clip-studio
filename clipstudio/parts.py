@@ -413,7 +413,8 @@ def ask_api(read=input, read_secret=None):
     import getpass
     read_secret = read_secret or getpass.getpass
     url, saved = mind.saved_api()
-    print("Muse through an API (Meta's Muse Spark, or Muse Spark Open on Modal): its endpoint and your key.")
+    print("Muse through an API (Meta's Muse Spark, or Muse Spark Open on Modal, Baseten or Fireworks): its endpoint "
+          "and your key.")
     if saved:
         print("  Saved: %s. Press Enter to keep it." % url)
     while True:

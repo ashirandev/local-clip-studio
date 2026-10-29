@@ -1,6 +1,6 @@
 """The mind: one way to ask Muse a question, whichever Muse it is.
 
-Four minds, one request format (the OpenAI chat API):
+Six minds, one request format (the OpenAI chat API):
 - local: Muse Glimmer, Meta's open-weight model, on this computer through llama.cpp's own server (llama-server).
   The address is one setting, LCS_MIND_URL, so any server that runs an eligible Muse model works. Each question names
   the model, LCS_MIND_MODEL (muse-glimmer): a router llama-server sends it to that model, and one that serves a
@@ -11,6 +11,8 @@ Four minds, one request format (the OpenAI chat API):
   five times Spark's price (LCS_WONDER_MODEL names it).
 - modal: Muse Spark Open, the open-weight Spark, on a Modal shared endpoint of the person's own workspace, with their
   proxy token in MODAL_KEY and MODAL_SECRET (LCS_MODAL_MODEL names the endpoint's model).
+- baseten, fireworks: Muse Spark Open on Baseten's or Fireworks' API, with the person's own key in BASETEN_API_KEY or
+  FIREWORKS_API_KEY (LCS_BASETEN_MODEL, LCS_FIREWORKS_MODEL for a deployment of their own); not yet measured.
 
 Every answer is streamed, so Muse's thinking can be shown while it is written, and a question in flight can be
 cancelled at once: Asking.cancel() shuts the connection, and llama-server drops the work ("stop: cancel task" in its

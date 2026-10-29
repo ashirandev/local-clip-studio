@@ -1,5 +1,22 @@
 # Local Clip Studio
 
+## Try it in 5 minutes
+
+1. **Install.** Windows: double-click `setup.bat`. macOS or Linux: `./setup.sh`, then `./start.sh` (it needs Python
+   3.11 or 3.12 and FFmpeg with libass: `brew install python@3.12 ffmpeg`, or `sudo apt install python3.12
+   python3.12-venv ffmpeg`). No graphics card is needed to try it through an API.
+2. **Paste one key.** Setup asks for it, or open Options > API: the endpoint and your own key for Meta's API (Muse
+   Spark), or Muse Spark Open on Modal, Baseten or Fireworks.
+3. **Open a recording.** Drop a video on the page, or type the path of a recording or of a folder of clips.
+4. **Type one line**, such as "make a short clip ready to post". Muse plans, cuts, checks and hands over the clip,
+   with a reason for every step.
+
+Measured 10-29 on Linux, in a clean `python:3.12-slim` container with FFmpeg from apt and no graphics card:
+`setup.sh` finished in 26 s, and with a Meta key one typed line ("ทำคลิปสั้นจาก <a review>.MOV ให้พร้อมโพสต์") took a
+product review through 14 steps to a rendered and checked 19 s clip in about 4 minutes, for $0.28 (the container's
+network then dropped before the hand-over). On Windows, `setup.bat` is measured below. On macOS, `setup.sh` is written
+for it but not yet run on a Mac.
+
 People who cannot edit video can still edit video. You drop in a long recording, and Meta's Muse model edits it as
 an **agent**: it makes its own plan, runs it step by step, gives a reason for every choice, checks its own clip,
 fixes what fails, and hands over a vertical clip ready to post. To change anything, you say what you want.
@@ -30,7 +47,8 @@ Installed again from the repository folder into another drive (H:), it copied 13
 in all, and the shortcut and the studio ran from H:. To remove it, delete that folder, the shortcut, and
 `%APPDATA%\LocalClipStudio` (the saved endpoint and key).
 
-**Elsewhere, or by hand:** with Python 3.11 or newer,
+**Elsewhere, or by hand:** with Python 3.11 or 3.12 (the text reader, rapidocr-onnxruntime 1.4.4, has no build for
+3.13; measured 10-29),
 
 ```
 pip install -r requirements.txt
@@ -116,7 +134,7 @@ recordings in your folders. Two guards hold either way: the studio answers only 
 to a web name (so a web page cannot reach it through a name it owns), and it takes only JSON posts (so another web
 page cannot send it anything without asking first).
 
-## The mind: three ways to run Muse
+## The mind: four ways to run Muse
 
 The chip under the title shows which Muse will answer and where it runs: local (on this computer) or API (on
 someone's servers, paid per token). Tap it to switch. With Detailed steps, every answer shows which one
