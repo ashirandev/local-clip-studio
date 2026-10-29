@@ -681,6 +681,12 @@ def arrange_clips(job, why, story, clips, left_out=None, hook="", products=None)
         said.append("The program fitted the pieces: %s." % "; ".join(fitted))
     if spelling:
         said.append(spelling)
+    sheet = montage.pieces_sheet(pieces, montage.STRIP_HEIGHT if len(pieces) <= montage.MANY else montage.STRIP_LOWEST)
+    if sheet:
+        job.attach(sheet, "The pieces in order, a picture from the middle of each, marked with its clip and second:")
+        said.append("A picture from the middle of each piece comes next, in order, marked with its clip and second: "
+                    "check that each shows what its why and the words over it say. If one does not, arrange again "
+                    "with other seconds of that clip.")
     made = make_clip(job, why, 1, "subject")
     if talked:
         try:

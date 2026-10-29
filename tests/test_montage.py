@@ -329,6 +329,14 @@ class Arrange(unittest.TestCase):
         self.assertIn("2 s: clip 1, 1-2 s of it", said)
         self.assertIn("3 s: clip 3, 0-1.9 s of it", said)
         self.assertIn("Made the clip from moment 1", said)
+        self.assertIn("A picture from the middle of each piece comes next, in order", said)
+        sent = [m for m in self.chat.messages if "a picture from the middle of each" in str(m.get("content"))]
+        self.assertEqual(len(sent), 1, "Muse sees every piece it chose, not only the first second of each")
+        recs = {c["n"]: c["rec"] for c in self.chat.clips["clips"]}
+        pieces = [{"clip": 2, "rec": recs[2], "from": 0.5, "to": 2.5}, {"clip": 1, "rec": recs[1], "from": 1.0, "to": 2.0}]
+        img = cv2.imread(montage.pieces_sheet(pieces, 120))
+        wide = [round(r["width"] * 120 / r["height"]) for r in (recs[2], recs[1])]
+        self.assertEqual(img.shape[:2], (120, sum(wide) + montage.GAP), "one frame of each piece, side by side")
         state = self.chat.project.state()
         self.assertEqual([(t["text"], t["start"], t["end"]) for t in state["titles"]],
                          [("We arrive", 0.0, 3.0), ("The end", 3.0, 4.9)])

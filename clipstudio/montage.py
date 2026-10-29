@@ -126,15 +126,44 @@ def strip(c, height=STRIP_HEIGHT):
     must be to tell what happens in a clip."""
     rec = c["rec"]
     times = strip_times(rec["seconds"])
-    key = hashlib.sha1(("%s|%d|%s|%d|%s|%d" % (rec["path"], rec["size"], rec["mtime"], c["n"], times, height)
-                        ).encode("utf-8")).hexdigest()[:16]
-    folder = os.path.join(recording.WORK, "montage")
-    os.makedirs(folder, exist_ok=True)
-    target = os.path.join(folder, key + ".jpg")
+    target = _sheet_path("%s|%d|%s|%d|%s|%d" % (rec["path"], rec["size"], rec["mtime"], c["n"], times, height))
     if os.path.isfile(target):
         return target
+    out = _row([(rec, t, "%.1f s" % t) for t in times], height)
+    if out is None:
+        return None
+    _mark(out, str(c["n"]), (12, 46), 1.3, 3)
+    return _saved(out, target)
+
+
+def pieces_sheet(pieces, height=STRIP_HEIGHT):
+    """One picture of the pieces a clip is joined from, in order: the frame at the middle of each, from its own clip,
+    side by side, height pixels tall, each marked with its clip's number and the second. The path of the jpg in
+    work/montage, or None when a frame could not be taken. Seen 10-29 on a trip of seven clips: every piece Muse chose
+    was 6 s from the first second its strip showed, so it never saw five of the six seconds it put in."""
+    shots = [(p["rec"], round((p["from"] + p["to"]) / 2, 1), "%d: %.1f s" % (p["clip"], (p["from"] + p["to"]) / 2))
+             for p in pieces]
+    if not shots:
+        return None
+    target = _sheet_path("pieces|%s|%d" % ("|".join("%s|%d|%s|%s" % (r["path"], r["size"], r["mtime"], t)
+                                                    for r, t, _ in shots), height))
+    if os.path.isfile(target):
+        return target
+    out = _row(shots, height)
+    return None if out is None else _saved(out, target)
+
+
+def _sheet_path(key):
+    folder = os.path.join(recording.WORK, "montage")
+    os.makedirs(folder, exist_ok=True)
+    return os.path.join(folder, hashlib.sha1(key.encode("utf-8")).hexdigest()[:16] + ".jpg")
+
+
+def _row(shots, height):
+    """Frames side by side, height pixels tall, each marked: shots are (recording, second, mark). None when a frame
+    could not be taken."""
     frames = []
-    for t in times:
+    for rec, t, mark in shots:
         name = recording.frame(rec, at=t)
         if not name:
             return None
@@ -143,13 +172,15 @@ def strip(c, height=STRIP_HEIGHT):
             return None
         h, w = img.shape[:2]
         img = cv2.resize(img, (max(1, round(w * height / h)), height), interpolation=cv2.INTER_AREA)
-        _mark(img, "%.1f s" % t, (8, height - 12), 0.6, 2)
+        _mark(img, mark, (8, height - 12), 0.6, 2)
         frames.append(img)
     row = [frames[0]]
     for img in frames[1:]:
         row += [np.full((height, GAP, 3), 16, np.uint8), img]
-    out = np.hstack(row)
-    _mark(out, str(c["n"]), (12, 46), 1.3, 3)
+    return np.hstack(row)
+
+
+def _saved(out, target):
     ok, data = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, 88])
     if not ok:
         return None
