@@ -1,12 +1,14 @@
 """The mind: one way to ask Muse a question, whichever Muse it is.
 
-Three minds, one request format (the OpenAI chat API):
+Four minds, one request format (the OpenAI chat API):
 - local: Muse Glimmer, Meta's open-weight model, on this computer through llama.cpp's own server (llama-server).
   The address is one setting, LCS_MIND_URL, so any server that runs an eligible Muse model works. Each question names
   the model, LCS_MIND_MODEL (muse-glimmer): a router llama-server sends it to that model, and one that serves a
   single model ignores the name.
 - spark: Muse Spark on Meta's hosted API, with the person's own key in META_API_KEY. The key is read from the
   environment when a question is asked and is never written anywhere.
+- wonder: Muse Wonder, Meta's model for long work with many tools, on the same API and key as Spark, at three to
+  five times Spark's price (LCS_WONDER_MODEL names it).
 - modal: Muse Spark Open, the open-weight Spark, on a Modal shared endpoint of the person's own workspace, with their
   proxy token in MODAL_KEY and MODAL_SECRET (LCS_MODAL_MODEL names the endpoint's model).
 
@@ -514,6 +516,9 @@ def minds():
         "spark": Mind("spark", "Muse Spark", os.environ.get("LCS_SPARK_URL", "https://api.meta.ai/v1"),
                       model=os.environ.get("LCS_SPARK_MODEL", "muse-spark-1.3"), key_env="META_API_KEY",
                       where="on Meta's servers, with your own key"),
+        "wonder": Mind("wonder", "Muse Wonder", os.environ.get("LCS_SPARK_URL", "https://api.meta.ai/v1"),
+                       model=os.environ.get("LCS_WONDER_MODEL", "muse-wonder-1.0"), key_env="META_API_KEY",
+                       where="on Meta's servers, with your own key"),
         "modal": Shared("modal", "Muse Spark Open",
                         os.environ.get("LCS_MODAL_URL", "https://inference.us-west.modal.direct/v1"),
                         model=os.environ.get("LCS_MODAL_MODEL", "meta-models/Muse-Spark-Open-816B-A42B"),
