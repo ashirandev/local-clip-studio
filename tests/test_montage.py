@@ -473,16 +473,24 @@ class ProductReview(unittest.TestCase):
         return [call("arrange_clips", story="the review", why="order", **dict({"clips": [
             {"clip": 1, "words": "This mic", "why": "the box"}, {"clip": 2, "why": "on the desk"}]}, **more))]
 
+    def shown(self):
+        return [part["text"] for m in self.chat.messages if m["role"] == "user" and isinstance(m["content"], list)
+                for part in m["content"] if part.get("type") == "text" and "Piece " in part["text"]]
+
     def test_in_a_review_each_lying_clip_names_its_product_which_fills_the_frame_and_the_face_rides_beside_it(self):
         self.chat.emit("person", job=self.chat.jobs + 1, text="ช่วยตัดคลิปรีวิวไมค์ให้หน่อย")
         steps = Arrange.run_job(self, *Arrange.opened(self), self.arrange(), self.arrange(products=[
             {"clip": 1, "box": [50, 100, 250, 900]}]), self.arrange(products=[
-                {"clip": 1, "box": [50, 100, 250, 900]}, {"clip": 2, "box": [600, 200, 900, 1000]}]), "Done.")
+                {"clip": 1, "box": [50, 100, 250, 900]}, {"piece": 2, "box": [600, 200, 900, 1000]}]), "Done.")
         bare, half, joined = steps[2:5]
         self.assertTrue(bare["refused"])
         self.assertIn("This is a product review, so the product leads", bare["result"])
-        self.assertIn("clips 1, 2 lie on their side", bare["result"])
-        self.assertIn("clip 2 lies on its side", half["result"])
+        self.assertIn("(pieces 1, 2). Give products again with one {piece, box} for each", bare["result"])
+        self.assertEqual([t.replace("[studio] ", "") for t in self.shown()], [
+            "Piece 1: clip 1 at 1.5 s, the middle of its 0-3 s:", "Piece 2: clip 2 at 1.5 s, the middle of its 0-3 s:"],
+            "the yeti review 10-29: a box drawn on clip 7's strip missed the mic in the piece used")
+        self.assertIn("clip 2 lies on its side", half["result"], "the pictures are shown once, then a clip's box does")
+        self.assertEqual(len(self.shown()), 2)
         self.assertFalse(joined["refused"], joined["result"] + joined.get("fault", ""))
         pieces = self.joined[-1]
         self.assertEqual([p["focus"] for p in pieces], [[50, 100, 250, 900], [600, 200, 900, 1000]])
@@ -505,6 +513,21 @@ class ProductReview(unittest.TestCase):
                                                                             "why": "on the desk"}])], "Done.")
         self.assertTrue(steps[2]["refused"])
         self.assertIn("clip 1 lies on its side", steps[2]["result"])
+
+    def test_a_face_the_crop_shows_half_of_does_not_ride_in_a_circle_too(self):
+        rec = {"name": "c.mov", "width": 1920, "height": 1080}
+        left, wide = montage.shown(rec, 0.39)
+
+        def at(x):
+            return lambda r, a, b, every=0.5, on_start=None: {"size": [1920, 1080], "every": every, "samples": [
+                {"t": a + k * every, "faces": [[x, 100, 264, 340, 0.9]]} for k in range(8)]}
+
+        half, sliver = left + wide - 0.46 * 264, left + wide - 0.2 * 264
+        with mock.patch.object(tools.faces, "sample", at(half)):
+            self.assertIsNone(tools._circle_face(rec, 0, 4, 0.39),
+                              "lane 1 10-29, yeti clip 3: 46% of the face at the crop's edge and all of it in a circle")
+        with mock.patch.object(tools.faces, "sample", at(sliver)):
+            self.assertEqual(tools._circle_face(rec, 0, 4, 0.39), [round(sliver, 1), 100, 264, 340])
 
 
 class Talking(unittest.TestCase):
