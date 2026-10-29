@@ -3663,12 +3663,6 @@ def _cover_second(job, state):
     return min(max(0.0, peak if peak is not None else state["length"] / 2), state["length"] - 0.1)
 
 
-def _cover_of(job, name):
-    """The newest cover made in this chat for the finished file name: {cover, title}, or None."""
-    return next(({"cover": e["cover"], "title": e["title"]} for e in reversed(job.chat.events)
-                 if e["kind"] == "cover" and e.get("file") == name), None)
-
-
 def make_cover(job, why, title, again=False, asked=False):
     rec, state = _open(job, "make a cover for"), _clip_state(job)
     done = job.chat.finished()
@@ -3678,7 +3672,8 @@ def make_cover(job, why, title, again=False, asked=False):
     if _here(job) and not asked:
         raise Refused("You work on this computer, so no picture of the person's leaves it unasked: %s draws the cover "
                       "on Meta's servers, with their key, for $%.2f. Make it only when the person asks for a cover or "
-                      "taps Make the cover; otherwise hand the clip over without one." % (cover.LABEL, cover.USD))
+                      "taps Make the cover; otherwise hand the clip over without one, and never say it has a cover." % (
+                          cover.LABEL, cover.USD))
     at = _cover_second(job, state)
     try:
         frame = render.frame(rec, state, at, (job.chat.clip or {}).get("style") or "clean", width=cover.WIDTH,
@@ -3816,10 +3811,10 @@ def hand_over(job, why, title, caption, hashtags, english=""):
     mine = _tag(((channels.in_use() or {}).get("handle") or "").lstrip("@"))
     if mine and mine.lower() not in {t.lower() for t in tags}:
         tags.append(mine)
-    made = _cover_of(job, done["name"])
+    made = job.chat.cover_of(done["name"])
     ready = {"file": done["name"], "length": done["length"], "title": title, "caption": caption, "hashtags": tags,
              "english": english, "checks": checks, "work": job.chat.worked(job.n, job.steps),
-             "cover": made["cover"] if made else None}
+             "cover": made}
     job.emit("ready", **ready)
     job.show(ready=ready)
     pieces = _clip_state(job)["clip"]["pieces"]

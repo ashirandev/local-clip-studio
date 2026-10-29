@@ -60,6 +60,9 @@ COLOUR_LOOKS = ("none",) + tuple(n for n in LOOKS if n != "none")
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"(])")
 PREVIEW_WAIT = 1.0
 TAP_SAID = "(tapped) "
+COVER_SAID = re.compile(r"(?i)\bcovers?\b|หน้าปก|ภาพปก|ปกพร้อม|ปกคลิป|ปกให้|ปกของ|ปกสวย")
+NO_COVER = ("[studio] Your answer speaks of the clip's cover, but no cover is made for the finished clip. Answer the "
+            "person again without saying it has one; if they want one, they can tap Make the cover or ask for it.")
 OPEN_SAID = "(opened) "
 AS_SAID = "said"
 SCRIPTS = (("Thai", re.compile("[฀-๿]")), ("Japanese", re.compile("[぀-ヿ]")),
@@ -735,6 +738,11 @@ class Chat:
         return next((f for f in reversed(self.rendered) if f["signature"] == sign
                      and os.path.isfile(os.path.join(render.folder("clips"), f["name"]))), None)
 
+    def cover_of(self, name):
+        """The newest cover made in this chat for the finished file name, or None."""
+        return next((e["cover"] for e in reversed(self.events) if e["kind"] == "cover" and e.get("file") == name),
+                    None)
+
     def clip_view(self):
         """The clip as the page draws it: its length, layout and words on screen, or None before it is made."""
         state = self.project.state()
@@ -790,6 +798,9 @@ class Chat:
         done = self.finished()
         if done:
             made = "finished file %s, made from the clip as it is now" % done["name"]
+            cover = self.cover_of(done["name"])
+            made += ("; its cover %s is made" % cover if cover else
+                     "; no cover made for it: never say it has a cover")
         elif self.rendered:
             made = ("the last finished file is older than the last change: render again before you hand it over, and "
                     "never say the clip is ready until then")
@@ -1020,9 +1031,17 @@ class Job:
                 chat.live_rev += 1
                 chat.cond.notify_all()
 
+    def false_cover(self, text):
+        """True when Muse's answer speaks of the clip's cover and no cover was made for the finished file. Beat 1,
+        10-29: make_cover was refused on Glimmer, and the answer still told Tarm "และปกพร้อมโพสต์ให้แล้ว"."""
+        if not COVER_SAID.search(text or ""):
+            return False
+        done = self.chat.finished()
+        return not (done and self.chat.cover_of(done["name"]))
+
     def run(self):
         chat, started, end, nudged = self.chat, time.time(), "answered", False
-        closing = False
+        closing = covered = False
         self.emit("job", mind=self.brain.label)
         try:
             while True:
@@ -1074,6 +1093,14 @@ class Job:
                                   % "; ".join("%d. %s" % s for s in left)})
                         self.emit("note", text="Muse stopped with plan steps still open, so the studio asked it to go "
                                                "on or say why.")
+                        continue
+                    if not covered and self.false_cover(got["text"]):
+                        covered = True
+                        self.emit("answer", final=False, text=got["text"], thinking=got["thinking"],
+                                  engine=got["engine"], mind=self.brain.label)
+                        chat.add({"role": "user", "content": NO_COVER})
+                        self.emit("note", text="Muse spoke of a cover, and no cover is made, so the studio asked it "
+                                               "to answer again.")
                         continue
                     with chat.cond:
                         more = bool(self.inbox) and not self.stopped

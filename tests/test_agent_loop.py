@@ -242,6 +242,26 @@ class Loop(unittest.TestCase):
                       self.chat.messages[-2]["content"])
         self.assertEqual(events[-1]["why"], "answered")
 
+    def test_an_answer_that_speaks_of_a_cover_none_made_is_asked_again_once(self):
+        """Beat 1, 10-29: make_cover was refused, and the answer still said "และปกพร้อมโพสต์ให้แล้ว"."""
+        brain = ScriptedMind("คลิปและปกพร้อมโพสต์ให้แล้ว", "คลิปพร้อมแล้ว ยังไม่มีหน้าปก", "")
+        job, events = self.run_job(brain)
+        answers = [e for e in events if e["kind"] == "answer"]
+        self.assertEqual([(a["text"], a["final"]) for a in answers],
+                         [("คลิปและปกพร้อมโพสต์ให้แล้ว", False), ("คลิปพร้อมแล้ว ยังไม่มีหน้าปก", True)],
+                         "asked once; the second answer stands, whatever it says")
+        self.assertEqual(self.chat.messages[-2]["content"], agent.NO_COVER)
+        self.assertIn("no cover is made", [e for e in events if e["kind"] == "note"][-1]["text"])
+        for said in ("ทุกอย่างปกติดี", "Done, the clip is ready.", "ปกครองง่าย"):
+            self.assertFalse(job.false_cover(said), said)
+        for said in ("The cover is ready.", "ภาพปกสวยมาก", "ทำหน้าปกให้แล้ว"):
+            self.assertTrue(job.false_cover(said), said)
+        self.chat.emit("cover", job=job.n, file="made.mp4", cover="0123456789abcdef.jpg", title="t", usd=0.01)
+        with mock.patch.object(self.chat, "finished", lambda: {"name": "made.mp4"}):
+            self.assertFalse(job.false_cover("The cover is ready."), "a cover made for the finished file is there")
+        with mock.patch.object(self.chat, "finished", lambda: {"name": "newer.mp4"}):
+            self.assertTrue(job.false_cover("The cover is ready."), "a cover of an older file is not this clip's")
+
     def test_a_doubled_thai_mark_is_not_read_back(self):
         brain = ScriptedMind([call("find_recordings", words="sifu", why="ลองค้้้้นหาอีกคร้้ง")], "เจอแล้ว")
         _, events = self.run_job(brain)

@@ -1071,6 +1071,7 @@ class Tools(unittest.TestCase):
         shown = [e for e in self.chat.events if e["kind"] == "ready"][-1]
         self.assertEqual(shown["cover"], cover["cover"])
         self.assertEqual(cover["file"], shown["file"])
+        self.assertIn("its cover %s is made" % cover["cover"], self.chat.clip_line())
         self.assertIn("finished clip and its cover", ready["result"])
         self.assertTrue(os.path.isfile(os.path.join(render.folder("covers"), cover["cover"])))
         with open(os.path.join(agent.WORK, "spent.jsonl"), encoding="utf-8") as f:
