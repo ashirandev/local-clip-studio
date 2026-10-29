@@ -3,8 +3,10 @@
 ## Try it in 5 minutes
 
 1. **Install.** Windows: double-click `setup.bat`. macOS or Linux: `./setup.sh`, then `./start.sh` (it needs Python
-   3.11 or 3.12 and FFmpeg with libass: `brew install python@3.12 ffmpeg`, or `sudo apt install python3.12
-   python3.12-venv ffmpeg`). No graphics card is needed to try it through an API.
+   3.11 or 3.12 and FFmpeg with libass: `brew install python@3.12 ffmpeg-full`, as Homebrew's plain `ffmpeg` has no
+   libass, or `sudo apt install python3.12 python3.12-venv ffmpeg`). On a Mac: Apple silicon and macOS 14 or newer,
+   the only Macs onnxruntime is built for. No graphics card is needed to try it through an API. The first setup
+   downloads about 1.4 GB (the Python packages and the hearing model).
 2. **Paste one key.** Setup asks for it, or open Options > API: the endpoint and your own key for Meta's API (Muse
    Spark), or Muse Spark Open on Modal, Baseten or Fireworks.
 3. **Open a recording.** Drop a video on the page, or type the path of a recording or of a folder of clips.
