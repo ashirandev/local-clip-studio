@@ -184,7 +184,22 @@ class Page(unittest.TestCase):
                           "baseten": ("https://inference.baseten.co/v1", True),
                           "fireworks": ("https://api.fireworks.ai/inference/v1", True)})
         self.assertEqual(list(forms), ["meta", "modal", "baseten", "fireworks"], "in the order the page shows them")
-        self.assertIn("dev.meta.ai/api-keys", forms["meta"]["key"], "where the key is made, from Meta's own page")
+        self.assertEqual({n: (a["key"], a["page"]) for n, a in forms.items()},
+                         {"meta": ("Meta API key", "https://dev.meta.ai/api-keys/"),
+                          "modal": ("Modal proxy token", "https://modal.com/settings/proxy-auth-tokens"),
+                          "baseten": ("Baseten API key", "https://app.baseten.co/settings/api_keys"),
+                          "fireworks": ("Fireworks API key", "https://app.fireworks.ai/settings/users/api-keys")},
+                         "Get a key opens the page each provider's own docs link to")
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "index.html"),
+                  encoding="utf-8") as f:
+            page = f.read()
+        self.assertEqual({n: a["sub"] for n, a in forms.items()},
+                         {"meta": "Muse Spark", "modal": "Spark Open", "baseten": "Spark Open",
+                          "fireworks": "Spark Open"})
+        icons = [a["icon"] for a in forms.values()]
+        self.assertEqual(len(set(icons)), 4, "a tile is told apart by its shape too")
+        for icon in icons:
+            self.assertIn('symbol id="i-%s"' % icon, page, "the page's own icon, never a provider's logo")
         status, got, _ = self.ask("POST", {"api": "baseten", "url": "", "key": "made-up-baseten"})
         self.assertEqual((status, got["url"], got["mind"]["key"], got["mind"]["ok"]),
                          (200, "https://inference.baseten.co/v1", "baseten", True), "what the faded text shows")

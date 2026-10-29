@@ -243,10 +243,16 @@
       <p class="panel-why" id="mindWhy" hidden></p>
       <form class="api-form" id="apiForm" autocomplete="off" hidden>
         <p class="s-sub"><svg class="ico sm"><use href="#i-cloud"/></svg>API</p>
-        <div class="seg" id="apiSeg" role="group" aria-label="Which API the key is for"></div>
-        <input class="channel-input" type="url" id="apiUrl" placeholder="https://api.meta.ai/v1" aria-label="Endpoint URL" spellcheck="false">
-        <input class="channel-input" type="password" id="apiKey" placeholder="API key" aria-label="API key">
-        <button type="submit" class="pill go"><svg class="ico sm"><use href="#i-check"/></svg>Save</button>
+        <div class="big3 api-tiles" id="apiSeg" role="radiogroup" aria-label="Which API the key is for"></div>
+        <input class="channel-input" type="url" id="apiUrl" placeholder="https://api.meta.ai/v1" aria-label="Endpoint URL" spellcheck="false" hidden>
+        <div class="api-key">
+          <input class="channel-input" type="password" id="apiKey" placeholder="API key" aria-label="API key">
+          <a class="pill" id="apiGet" target="_blank" rel="noopener noreferrer">Get a key ↗</a>
+        </div>
+        <div class="api-row">
+          <button type="submit" class="pill go"><svg class="ico sm"><use href="#i-check"/></svg>Save</button>
+          <button type="button" class="api-more" id="apiMore">Change address</button>
+        </div>
         <p class="setup-line" id="apiNote" role="status"></p>
       </form>
       <div id="sendsBox" hidden>

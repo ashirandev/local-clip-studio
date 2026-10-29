@@ -818,11 +818,13 @@ def _close(s):
 
 
 def api_forms():
-    """What Options > API shows for each API, in mind.APIS's order: its faded address and key, the address saved for it
-    and whether its key is saved (never the key), and whether an empty address means its own."""
+    """What Options > API shows for each API, in mind.APIS's order: its faded address and key, the page its key is made
+    on, the address saved for it and whether its key is saved (never the key), and whether an empty address means its
+    own."""
     saved = mind.saved_apis()
-    return [{"name": name, "label": api["label"], "address": api["url"] or api["where"], "key": api["key"],
-             "own": bool(api["url"]), "url": saved.get(name, {}).get("url", ""),
+    return [{"name": name, "label": api["label"], "sub": api["sub"], "icon": api["icon"],
+             "address": api["url"] or api["where"], "key": api["key"],
+             "page": api["page"], "own": bool(api["url"]), "url": saved.get(name, {}).get("url", ""),
              "saved": saved.get(name, {}).get("saved", False)} for name, api in mind.APIS.items()]
 
 

@@ -75,6 +75,8 @@ const apiUrl = $("apiUrl");
 const apiKey = $("apiKey");
 const apiNote = $("apiNote");
 const apiSeg = $("apiSeg");
+const apiGet = $("apiGet");
+const apiMore = $("apiMore");
 let apis = [];
 let apiNow = "";
 const phoneBox = $("phoneBox");
@@ -2123,22 +2125,45 @@ async function loadKey() {
   apis = d.apis || [];
   const saved = apis.find((a) => a.url && a.url === d.url);
   const now = apis.some((a) => a.name === apiNow) ? apiNow : saved ? saved.name : apis.length ? apis[0].name : "";
-  drawSeg(apiSeg, apis.map((a) => [a.name, a.label]), now, fillApi);
   fillApi(now);
   drawSends(d);
+}
+
+function drawApis() {
+  apiSeg.replaceChildren();
+  apis.forEach((a) => {
+    const b = el("button");
+    b.type = "button";
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-checked", String(a.name === apiNow));
+    b.append(ico(a.icon), el("span", null, a.label), el("small", null, a.saved ? "Key saved" : a.sub));
+    b.addEventListener("click", () => fillApi(a.name));
+    apiSeg.appendChild(b);
+  });
 }
 
 function fillApi(name) {
   const a = apis.find((x) => x.name === name);
   if (!a) return;
   apiNow = a.name;
+  drawApis();
+  const mine = a.url && !(a.own && a.url === a.address) ? a.url : "";
   apiUrl.placeholder = a.address;
-  apiUrl.value = a.url && !(a.own && a.url === a.address) ? a.url : "";
+  apiUrl.value = mine;
+  apiUrl.hidden = a.own && !mine;
+  apiMore.hidden = !apiUrl.hidden;
   apiKey.value = "";
-  apiKey.placeholder = a.saved ? "API key (saved)" : a.key;
+  apiKey.placeholder = a.saved ? a.key + " (saved)" : a.key;
+  apiGet.href = a.page;
   apiNote.classList.remove("bad");
-  apiNote.textContent = a.own ? "Leave the address empty for " + a.label + "'s own." : "Give your " + a.label + " endpoint's address.";
+  apiNote.textContent = "";
 }
+
+apiMore.addEventListener("click", () => {
+  apiUrl.hidden = false;
+  apiMore.hidden = true;
+  apiUrl.focus();
+});
 
 function drawSends(d) {
   sendsBox.hidden = !d.here;
@@ -2180,9 +2205,10 @@ apiForm.addEventListener("submit", async (e) => {
   if (a) {
     a.saved = true;
     a.url = d.url;
+    drawApis();
   }
   apiKey.value = "";
-  apiKey.placeholder = "API key (saved)";
+  apiKey.placeholder = (a ? a.key : "API key") + " (saved)";
   health();
 });
 

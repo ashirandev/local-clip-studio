@@ -213,9 +213,9 @@ documented API, not measured:** we have not run it with a key of ours, and Optio
 the studio's: `%APPDATA%\LocalClipStudio\keys.env` on Windows, `~/.config/LocalClipStudio/keys.env` elsewhere. The
 address decides which Muse it is for: a `*.modal.direct` address is Muse Spark Open on Modal, a `baseten.co` or
 `fireworks.ai` one is Muse Spark Open there, any other is Muse Spark. In Options, pick Meta, Modal, Baseten or
-Fireworks first: the two fields then show, faded, that API's address and where its key is made (each provider's own
-page), and an empty address saves that address (Modal has none of its own: give your endpoint's). Each API keeps its
-own key, so a Baseten key saved after a Meta key leaves the Meta key that Wonder, Image and Voice need.
+Fireworks: paste the key, or press Get a key for the page that provider makes keys on (as its own docs link it). The
+address is that provider's own unless you press Change address; Modal has none of its own, so it asks for your
+endpoint's. Each API keeps its own key, so a Baseten key saved after a Meta key leaves the Meta key that Wonder, Image and Voice need.
 The Muse they reach is ready at once, without a restart. Only the page on the computer the studio runs on can set them
 or see the saved address, and the key is never shown again: from a phone on the same network, someone could otherwise
 point Muse at a server of theirs and be sent the recording's pictures. An address on another computer must use https,

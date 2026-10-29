@@ -50,19 +50,23 @@ PRICES = {
 # Baseten was run with a key of ours on 10-29 (a question, a tool call and a JSON answer, through this preset);
 # Fireworks is written to its documented address and model name, not yet run with a key of ours.
 NOT_MEASURED = "on %s servers, with your own key (written to its API, not measured)"
-# The APIs a key can be given for, with what goes in each field, as Options shows it faded: where a key is made is
-# read from each provider's own page (10-29): dev.meta.ai/api-keys, Baseten's organization settings, Fireworks'
-# app.fireworks.ai/api-keys, Modal's proxy tokens (two parts, wk- and ws-). Modal has no address of its own: each
-# workspace's endpoint has its own.
+# The APIs a key can be given for, as Options shows them: the key field's faded name, and the page its key is made on,
+# each as the provider's own pages link it (10-30): Meta's blog, Baseten's and Fireworks' quickstarts, Modal's proxy
+# token guide (a token is two parts, wk- and ws-). Modal has no address of its own: each workspace's endpoint has its
+# own, so its address field is always shown.
+# Each is a tile of the page's own icon (never the provider's logo) and two words of what it serves.
 APIS = {
-    "meta": {"label": "Meta", "mind": "spark", "url": "https://api.meta.ai/v1",
-             "key": "Meta API key, from dev.meta.ai/api-keys"},
-    "modal": {"label": "Modal", "mind": "modal", "url": "", "where": "https://<your endpoint>.modal.direct/v1",
-              "key": "wk-....ws-... (your proxy token's two parts)"},
-    "baseten": {"label": "Baseten", "mind": "baseten", "url": "https://inference.baseten.co/v1",
-                "key": "Baseten API key, from API keys in app.baseten.co"},
-    "fireworks": {"label": "Fireworks", "mind": "fireworks", "url": "https://api.fireworks.ai/inference/v1",
-                  "key": "Fireworks API key, from app.fireworks.ai/api-keys"},
+    "meta": {"label": "Meta", "sub": "Muse Spark", "icon": "spark", "mind": "spark", "url": "https://api.meta.ai/v1",
+             "key": "Meta API key", "page": "https://dev.meta.ai/api-keys/"},
+    "modal": {"label": "Modal", "sub": "Spark Open", "icon": "stack", "mind": "modal", "url": "",
+              "where": "https://<your endpoint>.modal.direct/v1", "key": "Modal proxy token",
+              "page": "https://modal.com/settings/proxy-auth-tokens"},
+    "baseten": {"label": "Baseten", "sub": "Spark Open", "icon": "cloud", "mind": "baseten",
+                "url": "https://inference.baseten.co/v1", "key": "Baseten API key",
+                "page": "https://app.baseten.co/settings/api_keys"},
+    "fireworks": {"label": "Fireworks", "sub": "Spark Open", "icon": "star", "mind": "fireworks",
+                  "url": "https://api.fireworks.ai/inference/v1", "key": "Fireworks API key",
+                  "page": "https://app.fireworks.ai/settings/users/api-keys"},
 }
 # The endpoints a person may name in a word when setup asks for one.
 NAMED = {name: api["url"] for name, api in APIS.items() if api["url"]}
