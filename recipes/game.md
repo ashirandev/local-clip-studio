@@ -35,6 +35,10 @@ After the clip, the viewer has felt the moment: what led up to it, the peak, and
   the viewer watch.
 - The post text tells what happens and how the streamer took it, in words a viewer would use: not the screen's
   labels and numbers ("AGE 22", "DEATH") copied out.
+- Hashtags: the game's name when it is on the screen or said (#Sifu), then what a player of that game searches
+  for (the kind of game, the boss, the place or the kind of moment, in the words players use), then the channel's
+  own. Never a tag any game clip could carry, such as #เกม, #สตรีม, #ตลก, #เกมเมอร์ or #ไลฟ์: it tells the apps
+  nothing about this clip.
 - Before placing effects, watch the stretch with its sound: a game's funniest moments are often silent (a fall, a
   glitch, a look on the face), and each effect goes on one of them.
 - Look: vivid. One slow push on the build-up, ending on the peak.

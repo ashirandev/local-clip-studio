@@ -44,7 +44,8 @@ its own kind, both hold; the person's own words win over both.
   on the picture: the same file goes to every app. To point to the full video, write "ดูคลิปเต็มในลิงก์โปรไฟล์", or
   "full video: link in profile" in the clip's language.
 - Five hashtags: first three about what the viewer is looking for or struggling with, because the apps show the
-  first three; then two about the topic or the channel.
+  first three; then two about the topic or the channel. Each one is about this clip: a tag any clip of its kind
+  could carry says nothing.
 
 ## Hidden and kept
 
