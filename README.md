@@ -394,33 +394,33 @@ dates. No code from it is in this repository.
 
 ## Open source and models used
 
-Each piece is listed with its licence. The Status column says whether this build uses it yet.
+Each piece is listed with its licence. The Status column says whether this build uses it yet. What it receives says what leaves this computer for it: on the home route (Glimmer, Omnilingual and SAM on your own card) nothing does; a Muse on an API, and Muse Wonder watching, are sent what that column says, with your own key.
 
-| Piece | What it does here | Licence | Status |
-|---|---|---|---|
-| [Muse Glimmer 30B](https://huggingface.co/meta-models/Muse-Glimmer-30B) (Meta) | the agent's mind, on your own graphics card | Apache-2.0 | used |
-| Muse Spark (Meta API) | the same mind without a graphics card, with your own key | Meta's API terms | used |
-| Muse Wonder (Meta API) | the same mind, Meta's model for long work with many tools, with the same key | Meta's API terms | used |
-| [Muse Spark Open](https://huggingface.co/meta-models/Muse-Spark-Open-816B-A42B) (Meta) on a Modal shared endpoint | the same mind on Modal's machines, with your own token | Meta's model licence; Modal's terms | wired, not run yet |
-| [llama.cpp](https://github.com/ggml-org/llama.cpp) (llama-server) | runs Glimmer locally | MIT | used |
-| [FFmpeg](https://ffmpeg.org/) | reads each recording (ffprobe) and takes pictures from it; later cuts and renders the clip | LGPL-2.1+ (GPL for some builds; the Windows build setup downloads is GPL-3.0) | used |
-| [Omnilingual ASR](https://github.com/facebookresearch/omnilingual-asr) (Meta), CTC 1B v2 | writes down what is said, in many languages, with the time of every phrase | Apache-2.0 | used |
-| [FLEURS](https://huggingface.co/datasets/google/fleurs) (Google), Thai *train* transcripts | counted once into `clipstudio/thai_marks.json`, which puts back the Thai vowel marks Omnilingual cannot write | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | used |
-| [SAM 3.1](https://github.com/facebookresearch/sam3) (Meta) | finds the person frame by frame, for the cut-out looks and the titles behind the person (`cut_out`) | SAM License | used |
-| [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) (OpenCV Zoo) | finds faces, so the layouts frame them and words never cover one | MIT | used |
-| [OpenCV](https://opencv.org/) (`opencv-python`) | runs YuNet | Apache-2.0 | used |
-| [segno](https://github.com/heuer/segno) | draws the QR code a phone opens the studio with | BSD-3-Clause | used |
-| [PyThaiNLP](https://github.com/PyThaiNLP/pythainlp) | breaks Thai titles and captions at word boundaries | Apache-2.0 | used |
-| [NumPy](https://numpy.org/) | holds the pictures the face finder reads | BSD-3-Clause | used |
-| [RapidOCR](https://github.com/RapidAI/RapidOCR) (`rapidocr-onnxruntime`), with the PP-OCRv4 models it ships | reads the words on the screen at full size, so private lines can be hidden | Apache-2.0 | used |
-| [ONNX Runtime](https://onnxruntime.ai/) | runs RapidOCR's models on the processor | MIT | used |
-| [SFace](https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface) (OpenCV Zoo) | tells faces apart, so other people's faces can be blurred | Apache-2.0 | planned |
-| [MMS-TTS Thai](https://huggingface.co/facebook/mms-tts-tha) (Meta) | an optional voice-over, off by default | [CC-BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/), **non-commercial** | planned |
-| [Google Sans](https://github.com/googlefonts/googlesans), in `fonts/` with its licence | the house font for words on the clip, Thai and Latin | SIL Open Font License 1.1 | used |
-| [Kanit](https://fonts.google.com/specimen/Kanit) (Google Fonts), in `fonts/` with its licence | Thai and Latin text on the clip, when chosen | SIL Open Font License 1.1 | used |
-| [Pattaya](https://fonts.google.com/specimen/Pattaya) (Google Fonts), in `fonts/` with its licence | the glow look's script letters | SIL Open Font License 1.1 | used |
-| [Taviraj](https://fonts.google.com/specimen/Taviraj) (Google Fonts), in `fonts/` with its licence | the classic look's italic letters | SIL Open Font License 1.1 | used |
-| [Fluent Emoji 3D](https://github.com/microsoft/fluentui-emoji) (Microsoft), 60 of them in `stickers/` with `stickers/LICENSE-Fluent-Emoji.txt` | the studio's stickers | MIT | used |
+| Piece | What it does here | What it receives | Licence | Status |
+|---|---|---|---|---|
+| [Muse Glimmer 30B](https://huggingface.co/meta-models/Muse-Glimmer-30B) (Meta) | the agent's mind, on your own graphics card | nothing: it runs on this computer | Apache-2.0 | used |
+| Muse Spark (Meta API) | the same mind without a graphics card, with your own key | each step's messages, the pictures Muse looks at, and what was said in them | Meta's API terms | used |
+| Muse Wonder (Meta API) | the same mind, Meta's model for long work with many tools, with the same key; and, whichever Muse runs the chat, it watches a stretch of up to 60 s with its sound and names what the words miss (a scream, a laugh, a fail, a silent stare), with the effect for each (`watch_piece`) | as Spark when it runs the chat; for `watch_piece`, the stretch it watches, as a small video with its sound | Meta's API terms | used |
+| [Muse Spark Open](https://huggingface.co/meta-models/Muse-Spark-Open-816B-A42B) (Meta) on a Modal shared endpoint | the same mind on Modal's machines, with your own token | as Spark, on Modal's machines | Meta's model licence; Modal's terms | answers (one question measured 10-29); no whole clip made on it yet |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) (llama-server) | runs Glimmer locally | nothing: it runs on this computer | MIT | used |
+| [FFmpeg](https://ffmpeg.org/) | reads each recording (ffprobe) and takes pictures from it; later cuts and renders the clip | nothing: it runs on this computer | LGPL-2.1+ (GPL for some builds; the Windows build setup downloads is GPL-3.0) | used |
+| [Omnilingual ASR](https://github.com/facebookresearch/omnilingual-asr) (Meta), CTC 1B v2 | writes down what is said, in many languages, with the time of every phrase | nothing: it runs on this computer | Apache-2.0 | used |
+| [FLEURS](https://huggingface.co/datasets/google/fleurs) (Google), Thai *train* transcripts | counted once into `clipstudio/thai_marks.json`, which puts back the Thai vowel marks Omnilingual cannot write | nothing: files in this repo | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | used |
+| [SAM 3.1](https://github.com/facebookresearch/sam3) (Meta) | finds the person frame by frame, for the cut-out looks and the titles behind the person (`cut_out`) | nothing: it runs on this computer | SAM License | used |
+| [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) (OpenCV Zoo) | finds faces, so the layouts frame them and words never cover one | nothing: it runs on this computer | MIT | used |
+| [OpenCV](https://opencv.org/) (`opencv-python`) | runs YuNet | nothing: it runs on this computer | Apache-2.0 | used |
+| [segno](https://github.com/heuer/segno) | draws the QR code a phone opens the studio with | nothing: it runs on this computer | BSD-3-Clause | used |
+| [PyThaiNLP](https://github.com/PyThaiNLP/pythainlp) | breaks Thai titles and captions at word boundaries | nothing: it runs on this computer | Apache-2.0 | used |
+| [NumPy](https://numpy.org/) | holds the pictures the face finder reads | nothing: it runs on this computer | BSD-3-Clause | used |
+| [RapidOCR](https://github.com/RapidAI/RapidOCR) (`rapidocr-onnxruntime`), with the PP-OCRv4 models it ships | reads the words on the screen at full size, so private lines can be hidden | nothing: it runs on this computer | Apache-2.0 | used |
+| [ONNX Runtime](https://onnxruntime.ai/) | runs RapidOCR's models on the processor | nothing: it runs on this computer | MIT | used |
+| [SFace](https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface) (OpenCV Zoo) | tells faces apart, so other people's faces can be blurred | nothing: it runs on this computer | Apache-2.0 | planned |
+| [MMS-TTS Thai](https://huggingface.co/facebook/mms-tts-tha) (Meta) | an optional voice-over, off by default | nothing: it runs on this computer | [CC-BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/), **non-commercial** | planned |
+| [Google Sans](https://github.com/googlefonts/googlesans), in `fonts/` with its licence | the house font for words on the clip, Thai and Latin | nothing: files in this repo | SIL Open Font License 1.1 | used |
+| [Kanit](https://fonts.google.com/specimen/Kanit) (Google Fonts), in `fonts/` with its licence | Thai and Latin text on the clip, when chosen | nothing: files in this repo | SIL Open Font License 1.1 | used |
+| [Pattaya](https://fonts.google.com/specimen/Pattaya) (Google Fonts), in `fonts/` with its licence | the glow look's script letters | nothing: files in this repo | SIL Open Font License 1.1 | used |
+| [Taviraj](https://fonts.google.com/specimen/Taviraj) (Google Fonts), in `fonts/` with its licence | the classic look's italic letters | nothing: files in this repo | SIL Open Font License 1.1 | used |
+| [Fluent Emoji 3D](https://github.com/microsoft/fluentui-emoji) (Microsoft), 60 of them in `stickers/` with `stickers/LICENSE-Fluent-Emoji.txt` | the studio's stickers | nothing: files in this repo | MIT | used |
 
 Model weights are downloaded when they are first needed. None of them are committed here.
 
@@ -452,6 +452,8 @@ Model weights are downloaded when they are first needed. None of them are commit
 | 2026-10-29, this build | The Premiere export of the yeti review (7 pieces from 3 phone clips, 45.6 s), read back with OpenTimelineIO's Final Cut Pro 7 XML reader | 7 pieces on the video track and on the sound, each pointing at its own phone clip (83-109 s long) at the seconds the studio used, the timeline 45.60 s like the clip, the 6 reasons and the title as markers. Frames drawn from the originals with the exported scale and position matched the finished clip at each piece (mean difference 1.6-8.2 of 255, captions left out). Not yet opened in Premiere itself |
 | 2026-10-29, this build | Seven of our own sets, each asked for once in Thai the way a person types it, on Spark and on Glimmer (the brother's podcast on Glimmer only): a mic review in 8 phone clips, horse riding (7), Akihabara (12), an event (19), a talk, a 4-hour SIFU stream, a 1-hour podcast | Spark: 6 of 6 made a clip that passed every check, $0.21-0.46 a clip ($1.83 in all), 2.8-8.1 min. Glimmer: 7 of 7 after three fixes the runs found (a title place -12 px tall in the speaker layout, a podcast's hosts listed to blur, a blur one pixel short of the viewers' names), 2.4-7.9 min a clip, 3.9 on average. The podcast's clip came out 6.7 s: the hearing reads that stretch badly, and the talk recipe keeps only clear speech |
 | 2026-10-29, this build | Meta's own Glimmer file instead of unsloth's: `Muse-Glimmer-30B-KQuant-17GB-Q4_K_M.gguf` from [meta-models/Muse-Glimmer-30B-GGUF](https://huggingface.co/meta-models/Muse-Glimmer-30B-GGUF), 16,756,683,904 bytes, SHA-256 `4cc57c0f51040a226e5a72cc47b7613f7772950e460a665f7083de89f183f60e` as Meta lists it, as a second preset in the same router, chosen with `LCS_MIND_MODEL`; the mic review set asked once in Thai, one run | a 29.0 s clip that passed every check, 7 steps, 0 refused, $0, 15.7 min (the same set on UD-Q3_K_XL: 7.9 min). The file is larger than the 16 GB card, so part of it runs on the processor; UD-Q3_K_XL stays the default |
+| 2026-10-29, this build | Muse Wonder watching 30 s of the author's own game stream (2:51:08-2:51:38), cut to 360 pixels at 10 frames a second with mono sound (1.46 MB), through `watch_piece` | 36 s, $0.059 (2,735 tokens read, 2,375 written, most of them thinking); 6 moments, none of them said: the yelp at the first hit, a throw, the death from behind, the laugh at his own death, the age jumping from 38 to 44 (the big word it gave was Thai, "แก่!", as the stream is in Thai), and the run around the hedges |
+| 2026-10-29, this build | One short Thai question to Muse Spark Open on the author's Modal endpoint, and to Muse Wonder on Meta's API | Spark Open: right answer in 1.7 s, $0.002; Wonder: 7 s, $0.006 |
 
 New measurements are added here as the build is tested, each with its date.
 

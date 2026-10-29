@@ -971,10 +971,28 @@ class Job:
         finally:
             self.done_working()
 
-    def paid(self, got):
+    def paid(self, got, brain=None):
         """Writes what an answer cost into the studio's ledger (spent.py) and gives the answer back."""
-        spent.add(os.path.join(WORK, "spent.jsonl"), self.chat.id, self.n, self.brain, got["engine"])
+        spent.add(os.path.join(WORK, "spent.jsonl"), self.chat.id, self.n, brain or self.brain, got["engine"])
         return got
+
+    def ask_other(self, key, messages, schema, doing, room):
+        """Asks another Muse (mind key) apart from this job's conversation, for what only it can do, such as Muse
+        Wonder watching a video with its sound: {text, engine, ...}, its cost in the ledger under that Muse. Stop
+        cancels it (hearing.Stopped); a Muse that is not set up raises MindError with its sentence."""
+        other = mind.MINDS.get(key)
+        if other is None:
+            raise mind.MindError("There is no Muse called %s." % key)
+        asking = mind.Asking()
+        self.working(doing)
+        self.started_work(asking.cancel)
+        try:
+            return self.paid(other.ask(messages, temperature=0.2, max_tokens=room, asking=asking, schema=schema),
+                             other)
+        except mind.Cancelled:
+            raise hearing.Stopped()
+        finally:
+            self.done_working()
 
     def started_work(self, stop):
         """A tool's work that takes a while has begun: Stop ends it with stop(), at once if Stop came first."""

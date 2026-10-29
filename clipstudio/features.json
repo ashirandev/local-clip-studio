@@ -32,6 +32,14 @@
   "show": "subject"
  },
  {
+  "tool": "watch_piece",
+  "group": "Clips",
+  "name": "Watched with sound by Muse Wonder",
+  "says": "Muse Wonder watches the stretch with its sound and finds what words miss: a scream, a laugh, a fail, a silent stare, each with the effect that lands there. With your Meta key, a few cents a look.",
+  "ask": "Find the funny bits nobody says out loud, and put an effect on each.",
+  "show": "watch"
+ },
+ {
   "tool": "change_ends",
   "group": "Clips",
   "name": "Trim or take in more",

@@ -20,7 +20,7 @@ import numpy as np
 
 from . import (channels, cutout, effects, faces, focus, hearing, layouts, maps, mind, montage, pauses, person, previews,
                project, recording, render, review, voices,
-               screen, spoken, takes, talk, text, thai, tracks, words)
+               screen, spoken, takes, talk, text, thai, tracks, watch, words)
 from .recipes import RECIPES, SIGNALS
 
 WHY = {"type": "string",
@@ -915,6 +915,74 @@ def look_at_piece(job, why, start, end, frames=LOOK_FRAMES):
     looks.append(look)
     job.show(look=look)
     return "\n".join(lines)
+
+
+def watch_piece(job, why, start, end):
+    """Muse Wonder watches start to end, picture and sound (watch.py), and its moments come back to Muse as
+    suggestions: each with its second in the recording and in the clip, what happens, and the tool call that would put
+    its effect there. Whichever Muse runs the chat calls it; the watching is always Muse Wonder's, with the person's
+    Meta key."""
+    rec = _open(job, "watch")
+    clock = recording.clock
+    a, b = _time("start", start), _time("end", end)
+    if a >= rec["seconds"]:
+        raise Refused("start %s is after the end of the recording, which is %s long." % (clock(a), clock(rec["seconds"])))
+    a, b = round(a, 2), round(min(b, rec["seconds"]), 2)
+    if b - a < watch.SHORTEST:
+        raise Refused("Give a stretch of at least %d s to watch; %s-%s is %.1f s." % (watch.SHORTEST, clock(a),
+                                                                                    clock(b), b - a))
+    if b - a > watch.LONGEST:
+        raise Refused("Muse Wonder watches at most %d s at a time, and %s-%s is %d s. Watch the clip's own stretch, "
+                      "or the %d s around the moment you mean." % (watch.LONGEST, clock(a), clock(b), round(b - a),
+                                                                   watch.LONGEST))
+    wonder = mind.MINDS.get("wonder")
+    if not wonder or not wonder.secret():
+        raise Refused("Muse Wonder watches with the person's own Meta API key, and none is set, so nothing was sent. "
+                      "Go on from your looks and what was heard. Tell the person once that Options > API takes the "
+                      "key.")
+    started = time.time()
+    try:
+        job.working("Cutting %s-%s for Muse Wonder to watch" % (clock(a), clock(b)))
+        try:
+            path = watch.cut(rec, a, b, on_start=job.started_work)
+        finally:
+            job.done_working()
+        if job.stopped:
+            return "Not watched: the person pressed Stop."
+        got = job.ask_other("wonder", watch.question(path, b - a, rec["name"], "English"), watch.SCHEMA,
+                            "Muse Wonder is watching %s-%s with its sound" % (clock(a), clock(b)), watch.ANSWER_TOKENS)
+        found = watch.moments(got["text"], a, b)
+    except hearing.Stopped:
+        return "Not watched: the person pressed Stop."
+    except (watch.WatchError, mind.MindError) as e:
+        return "Muse Wonder did not watch %s-%s: %s Go on from your looks." % (clock(a), clock(b), e)
+    took, usd = round(time.time() - started, 1), (got.get("engine") or {}).get("usd")
+    job.show(watched={"start": a, "end": b, "moments": found})
+    head = "Muse Wonder watched %s-%s with its sound (%g s%s)" % (clock(a), clock(b), took,
+                                                                 ", $%.3f" % usd if usd is not None else "")
+    if not found:
+        return head + " and saw nothing a viewer would react to that the words do not already carry."
+    clip = (job.chat.project.state()["clip"] or {}) if job.chat.project else {}
+    lines = [head + ". What it saw, which words alone miss, with the effect it would put there:"]
+    for m in found:
+        at = project.from_recording(clip["pieces"], m["at"]) if clip else None
+        where = "%s (%s)" % (_tenth(m["at"]), "%.1f s of the clip" % at if at is not None else "outside the clip")
+        lines.append("- %s, %s: %s %s" % (where, m["kind"], m["what"], _watch_effect(m, at)))
+    lines.append("These are suggestions: check each against your looks, keep the ones that fit, and put them on at the "
+                 "clip seconds given. A moment outside the clip can be taken in with change_ends.")
+    return "\n".join(lines)
+
+
+def _watch_effect(m, at):
+    """The tool call that puts m's effect on the clip, as words for Muse."""
+    if m["effect"] == "none":
+        return "(no effect)"
+    t = "%.1f" % at if at is not None else "its second once it is in the clip"
+    if m["effect"] in watch.HITS:
+        return "→ add_hit kind %s%s at %s" % (m["effect"], ' word "%s"' % m["word"] if m["effect"] == "word" else "", t)
+    if m["effect"] == "flurry":
+        return "→ add_flurry at %s" % t
+    return "→ add_sound kind %s at %s" % (m["effect"], t)
 
 
 SPILL = 6.0
@@ -4450,6 +4518,15 @@ TOOLS = {t.name: t for t in [
           "frames": {"type": "integer", "minimum": 2, "maximum": 6,
                      "description": "How many pictures (2 to 6, default %d)." % LOOK_FRAMES}},
          ["start", "end"], look_at_piece, changes=True),
+    Tool("watch_piece", "Watched it with Muse Wonder",
+         "Have Muse Wonder watch a stretch of up to %d s with its sound, and point out what the words alone miss: a "
+         "scream, a laugh, a fail, a surprise, a silent stare, each with its second and the effect that would land "
+         "there. Call it on the clip's own stretch before you put effects on a game, a reaction or any clip whose fun "
+         "is in the picture and the sound. It sends that stretch, small, to Meta with the person's own key, and costs "
+         "a few cents." % watch.LONGEST,
+         {"start": {"type": "string", "maxLength": 20, "description": "Where the stretch starts, like 1:51:23."},
+          "end": {"type": "string", "maxLength": 20, "description": "Where it ends, written the same way."}},
+         ["start", "end"], watch_piece),
     Tool("propose_moments", "Proposed the moments",
          "Propose the best moments for the clip, best first, each from a look you made. The person sees each as a "
          "card with your reason, a picture from your look and a rough video of the stretch. Then go on with the "
