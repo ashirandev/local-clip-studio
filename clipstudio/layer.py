@@ -150,7 +150,7 @@ def words(state, default="clean", size=SIZE):
     with open(path, encoding="utf-8") as f:
         ass_text = f.read()
     head = ass_text.split("[Events]")[0]
-    fonts = text.fonts_folder(*render._styles(state, default).values())
+    fonts = render.fonts(state, default)
     evs = events(ass_text)
     folder = render.folder("layers")
     index, todo = [], {}

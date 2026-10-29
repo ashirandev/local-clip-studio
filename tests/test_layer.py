@@ -34,7 +34,7 @@ def burned(st, frames):
     """{n: frame n of a moving test picture with the clip's words burned in by the export's own filter}, 540x960."""
     import numpy as np
     path = render.ass(st)
-    fonts = text.fonts_folder(*render._styles(st, "clean").values())
+    fonts = render.fonts(st, "clean")
     pick = layer._any(["eq(n\\,%d)" % n for n in frames])
     raw = subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i", GROUND % (W, H, st["length"] + 1), "-vf",
                           "select='%s',%s" % (pick, text._ass_filter(path, fonts)), "-fps_mode", "passthrough",
@@ -158,6 +158,15 @@ class Words(unittest.TestCase):
         self.assertTrue(all(e["from"] >= start - 0.05 for e in new),
                         "only the steps from the fixed line on are new: %s" % [(e["from"], e["to"]) for e in new])
         self.assertTrue(any(e["file"] in old for e in again), "the steps before it are kept")
+
+    def test_captions_one_line_at_a_time_on_the_page_are_the_ones_burned_in(self):
+        """The yeti review 10-29: a talked review's captions, in their own look, were drawn in another face."""
+        st = dict(state(word=False, said=[dict(SAID[1], **{"from": 0.3})]), style=None)
+        st["captions"]["one"] = True
+        index = layer.words(st)
+        n = 30
+        diff = abs(laid(picture(entry_at(index, n)["file"]), grounds([n], 2)[n]) - burned(st, [n])[n]).max(axis=2)
+        self.assertLess(int((diff > 3).sum()), 100, "%d pixels over 3 levels off" % (diff > 3).sum())
 
     def test_no_words_no_layer_and_words_behind_the_person_stay_in_the_picture(self):
         self.assertEqual(layer.words(state(title=False, word=False, said=None)), [])

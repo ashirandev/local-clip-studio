@@ -382,6 +382,38 @@ class OneLine(unittest.TestCase):
         self.assertGreater(found[False][2] - found[False][0], (found[True][2] - found[True][0]) * 1.2,
                            "one line at a time is drawn bigger than the usual size the person can still choose")
 
+    @unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg, and numpy for the pixel checks")
+    def test_one_line_captions_are_drawn_in_the_face_they_were_measured_in(self):
+        """The yeti review 10-29: a clean clip's captions, in the pop look, were drawn in another face, half as wide
+        again as measured and out of their band."""
+        lines = text.caption_lines([{"from": 0.0, "to": 3.0, "text": "พอสมควรนะครับ"}], 14)
+        band = [layouts.CAPTIONS[1], layouts.CAPTIONS[3]]
+        st = state(captions=[{"lines": lines, "band": band, "one": True, "lit": False, "pop": False}])
+        found = changed(drawn(st, 1.0), drawn(st, 1.0, words=False))
+        wide = text.measure(lines[0]["text"], render._caption_style(st, "clean", lines, band[1]), "caption", 4000).w
+        self.assertLess(abs(found[2] - found[0] - wide), wide * 0.1, "drawn %s, measured %d px wide" % (found, wide))
+
+    @unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg, and numpy for the pixel checks")
+    def test_a_title_over_one_line_captions_stands_as_tall_as_they_do_inside_its_box(self):
+        """The yeti review 10-29: the hook at the title's own size stood half as tall as the captions under it."""
+        hook = dict(TITLE, text="นั่งไกล เสียงยังชัด", start=0.0, box=[65, 285, 950, 235])
+        lines = text.caption_lines([{"from": 0.0, "to": 3.0, "text": "พอสมควรนะครับ"}], 14)
+        talked = [{"lines": lines, "band": [layouts.CAPTIONS[1], layouts.CAPTIONS[3]], "one": True, "lit": False,
+                   "pop": False}]
+        found = {}
+        for name, chosen in (("own", None), ("talked", None), ("sized", {"name": "clean", "sizes": {"title": 3}})):
+            st, under = (state(title=[hook]), state()) if name == "own" else \
+                (state(title=[hook], captions=talked), state(captions=talked))
+            st["style"] = under["style"] = chosen
+            found[name] = changed(drawn(st, 1.0), drawn(under, 1.0))
+        tall = {name: box[3] - box[1] for name, box in found.items()}
+        self.assertTrue(inside(found["talked"], hook["box"], slack=4), "%s inside the title's box" % (found["talked"],))
+        self.assertGreater(tall["talked"], tall["own"] * 1.5, "the hook stands as tall as the captions: %s" % tall)
+        self.assertLess(tall["sized"], tall["own"] * 1.2, "a size the person chose for titles wins: %s" % tall)
+        long = dict(hook, text="ไมค์ตัวนี้นั่งไกลแค่ไหนเสียงก็ยังชัดอยู่ดีนะ")
+        found = changed(drawn(state(title=[long], captions=talked), 1.0), drawn(state(captions=talked), 1.0))
+        self.assertTrue(inside(found, hook["box"], slack=4), "a longer title shrinks into its box: %s" % (found,))
+
 @unittest.skipUnless(FFMPEG and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class Preview(unittest.TestCase):
     """The preview frame Muse sees is drawn by the same stages."""

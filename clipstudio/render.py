@@ -100,9 +100,43 @@ def _caption_style(state, default, lines=(), band_h=None):
     return st._replace(name="%s-one%d" % (st.name, round(grow * 100)), sizes=tuple(int(s * grow) for s in st.sizes))
 
 
+TITLE_SHRINK = 0.95
+
+
+def _title_style(state, default, said, title):
+    """The style a title is drawn in over captions shown one line at a time (said, from _caption_style): said's
+    letters at said's caption size, shrunk by TITLE_SHRINK at a time as far as needed for the title to fit its box,
+    never below the title's own size; the person's own size for the titles or for all the words wins. On the yeti
+    review (10-29) the hook at the title's own size stood half as tall as the captions under it."""
+    st = style_of(state, default, "title")
+    e = state["style"] or {}
+    if e.get("size") or (e.get("sizes") or {}).get("title"):
+        return st
+    w, h = title["box"][2], title["box"][3]
+    size = said.sizes[1]
+    while size > st.sizes[0]:
+        big = said._replace(name="%s-title%d" % (said.name, size), sizes=(size,) + said.sizes[1:])
+        got = text.measure(title["text"], big, "title", int(w))
+        if got.w <= w and got.h <= h:
+            return big
+        size = int(size * TITLE_SHRINK)
+    return st
+
+
 def _styles(state, default):
     """The clip's style for each part of its words, {kind: Style}."""
     return {kind: style_of(state, default, kind) for kind in text.KINDS}
+
+
+def fonts(state, default):
+    """The folder libass is given for the clip's ASS file: the fonts of its styles and of the captions shown one line
+    at a time, which ass() draws in their own look (the titles over them too). Left out, as on the yeti review
+    (10-29), libass drew those captions in another face, half as big again as they were measured."""
+    styles = list(_styles(state, default).values())
+    shown = state.get("captions")
+    if shown and shown.get("one"):
+        styles.append(_caption_style(state, default, shown["lines"], shown["band"][1]))
+    return text.fonts_folder(*styles)
 
 
 def _hits(state):
@@ -125,15 +159,19 @@ def ass(state, default="clean", behind=False):
     if not (titles or captions or words or channel):
         return None
     st = _styles(state, default)
+    shown = state.get("captions")
+    one = _caption_style(state, default, shown["lines"], shown["band"][1]) if shown and shown.get("one") else None
     events = []
-    for t in titles:
-        events += text.title(t["text"], t["start"], t["end"], t["box"], st["title"], t.get("key"))
     styles = list(st.values())
+    for t in titles:
+        drawn = _title_style(state, default, one, t) if one else st["title"]
+        if drawn not in styles:
+            styles.append(drawn)
+        events += text.title(t["text"], t["start"], t["end"], t["box"], drawn, t.get("key"))
     if captions:
         bands = captions.get("bands") or {}
-        said = _caption_style(state, default, captions["lines"], captions["band"][1]) if captions.get("one") else \
-            st["caption"]
-        if said is not st["caption"]:
+        said = one or st["caption"]
+        if said not in styles:
             styles.append(said)
         for who in sorted({str(line.get("who")) for line in captions["lines"]}):
             lines = [line for line in captions["lines"] if str(line.get("who")) == who]
@@ -215,7 +253,7 @@ def after_source(state, src, out, first_input, default="clean", words=True):
                                  f.get("length"), f.get("size", 150)) for f in state.get("flurries") or []]
     path = ass(state, default) if words else None
     if path:
-        fragments.append(text.burn(path, text.fonts_folder(*_styles(state, default).values())))
+        fragments.append(text.burn(path, fonts(state, default)))
     fragments += [effects.flash(h["at"]) for h in hits if h["kind"] == "flash"]
     stage, more = effects.join(fragments, "drawn", out, first_input + len(files))
     return ";".join((seen, lay, stage)), files + more
@@ -247,7 +285,7 @@ def _cut_out(state, default):
     looks = [CUTOUT_LOOKS[c["look"]](mask, c["start"], c["end"]) for c in cuts]
     words = ass(state, default, behind=True)
     if words:
-        filters = text._ass_filter(words, text.fonts_folder(*_styles(state, default).values()))
+        filters = text._ass_filter(words, fonts(state, default))
         looks.insert(sum(c["look"] == "grey" for c in cuts), cutout.behind(filters, mask, behind_titles + behind_words))
     return looks
 
