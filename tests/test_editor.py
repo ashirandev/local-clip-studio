@@ -915,10 +915,15 @@ class Tools(unittest.TestCase):
                       "the line the clip took in is captioned again")
         self.assertEqual(state["clip"]["moment"], 3)
         self.chat.undo()
-        self.chat.undo()
-        self.assertEqual(self.chat.project.state()["clip"]["pieces"], [[34.8, 50.0]], "undo puts the ends back")
+        state = self.chat.project.state()
+        self.assertEqual(state["clip"]["pieces"], [[34.8, 50.0]], "one undo puts the ends back, captions and all")
+        self.assertNotIn("moment", "".join(ln["text"] for ln in state["captions"]["lines"]))
         again = agent.Chat.load(self.chat.id)
         self.assertEqual([m["n"] for m in again.moments], [1, 2, 3], "the moved moments come back with the chat")
+        self.assertEqual(again.project.acts, self.chat.project.acts, "and which entries one action made")
+        again.undo()
+        self.assertEqual(again.project.state()["clip"]["pieces"], [[31.7, 50.0]], "so Undo still takes back the "
+                                                                                  "whole move after a restart")
 
     def test_a_start_before_what_was_heard_is_heard_first_and_wrong_ends_are_refused(self):
         _, steps = self.run_job(
@@ -1585,7 +1590,8 @@ class Tools(unittest.TestCase):
                 [call("decide_people", keep=[1], why="it is him")],
                 [call("render_clip", why="make the file")], [call("check_clip", why="check it")], "Done.")
             made, hidden, checked = steps[4], self.chat.project.state()["blurs"], steps[-1]
-            self.chat.undo(), self.chat.undo()
+            p = self.chat.project
+            p.entries, p.acts = p.entries[:-2], p.acts[:-2]
             _, again = self.run_job([call("decide_people", keep=[1], why="it is him")],
                                     [call("render_clip", why="again")], [call("check_clip", why="check it")], "Done.")
         finally:

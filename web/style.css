@@ -420,6 +420,9 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .trim-more { position: absolute; top: 50%; transform: translateY(-50%); padding: 2px 6px; border-radius: 6px; background: #FFD27A; color: #0E1420; font-size: 12px; font-weight: 700; pointer-events: none; }
 .trim-more.left { left: 4px; }
 .trim-more.right { right: 4px; }
+.trim-at { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.trim-at input { flex: 1; min-width: 0; accent-color: var(--sh-accent); }
+.trim-at span { color: var(--sh-text); font-size: 13px; font-variant-numeric: tabular-nums; }
 .ico.flip { transform: scaleX(-1); }
 .playhead { position: absolute; top: -4px; bottom: 0; width: 2px; margin-left: -1px; border-radius: 1px; background: #FFFFFF; pointer-events: none; }
 .playhead::before { content: ""; position: absolute; top: -4px; left: -5px; width: 12px; height: 12px; border-radius: 50%; background: #FFFFFF; }

@@ -1318,6 +1318,17 @@ function drawTrimMarks() {
   if (room.trim.end > e.end) track.appendChild(el("b", "trim-more right", "+" + (room.trim.end - e.end).toFixed(1) + " s"));
 }
 
+const trimAt = $("trimAt");
+const trimAtLine = $("trimAtLine");
+
+function showTrimAt(t) {
+  if (room.panel) trimAt.max = room.panel.length;
+  trimAt.value = t;
+  trimAtLine.textContent = tenths(Number(trimAt.value));
+}
+
+trimAt.addEventListener("input", () => seek(Number(trimAt.value)));
+
 $("trimEarlier").addEventListener("click", () => setTrim("start", trimNow().start - TRIM_STEP));
 $("trimLater").addEventListener("click", () => setTrim("end", trimNow().end + TRIM_STEP));
 $("trimStart").addEventListener("click", () => setTrim("start", onRecording(clipNow())));
@@ -1493,6 +1504,7 @@ function movePlayhead(t) {
   if (!head || !room.panel) return;
   const share = Math.max(0, Math.min(1, t / room.panel.length));
   head.style.left = (share * 100) + "%";
+  showTrimAt(t);
   if (room.made) updatePlayer();
 }
 

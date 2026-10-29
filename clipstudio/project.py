@@ -59,16 +59,28 @@ DOES = ("clip", "style", "title", "captions", "blur", "hit", "sticker", "people"
 class Project:
     def __init__(self, entries=()):
         self.entries = [dict(e) for e in entries]
+        self.acts = [None] * len(self.entries)
 
-    def add(self, entry):
+    def add(self, entry, act=None):
+        """Adds entry; act names the action it is part of (one tool call, one tap), for undo."""
         if entry.get("do") not in DOES:
             raise ValueError("An entry does one of %s, not %r." % (", ".join(DOES), entry.get("do")))
         self.entries.append(dict(entry))
+        self.acts.append(act)
         return entry
 
     def undo(self):
-        """Takes the last entry back and returns it, or None when there is nothing to undo."""
-        return self.entries.pop() if self.entries else None
+        """Takes the last change back and returns its first entry, or None when there is nothing to undo. The entries
+        one action made (one tool call of Muse's, one tap on the page) share its act and go back together: the
+        Trim tab's Apply makes the clip again, then its blurs and the decision on its people, and one Undo puts the
+        old clip back (10-29: it took two)."""
+        if not self.entries:
+            return None
+        entry, act = self.entries.pop(), self.acts.pop()
+        while act is not None and self.acts and self.acts[-1] == act:
+            entry = self.entries.pop()
+            self.acts.pop()
+        return entry
 
     def state(self):
         """What the entries add up to: {"clip": the last clip entry or None, "length": clip seconds, "style": the

@@ -158,7 +158,7 @@ class Chat:
                     chat.checks = {}
                 path = e["recording"]["path"]
             elif e["kind"] == "edit":
-                chat.project.add(e["entry"])
+                chat.project.add(e["entry"], e.get("act"))
             elif e["kind"] == "undo":
                 chat.project.undo()
             elif e["kind"] == "rendered":
@@ -264,16 +264,17 @@ class Chat:
         unfit = self.unfit(entry)
         return unfit and "The channel's name would not fit on the clip then: %s" % unfit
 
-    def edit(self, entry, job=None):
+    def edit(self, entry, job=None, act=None):
         """Adds one change to the clip's project list; the page redraws the clip. Returns the clip's state. Refused
-        when self.refusal(entry) says why not."""
+        when self.refusal(entry) says why not. act names the action it is part of (one tool call, one tap), so Undo
+        takes the action back whole (Project.undo)."""
         with self.cond:
             said = self.refusal(entry)
             if said:
                 raise Refused(said)
-            self.project.add(entry)
+            self.project.add(entry, act)
             self.changed += 1
-        self.emit("edit", job=job, entry=entry, clip=self.clip_view(), said=describe(entry))
+        self.emit("edit", job=job, entry=entry, act=act, clip=self.clip_view(), said=describe(entry))
         return self.project.state()
 
     def set_person(self, n, blur):
@@ -856,7 +857,7 @@ class Job:
         self.last_refused = {}
         self.refused_last = False
         self.shown_live = 0.0
-        self.stop_work = None
+        self.stop_work = self.act = None
         self.shown_extra = {}
         self.thread = threading.Thread(target=self.run, name="job-%d" % self.n, daemon=True)
 
@@ -937,7 +938,7 @@ class Job:
             self.done_working()
 
     def edit(self, entry):
-        return self.chat.edit(entry, job=self.n)
+        return self.chat.edit(entry, job=self.n, act=self.act)
 
     def render(self, rec, state, out, default):
         """Renders the clip into out for a tool: the page shows how far it has got, and Stop ends FFmpeg at once."""
@@ -1289,6 +1290,7 @@ class Job:
             self.tick(step)
         t0 = time.time()
         self.shown_extra = {}
+        self.act = "%s.%d.%d" % (self.chat.id, self.n, self.steps)
         try:
             text, ran = tool.run(self, why, **clean), True
         except Refused as e:
@@ -1404,7 +1406,7 @@ class Hand(Job):
 
     def __init__(self, chat, trial=False, page="video", whole=False):
         self.chat, self.trial, self.page, self.n, self.steps = chat, trial, page, None, 0
-        self.whole = whole
+        self.whole, self.act = whole, "%s.page.%s" % (chat.id, secrets.token_hex(4))
         self.proofread, self.pictures, self.shown_extra = {}, [], {}
         self.asking = self.stop_work = self.entry = None
         self.stopped = self.done = False
@@ -1422,7 +1424,7 @@ class Hand(Job):
         if self.trial:
             raise Allowed()
         self.entry = self.entry or entry
-        state = self.chat.edit(entry)
+        state = self.chat.edit(entry, act=self.act)
         if self.whole:
             return state
         raise Made()
