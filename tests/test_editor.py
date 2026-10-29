@@ -1307,7 +1307,8 @@ class Tools(unittest.TestCase):
             brain, steps = self.run_job([call("load_recipe", type="talk", why="two people talking")],
                                         *self.to_moment(),
                                         [call("make_clip", moment=1, layout="split", why="both faces, all the time")],
-                                        "Done.")
+                                        [call("make_clip", moment=1, layout="split",
+                                              why="the person said: keep both on screen")], "Done.")
         finally:
             screen.hidden, screen.ahead, screen.words = had
         made = steps[-1]
@@ -1824,10 +1825,31 @@ class Tools(unittest.TestCase):
                                 [call("make_clip", moment=1, layout="face", why="one face")], "Done.")
         card, again, face = steps[-3:]
         self.assertTrue(card["refused"])
-        self.assertTrue(card["result"].startswith("Not made. A talk's clip is its faces: talk, speaker, split or face. "
-                                                  "Use card only when the person asked for the screen"), card["result"])
+        self.assertTrue(card["result"].startswith("Not made. A talk's clip cuts between its faces: talk, or face for "
+                                                  "one person"), card["result"])
+        self.assertIn("Use card only when the person asked for the screen", card["result"])
         self.assertFalse(again["refused"], again["result"])
         self.assertFalse(face["refused"], face["result"])
+
+    def test_a_vlog_keeps_its_whole_picture_with_no_face_circle_and_no_face_crop_unasked(self):
+        _, steps = self.run_job([call("load_recipe", type="vlog", why="a travel episode")], *self.to_moment(),
+                                [call("make_clip", moment=1, layout="face", why="her face")],
+                                [call("make_clip", moment=1, layout="card", why="the whole scene")], "Done.")
+        face, card = steps[-2:]
+        self.assertTrue(face["refused"], "10-29: EP81 cut down to faces showed an eye and hair in the circles")
+        self.assertTrue(face["result"].startswith("Not made. A vlog's clip keeps the whole picture"), face["result"])
+        self.assertFalse(card["refused"], card["result"])
+        self.assertIn("A vlog keeps its whole picture: the card has no face circle", card["result"])
+        parts = self.chat.project.state()["clip"]["layout"]["parts"]
+        self.assertEqual([p["name"] for p in parts], ["card"], "a face the finder sees stays in the picture")
+
+    def test_a_talk_cuts_between_faces_and_circles_are_for_when_the_person_asks(self):
+        _, steps = self.run_job([call("load_recipe", type="talk", why="three friends talking")], *self.to_moment(),
+                                [call("make_clip", moment=1, layout="speaker", why="everyone at once")], "Done.")
+        circles = steps[-1]
+        self.assertTrue(circles["refused"], "Tarm 10-29: cut between faces, not faces in circles")
+        self.assertIn("Use speaker only when the person asked for the screen or everyone on the screen at once",
+                      circles["result"])
 
     def test_a_clip_whose_recipe_does_not_read_the_screen_is_not_read(self):
         asked = []

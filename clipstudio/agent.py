@@ -33,7 +33,8 @@ import threading
 import time
 import traceback
 
-from . import channels, chatname, faces, hearing, layer, maps, mind, needs, previews, project, recording, render, spent, text, words
+from . import (channels, chatname, faces, hearing, layer, maps, mind, montage, needs, previews, project, recording, render,
+               spent, text, words)
 from .tools import (CAPTION_LETTERS, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, STYLES, TOOLS, Refused, _spoken, _subtitles,
                     _undecided, channel_entries, channel_unfit, describe, faces_at, features, look_of, look_said)
 
@@ -60,6 +61,9 @@ PREVIEW_WAIT = 1.0
 TAP_SAID = "(tapped) "
 OPEN_SAID = "(opened) "
 AS_SAID = "said"
+SCRIPTS = (("Thai", re.compile("[฀-๿]")), ("Japanese", re.compile("[぀-ヿ]")),
+           ("Korean", re.compile("[가-힯]")), ("Chinese", re.compile("[一-鿿]")),
+           ("Arabic", re.compile("[؀-ۿ]")), ("Hindi", re.compile("[ऀ-ॿ]")))
 SYSTEM = """You are the editor in Local Clip Studio. People bring long recordings (selling lives, game streams, travel \
 clips) and you turn them into short vertical clips ready to post as Reels on Instagram and Facebook. When you say \
 where a clip goes, name those; never name another company's app.
@@ -211,6 +215,8 @@ class Chat:
         of words, when Muse is told more than the person said. What the person changed on the page since Muse last
         worked goes first, so Muse never works from an old clip."""
         shown = words if shown is None else shown
+        if not shown.startswith((TAP_SAID, OPEN_SAID)):
+            words += written_in(shown)
         with self.cond:
             told, self.told = self.told, []
         if told:
@@ -755,11 +761,22 @@ class Chat:
         picture from it. The file name can mislead (the review clip is called trip_...), the picture does not.
         Until the person types, the browser's language is the only clue to the language they read."""
         _, picture = self.open(rec)
-        opened, said = "(opened) " + recording.describe(rec), ("\n" + words if words else "")
+        opened, said = OPEN_SAID + recording.describe(rec), ("\n" + words if words else "")
         told = opened
-        if language:
-            told += "\nThe person's browser is set to %s; answer in that language until they write." % language
+        seen = montage.overview(rec)
+        if seen:
+            picture = seen[0]
+            told += ("\nThe picture shows four moments across it, each marked with its time (%s): judge what kind of "
+                     "video it is by all four." % ", ".join(recording.clock(t) for t in seen[1]))
+        told += _reader(words, language)
         return self.say(told + said, mind_key, [picture] if picture else (), shown=opened + said)
+
+    def open_sent(self, folder, n, words, mind_key, language=""):
+        """The person sent n videos from their phone, into folder: Muse is told, to open them together."""
+        shown = OPEN_SAID + "%d videos sent from the phone, in %s" % (n, folder)
+        told = shown + "\nOpen them together with open_clips." + _reader(words, language)
+        said = "\n" + words if words else ""
+        return self.say(told + said, mind_key, (), shown=shown + said)
 
 
 class Job:
@@ -1420,6 +1437,26 @@ def _arguments(raw):
     if not isinstance(args, dict):
         raise Refused("The input must be one JSON object with named fields.")
     return args
+
+
+def written_in(words):
+    """A line for Muse naming the language the person typed words in, when its letters say it ("" otherwise).
+    The rule in SYSTEM was not enough: on 10-29 Tarm typed Thai four times after a recording opened with the browser
+    set to English, and Glimmer answered every one in English."""
+    for name, letters in SCRIPTS:
+        if letters.search(words or ""):
+            return "\n[studio] The person wrote this in %s: answer in %s." % (name, name)
+    return ""
+
+
+def _reader(words, language):
+    """What Muse is told about the language to answer in when a recording opens: the words typed with it, else the
+    browser's language until the person writes."""
+    if written_in(words):
+        return written_in(words)
+    if language:
+        return "\nThe person's browser is set to %s; answer in that language until they write." % language
+    return ""
 
 
 def _with_pictures(words, pictures):

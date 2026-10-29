@@ -1361,7 +1361,10 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
         return _make_talk(job, rec, moment, m, *_pieces(m.get("said") or [], a, b, _still(rec, "talk", a, b, None),
                                                         takes.heard_claps(rec, a, b)), name=layout)
     try:
-        box, face_line = _the_face(job, rec, a, b, face)
+        if recipe == "vlog" and layout == "card" and not face:
+            box, face_line = None, "A vlog keeps its whole picture: the card has no face circle, as nobody looks for one."
+        else:
+            box, face_line = _the_face(job, rec, a, b, face)
     except faces.Stopped:
         return "Not made: the person pressed Stop."
     try:
@@ -1582,8 +1585,15 @@ LAYOUT_RULES = {
                             "puts the face in a circle above it", FACE_ASKED),
     "game": (FACES_ONLY, "A game clip shows the game: the card layout keeps it and puts the face in a circle above it",
              FACE_ASKED),
-    "talk": (SCREENS, "A talk's clip is its faces: talk, speaker, split or face",
-             "the screen, in words such as 'show the screen', or what they talk about is on a screen"),
+    "talk": (SCREENS + ("speaker", "split"), "A talk's clip cuts between its faces: talk, or face for one person "
+                                             "(Tarm 10-29: cut between faces, not faces in circles)",
+             "the screen or everyone on the screen at once, in words such as 'show the screen' or 'keep everyone on "
+             "screen', or what they talk about is on a screen"),
+    "vlog": (FACES_ONLY + ("stack", "subject"), "A vlog's clip keeps the whole picture as its editor framed it: the "
+                                                "card layout, so the subtitles, titles and logo already in it stay "
+                                                "whole and nothing is lost at a cut",
+             "a face or one part of the picture to fill the frame, in words such as 'just her face' or 'zoom in on "
+             "the food'"),
 }
 
 
@@ -3511,7 +3521,7 @@ def hand_over(job, why, title, caption, hashtags, english=""):
                                      recording.clock(max(p[1] for p in pieces)))) + (" " + spelling if spelling else "")
 
 
-LAYOUT_OF = {"explain": "card", "game": "card", "talk": "talk", "seller": "subject"}
+LAYOUT_OF = {"explain": "card", "game": "card", "talk": "talk", "seller": "subject", "vlog": "card"}
 BATCH_WHY = "one of the clips the person asked for"
 
 

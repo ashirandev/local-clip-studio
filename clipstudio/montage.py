@@ -34,6 +34,9 @@ MANY = 20
 STRIP_AT = (0.15, 0.5, 0.85)
 ONE_PICTURE = 1.5
 GAP = 8
+OVERVIEW_FROM = 180
+OVERVIEW_AT = (0.1, 0.35, 0.6, 0.85)
+OVERVIEW_SIDE = 400
 CAMERA_TAG = "com.apple.quicktime.creationdate"
 SAME_TIME = 2.0
 JOIN_SECONDS = 600
@@ -151,6 +154,47 @@ def strip(c, height=STRIP_HEIGHT):
     data.tofile(target + ".part")
     os.replace(target + ".part", target)
     return target
+
+
+def overview(rec):
+    """For a recording of OVERVIEW_FROM s or more, one picture for Muse of four moments across it, two by two, each
+    marked with its time: (the jpg's path in work/montage, [their seconds]), or None. One picture from near the start
+    can mislead: on 10-29 an hour-long travel vlog opened on two people in a room, Muse took it for a talk, ranked
+    its stretches by how loud they were and cut friends laughing on a bridge with nothing clear said."""
+    if rec["seconds"] < OVERVIEW_FROM:
+        return None
+    times = [round(rec["seconds"] * k, 1) for k in OVERVIEW_AT]
+    key = hashlib.sha1(("overview|%s|%d|%s|%s|%d" % (rec["path"], rec["size"], rec["mtime"], times, OVERVIEW_SIDE)
+                        ).encode("utf-8")).hexdigest()[:16]
+    folder = os.path.join(recording.WORK, "montage")
+    os.makedirs(folder, exist_ok=True)
+    target = os.path.join(folder, key + ".jpg")
+    if os.path.isfile(target):
+        return target, times
+    tiles = []
+    for t in times:
+        name = recording.frame(rec, at=t)
+        if not name:
+            return None
+        img = cv2.imdecode(np.fromfile(os.path.join(recording.WORK, "frames", name), np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            return None
+        h, w = img.shape[:2]
+        size = tiles[0].shape[1::-1] if tiles else (max(1, round(w * OVERVIEW_SIDE / max(w, h))),
+                                                    max(1, round(h * OVERVIEW_SIDE / max(w, h))))
+        img = cv2.resize(img, size, interpolation=cv2.INTER_AREA)
+        _mark(img, recording.clock(t), (8, size[1] - 12), 0.6, 2)
+        tiles.append(img)
+    h, w = tiles[0].shape[:2]
+    gap_row = np.full((h, GAP, 3), 16, np.uint8)
+    rows = [np.hstack([tiles[0], gap_row, tiles[1]]), np.hstack([tiles[2], gap_row, tiles[3]])]
+    out = np.vstack([rows[0], np.full((GAP, rows[0].shape[1], 3), 16, np.uint8), rows[1]])
+    ok, data = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    if not ok:
+        return None
+    data.tofile(target + ".part")
+    os.replace(target + ".part", target)
+    return target, times
 
 
 def _mark(img, text, at, scale, thick):

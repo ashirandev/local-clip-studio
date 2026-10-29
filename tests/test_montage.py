@@ -9,6 +9,9 @@ import tempfile
 import unittest
 from unittest import mock
 
+import cv2
+import numpy as np
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from clipstudio import agent, hearing, montage, recording, takes, tools  # noqa: E402
@@ -562,6 +565,44 @@ class Crowd(unittest.TestCase):
             {"clip": 3, "why": "a", "name": "IMG_0003.MOV"}, {"clip": 4, "why": "b", "name": "IMG_0004.MOV"}]},
             "Tarm 10-28: the step read [object Object]")
         self.assertEqual(agent._named(said, None), said)
+
+
+class Overview(unittest.TestCase):
+    """A long recording opens with four moments across it in one picture, not one picture from near its start."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.work = mock.patch.object(recording, "WORK", self.tmp)
+        self.work.start()
+        os.makedirs(os.path.join(self.tmp, "frames"))
+        self.asked = []
+
+        def frame(rec, at=None):
+            self.asked.append(at)
+            name = "%d.jpg" % len(self.asked)
+            cv2.imwrite(os.path.join(self.tmp, "frames", name), np.full((304, 540, 3), 60 * len(self.asked), np.uint8))
+            return name
+        self.frame = mock.patch.object(recording, "frame", frame)
+        self.frame.start()
+
+    def tearDown(self):
+        self.frame.stop()
+        self.work.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def rec(self, seconds):
+        return {"path": "ep81.mp4", "size": 1, "mtime": 1.0, "seconds": seconds}
+
+    def test_an_hour_long_episode_is_seen_at_four_moments_two_by_two(self):
+        path, times = montage.overview(self.rec(3604.34))
+        self.assertEqual(times, [360.4, 1261.5, 2162.6, 3063.7])
+        self.assertEqual(self.asked, times)
+        h, w = cv2.imread(path).shape[:2]
+        self.assertEqual((w, h), (400 * 2 + montage.GAP, 225 * 2 + montage.GAP))
+
+    def test_a_phone_clip_keeps_its_one_picture(self):
+        self.assertIsNone(montage.overview(self.rec(45.0)))
+        self.assertEqual(self.asked, [])
 
 
 if __name__ == "__main__":

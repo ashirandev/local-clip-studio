@@ -30,12 +30,11 @@ joke and the laugh after it.
 
 ## The clip
 
-- Layout: choose by how they talk. Two people trading quick lines, laughing, cutting in: one above the other,
-  each in half of the frame, so both faces are always there. When the turns come quickly or the listener's face tells
-  the story (laughing, nodding, surprise) and there are more than two, or one face should be big: whoever speaks
-  fills the frame and the others stay in circles. When one person tells a long story and the other mostly listens,
-  cut to whoever speaks, to the one listening for a short reaction, and to everyone when they laugh or talk together.
-  Never leave a person who speaks off the screen: if a shot shows the wrong person, change who is shown then.
+- Layout: cut between the faces (talk): whoever speaks fills the frame, a short cut to the one listening for a
+  reaction, and to everyone when they laugh or talk together. Faces in circles over the picture (speaker) and two
+  people one above the other (split) only when the person asks for everyone to stay on the screen (Tarm, 10-29, on a
+  clip with circles: "ถ้าจะคัต ต้อง cut สลับหน้า ไม่ใช่วาง layout แบบนี้"). Never leave a person who speaks off the
+  screen: if a shot shows the wrong person, change who is shown then.
 - Captions on: in a conversation the words are the clip. Plain captions, never lit word by word.
 - The title names the question or the claim in a few words, in the clip's language; a number in it must be one that
   was said.

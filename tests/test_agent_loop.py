@@ -291,7 +291,7 @@ class Loop(unittest.TestCase):
         results = [e["result"] for e in events if e["kind"] == "step"]
         self.assertIn("There is no recipe for cooking yet. The recipes are: explain (Tutorial or screen explainer), game "
                       "(Game stream), montage (Trip or event clips), seller (Product review or selling live), talk "
-                      "(Podcast or interview).", results[0])
+                      "(Podcast or interview), vlog (Vlog or edited episode).", results[0])
         self.assertIn("Do not use a recipe made for another kind of video", results[0])
         self.assertIn("style must be one of: clean, pop, sticker", results[1])
         self.assertIsNone(self.chat.clip)
@@ -388,6 +388,20 @@ class Loop(unittest.TestCase):
         finally:
             mind.get = real
         self.assertEqual((job.n, self.chat.events[-1]["why"]), (2, "answered"))
+
+    def test_muse_is_told_the_language_the_person_typed_in_and_the_page_shows_only_their_words(self):
+        brain, real = ScriptedMind("ได้ครับ", "Sure."), mind.get
+        mind.get = lambda key: brain
+        try:
+            self.chat.say("มันดูไม่รู้เรื่องเลยนะซีนที่เลือกมาอะ", None).thread.join(5)
+            self.chat.say("try another moment", None).thread.join(5)
+        finally:
+            mind.get = real
+        thai, english = [s[-1]["content"] for s in brain.sent]
+        self.assertTrue(thai.endswith("\n[studio] The person wrote this in Thai: answer in Thai."), thai)
+        self.assertNotIn("[studio] The person wrote", english)
+        self.assertEqual([e["text"] for e in self.chat.events if e["kind"] == "person"],
+                         ["มันดูไม่รู้เรื่องเลยนะซีนที่เลือกมาอะ", "try another moment"])
 
     def test_an_earlier_chat_opens_again_as_it_was(self):
         self.run_job(ScriptedMind([call("set_plan", steps=["find it"], why="plan")],
