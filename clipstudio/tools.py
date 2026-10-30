@@ -1305,6 +1305,7 @@ PRICE = re.compile("บาท|฿")
 PRICE_REACH = 6.0
 ASKS = re.compile("สนใจ|อยากได้|(?<![a-z])(?:CF|DM)(?![a-z])|ซีเอฟ|สี่เอฟ|ดีเอ็ม|ทักมา|ทักแชท|อินบ็อกซ์", re.I)
 ASK_GAP = 1.5
+ASK_OVER = 3.0
 ONLY_CLOSES = re.compile("^(?:นะครับ|นะคะ|ครับผม|ครับ|ค่ะ|คะ|นะ)$")
 CLOSES_FIRST = re.compile("^\\s*(?:นะครับ|นะคะ|ครับผม|ครับ|ค่ะ|คะ|นะ)\\s+\\S")
 FINER_OVER = 6.0
@@ -1355,12 +1356,13 @@ def _finer(job, rec, look, line):
 def _finer_edges(job, rec, look, a, b):
     """For a moment from a to b of a clip made of what is said: the line its start or its end falls in, when it runs
     over FINER_OVER s or opens on a word that closes what came before, heard again piece by piece (_finer), and on a
-    seller's clip the long line after the price that asks to buy, as the clip takes it in (_snapped). Returns [a
-    sentence for Muse for each line that was]. Lane 4 10-30: a heard line is a sound piece, not a sentence, and Muse
+    seller's clip the line after the price that asks to buy, over ASK_OVER s, as the clip takes it in (_snapped). Returns
+    [a sentence for Muse for each line that was]. Lane 4 10-30: a heard line is a sound piece, not a sentence, and Muse
     can only choose where a line begins or ends; 53% of what Muse Voice Transcribe heard was in lines over 8 s. Spark
     10-31 on the seller: "กดสี่เอฟไว้ได้เลยเนาะ" and the next product's opening were one line of 7 s, and the
-    controller's clip took the balm's opening. Stop raises hearing.Stopped; a line that cannot be heard again stays as
-    it is."""
+    controller's clip took the balm's opening. A look hears only so far, so in another run that line was 4.2 s in the
+    look of the controller's clip and the same opening went in (lane 5, 035133-c553); the ask alone takes 2.5 s. Stop
+    raises hearing.Stopped; a line that cannot be heard again stays as it is."""
     recipe = (job.chat.clip or {}).get("recipe")
     if recipe not in FINER_KINDS:
         return []
@@ -1369,8 +1371,8 @@ def _finer_edges(job, rec, look, a, b):
     closes = next((p for p in reversed(said) if p["from"] < b), None)
     asks = _asks_after(said, closes) if recipe == "seller" else None
     out = []
-    for side, line in (("start", opens), ("end", closes), ("end", asks)):
-        if not line or line.get("finer") or not (line["to"] - line["from"] > FINER_OVER or (
+    for side, line, over in (("start", opens, FINER_OVER), ("end", closes, FINER_OVER), ("end", asks, ASK_OVER)):
+        if not line or line.get("finer") or not (line["to"] - line["from"] > over or (
                 side == "start" and CLOSES_FIRST.match(line["text"]))):
             continue
         try:

@@ -3234,6 +3234,16 @@ class Tools(unittest.TestCase):
         self.assertFalse(again["refused"], again["result"])
         self.assertTrue(again["result"].startswith("Proposed 1 moment"), again["result"])
 
+    def test_a_moment_at_its_looks_end_is_seen_30_s_on(self):
+        """Lane 5 10-31: EP 22's joke on 30 s started at 25:52 and ran under 40 s, 3 of 3."""
+        tools.EDGE_RECIPES = self.edge_recipes
+        _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="vlog", why="an episode")],
+                                [call("look_at_piece", start="0:05", end="0:25", why="the top stretch")],
+                                [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the site",
+                                                                                   "start": "0:09", "end": "0:24"}])],
+                                "Done.")
+        self.assertIn("Look 2: 0:05-0:55", steps[3]["result"])
+
     def test_a_moment_at_its_looks_start_is_seen_before_it(self):
         tools.EDGE_RECIPES = self.edge_recipes
         _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="talk", why="two people")],

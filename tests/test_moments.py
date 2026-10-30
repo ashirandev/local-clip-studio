@@ -613,6 +613,19 @@ class Finer(unittest.TestCase):
         self.job.chat.clip = {"recipe": "explain"}
         self.assertEqual(tools._finer_edges(self.job, self.rec, self.look(price, ask), 201.0, 203.9), [], "a seller's")
 
+    def test_a_call_to_buy_with_room_for_more_than_the_ask_is_heard_again(self):
+        """Lane 5's 035133-c553: 4.2 s in the look of the controller's clip, under FINER_OVER, with the balm's opening."""
+        self.HEARD = {204.5: "กดสี่เอฟไว้ได้เลย", 207.0: "สินค้าชิ้นที่สอง"}
+        self.cut = [207.0]
+        price = {"from": 201.0, "to": 204.0, "text": "ราคาเก้าสิบบาท", "sure": 1.0}
+        ask = {"from": 204.5, "to": 208.7, "text": "กดสี่เอฟไว้ได้เลย สินค้าชิ้นที่สอง", "sure": 1.0}
+        self.job.chat.clip = {"recipe": "seller"}
+        look = self.look(price, ask)
+        self.assertEqual(len(tools._finer_edges(self.job, self.rec, look, 201.0, 203.9)), 1)
+        self.assertEqual(tools._snapped(look, 201.0, 203.9, price=True)[1], 207.25, "the call and not what follows")
+        self.assertEqual(tools._finer_edges(self.job, self.rec, self.look(price, dict(ask, to=207.5)), 201.0, 203.9), [],
+                         "3 s is the ask alone")
+
     def test_a_closing_word_counts_at_the_start_only(self):
         look = self.look({"from": 201.0, "to": 203.0, "text": "a"}, self.LINE)
         self.assertEqual(tools._finer_edges(self.job, self.rec, look, 201.0, 208.0), [])
