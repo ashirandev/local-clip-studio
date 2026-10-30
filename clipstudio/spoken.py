@@ -92,8 +92,24 @@ def _english_run(run):
 
 
 def values(text):
-    """Every number said in text: digits in any script, and Thai and English number words."""
-    return digits(text) | thai.values(text or "") | english(text)
+    """Every number said in text: digits in any script, and Thai and English number words; a number the hearing cut
+    short counts both ways (cut_short)."""
+    return digits(text) | cut_short(text) | thai.values(text or "") | english(text)
+
+
+def cut_short(text):
+    """The numbers in text whose group after a comma has fewer than three digits, read with the group filled with
+    zeros: the hearing wrote ห้าพันบาท (5,000 baht) as 5,0บาท (lane 5's seller, 10-30), and hand_over refused the right
+    price in the post as a number nobody said."""
+    out = set()
+    for m in DIGITS.finditer(text or ""):
+        head, _, last = m.group(0).rpartition(",")
+        if head and last.isdigit() and len(last) < 3:
+            try:
+                out.add(float(head.replace(",", "") + last.ljust(3, "0")))
+            except ValueError:
+                pass
+    return out
 
 
 def reads(language, said):

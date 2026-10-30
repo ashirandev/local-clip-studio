@@ -8,7 +8,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import spoken  # noqa: E402
+from clipstudio import spoken, tools  # noqa: E402
 
 
 class Spoken(unittest.TestCase):
@@ -31,6 +31,12 @@ class Spoken(unittest.TestCase):
         self.assertEqual(spoken.values("७५"), {75.0})
         self.assertEqual(spoken.values("1,990 baht"), {1990.0})
         self.assertEqual(spoken.values("เจ็ดสิบห้า"), {75.0})
+
+    def test_a_number_the_hearing_cut_short_after_its_comma_counts_with_the_zeros_it_lost(self):
+        self.assertEqual(spoken.values("5,0บาทนะครับ"), {50.0, 5000.0}, "lane 5 10-30: ห้าพันบาท heard as 5,0บาท")
+        self.assertEqual(spoken.values("1,990 baht and 2.5 kg"), {1990.0, 2.5}, "a whole group is read once")
+        self.assertEqual(spoken.digits("5,0"), {50.0}, "what is written is still read as written")
+        self.assertEqual(tools._not_said("iPad ราคา 5,000 บาท", ["5,0บาทนะครับ"]), [])
 
     def test_the_language_says_whether_number_words_are_read(self):
         self.assertTrue(spoken.reads("Thai", []))
