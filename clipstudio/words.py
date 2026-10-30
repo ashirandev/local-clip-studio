@@ -131,12 +131,8 @@ def odd_thai(words):
     bit pointed at was one of these."""
     if not THAI.search(words or ""):
         return []
-    from pythainlp.corpus import thai_words
     from pythainlp.tokenize import word_tokenize
-    from pythainlp.util import dict_trie
-    if not _WORDS:
-        _WORDS.append(thai_words() | CREATOR_WORDS)
-        _WORDS.append(dict_trie(_WORDS[0]))
+    _dictionary()
     toks = word_tokenize(words, engine="newmm", keep_whitespace=True, custom_dict=_WORDS[1])
     out = []
     for i, w in enumerate(toks):
@@ -145,6 +141,27 @@ def odd_thai(words):
             near = [x for x in (toks[i - 1] if i else "", w, toks[i + 1] if i + 1 < len(toks) else "") if x.strip()]
             out.append("".join(near))
     return out
+
+
+def known(text):
+    """[(start, end)] of each word of text the dictionary odd_thai reads has, Thai cut into words by newmm: in
+    เราสามารถ, (3, 9) for สามารถ (can), which has สาม (three) in it."""
+    from pythainlp.tokenize import word_tokenize
+    _dictionary()
+    out, at = [], 0
+    for w in word_tokenize(text, engine="newmm", keep_whitespace=True, custom_dict=_WORDS[1]):
+        if w in _WORDS[0]:
+            out.append((at, at + len(w)))
+        at += len(w)
+    return out
+
+
+def _dictionary():
+    if not _WORDS:
+        from pythainlp.corpus import thai_words
+        from pythainlp.util import dict_trie
+        _WORDS.append(thai_words() | CREATOR_WORDS)
+        _WORDS.append(dict_trie(_WORDS[0]))
 
 
 TONES = "่้๊๋"

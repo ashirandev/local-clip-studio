@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -105,6 +106,14 @@ class Thai(unittest.TestCase):
         for wrong in ("ราคา 75 บาท <N2> <N3>", "<N1> <N1> <N2> <N3>", "<N1> <N2> <N3> <N4>", "<N1> <N2>"):
             self.assertIsNone(thai.unlock(wrong, numbers), wrong)
 
+    def test_a_number_word_inside_a_longer_word_is_not_locked(self):
+        for said in ("ซึ่งตัวนี้เราสามารถเสียบคอมพิวเตอร์ก็ได้", "ห้ามจับ", "เขาหกล้ม", "เรียบร้อยแล้ว"):
+            self.assertEqual(thai.lock(said), (said, {}), said)
+        self.assertEqual(thai.lock("เก้าอี้สามตัว ใช้ได้สามสิบห้านาที"),
+                         ("เก้าอี้<N1>ตัว ใช้ได้<N2>นาที", {"N1": "สาม", "N2": "สามสิบห้า"}))
+        self.assertEqual(thai.lock("ประมาณหนึ่งะครับ แลมหก"), ("ประมาณ<N1>ะครับ แลม<N2>", {"N1": "หนึ่ง", "N2": "หก"}),
+                         "a number against misheard letters stays locked")
+
 
 class Fix(unittest.TestCase):
     def test_a_number_is_carried_back_exactly_or_the_line_keeps_what_was_heard(self):
@@ -119,6 +128,15 @@ class Fix(unittest.TestCase):
         self.assertNotIn("เจ็ดสิบห้า", first)
         self.assertEqual(asked[1][0][1]["content"], "Lines to fix:\n1. ราคา<N1>บาท", "only the failed line again")
         self.assertEqual(asked[0][1]["properties"]["lines"]["minItems"], 3)
+
+    def test_a_word_that_begins_with_a_number_word_comes_back_once(self):
+        def ask(messages, schema):
+            lines = messages[1]["content"].split("Lines to fix:\n")[1].split("\n")
+            return json.dumps({"lines": [re.sub(r"(<N\d+>)ารถ", r"สา\1มารถ", ln.split(". ", 1)[1]) for ln in lines]},
+                              ensure_ascii=False)
+
+        heard = ["ซึ่งตัวนี้เราสามารถเสียบคอมพิวเตอร์ก็ได้", "ก็สามารถคอมเมนต์เข้ามาได้ว่ามันเป็นยังไงนะครับ"]
+        self.assertEqual(hearing.fix(ask, heard, "Product review"), (heard, [None, None]))
 
     def test_a_line_rewritten_too_much_or_an_answer_that_cannot_be_read_keeps_what_was_heard(self):
         ask, asked = fixes({"lines": ["อะไรก็ไม่รู้ที่ไม่ได้พูดเลยสักคำเดียวนะ", "ดีครับ"]}, "not json",)

@@ -13,8 +13,12 @@ against a number word joins it as a word; a leading vowel left before digits is 
 their own (75, 1,990, 2.5) stay digits: they are the number as heard.
 
 Numbers are locked before Muse fixes misheard words: each run of digits or Thai number words becomes <N1>, <N2>...,
-so a number said can never be changed, only carried back exactly as it was heard. Locking a little too much (สาม in
-สามารถ) is safe: those letters just stay as heard.
+so a number said can never be changed, only carried back exactly as it was heard. A number word inside a longer
+word the dictionary has is not a number and is not locked (words.known): locked inside สามารถ (can), Muse was shown
+เรา<N1>ารถ, wrote the word again around it, and สาม came back twice (measured 10-30 on the fixes kept in the saved
+chats: 9 of 39 lines with สามารถ came back as สาสามมารถ, สามมารถ or สามรถ, and 1 of 7 with นิดหนึ่ง as นิดนึหนึ่งง).
+So สามารถ, ห้าม, เสี่ยง and เรียบร้อย reach Muse whole, and a number the model wrote against misheard letters
+(หนึ่งะ) stays locked.
 
     python -m clipstudio.thai <FLEURS th train.tsv>     counts the marks again and writes thai_marks.json
 """
@@ -130,10 +134,17 @@ def values(text):
 
 def lock(text, first=1):
     """(text with every number as <N1>, <N2>..., {"N1": the number as heard, ...}). first is the number the names
-    start from, so lines asked together never share a name."""
-    numbers = {}
+    start from, so lines asked together never share a name. A number word inside a longer word the dictionary has
+    stays in its word: the สาม of สามารถ."""
+    numbers, spans = {}, []
 
     def hold(m):
+        if not m.group(0)[:1].isdigit():
+            if not spans:
+                from . import words
+                spans.append(words.known(text))
+            if any(a <= m.start() and m.end() <= b and b - a > m.end() - m.start() for a, b in spans[0]):
+                return m.group(0)
         name = "N%d" % (first + len(numbers))
         numbers[name] = m.group(0)
         return "<%s>" % name
