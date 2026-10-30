@@ -1800,6 +1800,36 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     return "\n".join(lines)
 
 
+def _frame_kept(job, rec, old, new):
+    """After change_ends made the clip again from how it was made: the upright frame of a subject clip where it was,
+    and the sentence that says so, or None. A frame that followed a product follows it again over the new ends from
+    SAM's first pass (the layout's thing, focus.thing), and a frame placed elsewhere (the person's, on the Frame tab)
+    is put back there. 10-30, Glimmer's green seller: the ends moved, the frame went back to the face, the title had
+    no clear place left, and the clip went out without one."""
+    before, after = old["layout"], new["layout"]
+    whole = next((p for p in before["parts"] if p["name"] == "whole"), None)
+    if before["kind"] != "subject" or after["kind"] != "subject" or not whole:
+        return None
+    thing = before.get("thing")
+    if thing:
+        face = after.get("face")
+        plan = focus.thing(thing, new["pieces"], (rec["width"], rec["height"]), layouts.W / float(layouts.H),
+                           face[0] + face[2] / 2.0 if face else None)
+        if not plan:
+            return ("SAM's pass did not see the %s in the new ends, so the frame no longer follows it: call "
+                    "follow_product again if it should." % thing["what"])
+        job.edit({"do": "layout", "part": "product", "box": None,
+                  "layout": dict(layouts.followed(after, plan, "whole"), thing=thing)})
+        return "The frame follows the %s again over the new ends, from SAM's first pass." % thing["what"]
+    if whole.get("follow"):
+        return "The frame no longer follows what it followed: call follow_product again if it should."
+    parts = [dict(p, src=list(whole["src"])) if p["name"] == "whole" else p for p in after["parts"]]
+    if parts == after["parts"]:
+        return None
+    job.edit({"do": "layout", "part": "frame", "box": None, "layout": dict(after, parts=parts)})
+    return "The frame stays where it was put over the recording."
+
+
 FOLLOW_SAYS = ("This is a seller clip from a landscape recording, so the frame stays where the face is while the product "
                "moves in the hands: next, call follow_product with the product in a few English words, so the frame "
                "follows the product. The seller sells the product, not their face.")
@@ -1866,6 +1896,9 @@ def change_ends(job, why, start=None, end=None):
         return said_back
     lines = ["Moved the clip's ends: it now runs from %s to %s of the recording (it ran from %s to %s)." % (
         tenth(a), tenth(b), tenth(now_a), tenth(now_b))]
+    framed = _frame_kept(job, rec, clip, job.chat.project.state()["clip"])
+    if framed:
+        lines.append(framed)
     if heard_line:
         lines.append(heard_line)
     caps = state["captions"]

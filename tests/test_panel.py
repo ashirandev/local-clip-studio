@@ -651,6 +651,14 @@ class Frame(Clip):
         self.assertFalse(self.chat.panel()["frame"]["follows"])
         self.assertTrue(self.chat.told[-1].endswith("(it no longer follows the product)"))
 
+    def test_a_frame_the_person_placed_stays_when_the_ends_move(self):
+        self.make()
+        self.assertIsNone(self.chat.set_frame(0))
+        self.assertIsNone(self.chat.set_ends(31.0, 49.0))
+        self.until(lambda: not self.chat.making)
+        self.assertEqual(self.chat.project.state()["clip"]["pieces"][0][0], 31.0)
+        self.assertEqual(self.whole()["src"][0], 0, "the Trim tab made the clip again where the person had framed it")
+
     def test_a_clip_without_an_upright_frame_says_why_and_is_not_changed(self):
         self.make()
         for layout in ("card", "face"):

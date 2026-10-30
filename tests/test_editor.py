@@ -1783,6 +1783,35 @@ class Tools(unittest.TestCase):
         self.assertIn("Only the subject layout's frame can follow the product", steps[-1]["result"])
         self.assertEqual(asked, ["white game controller", "a missing thing", "a broken thing"])
 
+    def test_moving_the_ends_keeps_the_frame_on_the_product_it_followed(self):
+        """Glimmer's green seller 10-30: after change_ends the frame went back to the face and no title fit."""
+        from unittest import mock
+        from test_cutout import make_mask
+        asked = []
+
+        def cut_out(rec, a, b, on_start=None, on_progress=None, what=None):
+            asked.append((a, b))
+            return {"path": make_mask(self.tmp, "followed.mkv", b - a, a, "lt(abs(X-280),20)", size=(320, 180)),
+                    "person": None, "fps": 10, "size": [320, 180], "from": a, "to": b}
+
+        script = self.to_moment()
+        with mock.patch.object(tools.person, "cut_out", cut_out):
+            _, steps = self.run_job(
+                script[0], [call("load_recipe", type="seller", why="a seller")], *script[1:],
+                [call("make_clip", moment=1, layout="subject", why="the product")],
+                [call("follow_product", what="white game controller", why="the product leads")],
+                [call("change_ends", start="0:32", why="start on the product")], "Done.")
+        moved = steps[-1]
+        self.assertFalse(moved["refused"], moved["result"])
+        self.assertIn("The frame follows the white game controller again over the new ends, from SAM's first pass.",
+                      moved["result"])
+        lay = self.chat.project.state()["clip"]["layout"]
+        self.assertEqual((lay["parts"][0]["src"][0], bool(lay["parts"][0].get("follow")), "thing" in lay),
+                         (218, True, True))
+        self.assertEqual(len(asked), 1, "SAM is not run again")
+        self.chat.undo()
+        self.assertEqual(self.chat.project.state()["clip"]["pieces"][0][0], 30.0, "one undo takes back the move whole")
+
     def test_the_check_fails_where_the_frame_cuts_the_product_sam_follows(self):
         """Tarm 10-30, on a seller's ad that split the screen as she raised the tumbler, so it was gone: "เราต้องดู
         ก่อนว่าเราต้องการจะโฟกัสอะไรในแต่ละคลิปในแต่ละช่วง". A tray wider than the frame is cut all through."""
