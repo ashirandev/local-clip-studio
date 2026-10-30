@@ -1685,9 +1685,11 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     still = _still(rec, recipe, a, b, layouts.face_room(lay))
     pieces, cut = _pieces(m.get("said") or [], a, b, still, takes.heard_claps(rec, a, b) if still else [],
                           edges=not m.get("ends"))
-    following = ""
+    following = ground = ""
     if lay["kind"] == "card" and follow and not crop and not trim and _reads_screen(job):
         lay, following = _follow(rec, lay, pieces, [a, b])
+    if lay["kind"] == "card" and _reads_screen(job):
+        lay, ground = _plain(job, rec, lay, a, b)
     item = [round(v) for v in _pixels("product", product, rec)] if product else None
     if item and not layouts.to_frame(lay, item):
         lay["notes"].append("The product you named is not in the clip's picture: choose a crop that holds it.")
@@ -1714,6 +1716,8 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
         lines.append(cut)
     if following:
         lines.append(following)
+    if ground:
+        lines.append(ground)
     if private["said"]:
         lines.append(private["said"])
     if lay.get("safe"):
@@ -1910,6 +1914,32 @@ def _slide(rec, lay, pieces, text):
     return slide, ("%s: it shows the part of the slide that is written on, %s on your grid, whole and %.1f times as "
                    "big as the whole screen. If it leaves out what matters, make the clip again with a crop around "
                    "it." % (said, _grid(card["src"], rec), rec["width"] / float(card["src"][2])))
+
+
+# A card sits on a plain ground (layouts.PLAIN) when its screen holds WORDY lines or more at a time: the gold lesson's
+# slides 8 to 12, a tool's window 50 and more, a camera 0.3.
+WORDY = 3
+
+
+def _plain(job, rec, lay, a, b):
+    """(the card layout on a plain ground when the screen from a to b is full of words, the sentence for Muse), or
+    the layout as it was and ""."""
+    job.working("Reading the screen's words")
+    try:
+        looks = screen.readings(rec, a, b)
+    except screen.ScreenError:
+        return lay, ""
+    finally:
+        job.done_working()
+    if not looks:
+        return lay, ""
+    many = sum(len(r["lines"]) for r in looks) / float(len(looks))
+    if many < WORDY:
+        return lay, ""
+    return dict(lay, ground="plain"), (
+        "The screen holds about %d lines of words at a time, so the card sits on a plain ground of the picture's "
+        "colours instead of its blurred copy, which would show those words big behind the card and the title."
+        % round(many))
 
 
 def _menu_start(job, rec, a):

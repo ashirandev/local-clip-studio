@@ -112,6 +112,11 @@ SAFE_SAID = ("On your 0-1000 grid of the clip's frame, phones cover its top %d (
                           grid(BUTTONS[0], "x"), grid(BUTTONS[1], "y")))
 SMALLEST_PART = 120
 BAND = {"saturation": 1.1, "brightness": -0.12, "sigma": 14}
+# A card whose screen is full of words sits on a plain ground: the picture's own colours, shrunk and blurred far past
+# a letter's size so no shape is left, at PLAIN["light"] of their light. The blurred copy put the gold lesson's slide
+# letters, three times as big, behind its card and title (Tarm, 10-30: lots of words want a plain ground, or they
+# dazzle); white words on the plain ground read at 7.1:1 there, against 1.2:1 on the blurred slide.
+PLAIN = {"sigma": 24, "light": 0.45}
 LEAVE_OUT = 3.0
 SMALLEST_CARD = 0.4
 SHARPEN_FROM = 1.5
@@ -590,14 +595,23 @@ def _base(layout, parts, src, pushes, shape):
     sigma, drop, _ = SHADOW["card"]
     pad = 3 * sigma
     return ("[%s]split=2[lay_s1][lay_s2];"
-            "[lay_s1]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,gblur=sigma=9,"
-            "eq=saturation=1.3:contrast=1.05:brightness=-0.04,scale=%d:%d[lay_bg0];"
+            "[lay_s1]%s[lay_bg0];"
             "[lay_bg0]%soverlay=0:0:shortest=1[lay_bg];"
             "[lay_bg]%soverlay=%d:%d:shortest=1[lay_1];"
             "[lay_s2]%s,format=yuva420p[lay_c0];%sformat=gray[lay_cm];[lay_c0][lay_cm]alphamerge[lay_card];"
             "[lay_1][lay_card]overlay=%d:%d:shortest=1"
-            % (src, W, H, shape(shade()), shape(shadow("card", cw, ch, CARD_RADIUS)), cx - pad, cy - pad + drop,
-               _pushed(card, pushes), shape(rounded(cw, ch, CARD_RADIUS)), cx, cy))
+            % (src, _ground(layout), shape(shade()), shape(shadow("card", cw, ch, CARD_RADIUS)), cx - pad,
+               cy - pad + drop, _pushed(card, pushes), shape(rounded(cw, ch, CARD_RADIUS)), cx, cy))
+
+
+def _ground(layout):
+    """The card's background from the whole picture, as filters: its blurred copy, or with layout["ground"] "plain"
+    its colours alone (PLAIN)."""
+    if layout.get("ground") == "plain":
+        return ("scale=540:960:force_original_aspect_ratio=increase,crop=540:960,scale=135:240,gblur=sigma=%d,"
+                "eq=saturation=1.3,lutyuv=y='val*%s',scale=%d:%d:flags=bicubic" % (PLAIN["sigma"], PLAIN["light"], W, H))
+    return ("scale=540:960:force_original_aspect_ratio=increase,crop=540:960,gblur=sigma=9,"
+            "eq=saturation=1.3:contrast=1.05:brightness=-0.04,scale=%d:%d" % (W, H))
 
 
 def _circle(circle, base, src, shape):

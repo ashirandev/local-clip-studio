@@ -1814,9 +1814,9 @@ class Tools(unittest.TestCase):
                       "as it shows)", checked["result"])
         self.assertIn("- FAILED: Nothing private can be read on the screen (not hidden: an email address at 0-6 s)",
                       again[-1]["result"])
-        self.assertEqual(asked, [(30.0, 50.0)] * 4, "asked over the moment for the card's zoom and for the private "
-                         "lines when the clip is made (the second is the reading kept from the first), and at every "
-                         "check")
+        self.assertEqual(asked, [(30.0, 50.0)] * 5, "asked over the moment for the card's zoom, for its ground and "
+                         "for the private lines when the clip is made (the second and third are the reading kept "
+                         "from the first), and at every check")
 
     def test_the_moments_of_a_tutorial_are_read_ahead_when_they_are_proposed(self):
         ahead = []
@@ -1916,6 +1916,45 @@ class Tools(unittest.TestCase):
         self.assertNotIn("follows the action", whole["result"])
         self.assertNotIn("follows the action", cropped["result"])
         self.assertFalse(any(p.get("follow") for p in self.chat.project.state()["clip"]["layout"]["parts"]))
+
+    def grounded(self, lines, *calls):
+        """The steps of an explain job making the given calls on a screen holding lines at each of its two looks."""
+        looks = [{"text": "line %d" % n, "box": [10, 20 * n, 200, 16], "sure": 0.95} for n in range(lines)]
+        had, focus.plan = focus.plan, lambda *a, **k: None
+        screen_had, screen.readings = screen.readings, lambda rec, a, b, on_start=None: [
+            {"at": a, "lines": looks}, {"at": a + 1, "lines": looks}]
+        try:
+            return self.run_job(*self.to_moment(), [call("load_recipe", type="explain", why="a lesson")], *calls,
+                                "Done.")[1]
+        finally:
+            focus.plan, screen.readings = had, screen_had
+
+    def test_a_card_on_a_screen_full_of_words_sits_on_a_plain_ground(self):
+        steps = self.grounded(8, [call("make_clip", moment=1, layout="card", why="the slide")],
+                              [call("make_clip", moment=1, layout="card", crop=[0, 0, 500, 500], why="mine")])
+        for step in steps[-2:]:
+            self.assertFalse(step["refused"], step["result"])
+            self.assertIn("The screen holds about 8 lines of words at a time, so the card sits on a plain ground",
+                          step["result"])
+        self.assertEqual(self.chat.project.state()["clip"]["layout"].get("ground"), "plain",
+                         "a crop of the screen sits on a plain ground too: the ground is drawn from the whole screen")
+
+    def test_a_card_on_a_screen_with_few_words_keeps_its_blurred_copy(self):
+        steps = self.grounded(2, [call("make_clip", moment=1, layout="card", why="the camera")])
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertNotIn("plain ground", steps[-1]["result"])
+        self.assertIsNone(self.chat.project.state()["clip"]["layout"].get("ground"))
+
+    def test_a_screen_that_cannot_be_read_keeps_the_blurred_copy(self):
+        def fails(rec, a, b, on_start=None):
+            raise screen.ScreenError("no reader")
+        job = type("Job", (), {"working": lambda self, what: None, "done_working": lambda self: None})()
+        lay = layouts.make("card", (320, 180))
+        had, screen.readings = screen.readings, fails
+        try:
+            self.assertEqual(tools._plain(job, {"width": 320, "height": 180}, lay, 0.0, 10.0), (lay, ""))
+        finally:
+            screen.readings = had
 
     def several(self, *clips_calls, black=False, recipe="explain", quiet=0, shown=("Eaglet",)):
         """A tutorial with two moments proposed, then the given calls; screen and render are faked (the screen shows

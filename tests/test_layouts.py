@@ -121,6 +121,29 @@ class Drawn(unittest.TestCase):
         cx, cy, d, _ = [p for p in lay["parts"] if p["name"] == "circle"][0]["dst"]
         self.assertGreater(frame[cy - layouts.RING // 2, cx + d // 2].min(), 235, "the ring above the circle is white")
 
+    def test_a_card_on_a_plain_ground_shows_no_shape_of_the_words_on_its_screen(self):
+        lines = ",".join("drawbox=x=300:y=%d:w=1320:h=50:color=black:t=fill" % y for y in range(150, 950, 110))
+        slide = "color=0xF0E8D0:s=%dx%d:r=30:d=1,%s,format=yuv420p" % (SIZE + (lines,))
+        for ground, least, most in ((None, 60, 255), ("plain", 0, 12)):
+            lay = layouts.make("card", SIZE)
+            if ground:
+                lay = dict(lay, ground=ground)
+            frame = moving(lay, 0.5, source=slide).astype(int).mean(axis=2)
+            x, y, w, h = [p for p in lay["parts"] if p["name"] == "card"][0]["dst"]
+            for y0, y1, where in ((250, y - 90, "above"), (y + h + 120, 1900, "below")):
+                band = frame[y0:y1, 100:980]
+                step = abs(band[24:] - band[:-24]).max()
+                self.assertTrue(least <= step <= most, "%s ground %s the card: the slide's lines change it by %d "
+                                "levels over 24 px, %d to %d expected" % (ground or "blurred", where, step, least, most))
+
+    def test_a_plain_ground_keeps_the_pictures_colour_darker(self):
+        lay = dict(layouts.make("card", SIZE), ground="plain")
+        frame = moving(lay, 0.5, source="color=0xC08040:s=%dx%d:r=30:d=1,format=yuv420p" % SIZE).astype(int)
+        for y in (400, 1600):
+            r, g, b = frame[y, 540]
+            self.assertTrue(r > g > b, "the orange picture's ground is orange: %s at y %d" % ((r, g, b), y))
+            self.assertLess((r + g + b) / 3.0, 0.6 * 128, "and darker than the picture, so the card stands out")
+
     def test_the_stack_has_a_dark_seam_between_its_panels(self):
         lay = layouts.make("stack", SIZE, FACE)
         frame = draw(lay, [10, 10, 4, 4]).astype(int)
