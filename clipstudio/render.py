@@ -168,6 +168,25 @@ def _grown_title(state, default, title, base):
     return base
 
 
+def _title_drawn(state, default, one, title):
+    """The style title is drawn in: its own, or the captions' letters when they are shown one line at a time (one,
+    their style), grown as far as its grow says."""
+    drawn = _title_style(state, default, one, title) if one else style_of(state, default, "title")
+    return _grown_title(state, default, title, drawn) if title.get("grow") else drawn
+
+
+def title_boxes(state, default="clean"):
+    """[(title, [x, y, w, h])]: where on the 1080x1920 frame each title's letters stand, as ass draws them."""
+    shown = state.get("captions")
+    one = _caption_style(state, default, shown["lines"], shown["band"][1]) if shown and shown.get("one") else None
+    out = []
+    for t in state["titles"]:
+        x, y, w, h = t["box"]
+        lay = text.measure(t["text"], _title_drawn(state, default, one, t), "title", int(w))
+        out.append((t, [x + (w - lay.w) / 2.0, y + (h - lay.h) / 2.0, lay.w, lay.h]))
+    return out
+
+
 def _styles(state, default):
     """The clip's style for each part of its words, {kind: Style}."""
     return {kind: style_of(state, default, kind) for kind in text.KINDS}
@@ -219,9 +238,7 @@ def ass(state, default="clean", behind=False):
     events = []
     styles = list(st.values())
     for t in titles:
-        drawn = _title_style(state, default, one, t) if one else st["title"]
-        if t.get("grow"):
-            drawn = _grown_title(state, default, t, drawn)
+        drawn = _title_drawn(state, default, one, t)
         if drawn not in styles:
             styles.append(drawn)
         events += text.title(t["text"], t["start"], t["end"], t["box"], drawn, t.get("key"))

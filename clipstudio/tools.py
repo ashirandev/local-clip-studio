@@ -3917,6 +3917,23 @@ def remove_title(job, why, words):
                       _show_frame(job, state, rec, state["length"] / 2, "The clip without it:")])
 
 
+def _whole_names(job, rec, state, px, face):
+    """(the box to blur, notes): in a game, px grown to cover the whole of each line with a viewer's name it reaches
+    into, as long as it still leaves the face clear. Game 10-30 (174316-0f5e): check_clip found names at
+    [781, 48, 1000, 324], Glimmer blurred [780, 0, 1000, 250], then [750, 0, 1000, 400]: three renders and checks
+    for a bottom edge."""
+    if (job.chat.clip or {}).get("recipe") != "game":
+        return px, []
+    names = [f for f in _shown_private(job, rec, state)[0] or [] if f["kind"] == NAME_LINE and _share(f["box"], px) > 0]
+    if not names or all(screen.covered(f, [{"box": px, "start": 0, "end": state["length"]}]) for f in names):
+        return px, []
+    grown = _around(names + [{"box": px}])
+    if face and _share(face, grown) > BLUR_FACE_SHARE:
+        return px, []
+    return grown, ["The box reached into %d line%s with a viewer's name, so it was grown to cover %s whole." % (
+        len(names), "" if len(names) == 1 else "s", "it" if len(names) == 1 else "them")]
+
+
 def blur_box(job, why, box, start=None, end=None, person_said=None):
     asked = _asked(job, person_said)
     rec = _open(job, "blur")
@@ -3940,10 +3957,11 @@ def blur_box(job, why, box, start=None, end=None, person_said=None):
     if not 0 <= a < length or b - a < SHORTEST_WORDS:
         raise Refused("A blur runs from a start inside the clip (0 to %g s) to a later end; %g-%g s is not that. Leave "
                       "both out to blur the whole clip." % (round(length - SHORTEST_WORDS, 1), a, b))
+    px, widened = _whole_names(job, rec, state, px, face)
     state = job.edit({"do": "blur", "box": [round(v) for v in px], "start": round(a, 2), "end": round(b, 2)})
     where = "; ".join(_where(lay, px))
     lines = ["Blurred %s on your grid from %g to %g s, so nothing in it can be read. In the clip it shows %s."
-             % (_grid(px, rec), a, b, where)]
+             % (_grid(px, rec), a, b, where)] + widened
     lines.append(_show_frame(job, state, rec, (a + b) / 2, "The clip with the blur:"))
     return "\n".join(lines)
 
@@ -3969,6 +3987,27 @@ def add_hit(job, why, at, kind, word=None):
 
 
 STICKER_LENGTH = 2.0
+WORDS_UNDER = 0.05
+
+
+def _sticker_drawn(png, band):
+    """[x, y, w, h] on the frame where a sticker given band is drawn: as large as fits, centred in it."""
+    w, h = effects._png_size(png)
+    fit = min(band[2] / w, band[3] / h)
+    return [round(band[0] + (band[2] - w * fit) / 2), round(band[1] + (band[3] - h * fit) / 2), round(w * fit),
+            round(h * fit)]
+
+
+def _over_titles(state, default, drawn, a, b):
+    """The titles drawn (frame px) from a to b covers WORDS_UNDER or more of: [(title, where its letters stand)].
+    Game 10-30 (174316-0f5e): a sticker at the top went on over the title at 7 s, the star over "หลาย"."""
+    out = []
+    for t, box in render.title_boxes(state, default):
+        w = min(drawn[0] + drawn[2], box[0] + box[2]) - max(drawn[0], box[0])
+        h = min(drawn[1] + drawn[3], box[1] + box[3]) - max(drawn[1], box[1])
+        if t["start"] < b and t["end"] > a and w > 0 and h > 0 and w * h >= WORDS_UNDER * box[2] * box[3]:
+            out.append((t, box))
+    return out
 
 
 def add_sticker(job, why, sticker, at, length=STICKER_LENGTH, place=None, box=None, person_said=None):
@@ -3993,11 +4032,22 @@ def add_sticker(job, why, sticker, at, length=STICKER_LENGTH, place=None, box=No
         effects.sticker(png, at, length, band)
     except ValueError as e:
         raise Refused(str(e))
-    w, h = effects._png_size(png)
-    fit = min(band[2] / w, band[3] / h)
-    drawn = [round(band[0] + (band[2] - w * fit) / 2), round(band[1] + (band[3] - h * fit) / 2), round(w * fit),
-             round(h * fit)]
+    drawn = _sticker_drawn(png, band)
+    default = job.chat.clip["style"] if job.chat.clip else "clean"
+    under = _over_titles(state, default, drawn, at, at + length)
+    if under and not asked:
+        clear = [name for name, spot in state["clip"]["layout"]["places"].items()
+                 if not _over_titles(state, default, _sticker_drawn(png, spot), at, at + length)]
+        raise Refused("The sticker would cover the title %s: words on the clip are never covered. %s, or a time the "
+                      "title is not shown." % ("; ".join('"%s" (%s, from %g to %g s)' % (
+                          t["text"], ", ".join(layouts.on_grid(box[i], box[i] + box[i + 2], "xy"[i], inward=False)
+                                               for i in (0, 1)), t["start"], t["end"]) for t, box in under),
+                          "Clear of it at %g s: %s" % (at, ", ".join(clear)) if clear else
+                          "No place is clear of it at %g s: give a box away from it" % at))
     notes = _phone(drawn, state["clip"]["layout"], state, asked)
+    if under:
+        notes.append("It covers the title %s, where the person asked for it; tell the person." % ", ".join(
+            '"%s"' % t["text"] for t, _ in under))
     more, hit = _off_faces(state, rec, drawn, at, at + length, asked, "sticker")
     replaced = [k for k in state["stickers"] if project._same_box(k, {"box": band, "at": at, "length": length},
                                                                   "at", "length")]

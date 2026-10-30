@@ -1994,6 +1994,25 @@ class Tools(unittest.TestCase):
                       "at those seconds)", brief[-1]["result"],
                       "Glimmer 10-30: a 0.5 s cut failed the check and Muse remade the clip without its follow")
 
+    def test_a_sticker_never_covers_a_title_unless_the_person_asked_for_it_there(self):
+        self.chat.emit("person", job=None, text="เอาดาวไว้บนชื่อคลิปเลย")
+        brain, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("add_title", words="Big win", start=0, end=4, place="top", why="the hook")],
+            [call("add_sticker", sticker="star", at=2, place="top", why="the peak")],
+            [call("add_sticker", sticker="star", at=10, place="top", why="after the title")],
+            [call("add_sticker", sticker="star", at=2, place="top", person_said="เอาดาวไว้บนชื่อคลิป", why="asked")],
+            "Done.")
+        over, after, asked = steps[-3:]
+        self.assertTrue(over["refused"], "game 10-30: a star at the top over the title at 7 s")
+        self.assertIn('The sticker would cover the title "Big win" (x ', over["result"])
+        self.assertIn("from 0 to 4 s): words on the clip are never covered. Clear of it at 2 s: middle, or a time "
+                      "the title is not shown.", over["result"])
+        self.assertFalse(after["refused"], after["result"])
+        self.assertFalse(asked["refused"], asked["result"])
+        self.assertIn('It covers the title "Big win", where the person asked for it; tell the person.', asked["result"])
+        self.assertEqual([k["at"] for k in self.chat.project.state()["stickers"]], [2, 10])
+
     def test_muse_sends_stickers_flying_in_a_box_clear_of_faces_and_the_clip_draws_them(self):
         face = [430, 660, 570, 755]
         brain, steps = self.run_job(
@@ -2883,11 +2902,11 @@ class Tools(unittest.TestCase):
                 [call("blur_box", box=[400, 500, 600, 1000], why="the chat")],
                 [call("blur_box", box=[400, 300, 600, 450], why="the chat, lower")],
                 [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
-                [call("blur_box", box=[380, 0, 620, 200], why="the names")],
+                [call("blur_box", box=[380, 0, 620, 80], why="the names")],
                 [call("render_clip", why="again")], [call("check_clip", why="again")], "Done.")
         finally:
             screen.readings, render.export = had
-        on_face, low = [s for s in steps if s["tool"] == "blur_box"][:2]
+        on_face, low, names = [s for s in steps if s["tool"] == "blur_box"]
         first, second = [s for s in steps if s["tool"] == "check_clip"]
         self.assertTrue(on_face["refused"])
         self.assertIn("The viewers' names were read on the screen at [394, 33, 606, 144] on your grid.",
@@ -2897,6 +2916,9 @@ class Tools(unittest.TestCase):
                       "from 0 to ", first["result"], "a blur over the whole clip in the wrong place passed before")
         self.assertIn("- passed: No viewer's name can be read (1 line with a name, under a blur for as long as it "
                       "shows)", second["result"])
+        self.assertIn("The box reached into 1 line with a viewer's name, so it was grown to cover it whole.",
+                      names["result"], "game 10-30: three blurs, three renders, for the bottom of the names")
+        self.assertNotIn("grown to cover", low["result"])
 
     def test_only_the_first_moment_is_fixed_before_the_cards_and_another_when_its_clip_is_made(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "first heard", "sure": 0.95},
