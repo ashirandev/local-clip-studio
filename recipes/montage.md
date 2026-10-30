@@ -3,7 +3,7 @@ name: montage
 title: Trip or event clips
 chip: It's several clips of a trip or an event
 description: Many short clips shot on a phone at one trip, outing or event, joined into one clip that tells what happened there. Pick it when several clips were opened together.
-length: 40
+length: 30
 style: clean
 map: sound 1, screen 1
 ---

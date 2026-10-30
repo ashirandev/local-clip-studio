@@ -302,7 +302,7 @@ class Arrange(unittest.TestCase):
                                  [call("arrange_clips", story="s", clips=long, why="order")],
                                  [call("arrange_clips", story="s", clips=[{k: v for k, v in c.items() if v is not None}
                                                                           for c in quiet], why="order")],
-                                 lambda asking: (setattr(tools, "OVER_LENGTH", 0.1), [call(
+                                 lambda asking: (setattr(tools, "OVER_LENGTH", 0.15), [call(
                                      "arrange_clips", story="s", clips=ok, why="order")])[1],
                                  lambda asking: (setattr(tools, "LINE_EVERY", 1.0), [call(
                                      "arrange_clips", story="s", clips=ok, why="order")])[1],
@@ -312,7 +312,7 @@ class Arrange(unittest.TestCase):
         self.assertIn("The program fitted the pieces: clip 2: 0-2.5 s of the 0-2.9 s you gave (a piece is at most "
                       "2.5 s)", steps[2]["result"])
         self.assertIn("The first piece (clip 2) opens the clip: give it words", steps[3]["result"])
-        self.assertIn("The pieces add up to 4.9 s; this clip is 3 to 4 s (about 40 s was asked). Use fewer clips.",
+        self.assertIn("The pieces add up to 4.9 s; this clip is 3 to 4 s (about 30 s was asked). Use fewer clips.",
                       steps[4]["result"], "no piece is over 2 s, so none is cut")
         self.assertNotIn("lines of words", steps[4]["result"])
         self.assertIn("2 lines of words for 4.9 s: give at least 5", steps[5]["result"])
