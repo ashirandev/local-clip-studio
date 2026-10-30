@@ -552,6 +552,19 @@ class Tools(unittest.TestCase):
         self.assertTrue(65 <= x and x + w <= 460 and 285 <= y and y + h <= 520,
                         "inside the clear part, x 65 to 460 and y 285 to 520 of the frame: %s" % [x, y, w, h])
 
+    def test_a_vlogs_card_shows_its_faces_bigger(self):
+        moment = self.to_moment()
+        moment[0] = [call("open_recording", path=self.clip, why="open it"),
+                     call("load_recipe", type="vlog", why="an episode")]
+        brain, steps = self.run_job(*moment, [call("make_clip", moment=1, layout="card", why="the scene")], "Done.")
+        step = steps[-1]
+        self.assertFalse(step["refused"], step["result"])
+        self.assertIn("the card shows [162, 0, 838, 1000] on your grid", step["result"])
+        lay = [e["entry"] for e in self.chat.events if e["kind"] == "edit" and e["entry"].get("do") == "clip"][-1]["layout"]
+        (card,) = [p for p in lay["parts"] if p["name"] == "card"]
+        self.assertEqual(card["src"], [52, 0, 216, 180])
+        self.assertEqual(card["dst"][3], 800, "taller than a whole 16:9 picture's 540 px card")
+
     def test_wrong_title_input_says_what_to_send(self):
         brain, steps = self.run_job(
             *self.to_moment(), [call("make_clip", moment=1, layout="card", why="the game")],
@@ -2106,7 +2119,7 @@ class Tools(unittest.TestCase):
         self.assertFalse(again["refused"], again["result"])
         self.assertFalse(face["refused"], face["result"])
 
-    def test_a_vlog_keeps_its_whole_picture_with_no_face_circle_and_no_face_crop_unasked(self):
+    def test_a_vlog_keeps_its_whole_height_with_no_face_circle_and_no_face_crop_unasked(self):
         _, steps = self.run_job([call("load_recipe", type="vlog", why="a travel episode")], *self.to_moment(),
                                 [call("make_clip", moment=1, layout="face", why="her face")],
                                 [call("make_clip", moment=1, layout="card", why="the whole scene")], "Done.")
@@ -2114,7 +2127,8 @@ class Tools(unittest.TestCase):
         self.assertTrue(face["refused"], "10-29: EP81 cut down to faces showed an eye and hair in the circles")
         self.assertTrue(face["result"].startswith("Not made. A vlog's clip keeps the whole picture"), face["result"])
         self.assertFalse(card["refused"], card["result"])
-        self.assertIn("A vlog keeps its whole picture: the card has no face circle", card["result"])
+        self.assertIn("A vlog keeps its whole height", card["result"])
+        self.assertIn("The card has no face circle, as nobody looks for one.", card["result"])
         parts = self.chat.project.state()["clip"]["layout"]["parts"]
         self.assertEqual([p["name"] for p in parts], ["card"], "a face the finder sees stays in the picture")
 
@@ -2700,6 +2714,34 @@ class FaceToFollow(unittest.TestCase):
         self.assertNotIn("No face was found", said)
         self.assertEqual(self.face(0)[1], "No face was found in the moment's 20 pictures.")
         self.assertIsNotNone(self.face(6)[0], "seen in a quarter of them: the layout follows it")
+
+
+class VlogTrim(unittest.TestCase):
+    """EP 2.2 of บ้านไร้นาม, 10-30: four people a quarter of the frame's height on a vlog's whole-picture card."""
+
+    def trim(self, boxes):
+        found = {"samples": [{"t": 0.0, "faces": boxes}, {"t": 0.5, "faces": [[0, 0, 900, 900, 0.3]]}]}
+        job = type("Job", (), {"find_faces": lambda self, rec, a, b: found})()
+        return tools._vlog_trim(job, {"width": 1920, "height": 1080}, 0.0, 20.0)
+
+    def test_a_vlogs_card_is_cut_to_its_faces_and_muse_is_told_how(self):
+        part, said = self.trim([[600, 300, 150, 150, 0.9], [1150, 300, 150, 150, 0.95]])
+        self.assertEqual(part, [320, 0, 1280, 1080], "a face the finder is not sure of does not hold the card wide")
+        self.assertIn("the card shows [167, 0, 833, 1000] on your grid", said)
+        self.assertIn("holds 100% of the faces", said)
+        self.assertIn("1.5 times as big", said)
+        self.assertIn("make the clip again with crop [0, 0, 1000, 1000]", said)
+
+    def test_a_vlog_with_no_face_keeps_its_whole_picture(self):
+        self.assertEqual(self.trim([]), (None, tools.VLOG_WHOLE))
+
+    def test_a_vlog_whose_faces_cannot_be_looked_for_is_not_cut(self):
+        def fails(self, rec, a, b):
+            raise tools.faces.NoFaces("no pictures")
+        job = type("Job", (), {"find_faces": fails})()
+        part, said = tools._vlog_trim(job, {"width": 1920, "height": 1080}, 0.0, 20.0)
+        self.assertIsNone(part)
+        self.assertIn("so its sides are not cut", said)
 
 
 if __name__ == "__main__":

@@ -1447,6 +1447,28 @@ def _the_face(job, rec, a, b, face):
     return None, "No face was found in the moment's %d pictures." % n
 
 
+VLOG_WHOLE = "A vlog keeps its whole picture: the card has no face circle, as nobody looks for one."
+
+
+def _vlog_trim(job, rec, a, b):
+    """(the part of a vlog's picture its card shows, or None for the whole picture, a sentence for Muse): its sides
+    cut as far as layouts.trimmed() lets the faces seen from a to b stay. faces.Stopped when the person pressed
+    Stop."""
+    try:
+        found = job.find_faces(rec, a, b)
+    except faces.NoFaces as e:
+        return None, VLOG_WHOLE + " Faces could not be looked for (%s), so its sides are not cut." % e
+    boxes = [f[:4] for s in found["samples"] for f in s["faces"] if f[4] >= faces.SCORE]
+    part, share = layouts.trimmed((rec["width"], rec["height"]), boxes)
+    if part[2] >= rec["width"]:
+        return None, VLOG_WHOLE
+    return part, ("A vlog keeps its whole height and the subtitles an editor centres: the card shows %s on your grid, "
+                  "its sides cut as far as it still holds %d%% of the faces the whole picture shows in the moment, so "
+                  "the people are %.1f times as big. The card has no face circle, as nobody looks for one. To show "
+                  "the whole picture, make the clip again with crop [0, 0, 1000, 1000]."
+                  % (_grid(part, rec), int(round(share * 100)), rec["width"] / float(part[2])))
+
+
 def _found_faces(rec, pieces, span=None):
     """[(a, b, the faces found from a to b, or None when nobody looked)]: the faces found over span, the moment the
     clip was made from, as one stretch; or over each piece, for a clip kept from before clips were cut into pieces.
@@ -1645,22 +1667,26 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
         return _make_talk(job, rec, moment, m, *_pieces(m.get("said") or [], a, b, _still(rec, "talk", a, b, None),
                                                         takes.heard_claps(rec, a, b), edges=not m.get("ends")),
                           name=layout, kept=kept)
+    trim = None
     try:
         if recipe == "vlog" and layout == "card" and not face:
-            box, face_line = None, "A vlog keeps its whole picture: the card has no face circle, as nobody looks for one."
+            box = None
+            trim, face_line = _vlog_trim(job, rec, a, b) if not crop else (None, VLOG_WHOLE)
         else:
             box, face_line = _the_face(job, rec, a, b, face)
     except faces.Stopped:
         return "Not made: the person pressed Stop."
     try:
-        lay = layouts.make(layout, (rec["width"], rec["height"]), box, _pixels("crop", crop, rec) if crop else None)
+        lay = layouts.make(layout, (rec["width"], rec["height"]), box,
+                           trim or (_pixels("crop", crop, rec) if crop else None),
+                           layouts.VLOG_TALLEST if trim else None)
     except ValueError as e:
         raise Refused(str(e))
     still = _still(rec, recipe, a, b, layouts.face_room(lay))
     pieces, cut = _pieces(m.get("said") or [], a, b, still, takes.heard_claps(rec, a, b) if still else [],
                           edges=not m.get("ends"))
     following = ""
-    if lay["kind"] == "card" and follow and not crop and _reads_screen(job):
+    if lay["kind"] == "card" and follow and not crop and not trim and _reads_screen(job):
         lay, following = _follow(rec, lay, pieces, [a, b])
     item = [round(v) for v in _pixels("product", product, rec)] if product else None
     if item and not layouts.to_frame(lay, item):
@@ -1830,6 +1856,8 @@ def _follow(rec, lay, pieces, span):
         text = [dict(line, at=r["at"]) for r in screen.readings(rec, span[0], span[1]) for line in r["lines"]]
     except screen.ScreenError:
         text = None
+    if focus.unread(text):
+        return _slide(rec, lay, pieces, text)
     try:
         plan = focus.plan(rec, pieces, [0, 0, rec["width"], rec["height"]], card["dst"][2] / float(card["dst"][3]),
                           layouts.face_room(lay), text, card["dst"][2])
@@ -1859,6 +1887,29 @@ def _follow(rec, lay, pieces, span):
             "Nothing on the screen changes, so the card holds where the most lines are written, from their start"
             if plan.get("on") == "lines" else "The card follows the action on the screen", size[0], size[1],
             rec["width"], rec["height"], whole / float(size[0]), moves, readable))
+
+
+def _slide(rec, lay, pieces, text):
+    """(the card layout showing the written part of a slide whose lines cannot be read, or the layout as it was, the
+    sentence for Muse): the card does not follow lines it cannot read (focus.unread), so it never cuts them."""
+    said = ("The screen's words are in a script the reader does not know (%d of %d lines read surely), so the card "
+            "does not follow them" % (sum(1 for line in text if line.get("sure", 0) >= focus.SURE), len(text)))
+    try:
+        box = focus.content(rec, pieces)
+    except focus.FocusError as e:
+        return lay, "%s: it shows the whole screen, as the screen could not be looked at (%s)." % (said, e)
+    if not box:
+        return lay, "%s: the screen is written on to its edges, or it is not a slide, so the card shows it whole." % said
+    size = (rec["width"], rec["height"])
+    part = layouts.framed(box, size)
+    try:
+        slide = layouts.make("card", size, lay.get("face"), part)
+    except ValueError:
+        return lay, "%s: it shows the whole screen." % said
+    (card,) = [p for p in slide["parts"] if p["name"] == "card"]
+    return slide, ("%s: it shows the part of the slide that is written on, %s on your grid, whole and %.1f times as "
+                   "big as the whole screen. If it leaves out what matters, make the clip again with a crop around "
+                   "it." % (said, _grid(card["src"], rec), rec["width"] / float(card["src"][2])))
 
 
 def _menu_start(job, rec, a):

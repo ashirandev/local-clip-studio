@@ -66,6 +66,18 @@ SMALLEST = 0.15
 TOP_NEAR = 0.95
 SURE = 0.9
 FEW = 0.25
+# A screen whose lines are read surely under READ_SHARE of the time is written in a script the reader does not know
+# (Thai on RapidOCR: 4 of 17 and 8 of 29 lines on the gold lesson's slides, 774 of 911 and 834 of 1154 on Eaglet's
+# own screen, 10-30), so its lines say nothing of the letters' size: from them the card zoomed to 874 of 1920 px and
+# cut the slide's lines in half, and Muse turned following off. Such a screen, when it is a slide, shows the part
+# that is written on instead: what is not the colour of its border (the picture's edge, FLAT_EDGE of it one colour),
+# the marks grown by SPREAD of the width so a line's letters join, a mark under SPECK of the picture left out (the
+# mouse's ring, a logo in a corner), whole when that part reaches WHOLE of the picture both ways.
+READ_SHARE = 0.5
+FLAT_EDGE = 0.9
+SPREAD = 0.02
+SPECK = 0.01
+WHOLE = 0.95
 
 
 class FocusError(Exception):
@@ -181,6 +193,42 @@ def letters(text, avoid=None):
     heights = [line["box"][3] for line in text or [] if line.get("sure", 0) >= SURE and line["box"][3] > 0
                and not (avoid and _covers(avoid, line["box"]))]
     return float(statistics.median(heights)) if heights else None
+
+
+def unread(text):
+    """True when the screen's lines (text: [{"sure"}]) were read surely under READ_SHARE of the time: a script the
+    reader does not know. False when no line was found."""
+    lines = list(text or [])
+    return bool(lines) and sum(1 for line in lines if line.get("sure", 0) >= SURE) < READ_SHARE * len(lines)
+
+
+def content(rec, pieces):
+    """[x, y, w, h] in pixels of the recording: the part of a slide that is written on, over the clip's pieces (the
+    pictures heat() keeps), or None when a picture's edge is not one colour (a screen, a camera) or the written part
+    reaches WHOLE of the picture both ways."""
+    import cv2
+    w, h = rec["width"], rec["height"]
+    found = []
+    for a, b in pieces:
+        _, marks, (sw, sh) = heat(rec, [0, 0, w, h], a, b)
+        grow = np.ones((max(1, int(round(SPREAD * sw))),) * 2, np.uint8)
+        for pic in marks:
+            pic = pic.astype(np.int16)
+            edge = np.concatenate([pic[0], pic[-1], pic[:, 0], pic[:, -1]])
+            ground = np.median(edge)
+            if np.mean(np.abs(edge - ground) <= LEVEL) < FLAT_EDGE:
+                return None
+            ink = cv2.dilate((np.abs(pic - ground) > LEVEL).astype(np.uint8), grow)
+            _, _, stats, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
+            found += [(x, y, x + bw, y + bh) for x, y, bw, bh, area in stats[1:] if area >= SPECK * sw * sh]
+    if not found:
+        return None
+    k = w / float(sw)
+    x0, y0 = min(f[0] for f in found) * k, min(f[1] for f in found) * k
+    x1, y1 = max(f[2] for f in found) * k, max(f[3] for f in found) * k
+    if x1 - x0 >= WHOLE * w and y1 - y0 >= WHOLE * h:
+        return None
+    return [round(x0), round(y0), round(x1 - x0), round(y1 - y0)]
 
 
 def on_phone(height, window, shown):

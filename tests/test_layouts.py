@@ -84,6 +84,25 @@ class Drawn(unittest.TestCase):
                                     "planes blur one pixel of the recording and two of the frame, %.1f px here"
                                     % (kind, part["name"], got, [round(v, 1) for v in want], reach))
 
+    def test_a_vlogs_trimmed_card_shows_its_people_bigger_and_its_centred_words_whole(self):
+        people = [[400, 300, 100, 120], [900, 300, 120, 140], [1400, 300, 100, 120]]
+        crop, share = layouts.trimmed(SIZE, people)
+        lay = layouts.make("card", SIZE, None, crop, layouts.VLOG_TALLEST)
+        (card,) = [p["dst"] for p in lay["parts"] if p["name"] == "card"]
+        whole = layouts.make("card", SIZE, None)
+        (was,) = [p["dst"] for p in whole["parts"] if p["name"] == "card"]
+        self.assertEqual(card[3], layouts.VLOG_TALLEST, "the card grows as tall as the vlog's card may")
+        self.assertNotIn("The card was trimmed at the top and bottom to fit the frame.", lay["notes"])
+        r = layouts.CARD_RADIUS
+        for box, what in ((people[1], "the middle person"), ([540, 900, 840, 60], "a subtitle 840 px wide")):
+            got = magenta(draw(lay, box), [card[0] + r, card[1], card[2] - 2 * r, card[3]])
+            self.assertIsNotNone(got, what)
+            before = magenta(draw(whole, box), [was[0] + r, was[1], was[2] - 2 * r, was[3]])
+            self.assertGreater((got[2] - got[0]) / float(before[2] - before[0]), 1.45, "%s 1.5 times as wide: %s, "
+                               "was %s" % (what, got, before))
+            self.assertAlmostEqual(got[2] - got[0], box[2] * card[2] / float(crop[2]), delta=3,
+                                   msg="%s drawn whole, not cut at the card's side: %s" % (what, got))
+
     def test_the_card_has_rounded_corners_a_shadow_and_a_ring(self):
         lay = layouts.make("card", SIZE, FACE)
         frame = draw(lay, [10, 10, 4, 4]).astype(int)
@@ -326,6 +345,44 @@ class Phones(unittest.TestCase):
         parts = {p["name"]: p["dst"] for p in lay["parts"]}
         self.assertEqual(parts["card"][3], 514, "a 16:9 screen with a face camera: the card gave 14 px to the name")
         self.assertEqual(parts["circle"][2], layouts.CIRCLE_SMALLEST, "and the face circle none")
+
+    def test_a_vlogs_card_is_cut_equally_at_both_sides_only_as_far_as_its_faces_allow(self):
+        middle = [[600, 300, 150, 150], [1150, 300, 150, 150]]
+        crop, share = layouts.trimmed(SIZE, middle)
+        self.assertEqual((crop, share), ([320, 0, 1280, 1080], 1.0), "faces in the middle: cut to the tallest card")
+        edge = middle + [[150, 300, 30, 30]]
+        crop, share = layouts.trimmed(SIZE, edge)
+        self.assertEqual(crop, [320, 0, 1280, 1080], "a small face at the edge, 30 of 330 px of faces, may be lost")
+        self.assertAlmostEqual(share, 300 / 330.0, places=3)
+        big = middle + [[150, 300, 200, 200]]
+        crop, share = layouts.trimmed(SIZE, big)
+        self.assertLessEqual(crop[0], 150, "a face of 200 of 500 px is kept: %s" % crop)
+        self.assertGreaterEqual(share, layouts.KEEP)
+        for crop, _ in (layouts.trimmed(SIZE, middle), layouts.trimmed(SIZE, big)):
+            self.assertEqual(crop[0], SIZE[0] - crop[0] - crop[2], "cut equally at both sides: %s" % crop)
+            self.assertEqual(crop[0] % 2 + crop[2] % 2, 0, "on even pixels")
+        self.assertEqual(layouts.trimmed(SIZE, []), ([0, 0, 1920, 1080], 1.0), "no face: the whole picture")
+        self.assertEqual(layouts.trimmed((1920, 1080), [[-40, 300, 150, 150]])[0], [0, 0, 1920, 1080],
+                         "no face held whole: the whole picture")
+        self.assertEqual(layouts.trimmed((1080, 1920), middle)[0], [0, 0, 1080, 1920], "an upright picture is not cut")
+
+    def test_a_vlogs_taller_card_keeps_the_card_columns_rules(self):
+        crop, _ = layouts.trimmed(SIZE, [[600, 300, 150, 150]])
+        lay = layouts.make("card", SIZE, None, crop, layouts.VLOG_TALLEST)
+        parts = {p["name"]: p["dst"] for p in lay["parts"]}
+        band = lay["captions"]
+        shows(self, parts["card"], "the vlog's taller card")
+        self.assertLessEqual(parts["card"][1] + parts["card"][3], layouts.NAME_TOP, parts["card"])
+        self.assertFalse(overlap(band, parts["card"]), (band, parts["card"]))
+        self.assertFalse(overlap(band, lay["places"]["top"]), (band, lay["places"]["top"]))
+        self.assertLessEqual(band[1] + band[3], 1250, "an ad keeps the bottom 670 px for its button")
+        lay = layouts.make("card", (1440, 1080), None)
+        (card,) = [p["dst"] for p in lay["parts"] if p["name"] == "card"]
+        self.assertEqual(card[3], layouts.CARD_TALLEST, "without tallest a card stays as tall as it was")
+        lay = layouts.make("card", (1080, 1080), None, None, 5000)
+        (card,) = [p["dst"] for p in lay["parts"] if p["name"] == "card"]
+        self.assertLessEqual(card[1] + card[3], layouts.NAME_TOP, "a square picture's 960 px card is cut to the room "
+                                                                  "above the name, however tall it may be: %s" % card)
 
     def test_a_subject_shows_whole_between_the_header_and_the_name(self):
         for crop in ([800, 300, 400, 500], [300, 400, 300, 300], [1400, 100, 350, 400]):

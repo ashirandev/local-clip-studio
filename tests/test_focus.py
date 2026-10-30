@@ -44,6 +44,92 @@ def inside(box, x, y, w, h):
     return box[0] <= x and box[1] <= y and box[0] + box[2] >= x + w and box[1] + box[3] >= y + h
 
 
+def slide(path, rows=range(8), first=300, letters=35, top=150, camera=False):
+    """A still 1280x720 slide, cream, with written lines: each a row of small dark letters apart from each other,
+    from x first and y top, 50 px apart; the mouse's yellow ring at the left and a small logo in the bottom-right
+    corner. camera: a moving test picture fills it instead."""
+    marks = ["drawbox=x=%d:y=%d:w=12:h=24:color=0x202020:t=fill" % (first + k * 20, top + r * 50)
+             for r in rows for k in range(letters)]
+    marks += ["drawbox=x=120:y=300:w=16:h=16:color=yellow:t=fill", "drawbox=x=1236:y=660:w=24:h=40:color=0xC03030:t=fill"]
+    source = {True: "testsrc=s=1280x720:r=30:d=3", "sky": "color=c=0xFEF7ED:s=1280x720:r=30:d=3,format=yuv420p,"
+              "geq=lum='if(lt(Y,240),Y/2+40,240)':cb=128:cr=128"}.get(camera, "color=c=0xFEF7ED:s=1280x720:r=30:d=3")
+    script = path + ".graph"
+    with open(script, "w", encoding="utf-8") as f:
+        f.write("[0:v]" + ("null" if camera is True else ",".join(marks)) + "[v]")
+    subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", source, "-/filter_complex", script, "-map",
+                    "[v]", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", path], check=True)
+    st = os.stat(path)
+    return {"path": path, "name": os.path.basename(path), "size": st.st_size, "mtime": st.st_mtime, "width": 1280,
+            "height": 720}
+
+
+def read(sure, of):
+    return [{"box": [300, 150 + k, 600, 24], "sure": 0.95 if k < sure else 0.4, "text": "x"} for k in range(of)]
+
+
+@unittest.skipUnless(FFMPEG, "needs ffmpeg")
+class Slide(unittest.TestCase):
+    """The gold lesson, 10-30: Thai slides the reader cannot read; the card zoomed from its unsure lines and cut them."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.work, recording.WORK = recording.WORK, os.path.join(self.tmp, "work")
+
+    def tearDown(self):
+        recording.WORK = self.work
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_lines_read_surely_under_half_the_time_are_a_script_the_reader_does_not_know(self):
+        self.assertTrue(focus.unread(read(4, 17)))
+        self.assertFalse(focus.unread(read(15, 17)))
+        self.assertFalse(focus.unread([]))
+        self.assertFalse(focus.unread(None))
+
+    def test_a_slides_written_part_leaves_out_its_border_the_mouse_and_a_corner_logo(self):
+        box = focus.content(slide(os.path.join(self.tmp, "s.mp4")), [[0, 3]])
+        x0, y0, x1, y1 = box[0], box[1], box[0] + box[2], box[1] + box[3]
+        self.assertTrue(260 <= x0 <= 300 and 992 <= x1 <= 1030, "the lines run from x 300 to 992: %s" % box)
+        self.assertTrue(110 <= y0 <= 150 and 524 <= y1 <= 564, "and from y 150 to 524: %s" % box)
+
+    def test_a_camera_or_a_slide_written_to_its_edges_is_shown_whole(self):
+        self.assertIsNone(focus.content(slide(os.path.join(self.tmp, "c.mp4"), camera=True), [[0, 3]]))
+        edges = slide(os.path.join(self.tmp, "e.mp4"), rows=range(14), first=40, letters=60, top=30)
+        self.assertIsNone(focus.content(edges, [[0, 3]]), "written from x 40 to 1232 and y 30 to 704")
+        sky = slide(os.path.join(self.tmp, "k.mp4"), camera="sky")
+        self.assertIsNone(focus.content(sky, [[0, 3]]), "a sky fading down its top third: its edge is not one colour")
+
+    def test_the_part_is_grown_to_a_shape_the_card_shows_without_cutting_it(self):
+        for box in ([500, 100, 200, 600], [100, 300, 1000, 100], [0, 0, 300, 720]):
+            part = layouts.framed(box, (1280, 720))
+            self.assertTrue(inside(part, box[0] + 2, box[1] + 2, box[2] - 4, box[3] - 4), (box, part))
+            self.assertTrue(inside([0, 0, 1280, 720], *part), part)
+            lay = layouts.make("card", (1280, 720), None, part)
+            self.assertNotIn("The card was trimmed at the top and bottom to fit the frame.", lay["notes"], (box, part))
+            self.assertNotIn("The card was trimmed at the sides to fit the frame.", lay["notes"], (box, part))
+
+    def test_a_slide_the_reader_cannot_read_shows_its_written_part_whole_and_bigger(self):
+        from clipstudio import screen, tools
+        rec = slide(os.path.join(self.tmp, "s.mp4"))
+        lay = layouts.make("card", (1280, 720))
+        real = screen.readings
+        self.addCleanup(setattr, screen, "readings", real)
+        screen.readings = lambda rec, a, b: [{"at": 0.0, "lines": read(4, 17)}]
+        got, said = tools._follow(rec, lay, [[0, 3]], [0, 3])
+        (card,) = [p["src"] for p in got["parts"] if p["name"] == "card"]
+        self.assertTrue(inside(card, 300, 150, 692, 374), "every line whole: %s" % card)
+        self.assertLess(card[2], 1280 / 1.6, "the lines show over 1.6 times as big: %s" % card)
+        self.assertIn("(4 of 17 lines read surely), so the card does not follow them", said)
+        self.assertIn("whole and 1.", said)
+        column = slide(os.path.join(self.tmp, "n.mp4"), letters=10)
+        got, said = tools._follow(column, lay, [[0, 3]], [0, 3])
+        (card,) = [p["src"] for p in got["parts"] if p["name"] == "card"]
+        self.assertTrue(inside(card, 300, 150, 192, 374), "a tall column of lines is not cut at its top: %s" % card)
+        camera = slide(os.path.join(self.tmp, "c.mp4"), camera=True)
+        got, said = tools._follow(camera, lay, [[0, 3]], [0, 3])
+        self.assertIs(got, lay)
+        self.assertIn("or it is not a slide, so the card shows it whole", said)
+
+
 @unittest.skipUnless(FFMPEG, "needs ffmpeg")
 class Plan(unittest.TestCase):
     def setUp(self):

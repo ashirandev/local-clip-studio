@@ -60,6 +60,12 @@ CARD_X = 60
 CARD_W = W - 2 * CARD_X
 CARD_RADIUS = 30
 CARD_LOWEST, CARD_TALLEST = 480, 630
+# A vlog's card grows up to VLOG_TALLEST, its picture cut equally at both sides as far as it still holds KEEP of the
+# faces the whole picture holds (by their width). Shown whole, a 16:9 episode put four people in a quarter of the
+# frame's height and its own subtitles at about 11 px on a phone (Tarm, 10-30: "คนตัวเล็กไป"); cut at both sides
+# alike, the subtitles an editor centres stay whole (EP 2.2's run from 540 to 1380 of its 1920).
+VLOG_TALLEST = 810
+KEEP = 0.9
 # Down the card's column: CARD_GAP between the face circle, the captions' band and the card (the captions sit in the
 # middle of their band, so the words stand further off), and CARD_GAP_TOP under the title's place, which keeps the
 # title 20 px off the circle.
@@ -123,10 +129,12 @@ SHINE_AT, SHINE_FOR = 0.25, 0.7
 SHAPES = 2
 
 
-def make(kind, size, face=None, crop=None):
+def make(kind, size, face=None, crop=None, tallest=None):
     """The layout of kind for a recording of size (w, h): its parts, its places for words, its caption band and
     notes on what the program fixed. face is the face's box in the recording (from the face finder), crop the part
-    of the picture to show (whole picture when None). A layout that cannot be drawn raises ValueError."""
+    of the picture to show (whole picture when None), tallest the card's greatest height (CARD_TALLEST when None, a
+    vlog's trimmed card more, never past the room above the channel's name). A layout that cannot be drawn raises
+    ValueError."""
     if kind not in KINDS:
         raise ValueError("layout %r is not a layout: use one of %s." % (kind, ", ".join(KINDS)))
     w, h = size
@@ -143,7 +151,8 @@ def make(kind, size, face=None, crop=None):
             crop = _leave_out(crop, away, notes)
         else:
             notes.append("No face was given or found, so the card has no circle.")
-        crop, height = _card(crop, notes, _CARD_ROOM - CIRCLE_SMALLEST - CARD_GAP if face else CARD_TALLEST)
+        crop, height = _card(crop, notes, _CARD_ROOM - CIRCLE_SMALLEST - CARD_GAP if face
+                             else min(tallest or CARD_TALLEST, _CARD_ROOM))
         circle, captions, card = _card_column(height, bool(face))
         parts.append({"name": "card", "src": crop, "dst": card})
         if face:
@@ -429,7 +438,7 @@ def _card(crop, notes, tallest=CARD_TALLEST):
     """(crop, card height): the card is CARD_W wide; its height follows the crop, from CARD_LOWEST to tallest
     pixels, trimming the crop around its middle when it is too tall or too wide."""
     x, y, cw, ch = crop
-    tallest = _even(min(tallest, CARD_TALLEST))
+    tallest = _even(tallest)
     height = CARD_W * ch / cw
     if height > tallest:
         nh = cw * tallest / CARD_W
@@ -440,6 +449,42 @@ def _card(crop, notes, tallest=CARD_TALLEST):
         x, cw, height = x + (cw - nw) / 2, nw, CARD_LOWEST
         notes.append("The card was trimmed at the sides to fit the frame.")
     return _within_even([x, y, cw, ch]), _even(height)
+
+
+def framed(box, size):
+    """box (x, y, w, h) of a picture of size (w, h) grown about its middle to a shape the card shows without cutting
+    any of it: no taller than a CARD_TALLEST card, no wider than a CARD_LOWEST one, kept inside the picture."""
+    w, h = size
+    x, y, bw, bh = box
+    nw = min(w, max(bw, bh * CARD_W / float(CARD_TALLEST - 4)))
+    nh = min(h, max(bh, bw * (CARD_LOWEST + 4) / float(CARD_W)))
+    nx = min(max(0.0, x + (bw - nw) / 2.0), w - nw)
+    ny = min(max(0.0, y + (bh - nh) / 2.0), h - nh)
+    x0, y0 = 2 * math.floor(nx / 2), 2 * math.floor(ny / 2)
+    x1, y1 = min(w, 2 * math.ceil((nx + nw) / 2)), min(h, 2 * math.ceil((ny + nh) / 2))
+    return [x0, y0, x1 - x0, y1 - y0]
+
+
+def trimmed(size, boxes, keep=KEEP, tallest=VLOG_TALLEST):
+    """([x, 0, w, h], the share of the faces it holds): the part of a picture of size (w, h) a vlog's card shows, cut
+    equally at both sides as far as it still holds keep of the width of the faces (boxes [x, y, w, h], pixels) that
+    the whole picture holds whole, and no further than a card tallest pixels tall shows. The whole picture, share 1.0,
+    when it holds no face whole."""
+    w, h = size
+
+    def held(x0, x1):
+        return sum(b[2] for b in boxes if b[0] >= x0 and b[0] + b[2] <= x1)
+
+    whole = held(0, w)
+    if whole <= 0:
+        return [0, 0, w, h], 1.0
+    narrowest = int(math.ceil(CARD_W * h / float(tallest)))
+    narrowest += (w - narrowest) % 4
+    for cw in range(narrowest, w, 4):
+        x0 = (w - cw) // 2
+        if held(x0, x0 + cw) >= keep * whole:
+            return [x0, 0, cw, h], round(held(x0, x0 + cw) / float(whole), 3)
+    return [0, 0, w, h], 1.0
 
 
 def face_room(layout):

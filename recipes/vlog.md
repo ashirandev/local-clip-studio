@@ -25,9 +25,10 @@ what caused it, or a short story with its end.
 
 ## The clip
 
-- Layout: the whole picture as a card across the middle, as its editor framed it, so the subtitles, titles and logo
-  already in the picture stay whole. Never cut the picture down to one face: a vlog cuts between shots, and a face is
-  lost at every cut (10-29: a travel episode cut down to faces showed an eye and hair in the circles).
+- Layout: the card, its whole height as its editor framed it. The program cuts its sides equally, as far as the
+  faces in the moment allow, so the people and the subtitles an editor centres show bigger; a logo in a corner may
+  go. Never cut the picture down to one face: a vlog cuts between shots, and a face is lost at every cut (10-29: a
+  travel episode cut down to faces showed an eye and hair in the circles).
 - Captions: when the picture already has its own subtitles, add none, because two sets of words fight. Otherwise
   plain captions of what is said.
 - The title names the place or what happens, in a few words, in the clip's language. It sits above the card, never
