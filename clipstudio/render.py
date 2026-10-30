@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 
 from . import cutout, effects, layouts, project, recording, text
 
@@ -276,16 +277,40 @@ def _part(path):
     return part
 
 
-def settle(part, path):
+READ_TRIES, READ_WAIT = 10, 0.05
+
+
+def settle(part, path, tries=READ_TRIES):
     """Moves the finished part to path. Two requests can make the same file at the same moment, and on Windows the
     second move is refused while the first file is open (the page showing it): that file is the same file, so the
-    part is dropped and the file kept."""
-    try:
-        os.replace(part, path)
-    except PermissionError:
-        os.remove(part)
-        if not os.path.isfile(path):
-            raise
+    part is dropped and the file kept. While the other move is still under way, path is not there yet and the move
+    is refused too, so it is tried again a few times (lane 5, 10-30: Errno 13 on a .ass file)."""
+    for k in range(tries):
+        try:
+            os.replace(part, path)
+            return
+        except PermissionError:
+            if os.path.isfile(path):
+                os.remove(part)
+                return
+            if k == tries - 1:
+                os.remove(part)
+                raise
+            time.sleep(READ_WAIT)
+
+
+def read_settled(path, tries=READ_TRIES):
+    """The file's bytes. On Windows a file that another request is moving into place refuses to open for a moment
+    (seen 10-28: PermissionError on clip frames while the page and Muse asked for the same frame; 10-30: a job ended
+    on the frame Muse was to see), so it is tried again a few times before the error stands."""
+    for k in range(tries):
+        try:
+            with open(path, "rb") as f:
+                return f.read()
+        except PermissionError:
+            if k == tries - 1:
+                raise
+            time.sleep(READ_WAIT)
 
 
 def after_source(state, src, out, first_input, default="clean", words=True):

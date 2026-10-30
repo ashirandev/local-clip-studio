@@ -1108,7 +1108,7 @@ class ExportMute(unittest.TestCase):
 class SettledRead(unittest.TestCase):
     def test_a_file_being_moved_into_place_is_read_once_it_opens(self):
         import builtins
-        from clipstudio import server
+        from clipstudio import agent
         path = os.path.join(tempfile.mkdtemp(), "frame.jpg")
         with open(path, "wb") as f:
             f.write(b"jpg")
@@ -1122,12 +1122,33 @@ class SettledRead(unittest.TestCase):
 
         builtins.open = busy
         try:
-            self.assertEqual(server.read_settled(path), b"jpg")
+            self.assertEqual(render.read_settled(path), b"jpg")
+            refused.clear()
+            self.assertEqual(agent._picture(path)["image_url"]["url"], "data:image/jpeg;base64,anBn",
+                             "lane 5, 10-30: a job ended on the frame Muse was to see")
             refused.clear()
             with self.assertRaises(PermissionError):
-                server.read_settled(path, tries=2)
+                render.read_settled(path, tries=2)
         finally:
             builtins.open = real
+
+    def test_a_move_refused_while_another_is_under_way_is_tried_again(self):
+        folder = tempfile.mkdtemp()
+        target = os.path.join(folder, "words.ass")
+        part = render._part(target)
+        with open(part, "w") as f:
+            f.write("ass")
+        real, refused = os.replace, []
+
+        def busy(a, b):
+            if len(refused) < 2:
+                refused.append(1)
+                raise PermissionError(13, "delete pending", b)
+            return real(a, b)
+
+        with mock.patch.object(render.os, "replace", busy):
+            render.settle(part, target)
+        self.assertEqual(os.listdir(folder), ["words.ass"], "lane 5, 10-30: Errno 13 on a .ass file")
 
 
 if __name__ == "__main__":

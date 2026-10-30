@@ -1831,8 +1831,7 @@ def _studio_pictures(pictures):
 
 
 def _picture(path):
-    with open(path, "rb") as f:
-        data = base64.b64encode(f.read()).decode("ascii")
+    data = base64.b64encode(render.read_settled(path)).decode("ascii")
     return {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + data}}
 
 
