@@ -424,10 +424,13 @@ def _picture_input(f, step=None):
 
 
 def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH, words=True):
-    """The clip's frame at clip second t, width pixels wide: the jpg's path in work/clipframes, made once. The
-    extra pictures (masks, shadows, stickers) are opened from the last 1/30 s step at or before t, so FFmpeg does
-    not read every picture frame before it (a frame late in a long clip draws as fast as the first), and their frames
-    fall on the steps the full render's do, so the frame shows each picture as the full render does. With
+    """The clip's frame at clip second t, width pixels wide: the jpg's path in work/clipframes, made once. It is
+    drawn at the last 1/30 s step at or before t, the frame a viewer of the clip sees at t, and the extra pictures
+    (masks, shadows, stickers) are opened from that step, so FFmpeg does not read every picture frame before it (a
+    frame late in a long clip draws as fast as the first) and each shows as the full render shows it. The footage
+    and the pictures are timed at the very same step: a picture behind the footage (the background put behind the
+    person) timed before it was drawn alone, without the footage over it (lane 5, 10-30: at 16.48 s a seller's clip
+    showed the drawn background and no seller, and Spark took the background off). With
     words=False the titles, captions and big words are left out, as after_source leaves them (the cover's frame:
     Muse Image writes the title itself)."""
     clip = state["clip"]
@@ -436,6 +439,8 @@ def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH, words=True):
     at = project.to_clip(clip["pieces"], t)
     if at is None:
         raise NotDrawn("%.2f s is outside the clip, which is %.2f s long." % (t, state["length"]))
+    step = math.floor(t * FPS + 1e-6) / FPS
+    at = project.to_clip(clip["pieces"], step) or at
     try:
         graph, files = after_source(state, "src", "whole", 1, default, words)
     except ValueError as e:
@@ -444,8 +449,7 @@ def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH, words=True):
     # 7599.99...), and a frame before the pictures' first frame is drawn with none of them
     ticks = FPS * 1000
     graph = ("[0:v]settb=1/%d,setpts=PTS-STARTPTS+%d[src];%s;[whole]scale=%d:-2[fin]"
-             % (ticks, round(t * ticks), graph, width))
-    step = math.floor(t * FPS + 1e-6) / FPS
+             % (ticks, round(step * ticks), graph, width))
     key = hashlib.sha1(json.dumps([rec["path"], rec["size"], rec["mtime"], round(at[1], 3), graph, files],
                                   ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
     target = os.path.join(folder("clipframes"), key + ".jpg")

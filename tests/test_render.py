@@ -550,6 +550,22 @@ class Preview(unittest.TestCase):
                                 range(int(shown[0]) + 10, int(shown[0] + shown[2]) - 10, 4)), 60, "the blur")
         self.assertLessEqual(most(range(1700, 1900, 4), range(100, 980, 4)), 12, "the rest is the same picture")
 
+    def test_a_preview_between_two_frames_shows_the_person_in_front_of_the_background(self):
+        """Lane 5, 10-30: at 16.48 s, between two of the clip's 1/30 s frames, a seller's clip showed the drawn
+        background and no seller, and Spark took the background off."""
+        import numpy as np
+        from test_cutout import make_mask
+        png = os.path.join(self.tmp, "ground.png")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=0x3050A0:s=1080x1920", "-frames:v",
+                        "1", png], check=True)
+        mask = {"path": make_mask(self.tmp, "everyone.mkv", 4, 0, expr="1"), "person": None, "fps": 30,
+                "size": [640, 360], "from": 0, "to": 4}
+        behind = dict(state(), backdrop={"do": "backdrop", "png": png, "about": "a tidy desk"}, mask=mask)
+        for t in (1.5, 1.51, 2.48):
+            seen = np.frombuffer(self.grey(behind, t), np.uint8).astype(int)
+            self.assertLess(np.abs(seen - np.frombuffer(self.grey(state(), t), np.uint8)).mean(), 8,
+                            "at %g s the person, the whole picture here, is in front of the background" % t)
+
     def test_a_preview_at_any_time_shows_the_layouts_shapes_and_the_stickers(self):
         import numpy as np
         box = [380, 1400, 320, 320]
