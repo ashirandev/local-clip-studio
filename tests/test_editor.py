@@ -1733,10 +1733,50 @@ class Tools(unittest.TestCase):
             self.assertEqual(tools.describe([e for e in self.chat.project.entries if e["do"] == "layout"][-1]),
                              "following the product")
             _, steps = self.run_job([call("make_clip", moment=1, layout="card", why="a card")],
+                                    [call("make_clip", moment=1, layout="card", why="the person said: a card")],
                                     [call("follow_product", what="white game controller", why="on a card")], "Done.")
         self.assertTrue(steps[-1]["refused"])
         self.assertIn("Only the subject layout's frame can follow the product", steps[-1]["result"])
         self.assertEqual(asked, ["white game controller", "a missing thing", "a broken thing"])
+
+    def test_the_check_fails_where_the_frame_cuts_the_product_sam_follows(self):
+        """Tarm 10-30, on a seller's ad that split the screen as she raised the tumbler, so it was gone: "เราต้องดู
+        ก่อนว่าเราต้องการจะโฟกัสอะไรในแต่ละคลิปในแต่ละช่วง". A tray wider than the frame is cut all through."""
+        from unittest import mock
+        from test_cutout import make_mask
+
+        def cut_out(rec, a, b, on_start=None, on_progress=None, what=None):
+            where = "lt(abs(X-160),80)" if what == "wide tray" else "lt(abs(X-280),20)"
+            return {"path": make_mask(self.tmp, "%s.mkv" % what.replace(" ", "_"), b - a, a, where, size=(320, 180)),
+                    "person": None, "fps": 10, "size": [320, 180], "from": a, "to": b}
+
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        script = self.to_moment()
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            with mock.patch.object(tools.person, "cut_out", cut_out):
+                _, steps = self.run_job(
+                    script[0], [call("load_recipe", type="seller", why="a seller")], *script[1:],
+                    [call("make_clip", moment=1, layout="subject", why="the product")],
+                    [call("follow_product", what="wide tray", why="the product leads")],
+                    [call("decide_people", keep=[1], why="the seller")],
+                    [call("render_clip", why="the file")], [call("check_clip", why="check it")],
+                    [call("follow_product", what="white game controller", why="a smaller one")],
+                    [call("render_clip", why="again")], [call("check_clip", why="again")], "Done.")
+        finally:
+            render.export = had
+        wide, checked, small, again = steps[-7], steps[-4], steps[-3], steps[-1]
+        self.assertIn("The frame cuts the wide tray or has left it at 0-", wide["result"])
+        self.assertIn("SAM sees it there, but most of it is outside the frame.", wide["result"])
+        self.assertIn("- FAILED: The product is in the frame (the frame cuts the wide tray or has left it at 0-",
+                      checked["result"])
+        self.assertNotIn("The frame cuts", small["result"])
+        self.assertIn("- passed: The product is in the frame (SAM followed the white game controller, and the frame "
+                      "holds it whenever it is seen)", again["result"])
 
     def test_muse_sends_stickers_flying_in_a_box_clear_of_faces_and_the_clip_draws_them(self):
         face = [430, 660, 570, 755]
@@ -2489,6 +2529,18 @@ class Tools(unittest.TestCase):
         parts = self.chat.project.state()["clip"]["layout"]["parts"]
         self.assertEqual([p["name"] for p in parts], ["card"], "a face the finder sees stays in the picture")
 
+    def test_a_seller_clip_is_not_cut_in_two_unless_the_person_asked(self):
+        _, steps = self.run_job(*self.to_moment(), [call("load_recipe", type="seller", why="a product")],
+                                [call("make_clip", moment=1, layout="split", why="the face and the product")],
+                                [call("make_clip", moment=1, layout="card", why="the person said: a card")], "Done.")
+        split, card = steps[-2:]
+        self.assertTrue(split["refused"], "Tarm 10-30: the ad split the screen as she raised the tumbler")
+        self.assertTrue(split["result"].startswith("Not made. A seller's clip keeps the product whole in the frame: "
+                                                   "the subject layout fills the frame around it"), split["result"])
+        self.assertIn("Use split only when the person asked for their face alone, a screen or the frame in two",
+                      split["result"])
+        self.assertFalse(card["refused"], card["result"])
+
     def test_a_talk_cuts_between_faces_and_circles_are_for_when_the_person_asks(self):
         _, steps = self.run_job([call("load_recipe", type="talk", why="three friends talking")], *self.to_moment(),
                                 [call("make_clip", moment=1, layout="speaker", why="everyone at once")], "Done.")
@@ -2502,7 +2554,7 @@ class Tools(unittest.TestCase):
         had, screen.readings = screen.readings, lambda rec, a, b, on_start=None: asked.append((a, b)) or []
         try:
             _, steps = self.run_job(*self.to_moment(), [call("load_recipe", type="seller", why="a product")],
-                                    [call("make_clip", moment=1, layout="card", why="the product")], "Done.")
+                                    [call("make_clip", moment=1, layout="subject", why="the product")], "Done.")
         finally:
             screen.readings = had
         self.assertFalse(steps[-1]["refused"], steps[-1]["result"])

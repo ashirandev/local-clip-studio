@@ -321,8 +321,8 @@ class Thing(unittest.TestCase):
         self.assertEqual([s["x"] for s in plan["shots"]], [418, 220, 0],
                          "centred on it; 20 px further to the edge is no move; put down, back to the person; "
                          "then to where it is held again")
-        for got, want in zip([s["from"] for s in plan["shots"]], [0, 4.0, 6.0]):
-            self.assertAlmostEqual(got, want, delta=0.3)
+        for got, want in zip([s["from"] for s in plan["shots"]], [0, 4.0, 6.0 - focus.THING_LEAD]):
+            self.assertAlmostEqual(got, want, delta=0.1, msg="a move to the thing starts THING_LEAD early")
         self.assertEqual(plan["seen"], 0.75)
         self.assertEqual([s["x"] for s in self.plan("if(lt(T,2),520,if(lt(T,4),610,if(lt(T,6),-1000,100)))",
                                                     rest=None)["shots"]], [418, 0], "with no person, it holds")
@@ -330,7 +330,35 @@ class Thing(unittest.TestCase):
     def test_a_product_not_there_at_first_starts_on_the_person_and_one_never_there_is_no_plan(self):
         plan = self.plan("if(lt(T,2),-1000,100)")
         self.assertEqual([s["x"] for s in plan["shots"]], [220, 0])
-        self.assertAlmostEqual(plan["shots"][1]["from"], 2.0, delta=0.3)
+        self.assertAlmostEqual(plan["shots"][1]["from"], 2.0 - focus.THING_LEAD, delta=0.1)
         self.assertIsNone(self.plan("-1000"))
         self.assertIsNone(focus.thing({"path": "never read", "fps": 30, "from": 0, "to": 8}, [[0, 8]], (360, 640),
                                       9 / 16.0), "a vertical recording has nowhere to move")
+
+    def test_a_product_as_wide_as_the_frame_is_kept_whole_though_its_middle_never_nears_the_side(self):
+        """Tarm's controller, 10-30: as wide as the window, its middle inside, 15-25% of it off the window for 2.5 s.
+        Here 180 px wide in the 202 px window, its middle moving from 200 to 240, still inside the middle 60%."""
+        from test_cutout import make_mask
+        path = make_mask(self.tmp, "wide.mkv", 8, 0, "lt(abs(X-if(lt(T,2),200,240)),90)*lt(abs(Y-180),40)")
+        mask = {"path": path, "fps": 30, "from": 0, "to": 8}
+        plan = focus.thing(mask, [[0, 8]], (640, 360), 9 / 16.0, 320)
+        self.assertEqual([s["x"] for s in plan["shots"]], [98, 138])
+        self.assertAlmostEqual(plan["shots"][1]["from"], 2.0 - focus.THING_LEAD, delta=0.1)
+        self.assertEqual(focus.cut_off(mask, [[0, 8]], (640, 360), lambda t: [round(focus.at(plan["shots"], t)[0]),
+                                                                             0, 202, 360]), [])
+
+    def test_the_seconds_the_frame_cuts_the_product_are_found_and_a_frame_catching_up_is_not(self):
+        """Tarm 10-30, on a seller's ad that split the screen as she raised the tumbler, so it was gone. The window
+        holds at x 0-202; the clip is recording seconds 1-3 and 4-8."""
+        from test_cutout import make_mask
+        path = make_mask(self.tmp, "cut.mkv", 8, 0, "lt(abs(X-(%s)),30)*lt(abs(Y-180),40)" % (
+            "if(lt(T,2),100,if(lt(T,2.3),300,if(lt(T,4),100,if(lt(T,6),300,if(lt(T,6.5),180,"
+            "if(lt(T,7.5),190,-1000))))))"))
+        cut = focus.cut_off({"path": path, "fps": 30, "from": 0, "to": 8}, [[1, 3], [4, 8]], (640, 360),
+                            lambda t: [0, 0, 202, 360])
+        self.assertEqual(len(cut), 2, "out for 0.3 s is the frame catching up; 87%% inside is in the frame: %s" % cut)
+        for got, want in zip(cut, [(2.0, 4.0), (4.5, 5.5)]):
+            self.assertAlmostEqual(got[0], want[0], delta=0.05)
+            self.assertAlmostEqual(got[1], want[1], delta=0.05)
+        self.assertEqual(focus.cut_off({"path": path, "fps": 30, "from": 0, "to": 8}, [[1, 3], [4, 8]], (640, 360),
+                                       lambda t: [0, 0, 640, 360]), [], "the whole picture holds it all")

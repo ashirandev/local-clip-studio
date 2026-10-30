@@ -2215,6 +2215,13 @@ LAYOUT_RULES = {
                                                 "whole and nothing is lost at a cut",
              "a face or one part of the picture to fill the frame, in words such as 'just her face' or 'zoom in on "
              "the food'"),
+    "seller": (FACES_ONLY + SCREENS, "A seller's clip keeps the product whole in the frame: the subject layout fills "
+                                     "the frame around it, and follow_product moves the frame with it. A card leaves "
+                                     "out the part round the face, and a stack or a split cuts the frame in two, so a "
+                                     "product held up by the face is cut or gone (Tarm 10-30, on a seller's ad that "
+                                     "split the screen as she raised the tumbler)",
+               "their face alone, a screen or the frame in two, in words such as 'just my face' or 'split the "
+               "screen'"),
 }
 
 
@@ -3930,7 +3937,8 @@ def follow_product(job, why, what):
     if not plan:
         return ("SAM 3.1 did not see the %s anywhere in the clip, so the frame stays where it is. Name it as it looks "
                 "in the picture, such as \"white game controller\"." % said)
-    new = layouts.followed(lay, plan, "whole")
+    new = dict(layouts.followed(lay, plan, "whole"),
+               thing=dict({k: found[k] for k in ("path", "fps", "from", "to")}, what=said))
     state = job.edit({"do": "layout", "part": "product", "box": None, "layout": new})
     shots = plan["shots"]
     lines = ["SAM 3.1 followed the %s through the clip: it is in %d%% of the pictures." % (said,
@@ -3943,10 +3951,29 @@ def follow_product(job, why, what):
     if plan["seen"] < THING_SEEN:
         lines.append("It is missing from most of the clip: where it is not seen the frame holds, so look at the "
                      "frames, and name it another way if SAM found the wrong thing.")
+    cut = _product_cut(state["clip"], rec)
+    if cut:
+        lines.append(PRODUCT_CUT % (said, _spans(cut)))
     lines.append("Places for words now:")
     lines += _place_lines(state, rec)
-    lines.append(_show_frame(job, state, rec, round(state["length"] / 2, 2), "The clip following the %s:" % said))
+    at = round((cut[0][0] + cut[0][1]) / 2 if cut else state["length"] / 2, 2)
+    lines.append(_show_frame(job, state, rec, at, "The clip following the %s%s:" % (
+        said, ", where the frame cuts it" if cut else "")))
     return "\n".join(lines)
+
+
+PRODUCT_CUT = ("The frame cuts the %s or has left it at %s of the clip: SAM sees it there, but most of it is outside "
+               "the frame. The frame there comes next: if the product is lost, tell the person what the frame cannot "
+               "hold.")
+
+
+def _product_cut(clip, rec):
+    """focus.cut_off for the thing the clip's frame follows (follow_product), or None when it follows none."""
+    lay = clip["layout"]
+    if not lay.get("thing"):
+        return None
+    return focus.cut_off(lay["thing"], clip["pieces"], (rec["width"], rec["height"]), lambda t: next(
+        p["src"] for p in layouts.parts_at(lay, t) if p["name"] == "whole"))
 
 
 THING_SEEN = 0.5
@@ -4251,7 +4278,13 @@ def check_clip(job, why):
               if _reads_screen(job) else "no chat box in this kind of clip")
     if _reads_screen(job):
         check("Nothing private can be read on the screen", *_private_check(job, rec, state))
-    if kind == "seller":
+    cut = _product_cut(state["clip"], rec) if kind == "seller" else None
+    if cut is not None:
+        thing = state["clip"]["layout"]["thing"]["what"]
+        check("The product is in the frame", not cut, "the frame cuts the %s or has left it at %s, while SAM sees it"
+              % (thing, _spans(cut)) if cut else "SAM followed the %s, and the frame holds it whenever it is seen"
+              % thing)
+    elif kind == "seller":
         product = state["clip"].get("product")
         inside = bool(product) and bool(layouts.to_frame(state["clip"]["layout"], product))
         check("The product is in the frame", inside if product else None,

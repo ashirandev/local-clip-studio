@@ -448,6 +448,10 @@ THING_HOLD = 1.0
 THING_SMOOTH = 0.5
 THING_LOST = 1.5
 THING_STEP = 0.15
+THING_KEEP = 0.85
+THING_LEAD = 0.3
+THING_INSIDE = 0.8
+THING_CUT_LEAST = 0.5
 
 
 def thing(mask, pieces, size, aspect, rest=None):
@@ -456,31 +460,27 @@ def thing(mask, pieces, size, aspect, rest=None):
     share of the clip's pictures the thing is in}, or None when it is in none or the recording is no wider than the
     window. The window is the recording's full height and as wide as aspect makes it. It starts centred on the thing
     (at rest when the thing is not in the first picture) and moves to centre it again once the thing's middle has
-    been within EDGE_SHARE of the window's side, or past it, for THING_PERSIST s, no sooner than THING_HOLD s after
-    its last move, so it follows a product held out to the side and does not shake with the hand that holds it; a
-    move under THING_STEP of its width is not made. Where the thing is not seen the window holds, and once it has
-    been gone THING_LOST s (put down, out of the picture) the window goes to rest, the x the person is at, so the
-    clip shows them rather than an empty place. Measured 10-30 on Tarm's controller, 39 s: SAM saw it in 79% of the
-    pictures, and the window moved 6 times."""
+    been within EDGE_SHARE of the window's side, or past it, or under THING_KEEP of its pixels have been inside the
+    window, for THING_PERSIST s, no sooner than THING_HOLD s after its last move, so it follows a product held out to
+    the side and does not shake with the hand that holds it; a move under THING_STEP of its width is not made. Since
+    the clip is planned whole, a move starts THING_LEAD s before the thing began to leave, so the pan meets it. Where
+    the thing is not seen the window holds, and once it has been gone THING_LOST s (put down, out of the picture) the
+    window goes to rest, the x the person is at, so the clip shows them rather than an empty place. Measured 10-30 by
+    cut_off on two stretches of Tarm's controller, 28 s and 31 s: moved by its middle alone, the window cut it for
+    4.3 s of the first, 5 stretches over half a second (a controller as wide as the window, its middle never near
+    the side, 15-25% of it off the window for 2.5 s; and 0.5 s behind each quick swing); keeping THING_KEEP inside
+    and leading by THING_LEAD, 0.8 s and 0.9 s, none over half a second, with 6 and 5 moves (0.9 kept: 9 moves on
+    the second; 0.8 kept: 2.4 s on the first, the share hovering on 0.8; a 0.6 s lead or a 2 s hold: 3.5 to 6.3 s)."""
     w, h = size
     ww = min(w, int(round(h * aspect / 2.0)) * 2)
     if ww >= w:
         return None
-    sw, sh = THING_W, max(2, int(round(THING_W * h / float(w) / 2)) * 2)
-    raw = subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-i", mask["path"], "-vf",
-                          "scale=%d:%d" % (sw, sh), "-f", "rawvideo", "-pix_fmt", "gray", "-"],
-                         capture_output=True).stdout
-    frames = np.frombuffer(raw[:len(raw) // (sw * sh) * sw * sh], np.uint8).reshape(-1, sh, sw)
-    seen, offset = [], 0.0
-    for a, b in pieces:
-        for k, f in enumerate(frames):
-            t = mask["from"] + k / float(mask["fps"])
-            if a <= t < b:
-                cols = (f >= 128).sum(axis=0)
-                seen.append((offset + t - a, float((cols * np.arange(sw)).sum() / cols.sum()) * w / sw
-                             if cols.sum() else None))
-        offset += b - a
-    found = [(t, c) for t, c in seen if c is not None]
+    pictures, k = _thing_pictures(mask, pieces, size)
+    seen, offset = [], sum(b - a for a, b in pieces)
+    for t, f in pictures:
+        cols = f.sum(axis=0)
+        seen.append((t, float((cols * np.arange(f.shape[1])).sum() / cols.sum()) / k if cols.sum() else None, cols))
+    found = [(t, c) for t, c, _ in seen if c is not None]
     if not found:
         return None
     middles = [(t, statistics.median(c for u, c in found if abs(u - t) <= THING_SMOOTH / 2)) for t, _ in found]
@@ -490,7 +490,7 @@ def thing(mask, pieces, size, aspect, rest=None):
 
     x, smooth = place(rest if seen[0][1] is None and rest is not None else middles[0][1]), dict(middles)
     shots, since, out, lost = [{"from": 0.0, "x": x, "y": 0}], 0.0, [], None
-    for t, c in seen:
+    for t, c, cols in seen:
         if c is None:
             out, lost = [], t if lost is None else lost
             if rest is None or t - lost < THING_LOST:
@@ -498,15 +498,59 @@ def thing(mask, pieces, size, aspect, rest=None):
             move, to = max(lost, since + THING_HOLD), place(rest)
         else:
             lost, c = None, smooth[t]
-            if x + ww * EDGE_SHARE <= c <= x + ww * (1 - EDGE_SHARE):
+            inside = cols[int(round(x * k)):int(round((x + ww) * k))].sum() / float(cols.sum())
+            if x + ww * EDGE_SHARE <= c <= x + ww * (1 - EDGE_SHARE) and inside >= THING_KEEP:
                 out = []
                 continue
             out.append((t, c))
             if t - out[0][0] < THING_PERSIST:
                 continue
-            move, to = max(out[0][0], since + THING_HOLD), place(statistics.median(c for _, c in out))
+            move, to = max(out[0][0] - THING_LEAD, since + THING_HOLD), place(statistics.median(c for _, c in out))
             out = []
         if abs(to - x) >= THING_STEP * ww and move < offset:
             x, since = to, move
             shots.append({"from": round(move, 2), "x": x, "y": 0})
     return {"size": [ww, h], "shots": shots, "seen": round(len(found) / float(len(seen)), 2)}
+
+
+def _thing_pictures(mask, pieces, size):
+    """([(clip second, the thing's pixels in the mask's picture then, THING_W wide, True where it is)], for each of
+    the mask's pictures inside pieces, and THING_W / the recording's width)."""
+    w, h = size
+    sw, sh = THING_W, max(2, int(round(THING_W * h / float(w) / 2)) * 2)
+    raw = subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-i", mask["path"], "-vf",
+                          "scale=%d:%d" % (sw, sh), "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                         capture_output=True).stdout
+    frames = np.frombuffer(raw[:len(raw) // (sw * sh) * sw * sh], np.uint8).reshape(-1, sh, sw)
+    out, offset = [], 0.0
+    for a, b in pieces:
+        for k, f in enumerate(frames):
+            t = mask["from"] + k / float(mask["fps"])
+            if a <= t < b:
+                out.append((offset + t - a, f >= 128))
+        offset += b - a
+    return out, sw / float(w)
+
+
+def cut_off(mask, pieces, size, shown):
+    """The stretches of the clip [(from, to)] in clip seconds where SAM sees the thing (mask, as thing() takes it)
+    but under THING_INSIDE of its pixels are inside shown(t), the box (x, y, w, h) of the recording the clip shows at
+    clip second t: a product the frame cuts or has left. A stretch shorter than THING_CUT_LEAST, the frame catching
+    up with a hand, is not one. Tarm 10-30, on a seller's ad that split the screen as she raised the tumbler, so it
+    was gone: "เราต้องดูก่อนว่าเราต้องการจะโฟกัสอะไรในแต่ละคลิปในแต่ละช่วง"."""
+    pictures, k = _thing_pictures(mask, pieces, size)
+    every, cut = 1.0 / mask["fps"], []
+    for t, f in pictures:
+        total = int(f.sum())
+        if not total:
+            continue
+        x, y, bw, bh = shown(t)
+        inside = int(f[max(0, int(round(y * k))):int(round((y + bh) * k)),
+                       max(0, int(round(x * k))):int(round((x + bw) * k))].sum())
+        if inside >= THING_INSIDE * total:
+            continue
+        if cut and t - cut[-1][1] <= every * 1.5:
+            cut[-1][1] = t + every
+        else:
+            cut.append([t, t + every])
+    return [(round(a, 2), round(b, 2)) for a, b in cut if b - a >= THING_CUT_LEAST]
