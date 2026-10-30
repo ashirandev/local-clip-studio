@@ -425,8 +425,8 @@ def _picture_input(f, step=None):
 
 def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH, words=True):
     """The clip's frame at clip second t, width pixels wide: the jpg's path in work/clipframes, made once. It is
-    drawn at the last 1/30 s step at or before t, the frame a viewer of the clip sees at t, and the extra pictures
-    (masks, shadows, stickers) are opened from that step, so FFmpeg does not read every picture frame before it (a
+    drawn at the 1/30 s step nearest t, one of the frames the full render makes, and the extra pictures (masks,
+    shadows, stickers) are opened from that step, so FFmpeg does not read every picture frame before it (a
     frame late in a long clip draws as fast as the first) and each shows as the full render shows it. The footage
     and the pictures are timed at the very same step: a picture behind the footage (the background put behind the
     person) timed before it was drawn alone, without the footage over it (lane 5, 10-30: at 16.48 s a seller's clip
@@ -439,7 +439,7 @@ def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH, words=True):
     at = project.to_clip(clip["pieces"], t)
     if at is None:
         raise NotDrawn("%.2f s is outside the clip, which is %.2f s long." % (t, state["length"]))
-    step = math.floor(t * FPS + 1e-6) / FPS
+    step = max(0, min(round(t * FPS), math.ceil(state["length"] * FPS - 1e-6) - 1)) / FPS
     at = project.to_clip(clip["pieces"], step) or at
     try:
         graph, files = after_source(state, "src", "whole", 1, default, words)
