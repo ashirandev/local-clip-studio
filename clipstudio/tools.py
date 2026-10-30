@@ -3418,7 +3418,9 @@ def _talked(clip, phrases, length, translated=False):
     it for clips joined, else when what is said fills TALKED of it, as there. Seen 10-29 on a seller's review talked
     through 30 s: the captions were two small lines, as only a clip joined by arrange_clips was ever found talked. A
     game keeps them small, under the action, and so do captions translated: ONE_LETTERS was measured on Thai, and an
-    English line cut at it leaves a word alone ("Easy to set", "up.")."""
+    English line cut at it leaves a word alone ("Easy to set", "up."). phrases are all that is said, the lines left as
+    drafts too: EP0's talk (10-30) was said through, its sure lines 26.7 s of 45.3 and its drafts 16.6 s more, and
+    counted on the sure ones alone it got two small lines."""
     if "talked" in clip:
         return bool(clip["talked"])
     return not translated and clip.get("recipe") != "game" and \
@@ -3532,7 +3534,7 @@ def add_captions(job, why, on=True, lit=False, pop=None, language=""):
         phrases
     for piece in shown:
         piece["text"] = typed.get((piece["from"], piece["to"]), piece["text"])
-    one = _talked(job.chat.clip or {}, phrases, length, bool(translated))
+    one = _talked(job.chat.clip or {}, phrases + doubtful, length, bool(translated))
     lines = text.caption_lines(shown, ONE_LETTERS if one else CAPTION_LETTERS)
     for line in lines:
         if translated:

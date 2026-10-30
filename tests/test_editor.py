@@ -775,6 +775,25 @@ class Tools(unittest.TestCase):
         self.assertFalse(tools._talked({"talked": False}, talk, 20.0), "arrange_clips found it not talked")
         self.assertFalse(tools._talked({}, [{"from": 0.0, "to": 11.0}], 20.0))
 
+    def test_a_clip_talked_through_is_talked_though_the_hearing_was_unsure_of_some_lines(self):
+        """EP0 talk 10-30: the sure lines filled 26.7 s of 45.3, the unsure ones (drafts) 16.6 s more, and the clip got
+        two small lines, 0.5 s short of TALKED."""
+        said = ["เครื่องนี้ดูดความชื้นได้ดีมากจริงๆครับ", "บ้านไหนชื้นมากก็เก็บน้ำได้เต็มถังเลย"]
+        self.worker.phrases = [{"from": 1.0, "to": 9.0, "text": said[0]},
+                               {"from": 9.2, "to": 18.5, "text": said[1], "sure": 0.3}]
+        _, steps = self.run_job(
+            *self.to_moment()[:2],
+            [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the review"}])],
+            json.dumps({"lines": said}, ensure_ascii=False),
+            [call("make_clip", moment=1, layout="subject", why="the review")],
+            [call("add_captions", why="say what he says")],
+            json.dumps({"texts": said[:1]}, ensure_ascii=False), "Done.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        got = self.chat.project.state()["captions"]
+        self.assertTrue(got["drafts"], "the unsure line is a draft, not on the video")
+        self.assertTrue(got.get("one"), "said through, it is talked: its captions come one big line at a time")
+        self.assertFalse(tools._talked({}, [{"from": 1.0, "to": 9.0}], 20.0), "the sure line alone fills 40%")
+
     def test_each_caption_line_has_the_word_a_viewer_must_not_miss_in_the_key_colour_when_it_is_a_whole_word(self):
         said = ["เครื่องนี้ดูดความชื้นได้ดีมากจริงๆครับ", "บ้านไหนชื้นมากก็เก็บน้ำได้เต็มถังเลย"]
         self.worker.phrases = [{"from": 1.0, "to": 9.0, "text": said[0]}, {"from": 9.2, "to": 18.5, "text": said[1]}]
