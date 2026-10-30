@@ -1223,6 +1223,12 @@ def _only_closes(line):
     return bool(ONLY_CLOSES.match(" ".join(line["text"].split())))
 
 
+def _asks_after(lines, last):
+    """The line of lines that asks to buy within ASK_GAP after last, a line with the price, or None."""
+    return next((p for p in lines if last and PRICE.search(last["text"]) and 0 <= p["from"] - last["to"] <= ASK_GAP
+                 and ASKS.search(p["text"])), None)
+
+
 def _snapped(look, a, b, price=False):
     """(start, end, sentence or None): a moment's edges moved out of the words they would cut through, to just before
     the line the start falls in when it began within SNAP_REACH, and just after the line the end falls in when it
@@ -1261,9 +1267,7 @@ def _snapped(look, a, b, price=False):
     if priced:
         nb = round(priced["to"] + AIR, 2)
     last = next((p for p in reversed(lines) if p["from"] < nb), None)
-    asked = next((p for p in lines if price and last and PRICE.search(last["text"]) and p["to"] <= hi
-                  and 0 <= p["from"] - last["to"] <= ASK_GAP and ASKS.search(p["text"])
-                  and p["to"] + AIR - na <= LONGEST), None)
+    asked = _asks_after([p for p in lines if p["to"] <= hi and p["to"] + AIR - na <= LONGEST], last) if price else None
     if asked:
         nb = round(asked["to"] + AIR, 2)
     moved = []
@@ -1341,17 +1345,22 @@ def _finer(job, rec, look, line):
 
 def _finer_edges(job, rec, look, a, b):
     """For a moment from a to b of a clip made of what is said: the line its start or its end falls in, when it runs
-    over FINER_OVER s or opens on a word that closes what came before, heard again piece by piece (_finer). Returns
-    [a sentence for Muse for each line that was]. Lane 4 10-30: a heard line is a sound piece, not a sentence, and Muse
-    can only choose where a line begins or ends; 53% of what Muse Voice Transcribe heard was in lines over 8 s. Stop
-    raises hearing.Stopped; a line that cannot be heard again stays as it is."""
-    if (job.chat.clip or {}).get("recipe") not in FINER_KINDS:
+    over FINER_OVER s or opens on a word that closes what came before, heard again piece by piece (_finer), and on a
+    seller's clip the long line after the price that asks to buy, as the clip takes it in (_snapped). Returns [a
+    sentence for Muse for each line that was]. Lane 4 10-30: a heard line is a sound piece, not a sentence, and Muse
+    can only choose where a line begins or ends; 53% of what Muse Voice Transcribe heard was in lines over 8 s. Spark
+    10-31 on the seller: "กดสี่เอฟไว้ได้เลยเนาะ" and the next product's opening were one line of 7 s, and the
+    controller's clip took the balm's opening. Stop raises hearing.Stopped; a line that cannot be heard again stays as
+    it is."""
+    recipe = (job.chat.clip or {}).get("recipe")
+    if recipe not in FINER_KINDS:
         return []
     said = look.get("said") or []
     opens = next((p for p in said if p["to"] > a), None)
     closes = next((p for p in reversed(said) if p["from"] < b), None)
+    asks = _asks_after(said, closes) if recipe == "seller" else None
     out = []
-    for side, line in (("start", opens), ("end", closes)):
+    for side, line in (("start", opens), ("end", closes), ("end", asks)):
         if not line or line.get("finer") or not (line["to"] - line["from"] > FINER_OVER or (
                 side == "start" and CLOSES_FIRST.match(line["text"]))):
             continue
