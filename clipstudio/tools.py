@@ -1633,8 +1633,9 @@ def _waits(job):
 # second after "ตรงนี้อีกแล้ววะ", and 35:52-36:11 shipped as 13 s of 30, three deaths at that spot unseen (lane 4). Once a
 # job, and not for a moment near its length: 27 s of 30 sent back twice left the deaths for a stretch with none.
 EDGE = 3.0
-SEEN_ON, SEEN_BACK = 20.0, 25.0
+SEEN_ON, SEEN_BACK = 30.0, 25.0
 GAME_SHORT = 0.85
+COLD_RECIPES = ("talk", "explain")
 EDGE_RECIPES = ("talk", "vlog", "explain", "game")
 
 
@@ -1650,7 +1651,7 @@ def _seen_past(job, why, rec, i, m, look, a, b):
         m.get("start") and a - look["start"] <= EDGE)
     after = not game and m.get("end") and look["end"] - b <= EDGE
     if not before and not after:
-        return None if game else _read_cold(look, i, m, a)
+        return _read_cold(look, i, m, a) if clip["recipe"] in COLD_RECIPES else None
     clock = recording.clock
     start = max(0.0, look["start"] - SEEN_BACK) if before else look["start"]
     end = min(rec["seconds"], look["end"] + SEEN_ON) if after else look["end"]
@@ -1679,7 +1680,8 @@ def _read_cold(look, i, m, a):
     """What Muse reads again when moment i, m as Muse gave it, starts at a inside what Muse saw: the words a stranger
     would miss, else None. Once for a look. Glimmer started EP 0's story at 18:21, 3 of 3, mid-story with its look
     open from 18:00, and two recipe lines did not move it; shown the words before that start it moved to 17:48 and
-    17:49 (Tarm: the moment first, a good first draft)."""
+    17:49 (Tarm: the moment first, a good first draft). A vlog is left out: an episode talks on, so it ran EP 22's
+    joke back to 25:19 and 25:26, 2 of 2, past where it starts."""
     said = [p for p in look.get("said") or [] if p["to"] > p["from"]]
     missed = [p for p in said if a - SEEN_BACK < p["to"] <= a + AIR]
     opens = next((p for p in said if p["from"] >= a - AIR), None)

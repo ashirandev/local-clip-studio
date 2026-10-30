@@ -3270,6 +3270,18 @@ class Tools(unittest.TestCase):
         self.assertEqual(len(self.chat.looks), 1, "these words were seen: no new look")
         self.assertTrue(again["result"].startswith("Proposed 1 moment"), again["result"])
 
+    def test_a_vlog_moment_is_not_read_from_a_strangers_seat(self):
+        """10-31: it ran EP 22's joke back to 25:19 and 25:26, 2 of 2, past where it starts at 25:43 (lane 4)."""
+        tools.EDGE_RECIPES = self.edge_recipes
+        self.worker.phrases = [{"from": 1.0, "to": 3.0, "text": "ตอนเด็กพี่ชอบแกล้งเรื่องผี"},
+                               {"from": 4.0, "to": 19.0, "text": "เขาก็เดินไปปิดไฟ"}]
+        moment = [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the joke", "start": "0:34",
+                                                                    "end": "0:46"}])]
+        _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="vlog", why="an episode")],
+                                self.to_moment()[1], moment,
+                                json.dumps({"lines": ["เขาก็เดินไปปิดไฟ"]}, ensure_ascii=False), "Done.")
+        self.assertTrue(steps[3]["result"].startswith("Proposed 1 moment"), steps[3]["result"])
+
     def test_a_stranger_is_shown_a_long_line_that_began_before_the_reach_and_nothing_older(self):
         """EP 0: the one line before 18:21 ran 27 s from 17:54, on a pause-cut hearing, and was missed at first."""
         tools.EDGE_RECIPES = self.edge_recipes
