@@ -509,9 +509,9 @@ class Chat:
         state = self._clip_now()
         if bool(state["hidden"]) == hidden:
             return None
-        if hidden and not state["captions"]:
-            return "The clip has no captions to hide."
-        self.edit({"do": "eye", "hidden": hidden})
+        refused, entry = self.tap("add_captions", hidden=hidden)
+        if not entry:
+            return refused
         self._tell("the person %s with the eye on the page" % (
             "hid every caption (kept as they are, off the video until they show them again)" if hidden else
             "showed the captions again"))

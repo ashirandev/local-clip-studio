@@ -441,6 +441,24 @@ class Words(Clip):
         self.assertEqual(self.chat.set_eye(True), "The clip has no captions to hide.")
         self.assertEqual(self.chat.panel()["eye"], {"has": False, "hidden": False})
 
+    def test_the_person_can_ask_muse_to_hide_and_show_the_captions_as_the_eye_does(self):
+        """Tarm 10-30: every tool on the page can be asked for in the chat. Off empties the captions; the eye keeps
+        them."""
+        self.make(SAID, call("add_captions", why="say it"))
+        self.chat.set_words("caption", 0, "this is the moment", "this is it")
+        typed = self.chat.project.state()["captions"]
+        _, steps = self.run_job([call("add_captions", hidden=True, why="the person asked to hide them")],
+                                [call("add_captions", hidden=True, why="again")], "Done.")
+        self.assertEqual(steps[0]["result"], "Every caption is hidden and kept as it is: add_captions with hidden "
+                                             "false shows them again.")
+        self.assertEqual(steps[1]["result"], "The captions are already hidden.")
+        self.assertEqual(self.chat.project.state()["hidden"], typed)
+        self.assertEqual(self.chat.panel()["eye"], {"has": True, "hidden": True}, "the page's eye shows it")
+        _, steps = self.run_job([call("add_captions", lit=True, why="karaoke")],
+                                [call("add_captions", hidden=False, why="the person asked to see them")], "Done.")
+        self.assertIn("add_captions with hidden false shows them as they were", steps[0]["result"])
+        self.assertEqual(self.chat.project.state()["captions"], typed, "typed lines too")
+
     def test_a_line_the_hearing_was_not_sure_of_is_a_draft_until_the_person_keeps_or_fixes_it(self):
         self.make([dict(p, sure=0.6) for p in SAID])
         _, steps = self.run_job([call("add_captions", why="say it")], "Done.")

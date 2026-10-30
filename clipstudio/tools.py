@@ -3541,12 +3541,27 @@ def _shows_whole(lay, box, at):
 
 
 HIDDEN_SAYS = ("The captions are hidden with the eye on the clip: they show again from there. The person hid "
-               "them, so leave them hidden; tell the person, if they asked for captions.")
+               "them, so leave them hidden; tell the person, if they asked for captions. When they ask to see them "
+               "again, add_captions with hidden false shows them as they were.")
 
 
-def add_captions(job, why, on=True, lit=False, pop=None, language=""):
+def _eye(job, state, hidden):
+    """add_captions with hidden: what the eye on the clip does, every caption hidden and kept as it is, the lines the
+    person typed too, or shown again as it was. Tarm 10-30: every tool on the page can be asked for in the chat."""
+    if bool(state["hidden"]) == hidden:
+        return "The captions are already %s." % ("hidden" if hidden else "showing")
+    if hidden and not state["captions"]:
+        raise Refused("The clip has no captions to hide.")
+    job.edit({"do": "eye", "hidden": hidden})
+    return ("Every caption is hidden and kept as it is: add_captions with hidden false shows them again." if hidden
+            else "The captions show again, as they were.")
+
+
+def add_captions(job, why, on=True, lit=False, pop=None, language="", hidden=None):
     rec = _open(job, "caption")
     state = _clip_state(job)
+    if hidden is not None:
+        return _eye(job, state, hidden)
     if state["hidden"]:
         raise Refused(HIDDEN_SAYS)
     if lit and pop:
@@ -6228,7 +6243,11 @@ TOOLS = {t.name: t for t in [
                        "description": "The language to write the captions in, such as English, when the person wants "
                                       "subtitles in another language than the one spoken: the program has each "
                                       "sentence translated and keeps its numbers. Leave it out to keep what the "
-                                      "recipe was told."}},
+                                      "recipe was told."},
+          "hidden": {"type": "boolean",
+                     "description": "true hides every caption and keeps it, the lines the person typed too, as the eye "
+                                    "on the clip does; false shows them again as they were. Use it when the person "
+                                    "asks to hide or show the captions; on false takes them off for good."}},
          [], add_captions, changes=True),
     Tool("blur_box", "Blurred a box",
          "Blur one box of the recording's picture so nothing in it can be read, such as a stream's chat with "
