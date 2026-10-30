@@ -167,12 +167,12 @@ def heard_level(rec, a=0.0, b=None):
     return (a, level) if level else None
 
 
-def quiet_near(rec, t, reach, under, bed=None, side=0):
+def quiet_near(rec, t, reach, under, bed=None, side=0, pause_only=False):
     """[from, to] in recording seconds: the pause of at least PAUSE_LEAST s nearest t, within reach s of it, where the
     sound stays under the level under (dB), read every QUIET_STEP s; with side -1 one that starts at or before t, with
     side 1 one that ends at or after it. With none, and bed, the same for bed dB under the middle level around t: over
     music or a crowd nothing is quiet, and the gap between two words is still a dip. With neither, the same for a
-    stretch of at least QUIET_LEAST s. None when there is none or no sound can be read. A tenth of a second averages away
+    stretch of at least QUIET_LEAST s, unless pause_only. None when there is none or no sound can be read. A tenth of a second averages away
     the dip between two words, so this listens closer than heard_level. A pause comes first because a shorter stretch
     may be the gap inside a word: "สามพัน" at gold EP1 3:54 has gaps of 60 and 120 ms before its พัน, and a cut in one
     ended the clip on สาม, 3,000 become 3; the pauses between phrases there run from 160 ms. Fast talk over a crowd has
@@ -183,7 +183,8 @@ def quiet_near(rec, t, reach, under, bed=None, side=0):
         return None
     db = np.asarray(_levels(samples, step=QUIET_STEP))
     limits = [under] + ([float(np.median(db)) - bed] if bed and len(db) else [])
-    for limit, least in [(limit, PAUSE_LEAST) for limit in limits] + [(limit, QUIET_LEAST) for limit in limits]:
+    for limit, least in [(limit, PAUSE_LEAST) for limit in limits] + (
+            [] if pause_only else [(limit, QUIET_LEAST) for limit in limits]):
         low = np.r_[False, db < limit, False]
         turns = np.flatnonzero(np.diff(low.astype(np.int8)))
         runs = [[round(a + i * QUIET_STEP, 2), round(a + j * QUIET_STEP, 2)] for i, j in zip(turns[::2], turns[1::2])

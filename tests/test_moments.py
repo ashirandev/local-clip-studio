@@ -35,17 +35,18 @@ class Quiet(unittest.TestCase):
     rec = {"path": "x.mp4", "seconds": 200.0, "sound_tracks": 1}
     level = (0.0, [-20.0] * 300 + [-60.0] * 100)
 
-    def land(self, pieces, runs, said=None):
-        """_on_quiet over pieces, runs the quiet stretch takes.quiet_near finds for each time."""
+    def land(self, pieces, runs, said=None, far=None):
+        """_on_quiet over pieces, runs the quiet stretch takes.quiet_near finds for each time, far the pause it finds
+        further on, which is looked for when far is given."""
         from unittest import mock
         self.asked = []
 
-        def near(rec, t, reach, under, bed=None, side=0):
+        def near(rec, t, reach, under, bed=None, side=0, pause_only=False):
             self.asked.append((t, reach, under, bed, side))
-            return runs.get(t)
+            return (far if pause_only else runs).get(t)
 
         with mock.patch.object(tools.takes, "quiet_near", near):
-            return tools._on_quiet(self.rec, (pieces, said), self.level)
+            return tools._on_quiet(self.rec, (pieces, said), self.level, far is not None)
 
     def test_each_cut_moves_into_the_nearest_quiet_on_the_side_it_keeps(self):
         pieces, said = self.land([[10.0, 20.0]], {10.0: [9.4, 9.8], 20.0: [20.2, 21.0]})
@@ -69,6 +70,40 @@ class Quiet(unittest.TestCase):
         self.assertEqual(said, "The program cut 2 s. The program moved 1 cut, at most 0.5 s, into the nearest quiet "
                                "sound, so none falls inside a word. Nothing is quiet within 1 s of the cut at 0:20.0: "
                                "it is on sound as loud as the talk.")
+
+    def test_a_last_end_on_loud_sound_looks_further_for_a_real_pause(self):
+        """EP 22's joke: the line ended at 26:19.30 with its last word in its text, the sound at talk level to 26:22.36."""
+        pieces, said = self.land([[10.0, 20.0]], {10.0: [9.4, 9.8]}, far={20.0: [22.8, 23.3]})
+        self.assertEqual(pieces, [[9.5, 23.1]])
+        self.assertEqual(self.asked[-1], (20.0, tools.LAST_REACH, -30.0, None, 1), "a pause outward, no dip of a bed")
+        self.assertEqual(said, "The program moved 2 cuts, at most 3.1 s, into the nearest quiet sound, so none falls "
+                               "inside a word.")
+
+    def test_only_the_last_end_looks_further_and_only_when_nothing_is_near(self):
+        pieces, said = self.land([[10.0, 20.0], [30.0, 40.0]], {10.0: [9.9, 10.1], 30.0: [29.9, 30.1], 40.0: [40.2, 40.5]},
+                                 far={20.0: [22.0, 23.0], 40.0: [42.0, 43.0]})
+        self.assertEqual(pieces, [[10.0, 20.0], [30.0, 40.5]], "the piece before the last stays")
+        self.assertIn("Nothing is quiet within 1 s of the cut at 0:20.0", said)
+        self.assertEqual(self.land([[10.0, 20.0]], {10.0: [9.9, 10.1], 20.0: [20.2, 20.5]}, far={20.0: [22.0, 23.0]})[0],
+                         [[10.0, 20.5]])
+
+    def test_a_last_end_with_no_pause_stays_and_is_said(self):
+        pieces, said = self.land([[10.0, 20.0]], {10.0: [9.9, 10.1]}, far={})
+        self.assertEqual(pieces, [[10.0, 20.0]])
+        self.assertIn("Nothing is quiet within 1 s of the cut at 0:20.0", said)
+
+    def test_a_pause_that_would_take_a_clip_past_its_longest_is_left(self):
+        end = 10.0 + tools.LONGEST - 1.0
+        pieces, said = self.land([[10.0, end]], {10.0: [9.4, 9.8]}, far={end: [end + 2.0, end + 3.0]})
+        self.assertEqual(pieces, [[9.5, end]], "the clip keeps its other cut")
+        self.assertIn("Nothing is quiet within 1 s of the cut", said)
+
+    def test_the_picture_or_the_person_may_end_a_clip_and_then_it_stays(self):
+        self.assertTrue(tools._reaches_on("vlog", {}))
+        self.assertTrue(tools._reaches_on(None, {}))
+        self.assertFalse(tools._reaches_on("game", {}), "a game's end is its death")
+        self.assertFalse(tools._reaches_on("sport", {}), "a goal's end is its celebration, the replay comes next")
+        self.assertFalse(tools._reaches_on("vlog", {"ends": True}), "the person put it there")
 
     def test_the_first_and_last_moments_of_the_recording_are_not_cuts(self):
         self.assertEqual(self.land([[0.0, 200.0]], {}), ([[0.0, 200.0]], None))
@@ -324,6 +359,24 @@ class Moments(unittest.TestCase):
                                        {"start": 30.0, "end": 50.0})
         self.assertEqual(said[1:], ["0:31 what was heard"])
         self.assertEqual(kept, [])
+
+    def test_a_clip_is_made_with_its_last_end_free_to_reach_on(self):
+        self.worker.phrases = [{"from": 1.0, "to": 3.0, "text": "a short line"}]
+        seen, real = [], tools._on_quiet
+
+        def spy(rec, made, level, last_end=False):
+            seen.append(last_end)
+            return real(rec, made, level, last_end)
+
+        for recipe in ("explain", "game"):
+            with mock.patch.object(tools, "_on_quiet", spy):
+                self.run_job(self.opened(), [call("load_recipe", type=recipe, why="its kind")],
+                             [call("look_at_piece", start="0:30", end="0:50", why="look")],
+                             [call("propose_moments", moments=[{"look": 1, "reason": "the tone"}], why="first")],
+                             '{"lines": ["a short line"]}',
+                             [call("make_clip", moment=1, layout="subject", why="make it")], "Done.")
+            self.chat = agent.Chat()
+        self.assertEqual(seen, [True, False])
 
     def test_stop_while_a_line_is_heard_again_proposes_nothing(self):
         self.worker.phrases = [{"from": 1.0, "to": 12.0, "text": "a long line of sound"}]

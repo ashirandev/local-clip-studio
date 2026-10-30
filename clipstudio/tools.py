@@ -1444,6 +1444,8 @@ def _pieces(said, a, b, still, claps=(), slates=False, of="the moment", edges=Tr
 
 
 EDGE_REACH = 1.0
+LAST_REACH = 4.0
+PICTURE_ENDS = ("game", "sport")
 EDGE_BED = 6.0
 EDGE_FILE = 0.05
 MOVED_CUTS = "The program moved %d cut%s, at most %g s, into the nearest quiet sound, so none falls inside a word."
@@ -1456,7 +1458,7 @@ def _quiet_under(level):
     return float(np.percentile(level[1], 75)) - QUIET_UNDER
 
 
-def _on_quiet(rec, made, level):
+def _on_quiet(rec, made, level, last_end=False):
     """made, what _pieces gave (the pieces, its sentence), with every cut moved outward into the nearest quiet stretch
     within EDGE_REACH (takes.quiet_near, or over a bed of music or a crowd the nearest dip of EDGE_BED), KEPT_AIR from the
     sound on the side the clip keeps, and the sentence saying so. A cut never moves into what the clip keeps, so it
@@ -1465,7 +1467,10 @@ def _on_quiet(rec, made, level):
     says that; a cut already in the quiet, and the first and last moments of the recording, stay. Pieces that meet
     become one. Tarm 10-30: "ตัวตัดต่อ อยากให้ตัดเฉพาะตอนเสียงเงียบ แบบ wave เสียงมันเบาแล้ว ไม่เอาตัดกลางคำ", then, as a
     sound engineer: "the program should cut at the silent". Heard lines say where words are only to a fraction of a
-    second: of the 140 cuts of the day's chats, 85 sat within 10 dB of the talk."""
+    second: of the 140 cuts of the day's chats, 85 sat within 10 dB of the talk. With last_end, the clip's last end on
+    loud sound looks on LAST_REACH s for a real pause, and no shorter gap or dip, as those lie between words: EP 22's
+    joke was cut 2.8 s before it, the line ending at 26:19.30 with its last word already in its text and the sound at
+    talk level until 26:22.36. Of 75 last ends this moves 4, and a clip at its longest stays."""
     pieces, said = made
     if not pieces or not level or not level[1]:
         return made
@@ -1492,9 +1497,24 @@ def _on_quiet(rec, made, level):
             landed.append([nx, ny])
     if sum(y - x for x, y in landed) > LONGEST:
         return made
+    run = takes.quiet_near(rec, landed[-1][1], LAST_REACH, under, side=1, pause_only=True) if (
+        last_end and landed and landed[-1][1] in loud) else None
+    if run:
+        end = landed[-1][1]
+        past = round(min(run[1], run[0] + KEPT_AIR), 2)
+        if sum(y - x for x, y in landed) + past - end <= LONGEST:
+            landed[-1][1] = past
+            loud.remove(end)
+            moved.append(past - end)
     told = ([MOVED_CUTS % (len(moved), "" if len(moved) == 1 else "s", round(max(moved), 2))] if moved else []) + [
         LOUD_CUT % (EDGE_REACH, _tenth(t)) for t in loud]
     return landed, " ".join(([said] if said else []) + told) or None
+
+
+def _reaches_on(recipe, m):
+    """True when the last end of the clip of recipe from moment m may look on for a pause (_on_quiet): not when the
+    picture ended it, as a game's death or a goal's celebration does, nor when the person gave it."""
+    return recipe not in PICTURE_ENDS and not m.get("ends")
 
 
 def _loud_cuts(rec, cuts, level):
@@ -2111,7 +2131,7 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     if layout in ("talk", "speaker", "split"):
         return _make_talk(job, rec, moment, m, *_on_quiet(rec, _pieces(
             m.get("said") or [], a, b, _still(rec, "talk", a, b, None), takes.heard_claps(rec, a, b),
-            edges=not m.get("ends"), level=level), level), name=layout, kept=kept)
+            edges=not m.get("ends"), level=level), level, _reaches_on(recipe, m)), name=layout, kept=kept)
     trim = None
     try:
         if recipe == "vlog" and layout == "card" and not face:
@@ -2129,7 +2149,7 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
         raise Refused(str(e))
     still = _still(rec, recipe, a, b, layouts.face_room(lay))
     pieces, cut = _on_quiet(rec, _pieces(m.get("said") or [], a, b, still, takes.heard_claps(rec, a, b) if still else [],
-                                         edges=not m.get("ends"), level=level), level)
+                                         edges=not m.get("ends"), level=level), level, _reaches_on(recipe, m))
     menus = None
     if recipe == "game":
         try:

@@ -2804,7 +2804,7 @@ class Tools(unittest.TestCase):
     def test_a_talk_clips_cuts_land_in_the_quiet_too(self):
         from unittest import mock
         with mock.patch.object(tools, "_make_talk", return_value="Made.") as talk, \
-                mock.patch.object(tools, "_on_quiet", lambda rec, made, level: ([[1.0, 2.0]], "landed")):
+                mock.patch.object(tools, "_on_quiet", lambda rec, made, level, last_end: ([[1.0, 2.0]], "landed")):
             self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="talk", why="the talk")], "Done.")
         self.assertEqual(talk.call_args[0][4:6], ([[1.0, 2.0]], "landed"))
 
@@ -2812,7 +2812,7 @@ class Tools(unittest.TestCase):
         from unittest import mock
         asked = []
 
-        def land(rec, made, level):
+        def land(rec, made, level, last_end=False):
             asked.append(level)
             return made
 

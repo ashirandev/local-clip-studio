@@ -734,7 +734,7 @@ class Frame(Clip):
         from unittest import mock
         self.make()
 
-        def land(rec, made, level):
+        def land(rec, made, level, last_end=False):
             return [[33.0, made[0][-1][1]]], None
 
         with mock.patch.object(tools, "_on_quiet", land), mock.patch.object(tools, "_loud_cuts", lambda *a: [49.0]), \

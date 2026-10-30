@@ -182,7 +182,7 @@ class Level(unittest.TestCase):
     def test_no_sound_has_no_level(self):
         self.assertIsNone(takes.heard_level({"path": "x.mp4", "seconds": 5.0, "sound_tracks": 0}))
 
-    def quiet(self, stretches, t, under=-20.0, bed=None, reach=1.0, side=0):
+    def quiet(self, stretches, t, under=-20.0, bed=None, reach=1.0, side=0, pause_only=False):
         """quiet_near over a sound built of (seconds, amplitude) stretches, starting at second 0."""
         from unittest import mock
         rate = takes.RATE
@@ -193,7 +193,7 @@ class Level(unittest.TestCase):
             return sound[int(a * rate):int(b * rate)]
 
         with mock.patch.object(takes, "_decoded", decoded):
-            return takes.quiet_near(rec, t, reach, under, bed=bed, side=side)
+            return takes.quiet_near(rec, t, reach, under, bed=bed, side=side, pause_only=pause_only)
 
     def test_a_cut_looks_only_on_the_side_the_clip_does_not_keep(self):
         word, gap = (1.0, 0.5), (0.2, 0.0)
@@ -204,6 +204,12 @@ class Level(unittest.TestCase):
         self.assertEqual(self.quiet(sound, 1.1, side=1), [1.0, 1.2], "a cut in the quiet is in it, from either side")
         self.assertEqual(self.quiet(sound, 1.1, side=-1), [1.0, 1.2])
         self.assertIsNone(self.quiet(sound, 1.5, side=1, reach=0.5), "nothing that way within reach")
+
+    def test_a_pause_only_leaves_the_shorter_gaps_out(self):
+        word = (1.0, 0.5)
+        self.assertEqual(self.quiet([word, (0.08, 0.0), word], 1.0), [1.0, 1.08])
+        self.assertIsNone(self.quiet([word, (0.08, 0.0), word], 1.0, pause_only=True))
+        self.assertEqual(self.quiet([word, (0.3, 0.0), word], 1.0, pause_only=True), [1.0, 1.3])
 
     def test_a_gap_inside_a_word_is_not_quiet(self):
         """Gold EP1 3:54: gaps measuring 60 and 120 ms before the พัน of "สามพัน" (read over 20 ms, 0.14 s of silence measures 0.12); the pause came after it."""
