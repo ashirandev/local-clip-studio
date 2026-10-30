@@ -842,15 +842,29 @@ def _montage_moment(job, rec, pieces, at, story, lines):
     return look, moment
 
 
+# A montage's words keep off the people, not only their faces: on the horse ride (10-30) the face finder saw the
+# rider in 2 of 84 pictures, in the top place, and the hook went to the middle, over their body. The body under a
+# face stands BODY_WIDE times its width across and BODY_DOWN times its height below it.
+BODY_WIDE, BODY_DOWN = 3.0, 6.0
+
+
+def _with_bodies(times):
+    """times (from _face_times) with each box grown to the body under it."""
+    return [(t, [[f[0] - f[2] * (BODY_WIDE - 1) / 2, f[1], f[2] * BODY_WIDE, f[3] * (BODY_DOWN + 1)] for f in boxes])
+            for t, boxes in times]
+
+
 def _put_lines(job, rec, lines):
-    """Puts a montage's words on as titles, each at the first of the layout's places it covers no face in for its
-    whole time, else where it covers faces the least, for the first stretch of its time (LISTED s or more) where it
-    covers none. Returns sentences for Muse. Seen 10-28: Muse spent four steps moving a line off a face itself, and
-    ran out of room before the hand-over."""
+    """Puts a montage's words on as titles, each at the first of the layout's places it covers no person in for its
+    whole time, else where it covers people the least, for the first stretch of its time (LISTED s or more) where it
+    covers none, grown as far as it stays clear (_grown). Returns sentences for Muse. Seen 10-28: Muse spent four
+    steps moving a line off a face itself, and ran out of room before the hand-over."""
     state = _clip_state(job)
     lay = state["clip"]["layout"]
-    st = render.style_of(state, job.chat.clip["style"] if job.chat.clip else "clean")
+    default = job.chat.clip["style"] if job.chat.clip else "clean"
+    st = render.style_of(state, default)
     times, every = _face_times(state, rec)
+    times = _with_bodies(times)
     out = []
     for ln in lines:
         if any(t["text"] == ln["text"] and t["start"] == ln["start"] for t in state["titles"]):
@@ -877,12 +891,13 @@ def _put_lines(job, rec, lines):
             start, end = clear[0]
             start, end, hit = math.ceil(start * 10) / 10, math.floor(end * 10) / 10, []
         text.title(ln["text"], start, end, band, st, None)
-        state = job.edit({"do": "title", "text": ln["text"], "start": start, "end": end, "place": name,
-                          "box": band, "key": None})
+        grow = 1 if hit else _grown(state, default, ln["text"], band, times, every, start, end)[0]
+        state = job.edit(dict({"do": "title", "text": ln["text"], "start": start, "end": end, "place": name,
+                               "box": band, "key": None}, **({"grow": grow} if grow > 1 else {})))
         out.append('"%s" at the %s from %g to %g s%s.' % (
-            ln["text"], name, start, end, ", where it covers a face at %s: move it with remove_title and "
-            "add_title" % _spans(hit) if hit else ", clear of every face" if clear == [] else
-            ", the first part of its piece where it covers no face"))
+            ln["text"], name, start, end, ", where it covers a person at %s: move it with remove_title and "
+            "add_title" % _spans(hit) if hit else ", clear of every person" if clear == [] else
+            ", the first part of its piece where it covers no person"))
     return out
 
 
@@ -1546,6 +1561,29 @@ def _covered(box, times, every, a, b):
     return hit
 
 
+# The sizes a title clear of faces tries, biggest first: each new size is a libass measure of about 0.2 s, so a
+# montage's seven labels take a second or two, not fifteen.
+GROWS = (render.TITLE_GROW, 1.4, 1.2)
+
+
+def _grown(state, default, words, band, times, every, a, b):
+    """(grow, its Measure, the box it draws in) for a title that covers no face at its own size in band from a to b:
+    the first of GROWS at which band still holds it and it still covers no face, or (1, None, None) when none does,
+    the person chose a size, or captions shown one line at a time size the title (render._title_style)."""
+    if (state.get("captions") or {}).get("one"):
+        return 1, None, None
+    own = render.style_of(state, default, "title").sizes[0]
+    for grow in GROWS:
+        st = render.grown_style(state, default, grow)
+        if st.sizes[0] <= own:
+            break
+        size = text.measure(words, st, "title", band[2])
+        drawn = [band[0] + (band[2] - size.w) / 2, band[1] + (band[3] - size.h) / 2, size.w, size.h]
+        if size.w <= band[2] and size.h <= band[3] and not _covered(drawn, times, every, a, b):
+            return grow, size, drawn
+    return 1, None, None
+
+
 def _clear(hit, a, b, least=LISTED):
     """The stretches of a-b that hit leaves free, each at least `least` seconds, so a title fits in it."""
     out, at = [], a
@@ -1750,6 +1788,9 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     state = job.chat.project.state()
     lines = ["Made the clip from moment %d (%s-%s, %g s) in the %s layout." % (
         moment, recording.clock(a), recording.clock(b), state["length"], lay["kind"]), face_line] + lay["notes"]
+    card = [p["dst"][1] for p in lay["parts"] if p["name"] == "card"]
+    if recipe == "explain" and card and not any(p["name"] == "circle" for p in lay["parts"]):
+        lines.append(EMPTY_ABOVE % layouts.on_grid(0, min(card), "y"))
     try:
         if green.find(rec["path"], a, b, (rec["width"], rec["height"]), samples=2):
             lines.append(GREEN_SAYS)
@@ -1835,6 +1876,11 @@ FOLLOW_SAYS = ("This is a seller clip from a landscape recording, so the frame s
                "follows the product. The seller sells the product, not their face.")
 GREEN_SAYS = ("A green cloth is behind the person: put a new background behind them with put_background, a place that "
               "suits what the clip is about.")
+# An explainer's card with no face circle leaves the frame above it to the title alone: Spark loaded the recipe's
+# Pictures line and still left that third empty (10-30, 154248-dd25), so make_clip says where it is and what fills it.
+EMPTY_ABOVE = ("With no face circle, the frame above the card (%s on your grid) holds only the title: when the words "
+               "name a thing a picture can show, such as gold bars or a price going up, put a picture of it there with "
+               "add_picture at the second it is said, 1 to 3 in a clip.")
 KEPT_AT_AN_EVENT = ("%d people's faces are in the clip, all kept as they are: at a trip or an event the people are "
                     "part of the day. Blur someone only when the person asks: show_people numbers the faces at the "
                     "second they mean, and decide_people blurs that number.")
@@ -2779,7 +2825,8 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
             lay["kind"], place, ", ".join(lay["places"])))
     else:
         band = lay["places"][place]
-    st = render.style_of(state, job.chat.clip["style"] if job.chat.clip else "clean")
+    default = job.chat.clip["style"] if job.chat.clip else "clean"
+    st = render.style_of(state, default)
     try:
         size = text.measure(words, st, "title", band[2])
     except ValueError as e:
@@ -2820,6 +2867,11 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
                 "your grid." % (" or the product" if state["clip"].get("product") else "", _spans(hit), place,
                                 layouts.on_grid(band[0], band[0] + band[2], "x"))
         hit = []
+    grow = 1
+    if not hit and not behind:
+        grow, bigger, at = _grown(state, default, words, band, times, every, start, end)
+        if bigger:
+            size, drawn = bigger, at
     notes = _phone(drawn, lay, state, asked) + ([moved] if part else [])
     if crossed is not None:
         notes.append("Behind the person: they cross the words %s and hide about %d%% of their width." % (
@@ -2855,6 +2907,8 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
              "box": band, "key": key}
     if behind:
         entry["behind"] = True
+    if grow > 1:
+        entry["grow"] = grow
     state = job.edit(entry)
     lines = ['The title "%s" is on screen at the %s from %g to %g s: %d line%s, %d x %d px%s.' % (
         words, place, start, end, len(size.lines), "" if len(size.lines) == 1 else "s", size.w, size.h,

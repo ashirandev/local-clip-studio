@@ -132,6 +132,39 @@ def _title_style(state, default, said, title):
     return st
 
 
+# A title with room grows up to TITLE_GROW times its own size, as far as its box holds it and it covers no face
+# (tools.grown chooses how far; the title keeps it as "grow"). At its own size the seller's hook stood 61 px tall,
+# a third of the frame wide, and a montage's labels as small, with no captions to grow them (matrix 10-30); at 1.6
+# the hook fills its place in two lines, as tall as captions shown one line at a time.
+TITLE_GROW = 1.6
+
+
+def grown_style(state, default, grow):
+    """The title style at grow times its size (TITLE_GROW at most), or the title style as it is when the person
+    chose a size for the titles or for all the words."""
+    st = style_of(state, default, "title")
+    e = state["style"] or {}
+    if not grow or grow <= 1 or e.get("size") or (e.get("sizes") or {}).get("title"):
+        return st
+    size = int(st.sizes[0] * min(grow, TITLE_GROW))
+    return st._replace(name="%s-title%d" % (st.name, size), sizes=(size,) + st.sizes[1:])
+
+
+def _grown_title(state, default, title):
+    """The style a title's grow draws it in, shrunk by TITLE_SHRINK at a time as far as needed for the title to fit
+    its box (its words or the look changed since), never below the title's own size."""
+    st = style_of(state, default, "title")
+    big = grown_style(state, default, title.get("grow"))
+    w, h = title["box"][2], title["box"][3]
+    while big.sizes[0] > st.sizes[0]:
+        got = text.measure(title["text"], big, "title", int(w))
+        if got.w <= w and got.h <= h:
+            return big
+        size = int(big.sizes[0] * TITLE_SHRINK)
+        big = st._replace(name="%s-title%d" % (st.name, size), sizes=(size,) + st.sizes[1:])
+    return st
+
+
 def _styles(state, default):
     """The clip's style for each part of its words, {kind: Style}."""
     return {kind: style_of(state, default, kind) for kind in text.KINDS}
@@ -183,7 +216,7 @@ def ass(state, default="clean", behind=False):
     events = []
     styles = list(st.values())
     for t in titles:
-        drawn = _title_style(state, default, one, t) if one else st["title"]
+        drawn = _title_style(state, default, one, t) if one else _grown_title(state, default, t)
         if drawn not in styles:
             styles.append(drawn)
         events += text.title(t["text"], t["start"], t["end"], t["box"], drawn, t.get("key"))

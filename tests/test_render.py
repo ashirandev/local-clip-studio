@@ -479,6 +479,25 @@ class OneLine(unittest.TestCase):
         found = changed(drawn(state(title=[long], captions=talked), 1.0), drawn(state(captions=talked), 1.0))
         self.assertTrue(inside(found, hook["box"], slack=4), "a longer title shrinks into its box: %s" % (found,))
 
+    def test_a_title_kept_with_a_grow_is_drawn_that_much_taller_inside_its_box(self):
+        """Matrix 10-30: every title stood 61 px tall, a third of the frame wide, and a montage's labels as small."""
+        hook = dict(TITLE, text="ขยับนิดเดียวเล็งยิงได้เลย", start=0.0, box=[307, 286, 707, 232])
+        found = {}
+        for name, grow, chosen in (("own", None, None), ("grown", render.TITLE_GROW, None),
+                                   ("sized", render.TITLE_GROW, {"name": "clean", "sizes": {"title": 3}})):
+            st = state(title=[dict(hook, grow=grow) if grow else hook])
+            st["style"] = chosen
+            under = state()
+            under["style"] = chosen
+            found[name] = changed(drawn(st, 1.0), drawn(under, 1.0))
+        tall = {name: box[3] - box[1] for name, box in found.items()}
+        self.assertGreater(tall["grown"], tall["own"] * 1.4, "the hook grows: %s" % tall)
+        self.assertTrue(inside(found["grown"], hook["box"], slack=4), "%s inside its box" % (found["grown"],))
+        self.assertLess(tall["sized"], tall["own"] * 1.2, "a size the person chose for titles wins: %s" % tall)
+        long = dict(hook, text="ขยับนิดเดียวก็เล็งยิงได้เลยไม่ต้องใช้ปุ่มอนาล็อกอีกต่อไป", grow=render.TITLE_GROW)
+        found = changed(drawn(state(title=[long]), 1.0), drawn(state(), 1.0))
+        self.assertTrue(inside(found, hook["box"], slack=4), "words that outgrow the box shrink into it: %s" % (found,))
+
 @unittest.skipUnless(FFMPEG and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class Preview(unittest.TestCase):
     """The preview frame Muse sees is drawn by the same stages."""

@@ -546,6 +546,33 @@ class Tools(unittest.TestCase):
         self.assertIn('The title "Boss down" is on screen at the top from 0 to 4.5 s: 1 line', drawn["result"])
         self.assertIn('words on screen: "Boss down" 0-4.5 s at the top', brain.sent[-1][-2]["content"])
 
+    def test_a_title_with_room_grows_and_keeps_its_size_where_growing_would_cover_a_face(self):
+        """Matrix 10-30: every title stood 61 px tall, a third of the frame wide, on 5 of 8 clips."""
+        import re
+        from unittest import mock
+
+        def faces_at(boxes):
+            return lambda state, rec: ([(k * 0.5, boxes) for k in range(41)], 0.5)
+
+        with mock.patch.object(tools, "_face_times", faces_at([])):
+            _, steps = self.run_job(
+                *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("add_title", words="Boss down", start=0, end=5, place="top", why="the hook")], "Done.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        state = self.chat.project.state()
+        title = state["titles"][-1]
+        self.assertEqual(title.get("grow"), render.TITLE_GROW)
+        own = text.measure("Boss down", render.style_of(state, "clean"), "title", title["box"][2])
+        tall = int(re.search(r"1 line, \d+ x (\d+) px", steps[-1]["result"]).group(1))
+        self.assertGreater(tall, own.h * 1.4, "the result tells Muse the size it is drawn at")
+        under = title["box"][1] + (title["box"][3] + own.h) / 2 + tools.FACE_MARGIN + 1
+        with mock.patch.object(tools, "_face_times", faces_at([[title["box"][0], under, title["box"][2], 200]])):
+            _, steps = self.run_job(
+                [call("add_title", words="Boss down", start=6, end=11, place="top", why="the hook")], "Done.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertIn("clear of every face", steps[-1]["result"], "at its own size it covers none")
+        self.assertNotIn("grow", self.chat.project.state()["titles"][-1], "grown, it would cover the face under it")
+
     def test_a_refusal_offers_a_clear_part_that_holds_the_title_longer_than_the_place_is_clear_across(self):
         """The green seller 10-30: the frame followed the product and the head came into the top place at times, the
         refusal named only the stretches clear across its width, the first 0-2.7 s, and the title held 2.7 s of 31
@@ -1645,11 +1672,16 @@ class Tools(unittest.TestCase):
 
         with mock.patch.object(tools.picture, "make", make), mock.patch.object(tools, "_face_times",
                                                                              return_value=([], 0.5)), \
-                mock.patch.object(tools, "_the_face", return_value=(None, "No face was found.")):
-            brain, steps = self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="card", why="the slide")],
+                mock.patch.object(tools, "_the_face", return_value=(None, "No face was found.")), \
+                mock.patch.object(screen, "readings", lambda rec, a, b, on_start=None: [{"at": a, "lines": []}]):
+            brain, steps = self.run_job(*self.to_moment(), [call("load_recipe", type="explain", why="a tutorial")],
+                                        [call("make_clip", moment=1, layout="card", why="the slide")],
                                         [call("add_picture", about="gold bars on a table", at=2, why="the gold")],
                                         "Done.")
-        placed = steps[-1]
+        made, placed = steps[-2:]
+        self.assertIn("With no face circle, the frame above the card (y 0 to", made["result"],
+                      "10-30, 154248-dd25: Spark had the recipe's Pictures line and left that third empty")
+        self.assertIn("add_picture at the second it is said", made["result"])
         self.assertFalse(placed["refused"], placed["result"])
         state = self.chat.project.state()
         card = next(p for p in state["clip"]["layout"]["parts"] if p["name"] == "card")

@@ -435,9 +435,35 @@ class Arrange(unittest.TestCase):
         finally:
             tools._face_times = had
         said = steps[-1]["result"]
-        self.assertIn('"We arrive" at the top from 1 to 3 s, the first part of its piece where it covers no face', said)
+        self.assertIn('"We arrive" at the top from 1 to 3 s, the first part of its piece where it covers no person',
+                      said)
         self.assertEqual([(t["text"], t["start"], t["end"]) for t in self.chat.project.state()["titles"]],
                          [("We arrive", 1.0, 3.0), ("The end", 3.0, 4.9)])
+
+    def test_a_line_keeps_off_the_body_under_a_face_and_grows_where_it_is_clear(self):
+        """The horse ride 10-30: the rider's face came into the top place for a second of the opening piece, and the
+        hook, small, went to the middle for the whole piece, over the rider's body."""
+        had = tools._face_times
+
+        def times(state, rec):
+            top = state["clip"]["layout"]["places"]["top"]
+            face = [top[0] + top[2] / 2 - 50, top[1] + 10, 100, 100]
+            return [(k * 0.5, [face] if k * 0.5 >= 3 else []) for k in range(9)], 0.5
+
+        tools._face_times = times
+        try:
+            steps = self.run_job(*self.opened(), [call(
+                "arrange_clips", story="the day", why="in order", left_out=[{"clip": 3, "why": "it holds still"}],
+                clips=[{"clip": 1, "start": 0.0, "end": 4.0, "words": "We set off", "why": "the start"},
+                       {"clip": 2, "start": 0.0, "end": 2.0, "why": "on the way"}])], "Done.")
+        finally:
+            tools._face_times = had
+        said = steps[-1]["result"]
+        self.assertFalse(steps[-1]["refused"], said)
+        self.assertIn("middle", self.chat.project.state()["clip"]["layout"]["places"])
+        self.assertIn('"We set off" at the top from 0 to 2.7 s, the first part of its piece where it covers no '
+                      'person', said, "not the middle, over the body, for the whole piece")
+        self.assertEqual([t.get("grow") for t in self.chat.project.state()["titles"]], [tools.render.TITLE_GROW])
 
 
 class Fit(unittest.TestCase):
