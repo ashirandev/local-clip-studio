@@ -1765,7 +1765,7 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     try:
         lay = layouts.make(layout, (rec["width"], rec["height"]), box,
                            trim or (_pixels("crop", crop, rec) if crop else None),
-                           layouts.VLOG_TALLEST if trim else None)
+                           layouts.VLOG_TALLEST if trim else None, tall=recipe == "game")
     except ValueError as e:
         raise Refused(str(e))
     still = _still(rec, recipe, a, b, layouts.face_room(lay))
@@ -2054,7 +2054,7 @@ def _slide(rec, lay, pieces, text):
     size = (rec["width"], rec["height"])
     part = layouts.framed(box, size)
     try:
-        slide = layouts.make("card", size, lay.get("face"), part)
+        slide = layouts.make("card", size, lay.get("face"), part, tall=bool(lay.get("tall")))
     except ValueError:
         return lay, "%s: it shows the whole screen." % said
     (card,) = [p for p in slide["parts"] if p["name"] == "card"]

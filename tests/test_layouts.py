@@ -389,6 +389,29 @@ class Phones(unittest.TestCase):
                          "no face held whole: the whole picture")
         self.assertEqual(layouts.trimmed((1080, 1920), middle)[0], [0, 0, 1080, 1920], "an upright picture is not cut")
 
+    def test_a_games_card_stands_tall_under_the_smallest_face_circle_with_the_captions_on_its_lower_part(self):
+        """Tarm 10-30, between two frames of the Sifu stream: the right one, the card standing tall, the fight 0.98
+        times its size instead of 0.61."""
+        for crop in (None, [600, 0, 700, 1080], [0, 300, 1920, 500], [0, 120, 1570, 840]):
+            lay = layouts.make("card", SIZE, FACE, crop, tall=True)
+            parts = {p["name"]: p for p in lay["parts"]}
+            card, band = parts["card"]["dst"], lay["captions"]
+            self.assertTrue(lay["tall"])
+            self.assertEqual(parts["circle"]["dst"], [390, 466, 300, 300], crop)
+            self.assertEqual(card, [60, 774, 960, 682], crop)
+            shows(self, card, "the tall card for crop %s" % (crop,))
+            src = parts["card"]["src"]
+            self.assertAlmostEqual(src[2] / src[3], 960 / 682.0, 2, "cut to the card's shape, never stretched")
+            self.assertTrue(card[1] + card[3] / 2 < band[1] and band[1] + band[3] <= card[1] + card[3],
+                            "the captions on the card's lower part: %s on %s" % (band, card))
+            self.assertFalse(overlap(band, lay["places"]["top"]))
+            self.assertFalse(overlap(band, parts["circle"]["dst"]))
+        self.assertEqual(layouts.make("card", SIZE, FACE, [0, 120, 1570, 840], tall=True)["parts"][0]["src"],
+                         [194, 120, 1180, 840], "a wide picture is cut at both sides alike, around what the face "
+                                                "camera leaves")
+        self.assertNotIn("tall", layouts.make("card", SIZE, None, None, tall=True), "without a face camera, as it was")
+        self.assertNotIn("tall", layouts.make("card", SIZE, FACE))
+
     def test_a_vlogs_taller_card_keeps_the_card_columns_rules(self):
         crop, _ = layouts.trimmed(SIZE, [[600, 300, 150, 150]])
         lay = layouts.make("card", SIZE, None, crop, layouts.VLOG_TALLEST)

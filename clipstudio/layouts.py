@@ -134,12 +134,12 @@ SHINE_AT, SHINE_FOR = 0.25, 0.7
 SHAPES = 2
 
 
-def make(kind, size, face=None, crop=None, tallest=None):
+def make(kind, size, face=None, crop=None, tallest=None, tall=False):
     """The layout of kind for a recording of size (w, h): its parts, its places for words, its caption band and
     notes on what the program fixed. face is the face's box in the recording (from the face finder), crop the part
     of the picture to show (whole picture when None), tallest the card's greatest height (CARD_TALLEST when None, a
-    vlog's trimmed card more, never past the room above the channel's name). A layout that cannot be drawn raises
-    ValueError."""
+    vlog's trimmed card more, never past the room above the channel's name). tall, for a game with a face camera,
+    makes the card stand tall (_tall_column). A layout that cannot be drawn raises ValueError."""
     if kind not in KINDS:
         raise ValueError("layout %r is not a layout: use one of %s." % (kind, ", ".join(KINDS)))
     w, h = size
@@ -156,9 +156,14 @@ def make(kind, size, face=None, crop=None, tallest=None):
             crop = _leave_out(crop, away, notes)
         else:
             notes.append("No face was given or found, so the card has no circle.")
-        crop, height = _card(crop, notes, _CARD_ROOM - CIRCLE_SMALLEST - CARD_GAP if face
-                             else min(tallest or CARD_TALLEST, _CARD_ROOM))
-        circle, captions, card = _card_column(height, bool(face))
+        if tall and face:
+            crop, height = _card(crop, notes, CARD_TALL, fill=True)
+            circle, captions, card = _tall_column()
+        else:
+            tall = False
+            crop, height = _card(crop, notes, _CARD_ROOM - CIRCLE_SMALLEST - CARD_GAP if face
+                                 else min(tallest or CARD_TALLEST, _CARD_ROOM))
+            circle, captions, card = _card_column(height, bool(face))
         parts.append({"name": "card", "src": crop, "dst": card})
         if face:
             parts.append({"name": "circle", "src": _around(face, FACE_SHARE["circle"], 1.0, room), "dst": circle})
@@ -192,9 +197,12 @@ def make(kind, size, face=None, crop=None, tallest=None):
         if crop != [0, 0, w, h] and [why for why in unsafe(shown) if "buttons" not in why]:
             notes.append("The subject is too big to show whole between the phone's header and the name and caption "
                          "at the bottom; choose the card layout to show all of it.")
-    return {"kind": kind, "size": [w, h], "face": face, "parts": parts, "places": places,
-            "captions": captions, "background": kind == "card", "notes": notes,
-            "safe": {"box": SAFE, "buttons": BUTTONS, "said": SAFE_SAID}}
+    out = {"kind": kind, "size": [w, h], "face": face, "parts": parts, "places": places,
+           "captions": captions, "background": kind == "card", "notes": notes,
+           "safe": {"box": SAFE, "buttons": BUTTONS, "said": SAFE_SAID}}
+    if kind == "card" and tall:
+        out["tall"] = True
+    return out
 
 
 def moved(layout, name, box):
@@ -424,6 +432,8 @@ def _leave_out(crop, away, notes, size=None):
 
 _CARD_TOP = CARD_TITLE[1] + CARD_TITLE[3] + CARD_GAP_TOP
 _CARD_ROOM = NAME_TOP - _CARD_TOP - CAPTIONS[3] - CARD_GAP
+CARD_TALL = NAME_TOP - _CARD_TOP - CIRCLE_SMALLEST - CARD_GAP
+TALL_CAPTIONS_UP = 24
 
 
 def _card_column(height, face):
@@ -439,13 +449,29 @@ def _card_column(height, face):
     return circle, band, [CARD_X, y + CAPTIONS[3] + CARD_GAP, CARD_W, height]
 
 
-def _card(crop, notes, tallest=CARD_TALLEST):
+def _tall_column():
+    """(circle box, caption band, card box) for a game's tall card: the face circle at CIRCLE_SMALLEST under the
+    title's place, the card CARD_TALL px tall under it down to the channel's name, and the captions on the card's
+    lower part. Between the circle and the card there was room for a card 514 px tall, its fight 0.61 times its size;
+    standing tall it is 0.98 (Tarm, 10-30, choosing between the two frames: "อันขวาโอเคเลย")."""
+    circle = [(W - CIRCLE_SMALLEST) // 2, _CARD_TOP, CIRCLE_SMALLEST, CIRCLE_SMALLEST]
+    card = [CARD_X, _CARD_TOP + CIRCLE_SMALLEST + CARD_GAP, CARD_W, CARD_TALL]
+    band = [65, card[1] + card[3] - CAPTIONS[3] - TALL_CAPTIONS_UP, 950, CAPTIONS[3]]
+    return circle, band, card
+
+
+def _card(crop, notes, tallest=CARD_TALLEST, fill=False):
     """(crop, card height): the card is CARD_W wide; its height follows the crop, from CARD_LOWEST to tallest
-    pixels, trimming the crop around its middle when it is too tall or too wide."""
+    pixels, trimming the crop around its middle when it is too tall or too wide. With fill the card is always
+    tallest, the crop cut at both sides around its middle to the card's shape."""
     x, y, cw, ch = crop
     tallest = _even(tallest)
     height = CARD_W * ch / cw
-    if height > tallest:
+    if fill and height < tallest:
+        nw = ch * CARD_W / tallest
+        x, cw, height = x + (cw - nw) / 2, nw, tallest
+        notes.append("The card was cut at the sides to stand tall, so the game shows bigger.")
+    elif height > tallest:
         nh = cw * tallest / CARD_W
         y, ch, height = y + (ch - nh) / 2, nh, tallest
         notes.append("The card was trimmed at the top and bottom to fit the frame.")

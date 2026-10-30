@@ -668,6 +668,18 @@ class Tools(unittest.TestCase):
         self.assertEqual(card["src"], [52, 0, 216, 180])
         self.assertEqual(card["dst"][3], 800, "taller than a whole 16:9 picture's 540 px card")
 
+    def test_a_games_card_stands_tall_and_another_kind_of_videos_card_does_not(self):
+        _, steps = self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="card", why="the screen")],
+                                [call("load_recipe", type="game", why="a stream")],
+                                [call("make_clip", moment=1, layout="card", why="the game")], "Done.")
+        plain, _, game = steps[-3:]
+        self.assertFalse(game["refused"], game["result"])
+        self.assertIn("The card was cut at the sides to stand tall, so the game shows bigger.", game["result"])
+        lay = self.chat.project.state()["clip"]["layout"]
+        self.assertTrue(lay.get("tall"))
+        self.assertEqual([p["dst"] for p in lay["parts"] if p["name"] == "card"], [[60, 774, 960, 682]])
+        self.assertNotIn("stand tall", plain["result"])
+
     def test_wrong_title_input_says_what_to_send(self):
         brain, steps = self.run_job(
             *self.to_moment(), [call("make_clip", moment=1, layout="card", why="the game")],
