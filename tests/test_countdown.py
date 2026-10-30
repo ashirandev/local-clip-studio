@@ -10,7 +10,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, countdown, hearing, recording, screen  # noqa: E402
+from clipstudio import agent, countdown, hearing, recording, screen, tools  # noqa: E402
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_game_screen import MENU, PLAY  # noqa: E402
 import test_editor  # noqa: E402
@@ -167,14 +167,14 @@ class MakeCountdown(unittest.TestCase):
             p.stop()
         test_editor.Tools.tearDown(self)
 
-    def run_job(self, said, *calls, game=True):
+    def run_job(self, said, *calls, game=True, recipe="game", moments=None):
         """The person says said; Muse opens the recording, loads the game recipe (when game), looks at 0:06-0:58 (its
         pictures at 12.5, 25.5, 38.5 and 51.5 s), proposes three moments and makes the calls."""
         script = [[call("open_recording", path=self.clip, why="open it")]]
         if game:
-            script.append([call("load_recipe", type="game", why="a game stream")])
+            script.append([call("load_recipe", type=recipe, why="the kind")])
         script += [[call("look_at_piece", start="0:06", end="0:58", why="the stream")],
-                   [call("propose_moments", why="the best", moments=[
+                   [call("propose_moments", why="the best", moments=moments or [
                        {"look": 1, "start": "0:06", "end": "0:21", "reason": "a close call"},
                        {"look": 1, "start": "0:22", "end": "0:37", "reason": "a fall"},
                        {"look": 1, "start": "0:40", "end": "0:55", "reason": "the win"}])]]
@@ -245,6 +245,84 @@ class MakeCountdown(unittest.TestCase):
         self.assertTrue(steps[-1]["refused"])
         self.assertIn("Moment 1: the game's menu shows at 0:01 with under 3 s of play before it: propose it from the "
                       "play that led there.", steps[-1]["result"])
+
+    def test_a_match_joins_its_goals_in_match_order_with_no_rank_though_nobody_asked(self):
+        """10-31: Spark found all 4 goals of Tarm's eFootball match 3 of 3, and only the first proposed became a clip."""
+        self.menus = [(0, 60)]
+        goals = [{"moment": 3, "words": "ปิดเกม 1-3", "start": "0:42", "end": "0:55"},
+                 {"moment": 1, "words": "นำ 0-1", "start": "0:06", "end": "0:21"},
+                 {"moment": 2, "words": "0-2", "start": "0:22", "end": "0:37"}]
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(goals), recipe="sport")
+        made = steps[-1]
+        self.assertFalse(made["refused"], made["result"])
+        self.assertRegex(made["result"], r"Joined 3 moments into one recording, \S+ s long, in match order: ")
+        self.assertIn('0 s: "นำ 0-1", moment 1, 0:06-0:21 of the recording', made["result"])
+        titles = [e["entry"]["text"] for e in self.chat.events if e["kind"] == "edit" and e["entry"].get("do") == "title"]
+        self.assertEqual(titles, ["นำ 0-1", "0-2", "ปิดเกม 1-3"], "the score only reads in the order it happened")
+
+    def test_a_match_gives_each_piece_its_seconds_and_two_goals_are_enough(self):
+        """10-31 005604-4fe9: left to the program, three of four pieces lost the attack and ran into the replay."""
+        two = [{"look": 1, "start": "0:06", "end": "0:21", "reason": "first"},
+               {"look": 1, "start": "0:33", "end": "0:50", "reason": "second"}]
+        bare = [{"moment": 1, "words": "0-1", "start": "0:06", "end": "0:21"}, {"moment": 2, "words": "0-2"}]
+        goals = [bare[0], dict(bare[1], start="0:33", end="0:50")]
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(bare), self.counted(goals), recipe="sport", moments=two)
+        self.assertTrue(steps[-2]["refused"])
+        self.assertIn("Give each piece its start, where the attack starts", steps[-2]["result"])
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertIn("Joined 2 moments", steps[-1]["result"])
+
+    def test_a_person_who_asked_for_a_top_3_of_a_match_gets_ranks_and_a_game_needs_three(self):
+        steps = self.run_job("ทำ top 3 ประตูสวย", self.counted(), recipe="sport")
+        self.assertIn('"3. Close call"', steps[-1]["result"])
+        self.chat = agent.Chat()
+        steps = self.run_job("นับถอยหลังให้หน่อย", self.counted(self.ORDER[:2]))
+        self.assertTrue(steps[-1]["refused"])
+        self.assertIn("A countdown holds at least 3 moments.", steps[-1]["result"])
+
+    def test_moments_from_a_little_of_a_match_are_not_proposed_until_the_score_was_read_across_it(self):
+        """10-31: Glimmer proposed the 3 loud stretches, 1 goal of 4, 3 of 3."""
+        self.chat.recording = None
+        little = [{"look": 1, "start": "0:32", "end": "0:45", "reason": "the goal"}]
+        brain = ScriptedMind([call("open_recording", path=self.clip, why="open it")],
+                             [call("load_recipe", type="sport", why="a match")],
+                             [call("look_at_piece", start="0:30", end="0:50", why="loud")],
+                             [call("propose_moments", why="the goal", moments=little)],
+                             [call("propose_moments", why="the goal", moments=little)], "Done.")
+        with mock.patch.object(tools, "ACROSS_LEAST", 30.0), mock.patch.object(tools, "ACROSS_SEEN", 0.5):
+            self.chat.jobs += 1
+            job = self.chat.job = agent.Job(self.chat, brain, "ทำไฮไลท์")
+            job.run()
+        steps = [e for e in self.chat.events if e.get("job") == job.n and e["kind"] == "step"]
+        read, again = steps[3], steps[4]
+        self.assertFalse(read["refused"], read["result"])
+        self.assertTrue(read["result"].startswith("Not proposed yet: your looks saw little of the match"), read["result"])
+        self.assertRegex(read["result"], r"8 pictures across the whole match come next, one every 0:0[78]\.")
+        self.assertTrue(again["result"].startswith("Proposed 1 moment"), again["result"])
+
+    def test_a_match_seen_widely_a_short_one_and_a_game_are_proposed_at_once(self):
+        def told(recipe, seconds=1000.0, seen=100.0, done=False):
+            job = mock.Mock()
+            job.chat.clip = {"recipe": recipe, "read_across": done}
+            job.chat.looks = [{"start": 0.0, "end": seen}]
+            with mock.patch.object(recording, "frame", return_value=None):
+                return tools._read_across(job, {"seconds": seconds})
+
+        self.assertIsNotNone(told("sport"))
+        self.assertIsNone(told("game"))
+        self.assertIsNone(told("sport", done=True), "once")
+        self.assertIsNone(told("sport", seen=250.0), "a quarter of it seen")
+        self.assertIsNone(told("sport", seconds=120.0, seen=10.0), "a clip, not a match")
+
+    def test_a_match_is_offered_the_join_unasked_and_a_game_is_not(self):
+        job = agent.Job(self.chat, ScriptedMind("ok"), "ทำไฮไลท์")
+
+        def offered(recipe):
+            self.chat.clip = {"recipe": recipe}
+            return "make_countdown" in {t["function"]["name"] for t in job.offered()}
+
+        self.assertTrue(offered("sport"))
+        self.assertFalse(offered("game"), "offered unasked it moved Glimmer's pick")
 
     def test_nobody_asking_for_a_countdown_gets_one_clip_of_the_best_moment(self):
         steps = self.run_job(BEAT_ONE, self.counted())

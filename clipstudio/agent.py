@@ -1490,9 +1490,11 @@ class Job:
             self.close(end, started)
 
     def offered(self):
-        """The tools Muse is offered at this step: make_countdown only once a person asked for a countdown (UNASKED)."""
+        """The tools Muse is offered at this step: make_countdown only in a sports match, which joins its goals with it,
+        or once a person asked for a countdown (UNASKED)."""
         said = [e["text"] for e in self.chat.events if e["kind"] == "person"]
-        return SCHEMAS if countdown.asked(said) is not None else UNASKED
+        match = (self.chat.clip or {}).get("recipe") == "sport"
+        return SCHEMAS if match or countdown.asked(said) is not None else UNASKED
 
     def only_talk(self):
         """True when the person's typed message only talks, so Muse answers it in words with no tools offered. Asked

@@ -1661,6 +1661,35 @@ def _read_cold(look, i, m, a):
                 i, clock(a), " ".join(opens["text"].split())[:80], lines))
 
 
+# Glimmer took the 3 loudest stretches of Tarm's eFootball match and found 1 goal of 4, 3 of 3: the crowd rises only for
+# its own side. Spark read the score across its looks and found all 4, 3 of 3. So when the looks have seen little of a
+# match, the program puts pictures of the whole of it in front of Muse, once, and Muse reads the score in them itself.
+ACROSS_PICTURES = 8
+ACROSS_SEEN = 0.25
+ACROSS_LEAST = 180.0
+
+
+def _read_across(job, rec):
+    """What Muse is told, with ACROSS_PICTURES pictures of the whole recording, before the moments of a sports match are
+    proposed from looks that saw under ACROSS_SEEN of it, else None. Once for a clip."""
+    clip, clock = job.chat.clip or {}, recording.clock
+    seen = sum(s["end"] - s["start"] for s in job.chat.looks)
+    if clip.get("recipe") != "sport" or clip.get("read_across") or rec["seconds"] < ACROSS_LEAST \
+            or seen >= ACROSS_SEEN * rec["seconds"]:
+        return None
+    clip["read_across"] = True
+    gap = rec["seconds"] / ACROSS_PICTURES
+    for k in range(ACROSS_PICTURES):
+        t = (k + 0.5) * gap
+        frame = recording.frame(rec, at=t)
+        if frame:
+            job.attach(os.path.join(recording.WORK, "frames", frame), "The match at %s:" % clock(t))
+    return ("Not proposed yet: your looks saw little of the match, and the crowd does not rise for a goal against its side. "
+            "%d pictures across the whole match come next, one every %s. Read the score in each: where it differs between "
+            "two pictures, a goal lies between them, so look at that stretch until you see it. Then propose every goal."
+            % (ACROSS_PICTURES, clock(gap)))
+
+
 def propose_moments(job, why, moments, then="make"):
     rec = _open(job, "propose")
     clock, looks = recording.clock, job.chat.looks
@@ -1682,7 +1711,7 @@ def propose_moments(job, why, moments, then="make"):
                                                                    clock(look["start"]), clock(look["end"])))
         a, b = max(a, lo), min(b, hi)
         gave.append((a, b))
-        seen = _seen_past(job, why, rec, i, m, look, a, b) if i == 1 else None
+        seen = (_read_across(job, rec) or _seen_past(job, why, rec, i, m, look, a, b)) if i == 1 else None
         if seen:
             return seen
         try:
@@ -5476,10 +5505,14 @@ def _one_clip(job, rec, k, c, layout, blur, opened=None):
 def make_countdown(job, why, moments, story):
     rec, proposed, looks = _counted_from(job)
     n = countdown.asked([e["text"] for e in job.chat.events if e["kind"] == "person"])
+    recipe = (job.chat.clip or {}).get("recipe")
+    reel = n is None and recipe == "sport"
+    if reel:
+        n = 0
     if n is None:
         raise Refused("Nobody asked for a countdown in their own words (a top 5, 5 อันดับ, นับถอยหลัง), so make the clip "
                       "from the best moment with make_clip instead.")
-    if (job.chat.clip or {}).get("recipe") != "game":
+    if recipe not in ("game", "sport"):
         raise Refused("A countdown is made from a game stream for now: make the clip from the best moment with "
                       "make_clip, or load the game recipe when this is one.")
     if 0 < n < countdown.FEWEST:
@@ -5501,6 +5534,14 @@ def make_countdown(job, why, moments, story):
     if strange:
         problems.append("There is no moment %s: you proposed %d. Propose the others first." % (
             ", ".join(map(str, strange)), len(proposed)))
+    if not reel and len(moments) < countdown.FEWEST:
+        problems.append("A countdown holds at least %d moments." % countdown.FEWEST)
+    if reel:
+        moments = sorted(moments, key=lambda c: proposed[c["moment"] - 1]["start"] if 1 <= c["moment"] <= len(proposed)
+                         else 0.0)
+        if any(c.get("start") is None or c.get("end") is None for c in moments):
+            problems.append("Give each piece its start, where the attack starts, and its end, when the celebration ends: "
+                            "only you saw where the goal is in the moment.")
     clock, spans, fitted = recording.clock, [], []
     chosen = [proposed[k - 1] for k in numbers if 1 <= k <= len(proposed)]
     for c in moments:
@@ -5555,7 +5596,7 @@ def make_countdown(job, why, moments, story):
                         "follow: write these in English: %s." % "; ".join('"%s"' % t for t in thai))
     if problems:
         raise Refused("Nothing was joined. Fix all of these, then call it again:\n- " + "\n- ".join(problems))
-    menu = _menu_start(job, rec, spans[0][0])
+    menu = None if reel else _menu_start(job, rec, spans[0][0])
     if menu:
         raise Refused("Nothing was joined. " + menu)
     try:
@@ -5563,7 +5604,7 @@ def make_countdown(job, why, moments, story):
     except hearing.Stopped:
         return "Not made: the person pressed Stop."
     count = len(spans)
-    lines = ["%d. %s" % (count - k, words) for k, words in enumerate(texts)]
+    lines = texts if reel else ["%d. %s" % (count - k, words) for k, words in enumerate(texts)]
     for c, line in zip(moments, lines):
         _fits_a_place(line, "the words over moment %d" % c["moment"], job.chat.clip["style"])
     picked = [proposed[c["moment"] - 1] for c in moments]
@@ -5577,7 +5618,7 @@ def make_countdown(job, why, moments, story):
     peaks = [round(t + min(max(0.0, (m["t"] if m.get("t") is not None else (a + b) / 2) - a), b - a), 2)
              for m, (a, b), t in zip(picked, spans, at)]
     out = countdown.target(rec, spans)
-    job.working("Joining %d moments into the countdown" % count)
+    job.working("Joining %d moments into the %s" % (count, "clip" if reel else "countdown"))
     try:
         countdown.join(rec, spans, out, on_start=job.started_work)
     except countdown.Stopped:
@@ -5599,8 +5640,8 @@ def make_countdown(job, why, moments, story):
     job.chat.looks.append(look)
     job.chat.moments = [moment]
     job.show(look=look, moments=[moment])
-    head = ["Joined %d moments into one recording, %g s long, counting down to the best: %s" % (
-        count, round(end, 1), story)]
+    head = ["Joined %d moments into one recording, %g s long, %s: %s" % (
+        count, round(end, 1), "in match order" if reel else "counting down to the best", story)]
     for m, (a, b), t, line in zip(picked, spans, at, lines):
         head.append('%g s: "%s", moment %d, %s-%s of the recording' % (t, line, m["n"], clock(a), clock(b)))
     if n > countdown.MOST:
@@ -6941,9 +6982,10 @@ TOOLS = {t.name: t for t in [
          "นับถอยหลัง): one clip of %d to %d of the moments you proposed, in countdown order, the best last. The "
          "program cuts %g s around the peak of each (or the seconds you give), joins them into one recording and makes "
          "the clip from it in the card layout, each piece with its rank and your words as a title (\"5. ...\" down to "
-         "\"1. ...\"). For the one best moment, make_clip; for a clip from each moment, make_clips."
-         % (countdown.FEWEST, countdown.MOST, countdown.BEFORE + countdown.AFTER),
-         {"moments": {"type": "array", "minItems": countdown.FEWEST, "maxItems": countdown.MOST, "items": {
+         "\"1. ...\"). In a sports match, also unasked: the goals, in match order, your words with no rank, each "
+         "piece the seconds you give, at most %g s. For the one best moment, make_clip; for a clip from each moment, "
+         "make_clips." % (countdown.FEWEST, countdown.MOST, countdown.BEFORE + countdown.AFTER, countdown.LONGEST),
+         {"moments": {"type": "array", "minItems": 2, "maxItems": countdown.MOST, "items": {
              "type": "object", "required": ["moment", "words"], "properties": {
                  "moment": {"type": "integer", "minimum": 1, "maximum": MOST_MOMENTS,
                             "description": "The moment's number, as you proposed it."},
