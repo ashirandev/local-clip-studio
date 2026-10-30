@@ -173,6 +173,7 @@
       <button type="button" class="tool" data-show="sound" aria-pressed="false"><svg class="ico"><use href="#i-sound"/></svg>Sound</button>
       <button type="button" class="tool" data-show="words" aria-pressed="false"><svg class="ico"><use href="#i-words"/></svg>Words</button>
       <button type="button" class="tool" data-show="channel" aria-pressed="false"><svg class="ico"><use href="#i-at"/></svg>Channel</button>
+      <button type="button" class="tool" data-show="album" aria-pressed="false" hidden><svg class="ico"><use href="#i-film"/></svg>Album</button>
     </nav>
   </section>
 </div>
@@ -192,6 +193,9 @@
     <div class="panel-group" data-part="layout">
       <div class="panel-row" id="layoutRow"></div>
       <p class="panel-why" id="layoutWhy" role="status" hidden></p>
+      <p class="s-sub" id="circleHead" hidden><svg class="ico sm"><use href="#i-people"/></svg>Face circle</p>
+      <div class="panel-row" id="circleRow" role="group" aria-label="Where the face circle sits" hidden></div>
+      <p class="panel-why" id="circleWhy" hidden></p>
     </div>
     <div class="panel-group" data-part="style">
       <div class="panel-row wide" id="styleRow"></div>
@@ -212,6 +216,23 @@
         <input class="channel-input" id="channelHandle" maxlength="30" placeholder="@yourchannel" autocomplete="off" aria-label="Name drawn on every clip">
         <button type="submit" class="pill">Save this look</button>
       </form>
+    </div>
+    <div class="panel-group" data-part="album">
+      <form class="word-edit" id="taglineForm">
+        <input class="channel-input" id="taglineWords" maxlength="30" placeholder="Tagline" autocomplete="off" aria-label="Tagline">
+        <button type="submit" class="pill">Put on this clip</button>
+      </form>
+      <div class="panel-row" id="tagSpotRow" role="group" aria-label="Where the tagline goes" hidden></div>
+      <p class="panel-why" id="tagSpotWhy" hidden></p>
+      <p class="s-sub"><svg class="ico sm"><use href="#i-film"/></svg>Use on all clips</p>
+      <div class="album-parts" id="albumParts" role="group" aria-label="What to put on the other clips"></div>
+      <p class="channel-says">Each clip keeps its own headline.</p>
+      <div class="album-acts">
+        <button type="button" class="pill go" id="albumUse">Use this clip's look on all clips</button>
+        <button type="button" class="pill" id="albumBack" hidden>Take back</button>
+        <button type="button" class="pill" id="albumMake" hidden></button>
+      </div>
+      <p class="channel-says" id="albumSays" role="status" hidden></p>
     </div>
     <div class="panel-group" data-part="sound">
       <div class="mini-wave" aria-hidden="true"></div>

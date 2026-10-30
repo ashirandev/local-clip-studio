@@ -432,6 +432,38 @@
   "show": "many"
  },
  {
+  "tool": "match_album",
+  "group": "Clips",
+  "name": "One look across the album",
+  "says": "Puts the tagline, face circle, captions, style of the words or colour of this clip on every other clip of the album. Each clip keeps its own headline.",
+  "ask": "Use this clip's tagline and face circle on all the clips.",
+  "show": "many"
+ },
+ {
+  "tool": "undo_album",
+  "group": "Clips",
+  "name": "Take the album's look back",
+  "says": "Takes the look you put across the album back off every clip, in one step.",
+  "ask": "Take that look back off the other clips.",
+  "show": "many"
+ },
+ {
+  "tool": "render_album",
+  "group": "Clips",
+  "name": "Update all videos",
+  "says": "Makes the video again of each clip of the album that changed, one after the other.",
+  "ask": "Update all the videos.",
+  "show": "many"
+ },
+ {
+  "tool": "set_tagline",
+  "group": "Clips",
+  "name": "A tagline on the clip",
+  "says": "Draws a short line of your words on the clip, at the bottom left, middle or right, or takes it off.",
+  "ask": "Put the tagline Daily gold notes at the bottom right.",
+  "show": "many"
+ },
+ {
   "tool": "open_clip",
   "group": "Clips",
   "name": "Open another clip",

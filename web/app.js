@@ -93,9 +93,9 @@ const phoneFiles = $("phoneFiles");
 const attached = $("attached");
 const idle = text.placeholder;
 
-const SHEETS = { layout: ["stack", "Layout"], trim: ["cut", "Trim"], frame: ["move", "Frame"], caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
-const EDITS = ["layout", "trim", "frame", "caps", "style", "look", "sound", "words", "channel"];
-const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_ends: "cut", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", move_part: "move", mute_sound: "mute", open_clip: "film", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", show_people: "people", slow_push: "move", undo: "undo", use_channel_look: "at", watch_piece: "eye" };
+const SHEETS = { album: ["film", "Album"], layout: ["stack", "Layout"], trim: ["cut", "Trim"], frame: ["move", "Frame"], caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
+const EDITS = ["layout", "trim", "frame", "caps", "style", "look", "sound", "words", "channel", "album"];
+const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_ends: "cut", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", match_album: "film", move_part: "move", mute_sound: "mute", open_clip: "film", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_album: "gear", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", set_tagline: "at", show_people: "people", slow_push: "move", undo: "undo", undo_album: "undo", use_channel_look: "at", watch_piece: "eye" };
 
 const room = { mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false, layout: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null, sends: false };
 
@@ -1296,6 +1296,11 @@ function drawPanel(d) {
   partTabs.querySelector('[data-show="sound"]').hidden = !(d.sound && d.sound.has);
   partTabs.querySelector('[data-show="frame"]').hidden = !d.frame || Boolean(d.frame.why);
   partTabs.querySelector('[data-show="layout"]').hidden = !d.layouts;
+  partTabs.querySelector('[data-show="album"]').hidden = !d.album;
+  if (d.album) drawAlbumPanel(d);
+  const circle = $("circleRow");
+  circle.hidden = $("circleHead").hidden = !d.circle;
+  if (d.circle) drawChoices(circle, $("circleWhy"), d.circle.map((c) => Object.assign({ why: null }, c)), (x) => choose(circle, "/api/circle", { spot: x.name }), false);
   const caps = $("capsRow");
   const langs = $("langRow");
   const styles = $("styleRow");
@@ -1892,6 +1897,73 @@ async function choose(row, path, body) {
   loadPanel();
 }
 
+function drawAlbumPanel(d) {
+  const a = d.album;
+  const box = $("albumParts");
+  if (!box.children.length) {
+    a.parts.forEach((p) => {
+      const tick = el("input");
+      tick.type = "checkbox";
+      tick.checked = true;
+      tick.value = p.name;
+      const label = el("label");
+      label.append(tick, p.label);
+      box.appendChild(label);
+    });
+  }
+  const c = d.channels;
+  const words = $("taglineWords");
+  if (document.activeElement !== words) words.value = c.handle;
+  const spots = $("tagSpotRow");
+  spots.hidden = !c.handle;
+  drawChoices(spots, $("tagSpotWhy"), c.spots.map((s) => Object.assign({ why: null }, s)), (x) => choose(spots, "/api/channel", { spot: x.name }), false);
+  const stopped = d.making;
+  $("albumUse").disabled = stopped;
+  const back = $("albumBack");
+  back.hidden = !a.matched;
+  back.disabled = stopped;
+  const make = $("albumMake");
+  make.hidden = !a.changed;
+  make.disabled = stopped;
+  make.textContent = a.changed === 1 ? "Update 1 video" : "Update all " + a.changed + " videos";
+}
+
+function albumNote(words) {
+  const says = $("albumSays");
+  says.hidden = !words;
+  says.textContent = words || "";
+}
+
+async function albumPress(path, body) {
+  albumNote("");
+  try {
+    const d = await post(path, Object.assign({ chat: room.chat }, body));
+    if (!d.ok) albumNote(d.error || "That could not be done.");
+    return d.ok;
+  } catch (err) {
+    albumNote("The studio is not answering. Start it again with: python app.py");
+    return false;
+  } finally {
+    loadPanel();
+  }
+}
+
+$("albumUse").addEventListener("click", () => {
+  const parts = [...$("albumParts").querySelectorAll("input:checked")].map((t) => t.value);
+  albumPress("/api/album/look", { parts: parts });
+});
+
+$("albumBack").addEventListener("click", () => albumPress("/api/album/back", {}));
+
+$("albumMake").addEventListener("click", async () => {
+  if (await albumPress("/api/album/make", {})) pageWork("video", true);
+});
+
+$("taglineForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  albumPress("/api/tagline", { words: $("taglineWords").value.trim() });
+});
+
 function rows(blocks) {
   const ends = [];
   return blocks.map((b) => {
@@ -2227,6 +2299,17 @@ function on(e) {
     return;
   }
   if (e.kind === "album" || e.kind === "picked") {
+    showPicked(e);
+    return;
+  }
+  if (e.kind === "matched") {
+    albumNote(e.said);
+    loadPanel();
+    return;
+  }
+  if (e.kind === "unmatched" || e.kind === "album_made") {
+    albumNote(e.said);
+    if (e.kind === "album_made") pageWork("video", false);
     showPicked(e);
     return;
   }

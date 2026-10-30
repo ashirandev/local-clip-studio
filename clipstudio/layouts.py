@@ -265,6 +265,20 @@ def moved(layout, name, box):
     return lay
 
 
+CORNERS = ("top left", "top right", "bottom left", "bottom right")
+
+
+def corner(layout, name):
+    """The box of layout's face circle at its own size in the corner name of the safe zone: at the bottom above the
+    captions and the channel's name, and at the bottom right clear of the phone's buttons."""
+    side = next((p["dst"][2] for p in layout["parts"] if p["name"] == "circle"), CIRCLE)
+    y = SAFE[1] if name.startswith("top") else min(NAME_TOP, layout["captions"][1]) - side
+    x = SAFE[0] if name.endswith("left") else SAFE[0] + SAFE[2] - side
+    if name == "bottom right":
+        x = min(x, BUTTONS[0] - side)
+    return [x, y, side, side]
+
+
 def unsafe(box):
     """What a phone covers of box (x, y, w, h on the 1080x1920 frame): a list of short reasons, empty when every
     pixel of it shows in both apps."""

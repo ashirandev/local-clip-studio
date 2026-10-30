@@ -2695,6 +2695,148 @@ class Tools(unittest.TestCase):
         self.chat.undo()
         self.assertNotIn("Only two", [t["text"] for t in self.chat.project.state()["titles"]], "its own undo")
 
+    TAGLINE = [call("set_tagline", words="Daily notes", spot="bottom right", why="mine")]
+    MATCH = [call("match_album", parts=["tagline", "colour"], why="the whole album")]
+
+    def test_one_clips_look_goes_on_the_others_and_each_keeps_its_own_headline(self):
+        """Tarm 10-30: "Tagline ทั้งอัลบั้ม ... ส่วนพวกตัวหนังสือที่เป็นหัวข้อก็เปลี่ยนเอาแล้วแต่ คลิปวิดีโอ"."""
+        _, steps = self.batch(self.TAGLINE, [call("set_look", look="warm", why="warm")], self.MATCH)
+        self.assertIn("The look is on 1 clip of the album.", steps[-1]["result"])
+        other = self.chat.album[1]["project"].state()
+        self.assertEqual((other["channel"]["name"], other["channel"]["spot"], other["look"]),
+                         ("Daily notes", "bottom right", "warm"))
+        self.assertEqual(self.chat.album_at, 0, "the clip open stays open")
+        self.assertEqual(self.chat.album_now()["clips"][1]["state"], "changed", "its video is older than the look")
+        self.assertTrue(self.chat.album_now()["matched"])
+        self.assertEqual(self.chat.album_now()["changed"], 2)
+        self.assertEqual(len([e for e in self.chat.events if e["kind"] == "picked"]), 0, "no clip was opened to do it")
+
+    def test_one_undo_on_a_clip_takes_the_whole_look_back_from_that_clip(self):
+        self.batch(self.TAGLINE, [call("set_look", look="warm", why="warm")], self.MATCH)
+        self.assertIsNone(self.chat.pick_clip(1))
+        self.chat.undo()
+        other = self.chat.project.state()
+        self.assertEqual((other["channel"], other["look"]), (None, None))
+
+    def test_the_album_look_is_taken_back_and_stays_back_when_the_chat_is_read_back(self):
+        _, steps = self.batch(self.TAGLINE, self.MATCH, [call("undo_album", why="not that")])
+        self.assertEqual(steps[-1]["result"], "The look was taken back from 1 clip.")
+        self.assertIsNone(self.chat.album[1]["project"].state()["channel"])
+        self.assertFalse(self.chat.album_now()["matched"])
+        back = agent.Chat.load(self.chat.id)
+        self.assertEqual([p["project"].entries for p in back.album], [p["project"].entries for p in self.chat.album])
+        self.assertFalse(back.album_now()["matched"])
+        self.assertEqual(self.chat.unmatch_album(), "There is no album-wide look to take back.")
+
+    def test_a_look_on_the_album_comes_back_when_the_chat_is_read_back(self):
+        self.batch(self.TAGLINE, self.MATCH)
+        back = agent.Chat.load(self.chat.id)
+        self.assertEqual(back.album[1]["project"].state()["channel"]["name"], "Daily notes")
+        self.assertEqual(back.album[1]["project"].acts, self.chat.album[1]["project"].acts)
+        self.assertTrue(back.album_now()["matched"])
+
+    def test_a_clip_changed_since_keeps_its_change_when_the_look_is_taken_back(self):
+        self.batch(self.TAGLINE, self.MATCH)
+        self.assertIsNone(self.chat.pick_clip(1))
+        self.chat.edit({"do": "look", "name": "film"}, act="after")
+        said = self.chat.unmatch_album()
+        self.assertEqual(said, "The look was taken back from 0 clips. Clip 2 changed since, so take it back there "
+                               "with Undo.")
+        self.assertEqual(self.chat.project.state()["look"], "film")
+
+    def test_a_tagline_a_clip_cannot_draw_stays_off_it_and_the_other_parts_still_go(self):
+        from unittest import mock
+        self.batch(self.TAGLINE, [call("set_look", look="warm", why="warm")])
+
+        def unfit(state, default):
+            return "The letters do not fit." if state["channel"] and state["clip"]["moment"] == 2 else None
+
+        with mock.patch.object(agent, "channel_unfit", unfit):
+            said = self.chat.match_album(["tagline", "colour"])
+        self.assertIn("Clip 2 kept its own: The letters do not fit.", said)
+        other = self.chat.album[1]["project"].state()
+        self.assertEqual((other["channel"], other["look"]), (None, "warm"))
+
+    def test_a_clip_with_no_circle_says_so_and_nothing_moves(self):
+        from unittest import mock
+        self.batch()
+        with mock.patch.object(agent, "_circle_box", return_value=None), \
+                mock.patch.object(tools, "_circle_box", return_value=None):
+            said = self.chat.match_album(["circle"])
+        self.assertIn("This clip has no face circle, so no circle moved.", said)
+
+    def test_nothing_to_do_is_said_and_nothing_is_logged(self):
+        self.batch()
+        self.assertEqual(self.chat.match_album(["colour"]), "Every other clip already has this look.")
+        self.assertFalse(any(e["kind"] == "matched" for e in self.chat.events))
+
+    def test_there_is_no_album_with_one_clip(self):
+        self.several([call("make_clip", moment=1, layout="subject", why="one")],
+                     [call("match_album", parts=["colour"], why="all")], "Done.")
+        steps = [e for e in self.chat.events if e["kind"] == "step" and e["tool"] == "match_album"]
+        self.assertIn("There is no other clip to change", steps[-1]["result"])
+
+    def test_update_all_makes_the_changed_clips_only_and_opens_the_clip_it_left(self):
+        _, steps = self.batch([call("open_clip", clip=2, why="that one")],
+                              [call("set_look", look="warm", why="warm")],
+                              [call("open_clip", clip=1, why="back")],
+                              [call("render_album", why="update")],
+                              [call("render_album", why="again")])
+        self.assertIn("Clip 2: Rendered the finished clip", steps[-2]["result"])
+        self.assertNotIn("Clip 1", steps[-2]["result"])
+        self.assertEqual(self.chat.album_at, 0, "the clip it left")
+        self.assertEqual([c["state"] for c in self.chat.album_now()["clips"]], ["ready", "ready"])
+        self.assertIn("No clip of the album has changed", steps[-1]["result"])
+
+    def test_a_clip_changed_by_chat_shows_as_changed_though_no_panel_looked_in_between(self):
+        self.batch([call("open_clip", clip=2, why="that one")], [call("set_look", look="warm", why="warm")])
+        self.assertEqual(self.chat.album_now()["clips"][1]["state"], "changed")
+        self.assertTrue(self.chat.album_now()["clips"][1]["file"].endswith(".mp4"), "its last video stays its picture")
+
+    def test_update_all_stops_on_stop_and_goes_past_a_clip_it_cannot_make(self):
+        from unittest import mock
+        self.batch(self.TAGLINE, self.MATCH)
+        job = types.SimpleNamespace(chat=self.chat)
+        with mock.patch.object(tools, "render_clip", return_value="Not rendered: the person pressed Stop.") as made:
+            said = tools.render_album(job, "why")
+        self.assertEqual((made.call_count, said), (1, "Clip 1: Not rendered: the person pressed Stop."))
+        self.assertEqual(self.chat.album_at, 0, "it still opens the clip it left")
+        with mock.patch.object(tools, "render_clip", side_effect=tools.Refused("Decide about the man first.")) as made:
+            said = tools.render_album(job, "why")
+        self.assertEqual(made.call_count, 2)
+        self.assertEqual(said, "Clip 1: Decide about the man first.\nClip 2: Decide about the man first.")
+
+    def test_the_album_tools_are_offered_only_with_an_album_so_a_first_draft_is_asked_as_before(self):
+        names = lambda schemas: [s["function"]["name"] for s in schemas]
+        none = agent.Job.offered(types.SimpleNamespace(chat=types.SimpleNamespace(events=[], album=[], clip=None)))
+        self.assertEqual(names(none), [n for n in names(tools.UNASKED) if n not in tools.ALBUM_TOOLS])
+        self.assertEqual(sorted(set(names(tools.UNASKED)) - set(names(none))), sorted(tools.ALBUM_TOOLS))
+        some = agent.Job.offered(types.SimpleNamespace(chat=types.SimpleNamespace(events=[], album=[{}], clip=None)))
+        self.assertEqual(names(some), names(tools.UNASKED))
+        self.assertIn("open_clip", names(none), "as it was")
+
+    def test_the_clip_open_is_not_asked_about_itself(self):
+        from unittest import mock
+        self.batch()
+        with mock.patch.object(agent, "album_entries", return_value=([], ["no"])) as asked:
+            said = self.chat.match_album(["colour"])
+        self.assertEqual(asked.call_count, 1)
+        self.assertNotIn("Clip 1", said)
+
+    def test_a_new_album_cannot_take_back_the_look_of_the_old_one(self):
+        self.batch(self.TAGLINE, self.MATCH)
+        self.chat.fill_album([], 0)
+        self.assertIsNone(self.chat._last_match())
+
+    def test_spaces_in_a_tagline_are_tidied(self):
+        self.batch([call("set_tagline", words="Daily   notes", why="mine")])
+        self.assertEqual(self.chat.project.state()["channel"]["name"], "Daily notes")
+
+    def test_empty_words_take_the_tagline_off(self):
+        _, steps = self.batch(self.TAGLINE, [call("set_tagline", words="  ", why="off")])
+        self.assertEqual(steps[-1]["result"], "The tagline is off the clip.")
+        self.assertIsNone(self.chat.project.state()["channel"])
+
     def test_an_album_comes_back_with_its_clips_apart_when_the_chat_is_read_back(self):
         """make_clips kept the first clip's entries in memory, and a chat read back piled every clip's on one."""
         self.batch()

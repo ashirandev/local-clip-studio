@@ -38,7 +38,8 @@ import traceback
 from . import (asr, channels, chatname, countdown, faces, hearing, layer, layouts, maps, mind, montage, needs, previews,
                project, recording, render, spent, text, words)
 from .tools import (CAPTION_LETTERS, LONGEST, LOUD_CUT, MOVED_CUTS, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST,
-                    STYLES, TOOLS, UNASKED, Refused, _spoken, _subtitles, _undecided, _waits, channel_entries, channel_unfit, describe, faces_at,
+                    STYLES, TOOLS, UNASKED, ALBUM_PARTS, ALBUM_TOOLS, Refused, _changed_clips, _circle_box, _spoken, _subtitles,
+                    _undecided, _waits, album_entries, channel_entries, channel_unfit, describe, faces_at,
                     features, look_of, look_said)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -192,6 +193,13 @@ class Chat:
                                   e["since"])
             elif e["kind"] == "picked":
                 chat.to_album_place(e["at"], e.get("new"))
+            elif e["kind"] == "matched":
+                for change in e["changes"]:
+                    for entry in change["entries"]:
+                        chat.album[change["at"]]["project"].add(entry, e["act"])
+            elif e["kind"] == "unmatched":
+                for at in e["back"]:
+                    chat.album[at]["project"].undo()
             elif e["kind"] == "edit":
                 chat.project.add(e["entry"], e.get("act"))
             elif e["kind"] == "undo":
@@ -369,7 +377,8 @@ class Chat:
                 "words": self.words_on(state), "again": bool(self.rendered) and self.finished() is None,
                 "making": self.making is not None, "channels": self.channels_now(state),
                 "sound": {"mutes": state["mutes"], "has": self.has_sound()}, "ends": self.ends(state),
-                "frame": self.framing(state), "layouts": self.layouts_now(state), "album": self.album_now()}
+                "frame": self.framing(state), "layouts": self.layouts_now(state), "album": self.album_now(),
+                "circle": self.circle_now(state)}
 
     def layouts_now(self, state):
         """The layouts the Layout tab offers this clip, [{"name", "label", "now", "why", "picture"}] (picture: the
@@ -581,6 +590,36 @@ class Chat:
             self.edit({"do": "channel", "name": look["handle"], "spot": look["spot"]})
         self._tell("the person saved the clip's look as the \"%s\" channel look on the page: %s" % (
             look["name"], look_said(look)))
+        return None
+
+    def set_tagline(self, words, spot):
+        """The person's tag line typed in the Album tab: set_tagline's own edit, on the clip open now. Returns None, or
+        the sentence why not."""
+        self._clip_now()
+        refused, entry = self.tap("set_tagline", **dict({"words": words}, **({"spot": spot} if spot else {})))
+        if entry:
+            self._tell("the person set the tagline of the clip to \"%s\" on the page" % entry["name"])
+        return refused
+
+    def circle_now(self, state):
+        """The corners the Layout tab offers the clip's face circle, [{"name", "label", "now"}], or None with no
+        circle."""
+        box = _circle_box(state)
+        lay = state["clip"]["layout"]
+        return [{"name": c, "label": c.capitalize(), "now": layouts.corner(lay, c) == box}
+                for c in layouts.CORNERS] if box else None
+
+    def set_circle(self, name):
+        """The person's tap on a corner for the face circle: the same edit as move_part's, at the corner's exact box.
+        Returns None, or the sentence why not."""
+        state = self._clip_now()
+        if name not in layouts.CORNERS:
+            return "Choose a corner: %s." % ", ".join(layouts.CORNERS)
+        if not _circle_box(state):
+            return "This clip has no face circle."
+        box = layouts.corner(state["clip"]["layout"], name)
+        self.edit({"do": "layout", "part": "circle", "box": box, "layout": layouts.moved(state["clip"]["layout"], "circle", box)})
+        self._tell("the person moved the face circle to the %s on the page" % name)
         return None
 
     def set_channel_spot(self, spot):
@@ -1030,6 +1069,126 @@ class Chat:
             self._tell("the person opened clip %d of the album on the page, so that clip is the one open now" % (at + 1))
         return None
 
+    def _last_match(self):
+        """The act of the last album-wide look that was not taken back, or None."""
+        for e in reversed(self.events):
+            if e["kind"] in ("album", "opened", "unmatched"):
+                return None
+            if e["kind"] == "matched":
+                return e["act"]
+        return None
+
+    def match_album(self, parts, job=None):
+        """Puts parts (tools.ALBUM_PARTS) of the clip open now on the album's other clips, each as one action of that
+        clip, so its own Undo takes it back and the clip left open is not disturbed. A name the clip could not draw
+        stays off it and is said. Returns the sentence of what changed."""
+        default = (self.clip or {}).get("style", "clean")
+        act, changes, left = "%s.album.%s" % (self.id, secrets.token_hex(4)), [], []
+        with self.cond:
+            source = self.project.state()
+            for at, place in enumerate(self.album):
+                if at == self.album_at:
+                    continue
+                entries, why = album_entries(source, place["project"].entries, parts, default)
+                kept = []
+                for entry in entries:
+                    after = project.Project(place["project"].entries + kept + [entry]).state()
+                    unfit = entry["do"] in ("channel", "style") and channel_unfit(after, default)
+                    if unfit:
+                        why.append(_first_sentence(unfit))
+                    else:
+                        kept.append(entry)
+                for entry in kept:
+                    place["project"].add(entry, act)
+                if kept:
+                    changes.append({"at": at, "entries": kept})
+                left += ["Clip %d kept its own: %s." % (at + 1, w.rstrip(".")) for w in why]
+            self.changed += 1
+        left += ["This clip has no face circle, so no circle moved."] if "circle" in parts and not _circle_box(source) else []
+        said = " ".join(["The look is on %d clip%s of the album." % (len(changes), "" if len(changes) == 1 else "s")
+                         if changes else "Every other clip already has this look."] + left)
+        if changes:
+            self.emit("matched", job=job, act=act, changes=changes, said=said)
+        return said
+
+    def unmatch_album(self, job=None):
+        """Takes back the last match_album from each clip whose last action it still is: a clip changed since keeps
+        that change, and is said. Returns the sentence of what happened."""
+        act = self._last_match()
+        if act is None:
+            return "There is no album-wide look to take back."
+        with self.cond:
+            back = [at for at, place in enumerate(self.album) if place["project"].acts[-1:] == [act]]
+            stayed = [at for at, place in enumerate(self.album) if at not in back and act in place["project"].acts]
+            for at in back:
+                self.album[at]["project"].undo()
+            self.changed += 1
+        said = "The look was taken back from %d clip%s." % (len(back), "" if len(back) == 1 else "s")
+        said += " Clip%s %s changed since, so take it back there with Undo." % (
+            "" if len(stayed) == 1 else "s", ", ".join(str(at + 1) for at in stayed)) if stayed else ""
+        self.emit("unmatched", job=job, back=back, said=said, **self.opened_clip())
+        return said
+
+    def _album_ready(self):
+        """Why the album cannot be changed by a tap now, or None."""
+        if len(self.album) < 2:
+            return "There is no album: it holds the clips made in one go."
+        if self.making:
+            return "The video is being made now. Wait until it is done."
+        if self.busy():
+            return "Muse is working on the clip now. Wait until it is done, or press Stop."
+        return None
+
+    def album_look(self, parts):
+        """The person's press of Use this clip's look on all clips. Returns None, or the sentence why not."""
+        self._clip_now()
+        if not parts or any(p not in ALBUM_PARTS for p in parts):
+            return "Tick what to put on the other clips: %s." % ", ".join(ALBUM_PARTS.values())
+        with self.cond:
+            why = self._album_ready()
+        if why:
+            return why
+        self._tell("the person used this clip's look on the whole album on the page: %s" % self.match_album(parts))
+        return None
+
+    def album_back(self):
+        """The person's press of Take back. Returns None, or the sentence why not."""
+        with self.cond:
+            why = self._album_ready()
+        if why:
+            return why
+        if self._last_match() is None:
+            return "There is no album-wide look to take back."
+        self._tell("the person took the album-wide look back on the page: %s" % self.unmatch_album())
+        return None
+
+    def make_album(self):
+        """The person's press of Update all videos: render_album in the background, as make_again. Returns None once it
+        has started, or the sentence why not."""
+        hand = Hand(self)
+        with self.cond:
+            why = self._album_ready()
+            if why:
+                return why
+            if not _changed_clips(self):
+                return "No clip of the album has changed since its video was made."
+            self.making = hand
+        threading.Thread(target=self._make_album, args=(hand,), name="make-album", daemon=True).start()
+        return None
+
+    def _make_album(self, hand):
+        try:
+            said = TOOLS["render_album"].run(hand, TAPPED)
+        except Refused as e:
+            said = str(e)
+        except Exception as e:
+            said = "The studio broke while making the videos (%s)." % e
+        finally:
+            with self.cond:
+                self.making, hand.done = None, True
+        self._tell("the person made the album's changed videos again on the page")
+        self.emit("album_made", said=_album_said(said), **self.opened_clip())
+
     def _moments_of(self, place):
         clip = place["project"].state()["clip"]
         return {place["moment"], clip["moment"] if clip else None}
@@ -1056,14 +1215,18 @@ class Chat:
         clips = []
         for place in self.album:
             sign = project.signature(place["project"].entries)
+            moments = sorted(m for m in self._moments_of(place) if m is not None)
             done = next((f for f in reversed(self.rendered) if f["signature"] == sign), None)
-            place["file"] = done["name"] if done else place.get("file")
+            newest = done or next((f for f in reversed(self.rendered) if f.get("moment") in moments), None)
+            place["file"] = newest["name"] if newest else place.get("file")
             ready = self._ready_of(place)
-            clips.append({"moments": sorted(m for m in self._moments_of(place) if m is not None),
+            clips.append({"moments": moments,
                           "title": (ready or {}).get("title") or place["title"],
                           "length": place["project"].state()["length"], "file": place.get("file"),
                           "state": "changed" if place.get("file") and not done else "ready" if ready else "unfinished"})
-        return {"at": self.album_at, "clips": clips}
+        return {"at": self.album_at, "clips": clips, "matched": self._last_match() is not None,
+                "changed": sum(c["state"] == "changed" for c in clips),
+                "parts": [{"name": k, "label": v} for k, v in ALBUM_PARTS.items()]}
 
     def clip_view(self):
         """The clip as the page draws it: its length, layout and words on screen, or None before it is made."""
@@ -1494,7 +1657,8 @@ class Job:
         or once a person asked for a countdown (UNASKED)."""
         said = [e["text"] for e in self.chat.events if e["kind"] == "person"]
         match = (self.chat.clip or {}).get("recipe") == "sport"
-        return SCHEMAS if match or countdown.asked(said) is not None else UNASKED
+        tools = SCHEMAS if match or countdown.asked(said) is not None else UNASKED
+        return tools if self.chat.album else [s for s in tools if s["function"]["name"] not in ALBUM_TOOLS]
 
     def only_talk(self):
         """True when the person's typed message only talks, so Muse answers it in words with no tools offered. Asked
@@ -1833,6 +1997,14 @@ class Hand(Job):
         if self.trial:
             raise Allowed()
         return Job.render(self, rec, state, out, default)
+
+
+def _album_said(said):
+    """render_album's sentences, each for Muse, as the page says them: how many were made, and each that was not."""
+    lines = said.split("\n")
+    made = [line for line in lines if ": Rendered " in line]
+    return " ".join((["Updated %d video%s." % (len(made), "" if len(made) == 1 else "s")] if made else []) +
+                    [line for line in lines if line not in made])
 
 
 def _named(value, opened):

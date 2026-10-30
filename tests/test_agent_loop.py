@@ -597,7 +597,8 @@ class Talk(unittest.TestCase):
         brain = ScriptedMind("ok")
         self.say(brain, "ทำคลิปตลกจากไลฟ์นี้ 1 คลิป ใส่เอฟเฟกต์ตรงจังหวะฮาด้วย")
         self.assertNotIn("make_countdown", names(brain), "it refuses unless asked, and offered it moved Glimmer's pick")
-        self.assertEqual(len(names(brain)), len(tools.TOOLS) - 1, "every other tool is still offered")
+        self.assertEqual(len(names(brain)), len(tools.TOOLS) - 1 - len(tools.ALBUM_TOOLS),
+                         "every other tool is still offered, but the album's, which wait for an album")
         brain = ScriptedMind("ok")
         self.say(brain, "ทำท็อป 5 ช่วงมันส์จากไลฟ์นี้")
         self.assertIn("make_countdown", names(brain))

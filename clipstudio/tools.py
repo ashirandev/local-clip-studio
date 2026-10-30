@@ -2985,12 +2985,16 @@ def change_shot(job, why, start, end, show):
 MOST_FONTS_SHOWN = 12
 
 
+def _letters_of(state):
+    """The letters of a clip's titles and captions."""
+    words = [t["text"] for t in state["titles"]] + [l["text"] for l in (state["captions"] or {}).get("lines") or []]
+    return "".join(sorted(set("".join(words)) - set(" \n\t")))
+
+
 def _letters(job, state):
     """The letters the clip's words are written in: its titles and captions, else what the person typed last."""
-    words = [t["text"] for t in state["titles"]] + [l["text"] for l in (state["captions"] or {}).get("lines") or []]
-    if not words:
-        words = [e["text"] for e in job.chat.events if e["kind"] == "person"][-1:]
-    return "".join(sorted(set("".join(words)) - set(" \n\t")))
+    return _letters_of(state) or "".join(sorted(set("".join(
+        [e["text"] for e in job.chat.events if e["kind"] == "person"][-1:])) - set(" \n\t")))
 
 
 def _font_entry(font, every):
@@ -4834,7 +4838,7 @@ def render_clip(job, why):
         raise Refused("The renderer said it was done, but there is no file at %s. This is a fault in the studio; tell "
                       "the person." % out)
     made = {"name": sign + ".mp4", "signature": sign, "seconds": round(time.time() - started, 1),
-            "size": os.path.getsize(out), "length": state["length"]}
+            "size": os.path.getsize(out), "length": state["length"], "moment": state["clip"]["moment"]}
     job.chat.rendered.append(made)
     job.emit("rendered", file=made)
     job.show(rendered=made)
@@ -5384,6 +5388,52 @@ def make_clips(job, why, clips, blur=None):
         "The person sees the clips as an album above the clip and a ready card for each one handed over. The first "
         "clip is open: your tools change the clip that is open, and open_clip opens another. Tell the person in one or "
         "two lines which clips are ready and what failed in the others."])
+
+
+def match_album(job, why, parts):
+    _open(job, "change")
+    _clip_state(job)
+    if len(job.chat.album) < 2:
+        raise Refused("There is no other clip to change: the album holds the clips made in one go.")
+    return job.chat.match_album(parts, job.n)
+
+
+def undo_album(job, why):
+    return job.chat.unmatch_album(job.n)
+
+
+def _changed_clips(chat):
+    """The album's places whose finished video is no longer the clip as it is now."""
+    return [k for k, c in enumerate((chat.album_now() or {"clips": []})["clips"]) if c["state"] == "changed"]
+
+
+def render_album(job, why):
+    chat = job.chat
+    todo = _changed_clips(chat)
+    if not todo:
+        raise Refused("No clip of the album has changed since its video was made, so there is nothing to make again.")
+    back, said = chat.album_at, []
+    for k in todo:
+        if k != chat.album_at:
+            chat.open_album_clip(k)
+        try:
+            done = render_clip(job, why)
+        except Refused as e:
+            done = str(e)
+        said.append("Clip %d: %s" % (k + 1, done))
+        if done.startswith("Not rendered"):
+            break
+    if back != chat.album_at:
+        chat.open_album_clip(back)
+    return "\n".join(said)
+
+
+def set_tagline(job, why, words, spot=None):
+    _open(job, "put a tagline on")
+    state = _clip_state(job)
+    drawn = " ".join((words or "").split())
+    job.edit({"do": "channel", "name": drawn, "spot": spot or (state["channel"] or {}).get("spot")})
+    return 'The tagline "%s" is on the clip.' % drawn if drawn else "The tagline is off the clip."
 
 
 def open_clip(job, why, clip):
@@ -6041,6 +6091,71 @@ def look_said(look, muse=True):
     parts += ["titles at the %s" % look["title_place"]] if look.get("title_place") else []
     parts += ["the name %s drawn on the clip" % look["handle"]] if look.get("handle") else []
     return ", ".join(parts) or "nothing yet"
+
+
+ALBUM_PARTS = {"tagline": "Tagline", "circle": "Face circle", "captions": "Captions", "words": "Style of the words",
+               "colour": "Colour"}
+ALBUM_TOOLS = ("match_album", "undo_album", "render_album", "set_tagline")
+
+
+def _circle_box(state):
+    return next((p["dst"] for p in state["clip"]["layout"]["parts"] if p["name"] == "circle"), None)
+
+
+def _captions_way(state):
+    caps = state["captions"]
+    return ("off" if state["hidden"] or not caps else "lit" if caps.get("lit") else "pop" if caps.get("pop")
+            else "plain")
+
+
+def _font_gaps(style, letters):
+    """The fonts of a style entry that cannot write letters."""
+    fonts = [f for f in [style.get("font")] + list((style.get("fonts") or {}).values()) if f]
+    every = text.fonts(letters or None) if fonts else []
+    return [f for f in fonts if _font_entry(f, every) is None]
+
+
+def album_entries(source, entries, parts, default):
+    """(the entries that put parts of the clip whose state is source on the clip whose entries are entries, [what could
+    not go on it, each a sentence]). Tarm 10-30: the tagline and where the face circle sits go across an album of one
+    stream, the words of a headline stay each clip's own, so no part here touches a title's words, a clip's moment, or
+    its effects. A part both clips already share adds nothing, so the clip's video stays current."""
+    target = project.Project(entries).state()
+    out, left = [], []
+    if "tagline" in parts:
+        mine, theirs = source["channel"] or {}, target["channel"] or {}
+        if (mine.get("name", ""), mine.get("spot")) != (theirs.get("name", ""), theirs.get("spot")):
+            out.append({"do": "channel", "name": mine.get("name", ""), "spot": mine.get("spot")})
+    if "words" in parts:
+        style = dict(source["style"]) if source["style"] else {"do": "style", "name": default, "font": None}
+        gaps = _font_gaps(style, _letters_of(target))
+        if gaps:
+            left.append("%s cannot write every letter of its words" % gaps[0])
+        elif style != (target["style"] or {"do": "style", "name": default, "font": None}):
+            out.append(style)
+    if "colour" in parts and source["look"] != target["look"]:
+        out.append({"do": "look", "name": source["look"]})
+    if "captions" in parts:
+        way, now = _captions_way(source), _captions_way(target)
+        if way == "off" and now != "off":
+            out.append({"do": "eye", "hidden": True})
+        elif way != "off":
+            eye = [{"do": "eye", "hidden": False}] if target["hidden"] else []
+            caps = project.Project(entries + eye).state()["captions"]
+            if not caps:
+                left.append("it has no captions yet")
+            else:
+                out += eye
+                if (way == "lit", way == "pop") != (bool(caps.get("lit")), bool(caps.get("pop"))):
+                    out.append(dict(caps, lit=way == "lit", pop=way == "pop"))
+    box = _circle_box(source) if "circle" in parts else None
+    if box and _circle_box(target) != box:
+        try:
+            out.append({"do": "layout", "part": "circle", "box": list(box),
+                        "layout": layouts.moved(target["clip"]["layout"], "circle", box)})
+        except ValueError:
+            left.append("its layout has no face circle")
+    return out, left
 
 
 def _channel_on(job):
@@ -6997,6 +7112,30 @@ TOOLS = {t.name: t for t in [
          {"clip": {"type": "integer", "minimum": 1, "maximum": MOST_MOMENTS,
                    "description": "The clip's place in the album, 1 for the first."}},
          ["clip"], open_clip, changes=True),
+    Tool("match_album", "Used this clip's look on the album",
+         "Put parts of the look of the clip that is open on every other clip of the album, when the person wants one "
+         "look across it. Each clip keeps the words of its own titles, its moment and its effects. Open the clip whose "
+         "look it is first. One press: undo_album takes it all back. Their videos stay as they were until render_album.",
+         {"parts": {"type": "array", "minItems": 1, "uniqueItems": True, "items": {"type": "string",
+                                                                                   "enum": list(ALBUM_PARTS)},
+                    "description": "Which parts to put on the others: tagline (the words drawn on the clip), circle "
+                                   "(where the face circle sits), captions (on or off, and lit or pop), words (the "
+                                   "font, size and colours of titles and captions), colour (the colour look)."}},
+         ["parts"], match_album, changes=True),
+    Tool("undo_album", "Took the album's look back",
+         "Take back the last match_album on every clip it changed that was not changed since.",
+         {}, [], undo_album, changes=True),
+    Tool("render_album", "Made the album's videos again",
+         "Make the video again of every clip of the album changed since its video was made, one after the other, and "
+         "open the clip that was open. Each takes as long as render_clip.",
+         {}, [], render_album, changes=True),
+    Tool("set_tagline", "Set the tagline",
+         "Draw a short line of words on the clip that is open, or take it off with empty words. To have it on every "
+         "clip of the album, follow with match_album and tagline.",
+         {"words": {"type": "string", "maxLength": 30, "description": "The words, empty to take them off."},
+          "spot": {"type": "string", "enum": list(channels.SPOTS), "description": "Where the words sit; leave it out "
+                                                                                  "to keep where they are."}},
+         ["words"], set_tagline, changes=True),
     Tool("make_countdown", "Made the countdown",
          "Only when the person asked in their own words for a countdown of the best moments (a top 5, ท็อป 5, 5 อันดับ, "
          "นับถอยหลัง): one clip of %d to %d of the moments you proposed, in countdown order, the best last. The "

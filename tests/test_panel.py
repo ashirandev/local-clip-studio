@@ -850,6 +850,83 @@ class Endpoints(Served):
         self.assertEqual((album["at"], [c["title"] for c in album["clips"]]), (1, ["One", "Two"]))
         self.assertEqual([c["state"] for c in album["clips"]], ["unfinished", "unfinished"], "nothing handed over yet")
 
+    def album(self):
+        other = tools.project.Project(self.chat.project.entries)
+        self.chat.fill_album([{"moment": 1, "title": "One", "project": self.chat.project},
+                              {"moment": 2, "title": "Two", "project": other}], 0)
+        return other
+
+    def post(self, path, **body):
+        return self.ask("POST", path, dict(body, chat=self.chat.id))
+
+    def test_the_album_tab_uses_a_clips_look_takes_it_back_and_says_what_it_did(self):
+        self.make()
+        other = self.album()
+        self.assertIsNone(self.ask("GET", "/api/panel?chat=" + self.chat.id)[1]["circle"], "this clip has none")
+        self.assertEqual(self.post("/api/tagline", words="Daily notes"), (200, {"ok": True}))
+        self.assertEqual(self.chat.project.state()["channel"]["name"], "Daily notes")
+        self.assertIn('the person set the tagline of the clip to "Daily notes" on the page', self.chat.told)
+        self.assertEqual(self.post("/api/album/look", parts="tagline"),
+                         (400, {"ok": False, "error": "Send which parts to put on the other clips."}))
+        self.assertEqual(self.post("/api/album/look", parts=["headline"])[0], 400)
+        self.assertEqual(self.post("/api/album/look", parts=[])[0], 400)
+        self.assertIsNone(other.state()["channel"])
+        self.assertEqual(self.post("/api/album/look", parts=["tagline"]), (200, {"ok": True}))
+        self.assertEqual(other.state()["channel"]["name"], "Daily notes")
+        album = self.ask("GET", "/api/panel?chat=" + self.chat.id)[1]["album"]
+        self.assertEqual((album["matched"], [p["name"] for p in album["parts"]]), (True, list(tools.ALBUM_PARTS)))
+        self.assertTrue(self.chat.told[-1].startswith("the person used this clip's look on the whole album on the page"))
+        self.assertEqual(self.post("/api/album/back"), (200, {"ok": True}))
+        self.assertIsNone(other.state()["channel"])
+        self.assertEqual(self.post("/api/album/back"),
+                         (400, {"ok": False, "error": "There is no album-wide look to take back."}))
+
+    def test_the_album_waits_for_a_video_being_made_and_for_muse(self):
+        self.make()
+        self.album()
+        self.chat.making = object()
+        for path, body in (("/api/album/look", {"parts": ["colour"]}), ("/api/album/back", {}), ("/api/album/make", {})):
+            self.assertEqual(self.post(path, **body), (400, {"ok": False, "error": "The video is being made now. Wait until "
+                                                                                   "it is done."}))
+        self.chat.making = None
+        with mock.patch.object(self.chat, "busy", return_value=True):
+            self.assertEqual(self.post("/api/album/make")[1]["error"],
+                             "Muse is working on the clip now. Wait until it is done, or press Stop.")
+
+    def test_update_all_videos_runs_in_the_background_and_says_how_it_went(self):
+        self.make(SAID, call("decide_people", keep=[1], why="him"))
+        other = self.album()
+        self.assertEqual(self.post("/api/album/make"),
+                         (400, {"ok": False, "error": "No clip of the album has changed since its video was made."}))
+        self.made_again()
+        other.add({"do": "look", "name": "warm"})
+        self.assertEqual(self.post("/api/album/make"), (200, {"ok": True}))
+        self.until(lambda: any(e["kind"] == "album_made" for e in self.chat.events))
+        made = [e for e in self.chat.events if e["kind"] == "album_made"][-1]
+        self.assertEqual(made["said"], "Updated 1 video.", "for the person: Muse's next step is not theirs")
+        self.assertEqual(agent._album_said("Clip 1: Rendered it.\nClip 2: Decide first.\nClip 3: Rendered it."),
+                         "Updated 2 videos. Clip 2: Decide first.")
+        self.assertEqual(agent._album_said("Clip 1: Not rendered: Stop."), "Clip 1: Not rendered: Stop.")
+        self.assertIsNone(self.chat.making)
+        self.assertEqual(self.chat.album_at, 0)
+
+    def test_the_face_circle_goes_to_a_corner_with_a_post(self):
+        self.make(SAID, call("move_part", part="circle", box=[60, 300, 400, 500], why="her face"))
+        self.assertEqual(self.post("/api/circle", spot="middle")[0], 400)
+        self.assertEqual(self.post("/api/circle", spot="bottom right"), (200, {"ok": True}))
+        lay = self.chat.project.state()["clip"]["layout"]
+        self.assertEqual(tools._circle_box(self.chat.project.state()), layouts.corner(lay, "bottom right"))
+        self.assertEqual([c["now"] for c in self.ask("GET", "/api/panel?chat=" + self.chat.id)[1]["circle"]],
+                         [False, False, False, True])
+        self.chat.undo()
+        self.assertNotEqual(tools._circle_box(self.chat.project.state()), layouts.corner(lay, "bottom right"))
+        self.assertIn("the person moved the face circle to the bottom right on the page", self.chat.told)
+
+    def test_a_clip_without_a_face_circle_says_so(self):
+        self.make()
+        self.assertEqual(self.post("/api/circle", spot="top left"),
+                         (400, {"ok": False, "error": "This clip has no face circle."}))
+
     def test_the_clips_ends_are_moved_with_a_post_and_muse_is_told(self):
         self.make(SAID, call("add_captions", why="say it"))
         panel = "/api/panel?chat=" + self.chat.id
