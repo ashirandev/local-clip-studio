@@ -48,6 +48,7 @@ _NOT_LETTERS = re.compile(r"[\W_]+", re.UNICODE)
 
 RATE = 16000
 QUIET_STEP, QUIET_LEAST = 0.02, 0.06
+DIP_LEAST, DIP_BED, PIECE_LEAST = 0.12, 6.0, 0.3
 FRAME = 0.01
 CLAP_FLOOR = -40.0
 CLAP_RISE = 20.0
@@ -193,6 +194,28 @@ def _levels(samples, rate=RATE, step=LEVEL_STEP):
     hop = int(round(rate * step))
     n = len(x) // hop
     return [round(float(v), 1) for v in 10 * np.log10((x[:n * hop].reshape(n, hop) ** 2).mean(axis=1) + 1e-10)]
+
+
+def dips(rec, a, b):
+    """The middles of the dips in the sound from a to b in recording seconds, where one heard line can be cut into what
+    was said in it: stretches of DIP_LEAST s or more, DIP_BED dB under the stretch's median level, at least PIECE_LEAST
+    s from the last cut and from both ends, so no piece is too short to hear. Lane 4 10-30 on gold EP1 3:25: the line
+    from 205.60 to 210.46 was one piece of sound, and the new thought began at the dip at 206.96."""
+    samples = _decoded(rec, a, b)
+    if samples is None:
+        return []
+    db = np.asarray(_levels(samples, step=QUIET_STEP))
+    if not len(db):
+        return []
+    low = np.r_[False, db < float(np.median(db)) - DIP_BED, False]
+    turns = np.flatnonzero(np.diff(low.astype(np.int8)))
+    cuts, last = [], a
+    for i, j in zip(turns[::2], turns[1::2]):
+        at = round(a + (i + j) / 2 * QUIET_STEP, 2)
+        if j - i >= round(DIP_LEAST / QUIET_STEP) and at - last >= PIECE_LEAST and b - at >= PIECE_LEAST:
+            cuts.append(at)
+            last = at
+    return cuts
 
 
 def _decoded(rec, a, b):

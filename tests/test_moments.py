@@ -7,10 +7,12 @@ import sys
 import tempfile
 import threading
 import time
+import types
 import unittest
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -214,6 +216,69 @@ class Moments(unittest.TestCase):
         studio = [m for m in brain.sent[-1] if m["role"] == "user" and isinstance(m["content"], list)]
         self.assertEqual(len(studio), 2, "the opened picture and look 1; the repeated look sent no pictures")
 
+    def test_a_moment_on_a_long_line_is_refused_once_with_its_pieces_and_then_goes_through(self):
+        self.worker.phrases = [{"from": 1.0, "to": 12.0, "text": "a long line of sound"}]
+        moment = {"look": 1, "reason": "the tone", "start": "0:31", "end": "0:50"}
+        with mock.patch.object(tools.takes, "dips", lambda rec, a, b: [a + 5.0]):
+            brain, steps = self.run_job(
+                self.opened(), [call("load_recipe", type="explain", why="its kind")],
+                [call("look_at_piece", start="0:30", end="0:50", why="look")],
+                [call("propose_moments", moments=[moment], why="first")],
+                [call("propose_moments", moments=[dict(moment, start="0:36")], why="from the pieces")],
+                '{"lines": ["a long line of sound"]}', "Done.")
+        said = [s for s in steps if s["tool"] == "propose_moments"]
+        self.assertEqual([s["refused"] for s in said], [True, False])
+        self.assertIn("Nothing was proposed yet. A heard line is a stretch of sound, not a sentence", said[0]["result"])
+        self.assertIn("The moment's start at 0:31.00:\n  0:31.00-0:36.00 a long line of sound\n  0:36.00-0:42.00 a long line",
+                      said[0]["result"])
+        self.assertIn("Propose again: start each moment at the time the piece that opens a thought begins, and end it "
+                      "at the time the piece that finishes a thought ends", said[0]["result"])
+        self.assertEqual(self.chat.moments[0]["start"], 36.0)
+        self.assertEqual(self.chat.moments[0]["n"], 1)
+
+    def test_moments_that_only_touch_are_both_kept(self):
+        """Spark 10-30 on the seller: the program moved two edges past each other by 0.3 s, and Muse, sending the same
+        moments, was refused 5 times in a run."""
+        moment = {"look": 1, "reason": "the tone"}
+        _, steps = self.run_job(self.opened(), [call("look_at_piece", start="0:20", end="1:00", why="look")],
+                                [call("propose_moments", moments=[dict(moment, start="0:20", end="0:40.6"),
+                                                                  dict(moment, start="0:40", end="0:55")],
+                                      why="side by side")],
+                                [call("propose_moments", moments=[dict(moment, start="0:40", end="0:55"),
+                                                                  dict(moment, start="0:20", end="0:40.6")],
+                                      why="the other way round")], "Done.")
+        said = [s for s in steps if s["tool"] == "propose_moments"]
+        self.assertEqual([s["refused"] for s in said], [False, False])
+        self.assertEqual([(m["start"], m["end"]) for m in self.chat.moments], [(40.0, 55.0), (20.0, 40.0)])
+
+    def test_a_moment_may_use_what_the_look_heard_beyond_its_pictures(self):
+        moment = {"look": 1, "reason": "the tone"}
+        _, steps = self.run_job(self.opened(), [call("look_at_piece", start="0:30", end="0:50", why="look")],
+                                [call("propose_moments", moments=[dict(moment, start="0:25", end="0:52")],
+                                      why="a line from just outside")], "Done.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertEqual((self.chat.moments[0]["start"], self.chat.moments[0]["end"]), (25.0, 52.0))
+
+    def test_stop_while_a_line_is_heard_again_proposes_nothing(self):
+        self.worker.phrases = [{"from": 1.0, "to": 12.0, "text": "a long line of sound"}]
+        moment = {"look": 1, "reason": "the tone", "start": "0:31", "end": "0:50"}
+
+        def stop(rec, a, b, *others, **more):
+            raise hearing.Stopped()
+
+        real = hearing.hear
+        with mock.patch.object(tools.takes, "dips", lambda rec, a, b: [a + 5.0]):
+            def hears(rec, a, b, **more):
+                return (stop if b - a < 8 else real)(rec, a, b, **more)
+
+            with mock.patch.object(hearing, "hear", hears):
+                _, steps = self.run_job(
+                    self.opened(), [call("load_recipe", type="explain", why="its kind")],
+                    [call("look_at_piece", start="0:30", end="0:50", why="look")],
+                    [call("propose_moments", moments=[moment], why="first")], "Done.")
+        self.assertEqual(steps[-1]["result"], "Not proposed: the person pressed Stop.")
+        self.assertIsNone(self.chat.moments)
+
     def test_moments_must_come_from_what_was_looked_at(self):
         moment = {"look": 1, "reason": "the tone"}
         brain, steps = self.run_job(
@@ -364,6 +429,113 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class Finer(unittest.TestCase):
+    """Lane 4 10-30: "a heard line is a sound piece, not a sentence", and Muse can only choose where a line begins or
+    ends. Gold EP1 3:25 was one line from 205.60, opening on นะครับ, and the new thought began 1.4 s into it."""
+    rec = {"path": "x.mp4", "seconds": 300.0, "sound_tracks": 1}
+    HEARD = {205.6: "นะครับ", 206.05: "การเทรดก็เช่นกัน", 206.96: "ข้อแนะนำนะครับ"}
+
+    def setUp(self):
+        self.kept, self.asked, self.cut = {}, [], [206.05, 206.96]
+
+        def heard(rec, a, b, languages=()):
+            return self.kept.get((a, b))
+
+        def keep(rec, a, b, said, languages=()):
+            self.kept[(a, b)] = said
+
+        def hear(rec, a, b):
+            self.asked.append((a, b))
+            return [{"from": a, "to": b, "text": self.HEARD[a], "sure": 0.9}] if a in self.HEARD else []
+
+        self.job = types.SimpleNamespace(chat=types.SimpleNamespace(clip={"recipe": "explain"}), hear=hear,
+                                         languages=lambda: ())
+        patches = [mock.patch.object(tools.hearing, "heard", heard), mock.patch.object(tools.hearing, "keep", keep),
+                   mock.patch.object(tools.takes, "dips", lambda rec, a, b: list(self.cut))]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def look(self, *lines):
+        return {"start": 200.0, "end": 260.0, "said": [dict(line) for line in lines]}
+
+    LINE = {"from": 205.6, "to": 209.98, "text": "นะครับ การเทรดก็เช่นกัน ข้อแนะนำนะครับ", "sure": 1.0}
+    LONG = {"from": 205.6, "to": 212.0, "text": "ข้อแนะนำ เกี่ยวกับเงิน", "sure": 1.0}
+
+    def test_a_line_opening_on_a_closing_word_is_heard_again_and_muse_sees_its_pieces(self):
+        look = self.look(self.LINE, {"from": 212.0, "to": 214.0, "text": "b"})
+        said = tools._finer_edges(self.job, self.rec, look, 205.6, 230.0)
+        self.assertEqual(self.asked, [(205.6, 206.05), (206.05, 206.96), (206.96, 209.98)])
+        self.assertEqual(said, ["The moment's start at 3:25.60:\n  3:25.60-3:26.05 นะครับ\n"
+                                "  3:26.05-3:26.96 การเทรดก็เช่นกัน\n  3:26.96-3:29.98 ข้อแนะนำนะครับ"])
+        self.assertEqual([(p["from"], p["to"], p["text"], p["sure"]) for p in look["said"][:3]],
+                         [(205.6, 206.05, "นะครับ", 0.9), (206.05, 206.96, "การเทรดก็เช่นกัน", 0.9),
+                          (206.96, 209.98, "ข้อแนะนำนะครับ", 0.9)])
+        self.assertEqual(look["said"][3]["text"], "b", "the lines around it stay")
+
+    def test_a_long_line_is_heard_again_at_either_edge_and_once_when_it_holds_both(self):
+        look = self.look({"from": 201.0, "to": 203.0, "text": "a"}, self.LONG)
+        self.assertEqual(tools._finer_edges(self.job, self.rec, look, 190.0, 208.0)[0][:26], "The moment's end at 3:28.0")
+        self.assertEqual(len(look["said"]), 4)
+        look = self.look(self.LONG)
+        self.assertEqual(len(tools._finer_edges(self.job, self.rec, look, 205.6, 208.0)), 1, "one line, both edges")
+
+    def test_a_closing_word_counts_at_the_start_only(self):
+        look = self.look({"from": 201.0, "to": 203.0, "text": "a"}, self.LINE)
+        self.assertEqual(tools._finer_edges(self.job, self.rec, look, 201.0, 208.0), [])
+        self.assertEqual(self.asked, [])
+
+    def test_a_line_is_tried_once_so_asking_cannot_go_on(self):
+        look = self.look(self.LINE)
+        self.assertEqual(len(tools._finer_edges(self.job, self.rec, look, 205.6, 230.0)), 1)
+        self.asked.clear()
+        self.assertEqual(tools._finer_edges(self.job, self.rec, look, 205.6, 230.0), [])
+        self.assertEqual(self.asked, [])
+        self.cut = []
+        look = self.look(self.LINE)
+        self.assertEqual(tools._finer_edges(self.job, self.rec, look, 205.6, 230.0), [], "no dips in it")
+        self.assertEqual(tools._finer_edges(self.job, self.rec, look, 205.6, 230.0), [])
+        self.assertTrue(look["said"][0]["finer"], "it is not looked at again")
+
+    def test_a_line_that_stays_one_piece_stays_as_it_was_heard(self):
+        self.HEARD = {205.6: "นะครับ"}
+        look = self.look(self.LINE)
+        self.assertEqual(tools._finer_edges(self.job, self.rec, look, 205.6, 230.0), [])
+        self.assertEqual(look["said"][0]["text"], self.LINE["text"])
+
+    def test_clips_of_other_kinds_and_short_plain_lines_stay(self):
+        self.job.chat.clip = {"recipe": "game"}
+        self.assertEqual(tools._finer_edges(self.job, self.rec, self.look(self.LONG), 205.6, 230.0), [])
+        self.job.chat.clip = None
+        self.assertEqual(tools._finer_edges(self.job, self.rec, self.look(self.LONG), 205.6, 230.0), [])
+        self.job.chat.clip = {"recipe": "explain"}
+        plain = {"from": 205.6, "to": 209.0, "text": "ข้อแนะนำนะครับ", "sure": 1.0}
+        self.assertEqual(tools._finer_edges(self.job, self.rec, self.look(plain), 205.6, 230.0), [])
+        self.assertEqual(self.asked, [])
+
+    def test_a_piece_heard_before_is_not_paid_for_again(self):
+        self.kept[(205.6, 206.05)] = [{"from": 205.6, "to": 206.05, "text": "นะครับ"}]
+        tools._finer_edges(self.job, self.rec, self.look(self.LINE), 205.6, 230.0)
+        self.assertEqual(self.asked, [(206.05, 206.96), (206.96, 209.98)])
+        self.assertEqual(sorted(self.kept), [(205.6, 206.05), (206.05, 206.96), (206.96, 209.98)])
+
+    def test_a_hearing_that_fails_leaves_the_line_and_stop_stops(self):
+        def fails(rec, a, b):
+            raise tools.hearing.HearingError("no answer")
+
+        self.job.hear = fails
+        look = self.look(self.LINE)
+        self.assertEqual(tools._finer_edges(self.job, self.rec, look, 205.6, 230.0), [])
+        self.assertEqual(look["said"][0]["text"], self.LINE["text"])
+
+        def stopped(rec, a, b):
+            raise tools.hearing.Stopped()
+
+        self.job.hear = stopped
+        with self.assertRaises(tools.hearing.Stopped):
+            tools._finer_edges(self.job, self.rec, self.look(self.LINE), 205.6, 230.0)
+
+
 class Snap(unittest.TestCase):
     LOOK = {"start": 30.0, "end": 80.0, "said": [{"from": 31.0, "to": 34.5, "text": "a"},
                                                  {"from": 46.0, "to": 49.0, "text": "b"},
@@ -428,6 +600,25 @@ class Snap(unittest.TestCase):
         {"from": 80.12, "to": 83.86, "text": "มิลิลิต์ต่อวันนี่ยเท่ากับว่าถ้าบ้านไหนชื้นมากก็คือเก็บสองวันก็เต็มละ"},
         {"from": 83.96, "to": 87.93, "text": "แต่ว่าถ้าบ้านไหนไม่ได้ชื้นนะครับก็อาจจะหลายวันกว่าจะเต็ม"},
         {"from": 88.69, "to": 91.35, "text": "ซึ่งวิธีการใช้ง่ายมากครับเราก็แค่ใส่ทุกอย่างเข้าไป"}]}
+
+    CLOSING = {"start": 200.0, "end": 260.0, "said": [{"from": 205.76, "to": 205.94, "text": "นะครับ"},
+                                                      {"from": 206.12, "to": 206.83, "text": "การเทสก็เช่นกัน"},
+                                                      {"from": 207.01, "to": 210.44, "text": "ข้อแนะนำนะครับ"}]}
+
+    def test_a_clip_does_not_open_on_a_word_that_only_closes_what_came_before(self):
+        a, b, said = tools._snapped(self.CLOSING, 205.5, 240.0)
+        self.assertEqual((a, b), (205.94, 240.0), "after the word, and it does not reach back into it")
+        self.assertIn('starts 0.4 s later, so it does not open on "นะครับ", which closes what was said before it', said)
+        self.assertEqual(tools._snapped(self.CLOSING, 205.8, 240.0)[0], 205.94, "from inside the word too")
+        wide = dict(self.CLOSING, said=[self.CLOSING["said"][0], dict(self.CLOSING["said"][1], **{"from": 208.0, "to": 209.0})])
+        self.assertEqual(tools._snapped(wide, 205.5, 240.0)[0], 207.75, "air before the next line, as any start has")
+
+    def test_a_closing_word_stays_when_nothing_follows_or_the_clip_would_be_too_short(self):
+        alone = dict(self.CLOSING, said=self.CLOSING["said"][:1])
+        self.assertEqual(tools._snapped(alone, 205.5, 240.0)[:2], (205.5, 240.0))
+        self.assertEqual(tools._snapped(self.CLOSING, 205.5, 215.0)[0], 205.5, "10 s is the least a clip can be")
+        more = dict(self.CLOSING, said=self.CLOSING["said"] + [{"from": 211.0, "to": 212.0, "text": "b"}])
+        self.assertEqual(tools._snapped(more, 207.0, 240.0)[0], 207.0, "a line that only ends on it is its own")
 
     def test_a_start_on_a_unit_moves_back_to_the_number_and_what_it_measures(self):
         a, b, said = tools._snapped(self.SELLER, 80.0, 110.0)

@@ -1217,6 +1217,12 @@ def _carried(before, line):
                 or (NUMBER_STARTS.search(text) and NUMBER_ENDS.search(text)))
 
 
+def _only_closes(line):
+    """Whether line is nothing but a word that closes the sentence before it. A clip does not open on one: lane 5 10-30,
+    3 of 3 explain clips of gold EP1 opened on "นะครับ"."""
+    return bool(ONLY_CLOSES.match(" ".join(line["text"].split())))
+
+
 def _snapped(look, a, b, price=False):
     """(start, end, sentence or None): a moment's edges moved out of the words they would cut through, to just before
     the line the start falls in when it began within SNAP_REACH, and just after the line the end falls in when it
@@ -1246,12 +1252,19 @@ def _snapped(look, a, b, price=False):
             and lines[k - 1]["from"] - AIR >= lo and nb - lines[k - 1]["from"] + AIR <= LONGEST \
             and _carried(lines[k - 1], lines[k]):
         k -= 1
+    closing = None
+    if opened is not None and lines[k] is opened and _only_closes(opened) and k + 1 < len(lines) and \
+            nb - lines[k + 1]["from"] + AIR >= SHORTEST:
+        closing, na = opened, round(max(opened["to"], lines[k + 1]["from"] - AIR), 2)
     priced = next((p for p in lines if price and nb - AIR <= p["from"] <= nb + PRICE_REACH and p["to"] <= hi
                    and PRICE.search(p["text"]) and p["to"] + AIR - na <= LONGEST), None)
     if priced:
         nb = round(priced["to"] + AIR, 2)
     moved = []
-    if opened is not None and lines[k] is not opened:
+    if closing:
+        moved.append("starts %.1f s later, so it does not open on \"%s\", which closes what was said before it"
+                     % (na - a, " ".join(closing["text"].split())))
+    elif opened is not None and lines[k] is not opened:
         na = round(lines[k]["from"] - AIR, 2)
         moved.append("starts %.1f s earlier, so it opens where the words start: \"%s\" goes on from what is said "
                      "before it" % (a - na, " ".join(opened["text"].split())[:CARRY_SHOWN]))
@@ -1269,6 +1282,76 @@ def _snapped(look, a, b, price=False):
 
 PRICE = re.compile("บาท|฿")
 PRICE_REACH = 6.0
+ONLY_CLOSES = re.compile("^(?:นะครับ|นะคะ|ครับผม|ครับ|ค่ะ|คะ|นะ)$")
+CLOSES_FIRST = re.compile("^\\s*(?:นะครับ|นะคะ|ครับผม|ครับ|ค่ะ|คะ|นะ)\\s+\\S")
+FINER_OVER = 6.0
+FINER_KINDS = ("explain", "seller", "talk")
+FINER = ("Nothing was proposed yet. A heard line is a stretch of sound, not a sentence, and these lines at the edges of "
+         "your moments were one stretch each, so the program heard them again piece by piece, each with when it begins "
+         "and when it ends:\n%s\nPropose again: start each moment at the time the piece that opens a thought begins, and "
+         "end it at the time the piece that finishes a thought ends, so the clip does not open on the close of what "
+         "came before and does not stop inside a sentence.")
+
+
+def _fine(t):
+    """t in recording seconds as clock() writes it, to the hundredth, for a line shorter than a second."""
+    m, s = divmod(round(t, 2), 60)
+    h, m = divmod(int(m), 60)
+    return "%d:%02d:%05.2f" % (h, m, s) if h else "%d:%05.2f" % (m, s)
+
+
+def _kept_or_heard(job, rec, a, b):
+    """What is said from a to b, heard now unless it was kept. Raises what job.hear raises."""
+    said = hearing.heard(rec, a, b, job.languages())
+    if said is None:
+        said = job.hear(rec, a, b)
+        hearing.keep(rec, a, b, said, job.languages())
+    return said
+
+
+def _finer(job, rec, look, line):
+    """Cuts line of look["said"] at its dips (takes.dips) and hears each piece, and the pieces take its place: they
+    are returned, or [] when it stays as it is, with no dips in it. line is tried once, so asking cannot go on."""
+    line["finer"] = True
+    cuts = takes.dips(rec, line["from"], line["to"])
+    edges = [line["from"]] + cuts + [line["to"]]
+    pieces = []
+    for a, b in zip(edges, edges[1:]) if cuts else ():
+        heard = _kept_or_heard(job, rec, a, b)
+        if heard:
+            pieces.append({"from": a, "to": b, "text": " ".join(p["text"] for p in heard),
+                           "sure": min(p.get("sure", 1.0) for p in heard), "finer": True})
+    if len(pieces) < 2:
+        return []
+    at = look["said"].index(line)
+    look["said"][at:at + 1] = pieces
+    return pieces
+
+
+def _finer_edges(job, rec, look, a, b):
+    """For a moment from a to b of a clip made of what is said: the line its start or its end falls in, when it runs
+    over FINER_OVER s or opens on a word that closes what came before, heard again piece by piece (_finer). Returns
+    [a sentence for Muse for each line that was]. Lane 4 10-30: a heard line is a sound piece, not a sentence, and Muse
+    can only choose where a line begins or ends; 53% of what Muse Voice Transcribe heard was in lines over 8 s. Stop
+    raises hearing.Stopped; a line that cannot be heard again stays as it is."""
+    if (job.chat.clip or {}).get("recipe") not in FINER_KINDS:
+        return []
+    said = look.get("said") or []
+    opens = next((p for p in said if p["to"] > a), None)
+    closes = next((p for p in reversed(said) if p["from"] < b), None)
+    out = []
+    for side, line in (("start", opens), ("end", closes)):
+        if not line or line.get("finer") or not (line["to"] - line["from"] > FINER_OVER or (
+                side == "start" and CLOSES_FIRST.match(line["text"]))):
+            continue
+        try:
+            pieces = _finer(job, rec, look, line)
+        except hearing.HearingError:
+            continue
+        if pieces:
+            out.append("The moment's %s at %s:\n%s" % (side, _fine(a if side == "start" else b), "\n".join(
+                "  %s-%s %s" % (_fine(p["from"]), _fine(p["to"]), p["text"]) for p in pieces)))
+    return out
 
 
 DEAD_AIR = 1.0
@@ -1493,12 +1576,15 @@ def _waits(job):
     return any(e["kind"] == WAITING and e.get("job") == job.n for e in job.chat.events)
 
 
+TOUCHING = 1.0
+
+
 def propose_moments(job, why, moments, then="make"):
     rec = _open(job, "propose")
     clock, looks = recording.clock, job.chat.looks
     if not looks:
         raise Refused("You have not looked at any stretch yet. Look first: a moment you propose must be one you saw.")
-    picked = []
+    picked, finer = [], []
     for i, m in enumerate(moments, 1):
         if not 1 <= m["look"] <= len(looks):
             raise Refused("Moment %d names look %d, but your looks are: %s. Name one of them, or look first."
@@ -1507,11 +1593,16 @@ def propose_moments(job, why, moments, then="make"):
         look = looks[m["look"] - 1]
         a = _time("moment %d's start" % i, m["start"]) if m.get("start") else look["start"]
         b = _time("moment %d's end" % i, m["end"]) if m.get("end") else look["end"]
-        if round(a) < round(look["start"]) or round(b) > round(look["end"]) or b <= a:
+        lo, hi = look.get("heard") or (look["start"], look["end"])
+        if round(a) < round(lo) or round(b) > round(hi) or b <= a:
             raise Refused("Moment %d (%s-%s) is not inside look %d (%s-%s). Give a start and an end inside what you "
                           "saw, or look at that stretch first." % (i, clock(a), clock(b), look["n"],
                                                                    clock(look["start"]), clock(look["end"])))
-        a, b = max(a, look["start"]), min(b, look["end"])
+        a, b = max(a, lo), min(b, hi)
+        try:
+            finer += _finer_edges(job, rec, look, a, b)
+        except hearing.Stopped:
+            return "Not proposed: the person pressed Stop."
         a, b, snapped = _snapped(look, a, b, (job.chat.clip or {}).get("recipe") == "seller")
         if round(rec["seconds"]) < SHORTEST:
             raise Refused(TOO_SHORT % (rec["name"], round(rec["seconds"], 1), SHORTEST) + " Do not propose it again.")
@@ -1530,13 +1621,19 @@ def propose_moments(job, why, moments, then="make"):
         aim = look["loudest"] if look["loudest"] is not None and a <= look["loudest"] <= b else (a + b) / 2
         shown = pictures[m["picture"] - 1] if m.get("picture") else min(pictures, key=lambda p: abs(p["t"] - aim))
         for other in picked:
-            if a < other["end"] and other["start"] < b:
+            if other["start"] < a < other["end"] <= a + TOUCHING:
+                a = other["end"]
+            elif a < other["start"] < b <= other["start"] + TOUCHING:
+                b = other["start"]
+            elif a < other["end"] and other["start"] < b:
                 raise Refused("Moments %d and %d overlap (%s-%s and %s-%s). Each moment must be its own stretch: move "
                               "one, or keep only the better." % (other["n"], i, clock(other["start"]),
                                                                   clock(other["end"]), clock(a), clock(b)))
         picked.append({"n": i, "look": look["n"], "start": round(a, 2), "end": round(b, 2), "reason": m["reason"],
                        "snapped": snapped,
                        "frame": shown["frame"], "t": shown["t"]})
+    if finer:
+        raise Refused(FINER % "\n".join(finer))
     if _reads_screen(job) or (job.chat.clip or {}).get("recipe") == "game":
         for p in picked:
             screen.ahead(rec, p["start"], p["end"])

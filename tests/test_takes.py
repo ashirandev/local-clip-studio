@@ -140,6 +140,36 @@ class AtClaps(unittest.TestCase):
         self.assertEqual(takes.at_claps(said, [[2.2, 2.2, 0]], unsure=unsure, slates=True), [])
 
 
+class Dips(unittest.TestCase):
+    """Lane 4 10-30: a heard line is a sound piece, not a sentence."""
+    rec = {"path": "x.mp4", "seconds": 300.0, "sound_tracks": 1}
+
+    def cuts(self, stretches, start=100.0):
+        """takes.dips over sound of stretches [(seconds, loud)], from start."""
+        rate = takes.RATE
+        sound = np.concatenate([(0.3 if loud else 0.01) * np.sin(np.arange(int(rate * s)) * 0.3) for s, loud in stretches])
+        had, takes._decoded = takes._decoded, lambda rec, a, b: sound
+        try:
+            return takes.dips(self.rec, start, start + sum(s for s, _ in stretches))
+        finally:
+            takes._decoded = had
+
+    def test_a_line_is_cut_at_the_middle_of_each_dip(self):
+        self.assertEqual(self.cuts([(1.0, True), (0.2, False), (1.0, True), (0.4, False), (1.0, True)]), [101.1, 102.4])
+
+    def test_a_dip_too_short_to_be_a_pause_is_not_a_cut(self):
+        self.assertEqual(self.cuts([(1.0, True), (0.08, False), (1.0, True)]), [])
+
+    def test_no_piece_is_too_short_to_hear(self):
+        self.assertEqual(self.cuts([(0.1, True), (0.14, False), (1.0, True)]), [], "too near the start")
+        self.assertEqual(self.cuts([(1.0, True), (0.14, False), (0.1, True)]), [], "too near the end")
+        self.assertEqual(self.cuts([(1.0, True), (0.14, False), (0.1, True), (0.14, False), (1.0, True)]), [101.07],
+                         "too near the last cut")
+
+    def test_sound_that_cannot_be_read_has_no_dips(self):
+        self.assertEqual(takes.dips({"path": "x.mp4", "seconds": 5.0, "sound_tracks": 0}, 0.0, 5.0), [])
+
+
 class Level(unittest.TestCase):
     def test_the_level_is_one_value_every_tenth_of_a_second(self):
         rate = takes.RATE
