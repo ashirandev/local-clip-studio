@@ -49,6 +49,9 @@ GUARD_STOPS = 3
 REPLY_ROOM = 2048
 PICTURE_TOKENS = 256
 ROOM_TRIES = 4
+ROOM_FULL = 0.85
+ROOM_AFTER = 0.7
+ROOMS = {}
 TAKEN_OUT = ("(A picture was here. It was taken out to make room in Muse's memory: the tool that showed it shows it "
              "again.)")
 SHOW_THINKING_EVERY = 0.4
@@ -136,6 +139,7 @@ class Chat:
         self.rendered = []
         self.checks = {}
         self.told = []
+        self.held = 0
         self.spelling = None
         self.making = self.basing = None
         self.cond = threading.Condition()
@@ -1234,19 +1238,36 @@ class Job:
         """Muse's next answer. When the conversation and an answer no longer fit in Muse's memory (mind.TooLong),
         the oldest pictures are taken out of it (make_room) and Muse is asked again, so a job is not ended by its own
         length. Measured 10-28: a montage of 19 clips filled Glimmer's 32,768 tokens 20 tokens before its hand-over,
-        and a screen recording filled them while Muse wrote a call, which was cut off and could not be read."""
+        and a screen recording filled them while Muse wrote a call, which was cut off and could not be read.
+        Pictures come out down to ROOM_AFTER of the memory, not just enough to fit, and once a Muse's memory is known
+        (ROOMS, from its refusal), before a question when the last one came over ROOM_FULL of it: Glimmer reads the
+        conversation again from the first picture taken out, so taking just enough made it read it again on every
+        turn near the edge, and 10-30 it died 10 s into such a reading (router log, 0xC0000409)."""
+        room = ROOMS.get(self.brain.label)
+        if room and self.chat.held + REPLY_ROOM > room * ROOM_FULL:
+            with self.chat.cond:
+                took = make_room(self.chat.messages, self.chat.held + REPLY_ROOM - int(room * ROOM_AFTER))
+            if took:
+                self.emit("note", text="%s's memory was nearly full, so the studio took out the %d oldest picture%s "
+                                       "it had already looked at before asking." % (
+                                           self.brain.label, took, "" if took == 1 else "s"))
         tries = 0
         while True:
             try:
-                return self.paid(self.brain.ask(self.chat.messages, tools=tools, temperature=AGENT_TEMPERATURE,
-                                                max_tokens=AGENT_MAX_TOKENS, on_delta=self.on_delta,
-                                                asking=self.asking))
+                got = self.paid(self.brain.ask(self.chat.messages, tools=tools, temperature=AGENT_TEMPERATURE,
+                                               max_tokens=AGENT_MAX_TOKENS, on_delta=self.on_delta,
+                                               asking=self.asking))
+                used = got["engine"]
+                self.chat.held = sum(used.get(k) or 0 for k in ("read_new", "reused", "written"))
+                return got
             except mind.TooLong as e:
                 tries += 1
+                ROOMS[self.brain.label] = e.room
                 with self.chat.cond:
                     if self.stopped:
                         raise mind.Cancelled()
-                    took = make_room(self.chat.messages, e.asked + REPLY_ROOM - e.room) if tries <= ROOM_TRIES else 0
+                    took = (make_room(self.chat.messages, e.asked + REPLY_ROOM - int(e.room * ROOM_AFTER))
+                            if tries <= ROOM_TRIES else 0)
                     if not took:
                         raise mind.MindError(
                             "%s's memory is full: this chat holds more than it can read at once (%d tokens), and no "

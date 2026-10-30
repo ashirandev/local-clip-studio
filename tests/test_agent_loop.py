@@ -145,12 +145,17 @@ class Loop(unittest.TestCase):
             self.assertIn("sifu_run.mkv", step["result"], "%s: tutorial 5561 10-28 took 11 searches" % words)
             self.assertNotIn("review.mp4", step["result"], words)
 
-    def test_a_full_memory_takes_out_the_oldest_pictures_and_asks_again(self):
+    def pictures(self, many):
         picture = {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AA=="}}
-        self.chat.messages += [{"role": "user", "content": [{"type": "text", "text": "old"}] + [picture] * 12},
+        self.chat.messages += [{"role": "user", "content": [{"type": "text", "text": "old"}] + [picture] * many},
                                {"role": "assistant", "content": "seen"},
                                {"role": "user", "content": [{"type": "text", "text": "new"}, picture]},
                                {"role": "assistant", "content": "seen too"}]
+        self.addCleanup(agent.ROOMS.clear)
+        return picture
+
+    def test_a_full_memory_takes_out_the_oldest_pictures_and_asks_again(self):
+        picture = self.pictures(60)
 
         def full(asking):
             raise mind.TooLong("full", 32800, 32768)
@@ -161,12 +166,35 @@ class Loop(unittest.TestCase):
         sent = brain.sent[-1]
         old = next(m["content"] for m in sent if isinstance(m["content"], list) and m["content"][0]["text"] == "old")
         new = next(m["content"] for m in sent if isinstance(m["content"], list) and m["content"][0]["text"] == "new")
-        self.assertEqual(sum(p.get("text") == agent.TAKEN_OUT for p in old), 9,
-                         "32,800 + 2,048 for the answer - 32,768 = 2,080 tokens, 256 a picture")
-        self.assertEqual(sum(p["type"] == "image_url" for p in old), 3)
+        self.assertEqual(sum(p.get("text") == agent.TAKEN_OUT for p in old), 47,
+                         "32,800 + 2,048 for the answer, down to 70% of 32,768: 11,911 tokens, 256 a picture")
+        self.assertEqual(sum(p["type"] == "image_url" for p in old), 13)
         self.assertEqual(new[1], picture, "the newest pictures stay")
         notes = [e["text"] for e in events if e["kind"] == "note"]
-        self.assertIn("took out the 9 oldest pictures it had already looked at, and asked again", notes[0])
+        self.assertIn("took out the 47 oldest pictures it had already looked at, and asked again", notes[0])
+        self.assertEqual(agent.ROOMS, {"scripted": 32768})
+        self.assertEqual(self.chat.held, 10, "what Muse read for its answer")
+
+    def test_a_memory_known_to_be_nearly_full_makes_room_before_the_question_not_after_a_refusal(self):
+        self.pictures(60)
+        agent.ROOMS["scripted"] = 32768
+        self.chat.held = 30000
+        brain = ScriptedMind("Done.")
+        job, events = self.run_job(brain)
+        self.assertEqual(events[-1]["why"], "answered")
+        old = next(m["content"] for m in brain.sent[0] if isinstance(m["content"], list)
+                   and m["content"][0]["text"] == "old")
+        self.assertEqual(sum(p.get("text") == agent.TAKEN_OUT for p in old), 36,
+                         "30,000 + 2,048 over 85% of 32,768, down to 70%: 9,111 tokens, 256 a picture")
+        self.assertIn("took out the 36 oldest pictures it had already looked at before asking",
+                      [e["text"] for e in events if e["kind"] == "note"][0])
+        self.chat.held = 24000
+        brain = ScriptedMind("Done again.")
+        self.run_job(brain, "and again")
+        old = next(m["content"] for m in brain.sent[0] if isinstance(m["content"], list)
+                   and m["content"][0]["text"] == "old")
+        self.assertEqual(sum(p["type"] == "image_url" for p in old), 24,
+                         "over 70% but under 85% nothing more comes out: one reading again, not one a question")
 
     def test_a_full_memory_with_no_picture_to_take_out_ends_the_job_saying_so(self):
         def full(asking):
