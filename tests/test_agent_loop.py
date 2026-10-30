@@ -371,7 +371,24 @@ class Loop(unittest.TestCase):
         _, events = self.run_job(brain)
         results = [e["result"] for e in events if e["kind"] == "step"]
         self.assertIn("This recipe replaces the seller recipe read earlier", results[1])
-        self.assertEqual((self.chat.clip["recipe"], self.chat.clip["length_s"]), ("game", 20))
+        self.assertEqual(self.chat.clip["recipe"], "game")
+
+    def test_a_length_the_person_never_named_is_the_recipes_and_one_they_named_is_theirs(self):
+        """Lane 5 10-30: Glimmer gave talk 45 s with the recipe at 60, its four looks were 45 s each, and it picked the
+        clip Tarm had called cut short; over every chat, 49 of its 106 guesses were shorter than the recipe's."""
+        self.chat.recording = {"path": "talk.mp4", "name": "talk.mp4", "seconds": 600.0}
+        talk = tools.RECIPES["talk"]["length"]
+        brain = ScriptedMind([call("load_recipe", type="talk", length_s=45, why="a podcast")], "Loaded.")
+        _, events = self.run_job(brain)
+        said = [e["result"] for e in events if e["kind"] == "step"][0]
+        self.assertEqual(self.chat.clip["length_s"], talk)
+        self.assertIn("The person named no length, so the clip is the recipe's %d s, not the 45 s you gave" % talk, said)
+        self.assertIn("about %d s" % talk, said)
+        self.chat.emit("person", job=None, text="(tapped) Make it shorter, about 45 s.")
+        brain = ScriptedMind([call("load_recipe", type="talk", length_s=45, why="shorter, as asked")], "Loaded.")
+        _, events = self.run_job(brain)
+        self.assertEqual(self.chat.clip["length_s"], 45, "the Shorter button named it")
+        self.assertNotIn("named no length", [e["result"] for e in events if e["kind"] == "step"][0])
 
     def test_recipes_say_what_to_do_in_words_not_tool_names(self):
         for recipe in recipes.RECIPES.values():

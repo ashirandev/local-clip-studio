@@ -255,6 +255,7 @@ class Arrange(unittest.TestCase):
         self.assertEqual([c["n"] for c in agent.Chat.load(self.chat.id).clips["clips"]], [1, 2, 3])
 
     def test_with_clips_open_any_recipe_asked_is_the_montage_until_another_recording_opens(self):
+        self.chat.emit("person", job=None, text="ขอยาวสัก 60 วิ")
         steps = self.run_job([call("open_clips", folder=self.folder, why="the review's takes")],
                              [call("load_recipe", type="seller", length_s=60, why="a review")],
                              [call("open_recording", path=os.path.join(self.folder, "a_late.mov"), why="one take")],
@@ -263,7 +264,7 @@ class Arrange(unittest.TestCase):
         self.assertIn("# Trip or event clips", steps[1]["result"])
         self.assertNotIn("not the seller one", steps[3]["result"])
         self.assertIn("Recipe loaded: Trip or event clips (montage).", steps[1]["result"])
-        self.assertIn("about 60 s", steps[1]["result"], "Muse's guess is kept")
+        self.assertIn("about 60 s", steps[1]["result"], "the length the person asked for is kept")
         self.assertEqual((self.chat.clip["recipe"], self.chat.clip["length_s"]), ("seller", 60))
 
     def test_the_montage_recipe_needs_clips_open(self):

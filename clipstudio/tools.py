@@ -5668,6 +5668,19 @@ BLIND = ("Open the recording first (open_recording, or open_clips for a folder) 
          "picked by what it shows, not by the words of the ask.")
 
 
+LENGTH_SAID = re.compile("(?:" + NUMBER + "|[.,]|ครึ่ง)+\\s*(?:วินาที|วิ(?!ด)|นาที|s\\b|secs?\\b|seconds?\\b|mins?\\b|"
+                         "minutes?\\b)|\\b(?:an?|one|two|three|half an?)\\s+minutes?\\b|\\b(?:ten|fifteen|twenty|"
+                         "thirty|forty|forty-five|fifty|sixty|ninety)\\s+seconds?\\b", re.I)
+
+
+def _length_said(job):
+    """True when the person named a length in this chat, in their own words or with the Shorter and Longer buttons
+    ("about 20 s"). Lane 5, 10-30, over every chat's first load_recipe where the person named none: Glimmer passed
+    length_s in 106 of 119 and 49 of them were shorter than the recipe's (vlog 30 for 40, talk 45 for 60), so the
+    recipes' lengths never reached it, and EP 22's vlog ended 2 s before the line its talk built to."""
+    return any(LENGTH_SAID.search(e["text"]) for e in job.chat.events if e["kind"] == "person")
+
+
 def load_recipe(job, why, type, length_s=None, style=None, language="", brief="", subtitles=""):
     subtitles = _subtitles(subtitles)
     recipe = RECIPES.get(type.lower().strip())
@@ -5684,7 +5697,9 @@ def load_recipe(job, why, type, length_s=None, style=None, language="", brief=""
     asked = None
     if recipe["name"] != MONTAGE and _joining(job):
         asked, recipe = recipe, RECIPES[MONTAGE]
-    clip = {"recipe": recipe["name"], "title": recipe["title"], "length_s": length_s or recipe["length"],
+    guessed = length_s if length_s and length_s != recipe["length"] and not _length_said(job) else None
+    clip = {"recipe": recipe["name"], "title": recipe["title"],
+            "length_s": recipe["length"] if guessed else length_s or recipe["length"],
             "style": style or recipe["style"], "language": language, "brief": brief, "subtitles": subtitles}
     had = job.chat.clip
     job.set_clip(clip, chips(clip))
@@ -5694,6 +5709,10 @@ def load_recipe(job, why, type, length_s=None, style=None, language="", brief=""
                 ", captions in " + subtitles if subtitles else ""),
              "The person's own words win over this recipe and over your guesses. Do not ask the person to confirm "
              "them: go on with the work. The buttons let them change any guess at any time."]
+    if guessed:
+        lines.append("The person named no length, so the clip is the recipe's %d s, not the %d s you gave: a clip runs "
+                     "as long as what it shows needs, and the Shorter and Longer buttons are theirs."
+                     % (recipe["length"], guessed))
     if had and had["recipe"] != recipe["name"]:
         lines.append("This recipe replaces the %s recipe read earlier in this chat; follow only this one." %
                      had["recipe"])
