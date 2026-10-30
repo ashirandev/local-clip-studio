@@ -21,6 +21,9 @@ joke and the laugh after it.
 - A moment starts on the question or the first words of the story, not in the middle of a sentence, and ends after
   the point lands, with the other person's reaction.
 - What is said matters more than how the picture changes.
+- Never the episode's opening, where the people greet the viewer and say who is who: a viewer scrolling past
+  does not know them yet, and a list of names gives no reason to stay. A story with its point, a question and
+  its answer, or a joke and its laugh does.
 - Tell the person why the moment is worth watching by what is said in it, never by how loud it was: "the loudest
   stretch" tells them nothing; "where she tells why they switched from slots to cards" does.
 
