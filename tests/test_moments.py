@@ -296,6 +296,21 @@ class Snap(unittest.TestCase):
         self.assertEqual(tools._snapped(self.LOOK, 40.0, 55.0), (40.0, 55.0, None))
         self.assertEqual(tools._snapped(self.LOOK, 65.0, 75.0), (65.0, 75.0, None), "5 s into a line is too far")
 
+    def test_an_end_inside_a_line_finishes_it_or_ends_before_it_never_inside(self):
+        """Tarm 10-30 on EP 0's talk, its end 501.3 inside a line said 499.37 to 505.7: "ตัดห้วนเกินไป มันยังไม่จบ"."""
+        ep0 = {"start": 450.0, "end": 510.0, "said": [{"from": 497.28, "to": 499.27, "text": "a"},
+                                                      {"from": 499.37, "to": 505.7, "text": "b"}]}
+        a, b, said = tools._snapped(ep0, 456.3, 501.3)
+        self.assertEqual((a, b), (456.3, 505.95))
+        self.assertIn("s later, so it closes after a line rather than inside it", said)
+        long = dict(self.LOOK, said=self.LOOK["said"][:2] + [{"from": 60.0, "to": 85.0, "text": "c"}])
+        a, b, said = tools._snapped(long, 40.0, 66.0)
+        self.assertEqual((a, b), (40.0, 59.75), "19 s of the line left: it ends before the line, not inside it")
+        self.assertIn("ends 6.2 s earlier, so it closes before a line it would cut through", said)
+        self.assertEqual(tools._snapped(long, 52.0, 66.0)[1], 66.0, "ending before the line would leave under 10 s")
+        self.assertEqual(tools._snapped(dict(ep0, start=400.0), 415.0, 501.3)[1], 499.12,
+                         "finishing the line would run past 90 s, so it ends before it")
+
     def test_a_sellers_end_takes_in_the_price_said_right_after_it(self):
         """Tarm's green-screen seller, 10-30: the controller's moment ended at 0:39, its price was said at 0:41."""
         look = {"start": 9.0, "end": 39.0, "heard": [3.0, 45.0], "said": [
@@ -308,7 +323,9 @@ class Snap(unittest.TestCase):
         self.assertEqual(tools._snapped(look, 9.0, 39.0)[1], 39.0, "not a seller: the end stays")
         self.assertEqual(tools._snapped(dict(look, heard=[3.0, 41.0]), 9.0, 39.0, price=True)[1], 39.0,
                          "a price not heard whole is not reached for")
-        self.assertEqual(tools._snapped(look, 9.0, 34.0, price=True)[1], 34.0, "7 s on is past PRICE_REACH")
+        self.assertEqual(tools._snapped(look, 9.0, 32.0, price=True)[1], 32.0, "8.9 s on is past PRICE_REACH")
+        self.assertEqual(tools._snapped(look, 9.0, 34.0, price=True)[1], 42.15, "inside the line before the price, "
+                         "the end finishes the line, and the price follows it")
 
     def test_edges_never_leave_the_look(self):
         look = dict(self.LOOK, start=30.9)
@@ -320,7 +337,7 @@ class Snap(unittest.TestCase):
                          "so the clip ends after it")
         self.assertEqual(tools._snapped(dict(self.LOOK, end=67.0), 50.0, 67.0)[1], 67.0, "a look heard only to its end "
                          "keeps it")
-        self.assertEqual(tools._snapped(look, 50.0, 65.0)[1], 65.0, "5 s from the line's end is past FINISH_REACH")
+        self.assertEqual(tools._snapped(look, 50.0, 65.0)[1], 70.25, "5 s from the line's end: it finishes it")
 
     SELLER = {"start": 80.0, "end": 110.0, "heard": [74.32, 115.96], "said": [
         {"from": 75.16, "to": 75.30, "text": "ลิต"},

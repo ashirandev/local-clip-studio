@@ -1190,7 +1190,7 @@ def _fix_moment(job, rec, m):
 
 AIR = 0.25
 SNAP_REACH = 2.0
-FINISH_REACH = 4.0
+FINISH_REACH = 10.0
 CARRY_GAP = 0.6
 CARRY_REACH = 8.0
 CARRY_SHOWN = 30
@@ -1214,7 +1214,9 @@ def _carried(before, line):
 def _snapped(look, a, b, price=False):
     """(start, end, sentence or None): a moment's edges moved out of the words they would cut through, to just before
     the line the start falls in when it began within SNAP_REACH, and just after the line the end falls in when it
-    finishes within FINISH_REACH (a sentence cut short is worse than an opening), AIR seconds from the words; never
+    finishes within FINISH_REACH and the clip still runs at most LONGEST, else to just before that line: a clip never
+    stops inside a sentence. Tarm 10-30 on EP 0's talk, cut at 8:21 with 4.4 s of an answer left (FINISH_REACH was 4):
+    "ตัดห้วนเกินไป มันยังไม่จบ". Of 2,589 lines heard so far, 2.3% run past 10 s. AIR seconds from the words; never
     outside what was heard. A model's own edges sit in a pause about half the time (measured by lane 5 on Tarm's own
     edits: 47%, 77% within 0.6 s), so a clip would often open or close on half a word. A start in the pause before a
     line that goes on from the line ahead of it (_carried) moves to that line's start, within CARRY_REACH: seen 10-29
@@ -1227,8 +1229,10 @@ def _snapped(look, a, b, price=False):
     for p in said:
         if p["from"] < a < p["to"] and a - p["from"] <= SNAP_REACH:
             na = max(lo, p["from"] - AIR)
-        if p["from"] < b < p["to"] and p["to"] - b <= FINISH_REACH:
+        if p["from"] < b < p["to"] and p["to"] - b <= FINISH_REACH and p["to"] + AIR - na <= LONGEST:
             nb = min(hi, p["to"] + AIR)
+        elif p["from"] < b < p["to"] and p["from"] - AIR - na >= SHORTEST:
+            nb = max(lo, p["from"] - AIR)
     lines = sorted((p for p in said if p["to"] > p["from"]), key=lambda p: p["from"])
     k = next((i for i, p in enumerate(lines) if p["from"] >= na), None)
     opened = lines[k] if k is not None else None
@@ -1249,8 +1253,11 @@ def _snapped(look, a, b, price=False):
         moved.append("starts %.1f s earlier, so it opens before a line rather than inside it" % (a - na))
     if priced:
         moved.append("ends %.1f s later, so the price said right after it is in the clip" % (nb - b))
-    elif nb != b:
+    elif nb > b:
         moved.append("ends %.1f s later, so it closes after a line rather than inside it" % (nb - b))
+    elif nb < b:
+        moved.append("ends %.1f s earlier, so it closes before a line it would cut through rather than inside it"
+                     % (b - nb))
     return round(na, 2), round(nb, 2), " and ".join(moved) or None
 
 
