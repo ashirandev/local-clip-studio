@@ -2753,6 +2753,28 @@ class Tools(unittest.TestCase):
         self.assertEqual("".join(line["text"] for line in self.chat.project.state()["captions"]["drafts"]),
                          "bxo noqa mumble")
 
+    def test_a_long_line_unsure_only_for_a_word_no_dictionary_has_keeps_its_other_lines_on_the_video(self):
+        self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")], "Done.")
+        start = self.chat.project.state()["clip"]["pieces"][0][0]
+        line = "ไจโรสโคปเราสามารถที่จะทำมือแบบนี้เพื่อที่จะเล็งปืนได้ครับ"
+        self.chat.moments[0]["said"] = [
+            {"from": start + 1, "to": start + 9, "text": line, "sure": 0.862, "heard": line},
+            {"from": start + 10, "to": start + 11, "text": "Resident", "sure": 0.597, "heard": "Resident"},
+            {"from": start + 12, "to": start + 14, "text": "เดินได้นะครับ", "sure": 0.64, "heard": "เดินได้นะครับ"}]
+        _, steps = self.run_job([call("add_captions", why="say what he says")], "Done.")
+        self.assertFalse(steps[0]["refused"], steps[0]["result"])
+        caps = self.chat.project.state()["captions"]
+        shown = "".join(x["text"] for x in caps["lines"])
+        drafted = "".join(x["text"] for x in caps["drafts"])
+        self.assertIn("สามารถที่จะทำมือ", shown, "10-30 seller: 13 s of a line read right went to the drafts")
+        self.assertIn("เล็งปืน", shown)
+        self.assertIn("ไจโรสโคป", drafted)
+        self.assertNotIn("ไจโรสโคป", shown)
+        self.assertIn("Resident", drafted, "a line heard unsure is still a draft whole")
+        self.assertNotIn("Resident", shown)
+        self.assertIn("เดินได้นะครับ", drafted, "under READ_SURE the words are guesses, dictionary words or not")
+        self.assertNotIn("เดินได้", shown)
+
     def test_a_phrase_heard_from_the_very_end_of_a_piece_is_left_out_and_the_others_are_captioned(self):
         self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")], "Done.")
         (start, end), length = self.chat.project.state()["clip"]["pieces"][0], self.chat.project.state()["length"]

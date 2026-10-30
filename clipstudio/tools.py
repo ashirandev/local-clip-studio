@@ -3063,6 +3063,19 @@ def _unsure(phrase):
                 and not words.odd_thai(phrase["text"]))
 
 
+def _by_line(phrase, at):
+    """An unsure phrase at clip seconds at as [(from, to, words, unsure)]: cut into its caption lines when only an odd
+    bit of Thai keeps it from being sure (_unsure: fixed, READ_SURE up), so the lines without one go on the video and
+    only the line with it is a draft; else the phrase whole, unsure. 10-30, a seller's 13 s line read right but for
+    ไจโรสโคป (gyroscope), which no dictionary has: the whole line went to the drafts, and the clip had no captions for
+    its first 15 s."""
+    fixed = "heard" in phrase and phrase.get("kept") != LATER
+    if not (fixed and phrase.get("sure", 1.0) >= READ_SURE and re.search("[ก-๛]", phrase["text"])):
+        return [(at[0], at[1], phrase["text"], True)]
+    lines = text.caption_lines([{"from": at[0], "to": at[1], "text": phrase["text"]}], CAPTION_LETTERS)
+    return [(round(x["from"], 2), round(x["to"], 2), x["text"], bool(words.odd_thai(x["text"]))) for x in lines]
+
+
 def _in_clip(pieces, p, length):
     """(from, to) in clip seconds of a phrase heard from p["from"] to p["to"] of the recording, or None when it starts
     where the clip has no picture, or plays in it for less than a frame. A phrase whose end was cut out ends with its
@@ -3262,7 +3275,12 @@ def add_captions(job, why, on=True, lit=False, pop=None, language=""):
         if not at:
             continue
         if _unsure(p) and (at[0], at[1]) not in typed:
-            doubtful.append({"from": at[0], "to": at[1], "text": p["text"]})
+            for a, b, line, odd in _by_line(p, at):
+                if odd:
+                    doubtful.append({"from": a, "to": b, "text": line})
+                else:
+                    phrases.append({"from": a, "to": b, "text": line, "n": n})
+                    heard.append(dict(p, text=line))
         else:
             phrases.append({"from": at[0], "to": at[1], "text": p["text"], "n": n})
             heard.append(p)
