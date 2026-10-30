@@ -268,7 +268,7 @@ class Arrange(unittest.TestCase):
 
     def test_the_montage_recipe_needs_clips_open(self):
         steps = self.run_job([call("load_recipe", type="montage", why="a trip")], "Done.")
-        self.assertIn("for several clips opened together", steps[0]["result"])
+        self.assertIn("Open the recording first (open_recording, or open_clips for a folder)", steps[0]["result"])
         self.assertIsNone(self.chat.clip)
 
     def test_every_clip_is_used_or_left_out_and_no_piece_holds_still(self):

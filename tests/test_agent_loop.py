@@ -324,6 +324,7 @@ class Loop(unittest.TestCase):
         self.assertEqual([p["state"] for p in plan["items"]], ["done", "done"])
 
     def test_the_recipe_reaches_muse_the_page_and_the_state(self):
+        self.chat.recording = {"path": "review.mp4", "name": "review.mp4", "seconds": 60.0}
         brain = ScriptedMind([call("load_recipe", type="Seller", language="Thai", why="it is a product review")],
                              [call("find_recordings", why="look")], "Ready.")
         job, events = self.run_job(brain)
@@ -353,7 +354,17 @@ class Loop(unittest.TestCase):
         self.assertIn("style must be one of: clean, pop, sticker", results[1])
         self.assertIsNone(self.chat.clip)
 
+    def test_a_recipe_is_picked_once_the_recording_is_open(self):
+        """Glimmer 10-30: a seller's recipe loaded before EP 22, a cooking vlog, was opened, and the hosts were blurred."""
+        brain = ScriptedMind([call("load_recipe", type="seller", why="the ask says a clip to post")], "Opened first.")
+        _, events = self.run_job(brain)
+        step = [e for e in events if e["kind"] == "step"][0]
+        self.assertTrue(step["refused"])
+        self.assertIn("Open the recording first (open_recording, or open_clips for a folder)", step["result"])
+        self.assertIsNone(self.chat.clip)
+
     def test_another_recipe_replaces_the_first(self):
+        self.chat.recording = {"path": "review.mp4", "name": "review.mp4", "seconds": 60.0}
         brain = ScriptedMind([call("load_recipe", type="seller", why="a review")],
                              [call("load_recipe", type="game", length_s=20, why="the person says it is a stream")],
                              "Switched.")

@@ -5662,6 +5662,12 @@ LOOK_LABELS = {"3d": "3D"}
 SHORTEST, LONGEST = 10, 90
 
 
+# The recipe is picked by what the recording shows: on 10-30 Glimmer loaded one before opening anything, a seller's
+# for EP 22, a cooking vlog, and made it a seller's clip, with no captions and no product.
+BLIND = ("Open the recording first (open_recording, or open_clips for a folder) and look at its pictures: the recipe is "
+         "picked by what it shows, not by the words of the ask.")
+
+
 def load_recipe(job, why, type, length_s=None, style=None, language="", brief="", subtitles=""):
     subtitles = _subtitles(subtitles)
     recipe = RECIPES.get(type.lower().strip())
@@ -5669,6 +5675,8 @@ def load_recipe(job, why, type, length_s=None, style=None, language="", brief=""
         raise Refused("There is no recipe for %s yet. The recipes are: %s. Do not use a recipe made for another "
                       "kind of video: tell the person a clip of this kind is not ready yet, and what the studio can "
                       "make now." % (type, _recipe_list()))
+    if not (job.chat.recording or job.chat.clips):
+        raise Refused(BLIND)
     if recipe["name"] == MONTAGE and not job.chat.clips:
         raise Refused("The %s recipe is for several clips opened together with open_clips; this chat has %s. Pick "
                       "the recipe for the kind of recording that is open." % (

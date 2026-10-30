@@ -2195,8 +2195,7 @@ class Tools(unittest.TestCase):
         screen.hidden = lambda rec, pieces, on_start=None, span=None: hidden
         screen.ahead, screen.words = (lambda rec, a, b: None), (lambda rec, a, b: [])
         try:
-            brain, steps = self.run_job([call("load_recipe", type="talk", why="two people talking")],
-                                        *self.to_moment(),
+            brain, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="talk", why="two people talking")], *self.to_moment()[1:],
                                         [call("make_clip", moment=1, layout="split", why="both faces, all the time")],
                                         [call("make_clip", moment=1, layout="split",
                                               why="the person said: keep both on screen")], "Done.")
@@ -2759,7 +2758,7 @@ class Tools(unittest.TestCase):
         self.assertEqual([e["title"] for e in self.chat.events if e["kind"] == "ready"], ["Eaglet one", "Eaglet two"])
 
     def test_a_talk_is_faces_unless_muse_says_again_the_person_asked_for_the_screen(self):
-        _, steps = self.run_job([call("load_recipe", type="talk", why="two people talking")], *self.to_moment(),
+        _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="talk", why="two people talking")], *self.to_moment()[1:],
                                 [call("make_clip", moment=1, layout="card", why="the screen")],
                                 [call("make_clip", moment=1, layout="card", why="the person said: show the screen")],
                                 [call("make_clip", moment=1, layout="face", why="one face")], "Done.")
@@ -2772,7 +2771,7 @@ class Tools(unittest.TestCase):
         self.assertFalse(face["refused"], face["result"])
 
     def test_a_vlog_keeps_its_whole_height_with_no_face_circle_and_no_face_crop_unasked(self):
-        _, steps = self.run_job([call("load_recipe", type="vlog", why="a travel episode")], *self.to_moment(),
+        _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="vlog", why="a travel episode")], *self.to_moment()[1:],
                                 [call("make_clip", moment=1, layout="face", why="her face")],
                                 [call("make_clip", moment=1, layout="card", why="the whole scene")], "Done.")
         face, card = steps[-2:]
@@ -2797,7 +2796,7 @@ class Tools(unittest.TestCase):
         self.assertFalse(card["refused"], card["result"])
 
     def test_a_talk_cuts_between_faces_and_circles_are_for_when_the_person_asks(self):
-        _, steps = self.run_job([call("load_recipe", type="talk", why="three friends talking")], *self.to_moment(),
+        _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="talk", why="three friends talking")], *self.to_moment()[1:],
                                 [call("make_clip", moment=1, layout="speaker", why="everyone at once")], "Done.")
         circles = steps[-1]
         self.assertTrue(circles["refused"], "Tarm 10-29: cut between faces, not faces in circles")
