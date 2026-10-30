@@ -347,7 +347,8 @@ class Chat:
                 "looks": choices("look", COLOUR_LOOKS, str.capitalize, "set_look", lambda n: {"look": n}),
                 "words": self.words_on(state), "again": bool(self.rendered) and self.finished() is None,
                 "making": self.making is not None, "channels": self.channels_now(state),
-                "sound": {"mutes": state["mutes"], "has": self.has_sound()}, "ends": self.ends(state)}
+                "sound": {"mutes": state["mutes"], "has": self.has_sound()}, "ends": self.ends(state),
+                "frame": self.framing(state)}
 
     def channels_now(self, state):
         """The channel looks the page offers: each saved look with what it puts on a clip, the one in use, and the
@@ -524,6 +525,44 @@ class Chat:
         self._tell("the person moved the clip's ends on the page: it now runs from %s to %s of the recording"
                    % (recording.clock(clip["pieces"][0][0]), recording.clock(clip["pieces"][-1][1])))
         self.emit("moved", clip=self.clip_view())
+
+    def framing(self, state):
+        """Where the upright frame sits over a lying recording, for the Frame tab: {"picture": a frame of the clip's
+        middle (recording.frame), "size": the recording's [w, h], "x" and "width": the frame's left edge and width in
+        its pixels, "follows": True while it moves with the product, "why": None}, or {"why": the sentence} when there
+        is no frame to move. Tarm 10-30: "ซูมเป็นแนวตั้ง แต่ขยับกรอบไปชิดซ้าย"."""
+        clip, rec = state["clip"], self.recording or {}
+        whole = next((p for p in clip["layout"]["parts"] if p["name"] == "whole"), None)
+        if clip["layout"]["kind"] != "subject" or not whole:
+            return {"why": "Only a clip whose picture fills the frame (the subject layout) has a frame to move: ask "
+                           "Muse to make it in the subject layout."}
+        if not rec.get("width") or whole["src"][2] >= rec["width"] - 1:
+            return {"why": "The frame already shows the recording's whole width, so there is nowhere to move it."}
+        _, at = project.to_clip(clip["pieces"], state["length"] / 2) or (0, clip["pieces"][0][0])
+        return {"picture": recording.frame(rec, at), "size": [rec["width"], rec["height"]],
+                "x": round(whole["src"][0]), "width": round(whole["src"][2]), "follows": bool(whole.get("follow")),
+                "why": None}
+
+    def set_frame(self, x):
+        """The person's place for the upright frame, from the Frame tab: x is its left edge in the recording's pixels.
+        It holds there through the whole clip (a frame that followed the product stops following), as one change Undo
+        takes back, and Muse is told. Returns None, or the sentence why not."""
+        state = self._clip_now()
+        now = self.framing(state)
+        if now["why"]:
+            return now["why"]
+        x = round(min(max(0.0, x), self.recording["width"] - now["width"]))
+        if x == now["x"] and not now["follows"]:
+            return None
+        lay = state["clip"]["layout"]
+        parts = [dict({k: v for k, v in p.items() if k != "follow"}, src=[x] + list(p["src"][1:]))
+                 if p["name"] == "whole" else p for p in lay["parts"]]
+        self.edit({"do": "layout", "part": "frame", "box": None, "layout": dict(lay, parts=parts)})
+        w = float(self.recording["width"])
+        self._tell("the person moved the upright frame on the page: it now shows %d%% to %d%% of the recording's "
+                   "width, and holds there%s" % (round(100 * x / w), round(100 * (x + now["width"]) / w),
+                                                 " (it no longer follows the product)" if now["follows"] else ""))
+        return None
 
     def has_sound(self):
         """True when the clip's recording has sound to mute."""

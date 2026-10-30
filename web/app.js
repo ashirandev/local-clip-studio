@@ -88,8 +88,8 @@ const phoneFiles = $("phoneFiles");
 const attached = $("attached");
 const idle = text.placeholder;
 
-const SHEETS = { trim: ["cut", "Trim"], caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
-const EDITS = ["trim", "caps", "style", "look", "sound", "words", "channel"];
+const SHEETS = { trim: ["cut", "Trim"], frame: ["move", "Frame"], caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
+const EDITS = ["trim", "frame", "caps", "style", "look", "sound", "words", "channel"];
 const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_ends: "cut", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", move_part: "move", mute_sound: "mute", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", show_people: "people", slow_push: "move", undo: "undo", use_channel_look: "at", watch_piece: "eye" };
 
 const room = { mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null, sends: false };
@@ -685,6 +685,7 @@ function clearClip() {
   room.mute = {};
   room.pick = null;
   room.pickWhy = "";
+  room.frameX = null;
   againLine.textContent = "";
   previewLine.hidden = true;
   clipSave.hidden = true;
@@ -712,6 +713,7 @@ function showClip(e) {
   if (entry && entry.do === "clip") {
     room.mute = {};
     room.trim = null;
+    room.frameX = null;
   }
   drawClipFrame();
   clipTitle.textContent = room.ready ? room.ready.title : "Your clip";
@@ -1161,6 +1163,7 @@ function drawPanel(d) {
   partTabs.querySelector('[data-show="words"]').hidden = !d.words.length;
   partTabs.querySelector('[data-show="channel"]').hidden = !d.channels;
   partTabs.querySelector('[data-show="sound"]').hidden = !(d.sound && d.sound.has);
+  partTabs.querySelector('[data-show="frame"]').hidden = !d.frame || Boolean(d.frame.why);
   const caps = $("capsRow");
   const langs = $("langRow");
   const styles = $("styleRow");
@@ -1185,6 +1188,7 @@ function drawPanel(d) {
   if (d.channels) drawChannels(d.channels);
   drawSound(d.sound);
   drawTrim();
+  drawFrame();
 }
 
 const muteFrom = $("muteFrom");
@@ -1474,6 +1478,101 @@ async function trimApply() {
     trimWhy.hidden = false;
   }
   drawTrim();
+}
+
+const framePick = $("framePick");
+const framePic = $("framePic");
+const frameWindow = $("frameWindow");
+const frameSays = $("frameSays");
+const frameWhy = $("frameWhy");
+const frameGo = $("frameGo");
+const frameReset = $("frameReset");
+const FRAME_STEP = 0.05;
+
+function frameNow() {
+  const f = room.panel.frame;
+  return room.frameX === null || room.frameX === undefined ? f.x : room.frameX;
+}
+
+function setFrame(x) {
+  const f = room.panel && room.panel.frame;
+  if (!f || f.why) return;
+  const v = Math.round(Math.max(0, Math.min(f.size[0] - f.width, x)));
+  room.frameX = v === f.x && !f.follows ? null : v;
+  frameWhy.hidden = true;
+  drawFrame();
+}
+
+function drawFrame() {
+  const f = room.panel && room.panel.frame;
+  if (!f || f.why) return;
+  const x = frameNow();
+  const moved = room.frameX !== null && room.frameX !== undefined;
+  const share = (v) => Math.round((100 * v) / f.size[0]);
+  if (f.picture && framePic.dataset.name !== f.picture) {
+    framePic.src = "/api/frame/" + f.picture;
+    framePic.dataset.name = f.picture;
+  }
+  framePick.hidden = !f.picture;
+  framePick.style.aspectRatio = f.size[0] + " / " + f.size[1];
+  frameWindow.style.left = (100 * x) / f.size[0] + "%";
+  frameWindow.style.width = (100 * f.width) / f.size[0] + "%";
+  frameSays.textContent = moved ? "New: the clip shows " + share(x) + "% to " + share(x + f.width) + "% of your video's width" + (f.follows ? ", held there instead of following the product." : ".") : f.follows ? "The frame follows the product now. Drag it, or tap Left, Middle or Right, to hold it in one place." : "Drag the frame over your video, or tap Left, Middle or Right, to choose what the clip shows.";
+  $("frameLeft").disabled = x <= 0;
+  $("frameRight").disabled = x >= f.size[0] - f.width;
+  frameGo.disabled = !moved;
+  frameReset.hidden = !moved;
+}
+
+framePick.addEventListener("pointerdown", (e) => {
+  const f = room.panel && room.panel.frame;
+  if (!f || f.why) return;
+  const box = framePick.getBoundingClientRect();
+  const at = ((e.clientX - box.left) / box.width) * f.size[0];
+  const x = frameNow();
+  const grab = at >= x && at <= x + f.width ? at - x : f.width / 2;
+  framePick.setPointerCapture(e.pointerId);
+  framePick.classList.add("held");
+  const follow = (ev) => setFrame(((ev.clientX - box.left) / box.width) * f.size[0] - grab);
+  follow(e);
+  const done = () => {
+    framePick.classList.remove("held");
+    framePick.removeEventListener("pointermove", follow);
+    framePick.removeEventListener("pointerup", done);
+    framePick.removeEventListener("pointercancel", done);
+  };
+  framePick.addEventListener("pointermove", follow);
+  framePick.addEventListener("pointerup", done);
+  framePick.addEventListener("pointercancel", done);
+});
+
+$("frameLeft").addEventListener("click", () => setFrame(frameNow() - FRAME_STEP * room.panel.frame.size[0]));
+$("frameRight").addEventListener("click", () => setFrame(frameNow() + FRAME_STEP * room.panel.frame.size[0]));
+$("frameMiddle").addEventListener("click", () => setFrame((room.panel.frame.size[0] - room.panel.frame.width) / 2));
+frameReset.addEventListener("click", () => {
+  room.frameX = null;
+  frameWhy.hidden = true;
+  drawFrame();
+});
+frameGo.addEventListener("click", frameApply);
+
+async function frameApply() {
+  if (room.frameX === null || room.frameX === undefined) return;
+  frameGo.disabled = true;
+  frameWhy.hidden = true;
+  try {
+    const d = await post("/api/frame", { chat: room.chat, x: room.frameX });
+    if (d.ok) {
+      room.frameX = null;
+    } else {
+      frameWhy.textContent = d.error || "The frame could not be moved.";
+      frameWhy.hidden = false;
+    }
+  } catch (err) {
+    frameWhy.textContent = "The studio is not answering. Start it again with: python app.py";
+    frameWhy.hidden = false;
+  }
+  drawFrame();
 }
 
 function pickedTitle() {

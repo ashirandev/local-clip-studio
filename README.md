@@ -404,6 +404,9 @@ Detailed steps the input, the result and the engine numbers.
   the titles stay at their time in the clip, so the opening title still opens it. Seconds the moment never heard are
   heard first and captioned. Muse does the same when asked ("start 3 seconds earlier") with `change_ends`, and Undo
   puts the old ends back.
+- **Move the upright frame by hand.** When a wide video fills the upright frame, the Frame tab shows the whole video
+  with the frame over it: drag it, or tap Left, Middle or Right, then Apply. The frame holds there through the clip
+  (a frame that followed the product stops following), and Undo puts it back.
 - **The preview changes at once.** The page plays the clip without its words (a base video, made once for each
   picture) and lays the words over it, drawn as see-through pictures by the same libass as the export. A change of
   words shows in about a second (0.55 s measured on the test clip, 10-28); only a change to the picture or the sound

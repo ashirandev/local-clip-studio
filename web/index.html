@@ -158,6 +158,7 @@
     <nav class="tools" id="partTabs" aria-label="Change the clip">
       <button type="button" class="tool muse" id="toChat"><svg class="ico"><use href="#i-muse"/></svg>Chat</button>
       <button type="button" class="tool" data-show="trim" aria-pressed="false"><svg class="ico"><use href="#i-cut"/></svg>Trim</button>
+      <button type="button" class="tool" data-show="frame" aria-pressed="false" hidden><svg class="ico"><use href="#i-move"/></svg>Frame</button>
       <button type="button" class="tool" data-show="caps" aria-pressed="false"><svg class="ico"><use href="#i-cc"/></svg>Captions</button>
       <button type="button" class="tool" data-show="style" aria-pressed="false"><svg class="ico"><use href="#i-aa"/></svg>Style</button>
       <button type="button" class="tool" data-show="look" aria-pressed="false"><svg class="ico"><use href="#i-drop"/></svg>Colour</button>
@@ -226,6 +227,23 @@
         <button type="button" class="act go" id="trimGo" disabled><svg class="ico"><use href="#i-cut"/></svg><span>Apply</span></button>
       </div>
       <p class="panel-why" id="trimWhy" role="status" hidden></p>
+    </div>
+    <div class="panel-group" data-part="frame">
+      <p class="channel-says" id="frameSays"></p>
+      <div class="frame-pick" id="framePick" hidden>
+        <img id="framePic" alt="" draggable="false">
+        <div class="frame-window" id="frameWindow"></div>
+      </div>
+      <div class="acts">
+        <button type="button" class="act" id="frameLeft"><svg class="ico"><use href="#i-back"/></svg><span>Left</span></button>
+        <button type="button" class="act" id="frameMiddle"><svg class="ico"><use href="#i-move"/></svg><span>Middle</span></button>
+        <button type="button" class="act" id="frameRight"><svg class="ico flip"><use href="#i-back"/></svg><span>Right</span></button>
+      </div>
+      <div class="acts">
+        <button type="button" class="act" id="frameReset" hidden><svg class="ico"><use href="#i-x"/></svg><span>As it was</span></button>
+        <button type="button" class="act go" id="frameGo" disabled><svg class="ico"><use href="#i-move"/></svg><span>Apply</span></button>
+      </div>
+      <p class="panel-why" id="frameWhy" role="status" hidden></p>
     </div>
     <div class="panel-group" data-part="words">
       <div class="word-list" id="wordList"></div>

@@ -15,7 +15,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, channels, faces, hearing, mind, project, recording, render, server, tools  # noqa: E402
+from clipstudio import agent, channels, faces, hearing, layouts, mind, project, recording, render, server, tools  # noqa: E402,E501
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_editor import found  # noqa: E402
 from test_hearing import Worker  # noqa: E402
@@ -617,6 +617,49 @@ class Served(Clip):
             conn.close()
 
 
+class Frame(Clip):
+    def whole(self):
+        return next(p for p in self.chat.project.state()["clip"]["layout"]["parts"] if p["name"] == "whole")
+
+    def test_the_person_moves_the_upright_frame_and_it_holds_there_until_undo(self):
+        self.make()
+        frame = self.chat.panel()["frame"]
+        self.assertEqual((frame["why"], frame["size"], frame["width"], frame["follows"]), (None, [320, 180], 102, False))
+        self.assertTrue(os.path.isfile(os.path.join(recording.WORK, "frames", frame["picture"])))
+        self.assertIsNone(self.chat.set_frame(0), "Tarm 10-30: the frame further to the left")
+        self.assertEqual((self.whole()["src"][0], self.chat.panel()["frame"]["x"]), (0, 0))
+        self.assertIn("moved the upright frame on the page: it now shows 0% to 32% of the recording's width",
+                      self.chat.told[-1])
+        self.assertIsNone(self.chat.set_frame(5000))
+        self.assertEqual(self.whole()["src"][0], 320 - 102, "the frame stays on the picture")
+        self.chat.undo()
+        self.chat.undo()
+        self.assertEqual(self.whole()["src"][0], frame["x"], "two undos put it back where Muse made it")
+
+    def test_a_frame_that_followed_the_product_holds_where_the_person_puts_it(self):
+        self.make()
+        lay = self.chat.project.state()["clip"]["layout"]
+        plan = {"shots": [{"from": 0, "to": 10, "x": 0, "y": 0}, {"from": 10, "to": 20, "x": 200, "y": 0}],
+                "size": [102, 180]}
+        self.chat.edit({"do": "layout", "part": "product", "box": None, "layout": layouts.followed(lay, plan, "whole")})
+        self.assertTrue(self.chat.panel()["frame"]["follows"])
+        self.assertIsNone(self.chat.set_frame(60))
+        self.assertEqual((self.whole()["src"][0], "follow" in self.whole()), (60, False))
+        self.assertFalse(self.chat.panel()["frame"]["follows"])
+        self.assertTrue(self.chat.told[-1].endswith("(it no longer follows the product)"))
+
+    def test_a_clip_without_an_upright_frame_says_why_and_is_not_changed(self):
+        self.make()
+        for layout in ("card", "face"):
+            _, steps = self.run_job([call("make_clip", moment=1, layout=layout, why="another layout")], "Done.")
+            self.assertFalse(steps[0]["refused"], steps[0]["result"])
+            why = self.chat.panel()["frame"]["why"]
+            self.assertIn("subject layout", why, layout)
+            entries = len(self.chat.project.entries)
+            self.assertEqual(self.chat.set_frame(0), why, "the face layout's picture is cut around the face")
+            self.assertEqual(len(self.chat.project.entries), entries)
+
+
 class Endpoints(Served):
     def test_a_cover_is_sent_by_its_name_as_a_jpeg_and_nothing_else_reaches_the_disk(self):
         folder = render.folder("covers")
@@ -739,6 +782,15 @@ class Endpoints(Served):
                             ({"end": 0.9}, "The title must stay on screen at least 1 s; 0.5-0.9 s is shorter.")):
             self.assertEqual(self.ask("POST", "/api/title/time", dict(body, **wrong)),
                              (400, {"ok": False, "error": said}), wrong)
+
+    def test_the_frame_is_moved_with_a_post_of_its_left_edge(self):
+        self.make()
+        self.assertEqual(self.ask("POST", "/api/frame", {"chat": self.chat.id, "x": 10}), (200, {"ok": True}))
+        whole = next(p for p in self.chat.project.state()["clip"]["layout"]["parts"] if p["name"] == "whole")
+        self.assertEqual(whole["src"][0], 10)
+        for wrong in ("10", True, None, 1e12):
+            self.assertEqual(self.ask("POST", "/api/frame", {"chat": self.chat.id, "x": wrong}), (400, {
+                "ok": False, "error": "Send where the frame's left edge goes, in pixels of the recording."}), wrong)
 
     def test_the_video_is_made_again_with_a_post(self):
         self.make(SAID)

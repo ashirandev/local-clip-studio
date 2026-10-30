@@ -50,6 +50,7 @@ computer only.
 - POST /api/ends {chat, start, end}: the clip starts and ends there, in seconds of the recording: change_ends, run in
   the background ({"ok": true} once it has started); a "moved" event says when the clip is made, a "not_moved" event
   why it was not
+- POST /api/frame {chat, x}: the upright frame holds with its left edge at x pixels of the recording (Chat.set_frame)
 - POST /api/remake {chat}: makes the video again from the clip as it is now, as render_clip does, without Muse.
   Each answers {"ok": true}, or {"ok": false, "error"} with 404 when the clip or the words are not there and 400
   with the reason the change was refused. /api/captions {chat, language: "said"} puts the captions back in the words
@@ -110,7 +111,7 @@ POSTER_AT = 1.0
 READ_TRIES, READ_WAIT = 10, 0.05
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 CHANGES = ("/api/captions", "/api/style", "/api/colour", "/api/words", "/api/remake", "/api/channel",
-           "/api/channel/save", "/api/mute", "/api/ends", "/api/title/time")
+           "/api/channel/save", "/api/mute", "/api/ends", "/api/title/time", "/api/frame")
 TIMES = {"/api/mute": "Send the start and the end of the part to mute, in seconds of the clip.",
          "/api/ends": "Send the new start and end of the clip, in seconds of the recording.",
          "/api/title/time": "Send the title's new start and end, in seconds of the clip."}
@@ -278,6 +279,9 @@ class Handler(BaseHTTPRequestHandler):
                 why = chat.set_look(str(body.get("look") or ""))
             elif path == "/api/remake":
                 why = chat.make_again()
+            elif path == "/api/frame":
+                x = body.get("x")
+                why = chat.set_frame(float(x)) if isinstance(x, (int, float)) and not isinstance(x, bool) and abs(x) < 1e9 else                     "Send where the frame's left edge goes, in pixels of the recording."
             elif path == "/api/channel" and "spot" in body:
                 why = chat.set_channel_spot(str(body.get("spot") or ""))
             elif path == "/api/channel":
