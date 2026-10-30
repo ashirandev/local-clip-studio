@@ -1139,7 +1139,11 @@ class Tools(unittest.TestCase):
         brain, steps = self.run_job(
             *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
             [call("add_title", words="คลิปเด็ดลงติ๊กต็อก", start=0, end=3, place="top", why="the hook")],
+            [call("add_title", words="ซื้oมาขายไป", start=0, end=3, place="top", why="the hook")],
             [call("add_title", words="คลิปเด็ดลง Reels", start=0, end=3, place="top", why="the hook")], "Done.")
+        self.assertTrue(steps[-2]["refused"], "a Latin o inside a Thai word (Glimmer 10-30)")
+        self.assertIn('"ซื้oมาขายไป" has a Latin letter inside a Thai word', steps[-2]["result"])
+        steps = steps[:-2] + steps[-1:]
         self.assertTrue(steps[-2]["refused"])
         self.assertIn("This names \"ติ๊กต็อก\", which belongs to another company's app.", steps[-2]["result"])
         self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
@@ -2771,11 +2775,14 @@ class Tools(unittest.TestCase):
                 [call("check_clip", why="again")],
                 [call("hand_over", title="t", caption="clips from H:/Phone/yeti", hashtags=["#a"], why="where")],
                 [call("hand_over", title="t", caption="c", hashtags=["#reels", "fyp", "TikTokThailand"], why="tags")],
+                [call("hand_over", title="ของดี ซื้oมาขายไป", caption="c", hashtags=["#reels"], why="slip")],
                 [call("hand_over", title="t", caption="c", hashtags=["#reels", "#instagram", "#facebook"], why="post")],
                 "Done.")
         finally:
             render.export = had
-        unchecked, first, failed, _, _, second, where, other, ready = steps[-9:]
+        unchecked, first, failed, _, _, second, where, other, slipped, ready = steps[-10:]
+        self.assertTrue(slipped["refused"], "Glimmer 10-30: a Latin o in a Thai word of the post's title")
+        self.assertIn('"ซื้oมาขายไป" has a Latin letter inside a Thai word', slipped["result"])
         self.assertTrue(where["refused"], "Glimmer's post named the folder of the clips (10-28)")
         self.assertIn('The post names "H:/Phone/yeti", a place on this computer', where["result"])
         self.assertTrue(other["refused"], "Tarm 10-28: no #tiktok, the studio makes Reels for Instagram and Facebook")

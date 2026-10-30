@@ -2797,6 +2797,7 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
         raise Refused("The person asked for the words on the clip in English, so a viewer who reads no Thai can "
                       "follow: write \"%s\" in English." % words)
     _other_apps(words)
+    _latin_in_thai(words)
     copied = None if asked else _labels_copied(job, rec, state, [words], "The title")
     if copied:
         raise Refused("Not put on. " + copied)
@@ -4692,6 +4693,22 @@ OTHER_APPS = re.compile(r"(?i)tik\s*-?\s*tok|ต[ิี][๊๋]?ก\s*-?\s*ต[
                         r"#\s*fyp\w*|#\s*foryou(?:page)?\b")
 
 
+# A small Latin letter or two inside a Thai word is a slip, not a name: Glimmer wrote "ซื้oมาขายไป" in a seller's post
+# title and twice in its post (10-30, 164011-1c04), and every check passed. Capitals are left alone, as TV or AI sit
+# between Thai words as they are.
+SLIPPED = re.compile(r"[ก-๛]+[a-z]{1,2}[ก-๛]+")
+
+
+def _latin_in_thai(*texts):
+    """Refused naming each Thai word with a small Latin letter or two inside it, or nothing."""
+    found = list(dict.fromkeys(m.group(0) for m in SLIPPED.finditer(" ".join(t for t in texts if t))))
+    if found:
+        raise Refused("%s %s a Latin letter inside a Thai word, a slip a viewer reads as a typo. Write %s in Thai "
+                      "letters only, then try again." % (", ".join('"%s"' % w for w in found),
+                                                         "has" if len(found) == 1 else "have",
+                                                         "it" if len(found) == 1 else "them"))
+
+
 def _other_apps(*texts):
     """Refused naming another company's app in texts, or nothing."""
     named = list(dict.fromkeys(m.group(0) for m in OTHER_APPS.finditer(" ".join(t for t in texts if t))))
@@ -4721,6 +4738,7 @@ def hand_over(job, why, title, caption, hashtags, english=""):
         raise Refused("The post names %s, a place on this computer: viewers must never see where the files are kept. "
                       "Write the title and the post without it." % ", ".join('"%s"' % w for w in where))
     _other_apps(title, caption, english, *[_tag(h) for h in hashtags])
+    _latin_in_thai(title, caption, *hashtags)
     copied = _labels_copied(job, rec, state, [title, caption, english], "The title or the post")
     if copied:
         raise Refused("Not handed over. " + copied)

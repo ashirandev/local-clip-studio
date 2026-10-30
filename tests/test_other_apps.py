@@ -33,5 +33,20 @@ class OtherApps(unittest.TestCase):
                                   % (name, found and found.group(0)))
 
 
+class LatinInThai(unittest.TestCase):
+    """Glimmer 10-30: "ซื้oมาขายไป" in a seller's post title and twice in its post."""
+
+    def test_a_small_latin_letter_inside_a_thai_word_is_refused_and_named(self):
+        with self.assertRaises(tools.Refused) as said:
+            tools._latin_in_thai("ของดี ซื้oมาขายไป", "ราคาถูก")
+        self.assertEqual(str(said.exception), '"ซื้oมาขายไป" has a Latin letter inside a Thai word, a slip a viewer reads '
+                                              'as a typo. Write it in Thai letters only, then try again.')
+
+    def test_names_capitals_and_spaced_words_are_kept(self):
+        for said in ("ซื้อiPadมา", "ร้านcafeดี", "กินKFCกัน", "ช่องTVดี", "ใช้ AI ตัดคลิป", "รุ่นS24ดี", "ราคา 5,000 บาท",
+                     "iPhone ใหม่", "#ของดีบอกต่อ"):
+            self.assertIsNone(tools._latin_in_thai(said), said)
+
+
 if __name__ == "__main__":
     unittest.main()
