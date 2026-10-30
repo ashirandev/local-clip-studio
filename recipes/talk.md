@@ -35,7 +35,10 @@ joke and the laugh after it.
   people one above the other (split) only when the person asks for everyone to stay on the screen (Tarm, 10-29, on a
   clip with circles: "ถ้าจะคัต ต้อง cut สลับหน้า ไม่ใช่วาง layout แบบนี้"). Never leave a person who speaks off the
   screen: if a shot shows the wrong person, change who is shown then.
-- Captions on: in a conversation the words are the clip. Plain captions, never lit word by word.
+- Captions on: in a conversation the words are the clip. Plain captions, never lit word by word. When the picture
+  already shows words of its own, as an edited episode does, keep captions on anyway: the program leaves out each
+  line said while the picture's own words show, because two sets of words fight (EP 0, 10-30: its own subtitle and
+  ours, one over the other), and its own words come and go, so the rest still needs ours.
 - The title names the question or the claim in a few words, in the clip's language; a number in it must be one that
   was said.
 - Pictures: when they name something a picture can show (a ghost in a ghost story, a crowd of viewers, a

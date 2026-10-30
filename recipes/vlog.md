@@ -29,8 +29,9 @@ what caused it, or a short story with its end.
   faces in the moment allow, so the people and the subtitles an editor centres show bigger; a logo in a corner may
   go. Never cut the picture down to one face: a vlog cuts between shots, and a face is lost at every cut (10-29: a
   travel episode cut down to faces showed an eye and hair in the circles).
-- Captions: when the picture already has its own subtitles, add none, because two sets of words fight. Otherwise
-  plain captions of what is said.
+- Captions: plain captions of what is said. When the picture already has its own subtitles, put captions on anyway:
+  the program leaves out each line said while the picture's own words show, because two sets of words fight, and
+  draws none when they show over every line.
 - The title names the place or what happens, in a few words, in the clip's language. It sits above the card, never
   over the picture's own subtitles.
 - Look: none. The editor already chose the colours.
