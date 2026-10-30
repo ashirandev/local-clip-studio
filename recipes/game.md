@@ -1,6 +1,6 @@
 ---
 name: game
-title: Game stream
+title: Game stream, but not a sports game
 chip: It's a game stream
 description: Someone plays a game on screen, usually with a face camera and a voice over the game sound. Pick it for streams, lives (ไลฟ์) and gameplay recordings of a game. A match in a sports game (FIFA, EA FC, eFootball, NBA 2K) is a sports match, not this.
 length: 30

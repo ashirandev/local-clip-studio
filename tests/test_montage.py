@@ -254,6 +254,31 @@ class Arrange(unittest.TestCase):
         self.assertEqual(len(self.chat.clips["clips"]), 3)
         self.assertEqual([c["n"] for c in agent.Chat.load(self.chat.id).clips["clips"]], [1, 2, 3])
 
+    def test_the_clip_shot_last_shows_its_end_and_no_other_does(self):
+        """Lane 4 10-31: the ride's close stood from 112 s of clip 7, past its last picture at 107 s."""
+        self.assertEqual(montage.strip_times(125.4), [18.81, 62.7, 106.59])
+        self.assertEqual(montage.strip_times(125.4, True), [18.81, 62.7, 106.59, 115.37, 123.9])
+        self.assertEqual(montage.strip_times(4.0, True), montage.strip_times(4.0), "its strip reaches its end already")
+        make_clip(os.path.join(self.folder, "d_first.mov"), seconds=40.0, shot="2026-03-10T13:00:00+0900")
+        make_clip(os.path.join(self.folder, "e_last.mov"), seconds=40.0, shot="2026-03-10T17:00:00+0900")
+        told, row = [], montage._row
+        shown = []
+
+        def attach(job, path, text):
+            told.append(text)
+
+        def counted(shots, height):
+            shown.append(len(shots))
+            return row(shots, height)
+
+        with mock.patch.object(agent.Job, "attach", attach), mock.patch.object(montage, "_row", counted):
+            self.run_job(*self.opened(), "Done.")
+        pictures = [t for t in told if t.startswith("Clip ")]
+        self.assertTrue(pictures[0].endswith("pictures at 6, 20, 34 s:"), pictures[0])
+        self.assertTrue(pictures[-1].endswith("pictures at 6, 20, 34, 36.8, 38.5 s:"), pictures[-1])
+        self.assertEqual(shown[0], 3)
+        self.assertEqual(shown[-1], 5, "the picture shows what the words say it shows")
+
     def test_with_clips_open_any_recipe_asked_is_the_montage_until_another_recording_opens(self):
         self.chat.emit("person", job=None, text="ขอยาวสัก 60 วิ")
         steps = self.run_job([call("open_clips", folder=self.folder, why="the review's takes")],

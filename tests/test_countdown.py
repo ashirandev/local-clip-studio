@@ -314,6 +314,48 @@ class MakeCountdown(unittest.TestCase):
         self.assertIsNone(told("sport", seen=250.0), "a quarter of it seen")
         self.assertIsNone(told("sport", seconds=120.0, seen=10.0), "a clip, not a match")
 
+    def test_a_goal_is_kept_to_its_moment_and_one_too_long_is_told_what_works(self):
+        """10-31 023845-9147: a start the clock showed as the moment's was refused by a part of a second, then Muse was
+        told to leave the seconds out, which a match refuses: 6 tries for 2 goals."""
+        wide = [{"look": 1, "start": "0:06", "end": "0:21", "reason": "first"},
+                {"look": 1, "start": "0:22", "end": "0:50", "reason": "second"}]
+        over = [{"moment": 1, "words": "0-1", "start": "0:05", "end": "0:21"},
+                {"moment": 2, "words": "0-2", "start": "0:22", "end": "0:50"}]
+        fixed = [over[0], dict(over[1], end="0:40")]
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(over), self.counted(fixed), recipe="sport", moments=wide)
+        said = steps[-2]["result"]
+        self.assertIn("is 28 s long, and a piece is 3 to 20 s; give it a start and an end inside the moment.", said)
+        self.assertNotIn("Moment 1", said, "a start before the moment is brought to it")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertIn("Joined 2 moments", steps[-1]["result"])
+        self.assertIn("moment 1, 0:06-", steps[-1]["result"])
+
+    def test_one_clip_of_a_match_with_more_moments_is_refused_once_and_the_second_answer_stands(self):
+        """10-31: Glimmer proposed 3 goals and made a clip of the first, 2 of 2."""
+        one = [call("make_clip", moment=1, layout="card", why="the first goal")]
+        steps = self.run_job("ทำคลิปไฮไลท์", one, one, recipe="sport")
+        refused, made = steps[-2:]
+        self.assertTrue(refused["refused"], refused["result"])
+        self.assertIn("A match's goals go in one clip, in match order: join these 3 moments", refused["result"])
+        self.assertFalse(made["refused"], made["result"])
+
+    def test_one_clip_of_a_game_is_made_at_once(self):
+        steps = self.run_job("ทำคลิป", [call("make_clip", moment=1, layout="card", why="the moment")])
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+
+    def test_one_clip_of_a_match_with_one_moment_is_made_at_once(self):
+        alone = [{"look": 1, "start": "0:06", "end": "0:21", "reason": "the goal"}]
+        steps = self.run_job("ทำคลิป", [call("make_clip", moment=1, layout="card", why="the goal")], recipe="sport",
+                             moments=alone)
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+
+    def test_a_clip_from_each_goal_asked_for_and_a_tapped_card_are_left_alone(self):
+        job = mock.Mock()
+        job.n, job.chat.clip, job.chat.events = 1, {"recipe": "sport"}, []
+        self.assertIsNone(tools._one_goal(job, tools.BATCH_WHY, [1, 2]))
+        job.n = None
+        self.assertIsNone(tools._one_goal(job, "the person tapped its card", [1, 2]))
+
     def test_a_match_is_offered_the_join_unasked_and_a_game_is_not(self):
         job = agent.Job(self.chat, ScriptedMind("ok"), "ทำไฮไลท์")
 

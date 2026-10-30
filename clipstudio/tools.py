@@ -340,10 +340,12 @@ def open_clips(job, why, folder):
     height = montage.STRIP_HEIGHT if len(clips) <= montage.MANY else montage.STRIP_LOWEST
     for c in clips:
         rec = c["rec"]
-        picture = montage.strip(c, height)
+        last = c is clips[-1]
+        picture = montage.strip(c, height, last)
         if picture:
             job.attach(picture, "Clip %d (%s, %g s): pictures at %s s:" % (
-                c["n"], rec["name"], rec["seconds"], ", ".join("%g" % t for t in montage.strip_times(rec["seconds"]))))
+                c["n"], rec["name"], rec["seconds"],
+                ", ".join("%g" % t for t in montage.strip_times(rec["seconds"], last))))
         kept.append({"n": c["n"], "rec": rec, "when": montage.when(c), "stills": c["stills"], "said": c["said"],
                      "unheard": c["unheard"], "claps": c["claps"], "picture": picture})
     job.chat.clips = {"folder": real, "clips": kept}
@@ -1626,22 +1628,29 @@ def _waits(job):
 
 # A moment that stops where its look stops was never seen to end: 94 of 127 moments on 10-30 ended within 3 s of the
 # look's end, and EP 22's stopped 2 s before the joke (lane 4). Recipe lines did not move Glimmer's pick, so the program
-# looks on once, EDGE seconds from the edge, and Muse keeps the moment or moves it. A game's end is its death: left out.
+# looks on once, EDGE seconds from the edge, and Muse keeps the moment or moves it. A game's end is its death, so a game
+# is only looked back from, when its moment runs under the recipe's length: all of Sifu's runs took one look opening a
+# second after "ตรงนี้อีกแล้ววะ", and 35:52-36:11 shipped as 13 s of 30, three deaths at that spot unseen (lane 4). Once a
+# job, and not for a moment near its length: 27 s of 30 sent back twice left the deaths for a stretch with none.
 EDGE = 3.0
 SEEN_ON, SEEN_BACK = 20.0, 25.0
-EDGE_RECIPES = ("talk", "vlog", "explain")
+GAME_SHORT = 0.85
+EDGE_RECIPES = ("talk", "vlog", "explain", "game")
 
 
 def _seen_past(job, why, rec, i, m, look, a, b):
     """What Muse sees past the edges of moment i, m as Muse gave it (a to b inside look), when a start or an end Muse
     gave stops at one and no look has shown what is there, else what it reads again (_read_cold). Once for a look, so
     Muse's second answer stands."""
-    if (job.chat.clip or {}).get("recipe") not in EDGE_RECIPES or look.get("seen_past"):
+    clip = job.chat.clip or {}
+    game = clip.get("recipe") == "game"
+    if clip.get("recipe") not in EDGE_RECIPES or look.get("seen_past"):
         return None
-    before = m.get("start") and a - look["start"] <= EDGE
-    after = m.get("end") and look["end"] - b <= EDGE
+    before = (b - a < GAME_SHORT * clip["length_s"] and not _told_once(job, "seen_back")) if game else (
+        m.get("start") and a - look["start"] <= EDGE)
+    after = not game and m.get("end") and look["end"] - b <= EDGE
     if not before and not after:
-        return _read_cold(look, i, m, a)
+        return None if game else _read_cold(look, i, m, a)
     clock = recording.clock
     start = max(0.0, look["start"] - SEEN_BACK) if before else look["start"]
     end = min(rec["seconds"], look["end"] + SEEN_ON) if after else look["end"]
@@ -1654,6 +1663,11 @@ def _seen_past(job, why, rec, i, m, look, a, b):
     if len(looks) == had:
         return seen
     looks[-1]["seen_past"] = True
+    if game:
+        return ("Not proposed yet: moment %d runs %g s of the %g s this clip can hold, and you have not seen what led up "
+                "to it. The program looked back for you.\n%s\nPropose again from look %d: move the start back to where "
+                "what leads to the moment begins, if that tells it better, and keep the end on the peak." % (
+                    i, round(b - a), clip["length_s"], seen, looks[-1]["n"]))
     edges = " and ".join(([clock(look["start"])] if before else []) + ([clock(look["end"])] if after else []))
     return ("Not proposed yet: moment %d sits at the edge of look %d (%s), so you have not seen what is said on the other "
             "side. The program looked on for you.\n%s\nPropose again from look %d: keep the moment's start and end if it "
@@ -2124,7 +2138,8 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     except hearing.Stopped:
         return "Not made: the person pressed Stop."
     recipe = (job.chat.clip or {}).get("recipe")
-    unasked = None if moved else _layout_unasked(job, recipe, [layout]) or _menu_start(job, rec, a)
+    unasked = None if moved else (_layout_unasked(job, recipe, [layout]) or _menu_start(job, rec, a)
+                                  or _one_goal(job, why, moments))
     if unasked:
         raise Refused("Not made. " + unasked)
     level = None if recipe == MONTAGE else takes.heard_level(rec, a, b)
@@ -2474,6 +2489,17 @@ def _plain(job, rec, lay, a, b):
         "The screen holds about %d lines of words at a time, so the card sits on a plain ground of the picture's "
         "colours instead of its blurred copy, which would show those words big behind the card and the title."
         % round(many))
+
+
+def _one_goal(job, why, moments):
+    """The sentence refusing, once a job, a clip of one of a match's moments when Muse proposed more, or None. On Tarm's
+    eFootball match Spark joined the goals 3 of 3; Glimmer proposed 3 goals and made a clip of the first, 2 of 2. A card
+    the person tapped is that clip, so job.n None is left alone."""
+    if (job.chat.clip or {}).get("recipe") != "sport" or len(moments) < 2 or job.n is None or why == BATCH_WHY \
+            or _told_once(job, "one_goal"):
+        return None
+    return ("A match's goals go in one clip, in match order: join these %d moments with make_countdown, each piece with "
+            "its start and its end. If the person asked for one goal, make it again and it is made." % len(moments))
 
 
 def _menu_start(job, rec, a):
@@ -5640,6 +5666,8 @@ def make_countdown(job, why, moments, story):
         else:
             a = _time("moment %d's start" % c["moment"], c["start"]) if c.get("start") else m["start"]
             b = _time("moment %d's end" % c["moment"], c["end"]) if c.get("end") else m["end"]
+            if reel:
+                a, b = max(a, m["start"]), min(b, m["end"])
             wrong = []
             if round(a, 2) < m["start"] or round(b, 2) > m["end"]:
                 wrong.append("runs outside the moment (%s-%s)" % (clock(m["start"]), clock(m["end"])))
@@ -5647,9 +5675,10 @@ def make_countdown(job, why, moments, story):
                 wrong.append("is %g s long, and a piece is %g to %g s" % (round(b - a, 1), countdown.SHORTEST,
                                                                           countdown.LONGEST))
             if wrong:
-                problems.append("Moment %d: its piece %s-%s %s; leave start and end out for the %g s around its "
-                                "peak." % (c["moment"], clock(a), clock(b), " and ".join(wrong),
-                                           countdown.BEFORE + countdown.AFTER))
+                problems.append("Moment %d: its piece %s-%s %s; %s." % (
+                    c["moment"], clock(a), clock(b), " and ".join(wrong), "give it a start and an end inside the moment"
+                    if reel else "leave start and end out for the %g s around its peak" % (
+                        countdown.BEFORE + countdown.AFTER)))
                 continue
         a, b, moved = _snapped(looks[m["look"] - 1], a, b)
         if moved:

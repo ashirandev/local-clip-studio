@@ -14,6 +14,7 @@ import threading
 import time
 import types
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -3284,7 +3285,7 @@ class Tools(unittest.TestCase):
     def test_a_moment_clear_of_the_edges_a_game_and_the_recordings_own_end_are_proposed_at_once(self):
         tools.EDGE_RECIPES = self.edge_recipes
         clear = ("vlog", "0:30", "0:50", {"start": "0:34", "end": "0:45"})
-        game = ("game", "0:30", "0:50", {"start": "0:32", "end": "0:49"})
+        game = ("game", "0:10", "0:50", {"start": "0:12", "end": "0:49"})
         last = ("vlog", "0:40", "1:00", {"start": "0:44", "end": "0:59"})
         whole = ("vlog", "0:30", "0:50", {})
         for kind, a, b, ends in (clear, game, last, whole):
@@ -3301,6 +3302,50 @@ class Tools(unittest.TestCase):
                                     {"look": 1, "reason": "first", "start": "0:15", "end": "0:30"},
                                     {"look": 1, "reason": "second", "start": "0:32", "end": "0:49"}])], "Done.")
         self.assertTrue(steps[-1]["result"].startswith("Proposed 2 moments"), "only the one made next is looked past")
+
+    def test_a_game_moment_under_its_length_is_seen_back_from_once_and_its_end_stays(self):
+        """Lane 4 10-31: Sifu's 35:52-36:11 shipped as 13 s of 30, its look opening a second after the lead-up."""
+        tools.EDGE_RECIPES = self.edge_recipes
+        short = [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the death", "start": "0:38",
+                                                                   "end": "0:49"}])]
+        _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="game", why="a stream")],
+                                self.to_moment()[1], short, short, "Done.")
+        looked, again = steps[3], steps[4]
+        self.assertFalse(looked["refused"], looked["result"])
+        self.assertTrue(looked["result"].startswith("Not proposed yet: moment 1 runs 11 s of the 30 s this clip can hold"),
+                        looked["result"])
+        self.assertIn("Look 2: 0:05-0:50", looked["result"], "25 s before it, the end stays on the peak")
+        self.assertTrue(again["result"].startswith("Proposed 1 moment"), again["result"])
+
+    def test_a_game_is_seen_back_from_once_a_job(self):
+        """10-31 024736-221a: sent back twice, the clip left the deaths for a stretch with none."""
+        tools.EDGE_RECIPES = self.edge_recipes
+        short = [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the death", "start": "0:38",
+                                                                   "end": "0:49"}])]
+        newer = [call("propose_moments", why="the play before", moments=[{"look": 3, "reason": "the play", "start": "0:06",
+                                                                          "end": "0:18"}])]
+        _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="game", why="a stream")],
+                                self.to_moment()[1], short, [call("look_at_piece", start="0:05", end="0:20", why="before")],
+                                newer, "Done.")
+        self.assertTrue(steps[3]["result"].startswith("Not proposed yet: moment 1 runs 11 s"), steps[3]["result"])
+        self.assertTrue(steps[5]["result"].startswith("Proposed 1 moment"), steps[5]["result"])
+
+    def test_a_game_moment_near_its_length_is_not_seen_back_from(self):
+        tools.EDGE_RECIPES = self.edge_recipes
+        job = mock.Mock()
+        job.chat.clip, job.chat.events = {"recipe": "game", "length_s": 30}, []
+        look = {"n": 1, "start": 0.0, "end": 60.0}
+        self.assertIsNone(tools._seen_past(job, "why", {"seconds": 60.0}, 1, {"start": "0:10", "end": "0:37"}, look, 10.0, 37.0))
+
+    def test_a_game_moment_of_its_length_is_not_read_again(self):
+        tools.EDGE_RECIPES = self.edge_recipes
+        job = mock.Mock()
+        job.chat.clip = {"recipe": "game", "length_s": 30}
+        look = {"n": 1, "start": 0.0, "end": 60.0, "said": [{"from": 1.0, "to": 3.0, "text": "before"},
+                                                            {"from": 4.0, "to": 9.0, "text": "its first line"}]}
+        moment = {"start": "0:04", "end": "0:50"}
+        self.assertIsNone(tools._seen_past(job, "why", {"seconds": 60.0}, 1, moment, look, 4.0, 50.0))
+        self.assertNotIn("seen_past", look)
 
     def test_a_seller_clip_is_not_cut_in_two_unless_the_person_asked(self):
         _, steps = self.run_job(*self.to_moment(), [call("load_recipe", type="seller", why="a product")],

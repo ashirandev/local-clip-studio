@@ -34,6 +34,7 @@ FADE = 0.04
 STRIP_HEIGHT, STRIP_LOWEST = 360, 280
 MANY = 20
 STRIP_AT = (0.15, 0.5, 0.85)
+LAST_AT, LAST_BEFORE_END, STRIP_APART = 0.92, 1.5, 1.0
 ONE_PICTURE = 1.5
 GAP = 8
 OVERVIEW_FROM = 180
@@ -113,21 +114,26 @@ def when(c):
     return c["shot"].strftime("shot %Y-%m-%d %H:%M:%S") + ("" if c["how"] == "camera" else " (the file's time)")
 
 
-def strip_times(seconds):
-    """The seconds of a clip its strip shows."""
+def strip_times(seconds, last=False):
+    """The seconds of a clip its strip shows. The clip shot last (last) shows its end too: the horse ride's close stood
+    from 112 s of a clip of 125 s, past its last picture at 107 s, and 3 of 3 runs closed on one more ride shot."""
     if seconds < ONE_PICTURE:
         return [round(seconds / 2, 2)]
-    return [round(seconds * k, 2) for k in STRIP_AT]
+    times = [round(seconds * k, 2) for k in STRIP_AT]
+    for t in (seconds * LAST_AT, seconds - LAST_BEFORE_END) if last else ():
+        if t - times[-1] >= STRIP_APART:
+            times.append(round(t, 2))
+    return times
 
 
-def strip(c, height=STRIP_HEIGHT):
+def strip(c, height=STRIP_HEIGHT, last=False):
     """One picture of clip c for Muse: frames from it side by side, height pixels tall, each marked with the second it
     is at, and the clip's number in the corner. Returns the jpg's path in work/montage, or None when no frame could be
     taken. A picture costs Muse about one token for every 650 of its pixels, read on the processor (measured 10-27:
     19 strips 480 px tall were 11,800 tokens and 142 s, a third of its 32,768), so the strips are no taller than they
     must be to tell what happens in a clip."""
     rec = c["rec"]
-    times = strip_times(rec["seconds"])
+    times = strip_times(rec["seconds"], last)
     target = _sheet_path("%s|%d|%s|%d|%s|%d" % (rec["path"], rec["size"], rec["mtime"], c["n"], times, height))
     if os.path.isfile(target):
         return target
