@@ -39,8 +39,8 @@ joke and the laugh after it.
 - The title names the question or the claim in a few words, in the clip's language; a number in it must be one that
   was said.
 - Pictures: when they name something a picture can show (a ghost in a ghost story, a crowd of viewers, a
-  mountain of money), add_picture on the second it is said, 1 to 3 in a clip, each a new thing, so the top of the
-  frame changes as the talk moves on (Tarm, 10-30: "ตอนที่พูดถึงเรื่องผีก็มีภาพผี").
+  mountain of money), a picture of it over the top on the second it is said, 1 to 3 in a clip, each a new thing,
+  so the top of the frame changes as the talk moves on (Tarm, 10-30: "ตอนที่พูดถึงเรื่องผีก็มีภาพผี").
 - Look: none, or warm for faces. No slow push: the cuts carry the pace.
 - Sounds: none, or a pop on a sticker. The voices sell the moment.
 

@@ -35,8 +35,7 @@ the seller said one.
 ## The clip
 
 - Layout: the vertical frame follows the product, the most prominent thing in every shot, not the seller's face. In
-  a landscape recording, make the clip in the subject layout, then have follow_product move the frame with the
-  product.
+  a landscape recording, make the clip in the subject layout, then have the frame follow the product.
 - The title names the product or its one best point, in the clip's language.
 - A spec card may show one number the seller said.
 - Background: when the seller sits in front of a green cloth, put a background behind them that suits the product
