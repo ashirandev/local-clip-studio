@@ -19,6 +19,10 @@ what caused it, or a short story with its end.
   laughed at.
 - A moment is one scene, from where it starts to where it lands: never a laugh without what caused it, never the
   middle of a walk where nothing is said or shown.
+- A clip runs as long as its scene needs, up to 90 s: the length guessed is where to start, not where to stop.
+  When a look ends before the scene lands (the answer to a joke, the laugh after it, the taste after the bite),
+  look at the next stretch before you propose, and end after it (10-30, EP 22 ended at 25:56 while the table
+  was building to a joke said at 25:58: "ตั้งชื่อร้านว่า ร้านเคี้ยวเอื้อง").
 - Tell the person why the moment is worth watching by what happens in it: the place, what the people do or say.
 - When the words heard in a stretch come out broken (another language, wind, music), judge it by its pictures, and
   tell the person the words could not be heard clearly.
