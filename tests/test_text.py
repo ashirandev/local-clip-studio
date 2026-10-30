@@ -421,6 +421,11 @@ SAID = [{"from": 0.5, "to": 4.0, "text": "วันนี้ลดราคา�
 
 
 class CaptionLines(unittest.TestCase):
+    def test_a_line_never_starts_with_the_repeat_mark(self):
+        lines = text.caption_lines([{"from": 0.0, "to": 3.0, "text": "แล้วคราวนี้ก็ปิดไฟแบบแก๊ก ๆ ๆ ให้มันแบบ"}], 12)
+        self.assertEqual([line["text"] for line in lines if line["text"].lstrip()[:1] in "ๆฯ"], [],
+                         [line["text"] for line in lines])
+
     def test_lines_are_short_whole_and_give_the_phrase_back(self):
         for most in (8, 12, 16):
             lines = text.caption_lines(SAID, most=most)
@@ -716,6 +721,28 @@ class Captions(unittest.TestCase):
         self.assertGreater(len(events), 1)
         with self.assertRaises(ValueError):
             text.captions(text.caption_lines(SAID), text.STYLES["pop"], (1350, 400), one="yes")
+
+    def test_the_news_look_puts_each_line_on_a_box_the_picture_shows_through(self):
+        import numpy as np
+        band = (1400, 320)
+        events = text.captions(text.caption_lines(SAID), text.STYLES["news"], band)
+        frame = draw(doc(events), [45], self.folder, first=0, ground="0xFFFFFF")[45].astype(int).min(axis=2)
+        ys, xs = np.nonzero(frame < 250)
+        x0, y0, x1, y1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
+        self.assertTrue(band[0] <= y0 and y1 <= band[0] + band[1], (y0, y1))
+        box = (np.abs(frame - round(255 * (1 - text.NEWS_BOX))) <= 3).sum()
+        self.assertGreater(box, 0.5 * (x1 - x0) * (y1 - y0), "most of the line's box is the white ground darkened")
+        self.assertGreater(frame.min(), 255 * (1 - text.NEWS_BOX) - 4, "nothing is drawn black: the box lets the "
+                           "picture through")
+        self.assertGreater(frame[y0:y1, x0:x1].max(), 250, "the words are white")
+        self.assertGreaterEqual(text.ratio("#FFFFFF", "#666666"), 4.5, "white words on the box over a white picture")
+
+    def test_a_news_title_of_two_rows_never_darkens_where_its_boxes_would_meet(self):
+        events = text.title("ลดราคาวันนี้ ส่งฟรีทั่วประเทศ เจ็ดสิบห้าบาท", 0, 6, (90, 300, 900, 600),
+                            text.STYLES["news"])
+        self.assertEqual(len([e for e in events if "pos(" in e]), 2, "two rows")
+        frame = draw(doc(events), [45], self.folder, first=0, ground="0xFFFFFF")[45].astype(int).min(axis=2)
+        self.assertGreater(frame.min(), 255 * (1 - text.NEWS_BOX) - 4, "no row's box lies over another's")
 
     def test_captions_are_drawn_inside_their_band(self):
         band = (1400, 320)

@@ -43,6 +43,10 @@ SPLIT_END = 1600
 SPLIT_FACE = 300
 SPLIT_FACE_Y = (530, 1170)
 SPLIT_TITLE_Y = 262
+# A talk's title stands right under the phone's header (layouts.SAFE), above the heads, when they leave HEADLINE_LEAST
+# under it, at most layouts.TOP's height: under the chin it sat on someone's chest, and over the shelf it touched the
+# heads (Tarm, 10-30). One line of the pop look is 83 px tall.
+HEADLINE_LEAST = 96
 CIRCLE = 280
 SEATS = [[60, 290, CIRCLE, CIRCLE], [W - 60 - CIRCLE, 290, CIRCLE, CIRCLE], [(W - CIRCLE) // 2, 290, CIRCLE, CIRCLE]]
 MOTION_FPS = 10
@@ -306,6 +310,9 @@ def make(size, persons, shots_, seats=False):
     if seated:
         top = min(top, SEATS[0][1])
     places, captions = layouts._around_the_head([0, top, W, bottom - top], notes)
+    above = top - layouts.GAP - layouts.SAFE[1]
+    if not seated and above >= HEADLINE_LEAST:
+        places = {"top": [65, layouts.SAFE[1], 950, layouts._even(min(layouts.TOP[3], above))]}
     lay = {"kind": "talk", "size": [w, h], "face": None, "parts": parts, "places": places, "captions": captions,
            "background": False, "notes": notes, "people": [{"n": p["n"], "box": p["box"]} for p in persons],
            "shots": [dict(s) for s in shots_],

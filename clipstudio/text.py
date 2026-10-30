@@ -57,7 +57,9 @@ RENDER_SECONDS = 60
 MOST_CANVAS = 8192
 FRAME_ROWS = 4096
 PAIR_GAP = 1.0
-OPENERS, CLOSERS = "([{\"'“‘", ")]}\"'”’,.!?%:;…"
+# A line never starts with a closer: the repeat mark and the shortening mark go with the word before them (EP 0's
+# captions, 10-30, opened a line on the repeat mark).
+OPENERS, CLOSERS = "([{\"'“‘", ")]}\"'”’,.!?%:;…ๆฯ"
 
 Style = collections.namedtuple("Style", "name fontname file colour key edge box edge_ratio shadow_ratio sizes note "
                                         "scale size shade glow", defaults=(1.0, 3, None, None))
@@ -77,6 +79,15 @@ FREE_LICENCES = (("SIL Open Font License", ("open font licen", "scripts.sil.org/
                  ("Ubuntu Font Licence", ("ubuntu font licen",)),
                  ("GPL with the font exception", ("font exception",)))
 
+# box: False for an outline, True for a box under each line, or how opaque the box is. The news look's box lets
+# 0.4 of the picture through, so its white words stand out 5.7:1 or more over any picture, a white one too (Tarm,
+# 10-30, on a news clip's subtitles: just right for clips of people talking); Google Sans Regular stands as tall as
+# SemiBold.
+NEWS_BOX = 0.6
+# Lines of a see-through box (a title's rows, a caption page's two lines) stand a box's height and BOX_GAP apart:
+# libass gives each line its own box, the font's whole line tall, and two that met drew darker there (Tarm, 10-30: it
+# darkens and is not pretty).
+BOX_GAP = 6
 # tuned: the sizes tuned on phones in Kanit (SemiBold, Black and Bold). Google Sans draws its Thai letters 1.477
 # (SemiBold), 1.500 and 1.488 (Bold) times smaller at the same size (measured 10-27): scale, so its sizes are the
 # tuned ones times that and the words stand as tall as they did. Pattaya draws them 1.21 times taller than Kanit Bold
@@ -94,6 +105,8 @@ _HOUSE = {
                edge_ratio=0.035, shadow_ratio=0.075, tuned=(92, 68, 200), scale=1.500, shade="#7C2D12"),
     "classic": dict(face="Taviraj SemiBold Italic", colour="#FFFFFF", key="#FFD60A", edge="#141414", box=False,
                     edge_ratio=0.06, shadow_ratio=0.03, tuned=(88, 66, 190), scale=72 / 67),
+    "news": dict(face="Google Sans Regular", colour="#FFFFFF", key="#FFD60A", edge="#000000", box=NEWS_BOX,
+                 edge_ratio=0.14, shadow_ratio=0.0, tuned=(88, 64, 180), scale=1.477),
 }
 # What each look is, for the people and for Muse choosing one: (English, Thai).
 CARDS = {
@@ -105,6 +118,8 @@ CARDS = {
     "3d": ("Heavy white letters with an orange edge that stands out like 3D.", "ตัวหนาสีขาว ขอบส้มนูนแบบสามมิติ"),
     "classic": ("Elegant serif italic: for short linking words beside a bold one.",
                 "ตัวมีเชิงเอียง ดูหรู ใช้กับคำเชื่อมสั้น ๆ ข้างคำตัวหนา"),
+    "news": ("White words on a see-through dark box, like a news clip's subtitles: for people talking.",
+             "ตัวขาวบนกล่องดำโปร่ง แบบซับข่าว เหมาะกับคลิปคนพูด"),
 }
 SAMPLE = "ลดราคา 50%"
 CARD_GROUND = "geq=lum='42-14*Y/H':cb=132:cr=124"
@@ -613,8 +628,9 @@ def _ass_style(st, kind, mask=False):
     else:
         first = _colour(st.key if kind == "caption" else st.colour)
         second = _colour(st.colour)
-        outline = _colour(st.edge)
-        back = _colour(st.edge) if st.box else _colour(st.shade) if st.shade else _colour("#000000", 0x80)
+        through = round(255 * (1 - st.box)) if st.box else 0
+        outline = _colour(st.edge, through)
+        back = _colour(st.edge, through) if st.box else _colour(st.shade) if st.shade else _colour("#000000", 0x80)
     return ("Style: %s_%s,%s,%d,%s,%s,%s,%s,0,0,0,0,100,100,0,0,%d,%s,%s,8,0,0,0,1"
             % (st.name, kind, st.fontname, size, first, second, outline, back, 3 if st.box else 1, edge, shadow))
 
@@ -801,7 +817,11 @@ def _layout_of(lines, boxes, lh):
 def _line_height(st, kind):
     """How far apart lines stand: libass puts lines one font size apart, and a font's size covers its whole line
     box, which in Google Sans stands 1.5 times taller around its Thai letters than in Kanit; so lines are drawn as
-    events of their own, size / scale apart, as far as Kanit's are (measured: libass's spacing is the size)."""
+    events of their own, size / scale apart, as far as Kanit's are (measured: libass's spacing is the size). The rows
+    of a see-through box stand its height and BOX_GAP apart: libass draws each row's box the font's whole line tall."""
+    if 0 < st.box < 1:
+        _, top, _, bottom = _draw_boxes(st, kind, [TALL_THAI])[TALL_THAI]
+        return bottom - top + BOX_GAP
     return round(_size(st, kind) / st.scale)
 
 

@@ -367,6 +367,17 @@ class OneLine(unittest.TestCase):
         st["style"] = {"name": "pop", "size": 4}
         self.assertEqual(render._caption_style(st, "clean").size, 4)
 
+    def test_people_talking_get_news_subtitles_and_their_title_keeps_its_own_look(self):
+        st = state()
+        self.assertEqual(render._caption_style(st, "pop").name[:3], "pop", "a talked review keeps the heavy look")
+        st["clip"]["layout"]["kind"] = "talk"
+        news = render._caption_style(st, "pop")
+        self.assertEqual((news.name[:4], news.size), ("news", render.ONE_SIZE))
+        title = render._title_style(st, "pop", news, {"text": "แกล้งผีปิดไฟ", "box": [65, 250, 950, 300]})
+        self.assertEqual((title.name[:3], title.box), ("pop", False), "the title is not drawn in the captions' box")
+        st["style"] = {"name": "glow"}
+        self.assertEqual(render._caption_style(st, "pop").name[:4], "glow", "the person's own look wins")
+
     @unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg, and numpy for the pixel checks")
     def test_one_line_captions_are_drawn_bigger_in_their_band(self):
         """Seen 10-28: the big style was not in the file's styles, and the yeti review would not render."""

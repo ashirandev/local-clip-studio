@@ -4,7 +4,7 @@ title: Podcast or interview
 chip: It's two people talking
 description: Two or more people sit and talk, as in a podcast, an interview or a talk show. Pick it when the recording is a conversation between people on camera.
 length: 45
-style: clean
+style: pop
 map: sound 1
 read: screen
 ---

@@ -158,6 +158,9 @@ class Talk(unittest.TestCase):
         head = layouts._head(LEFT, one["src"])
         for name, box in lay["places"].items():
             self.assertFalse(layouts._overlap(box, head), name)
+        self.assertEqual(list(lay["places"]), ["top"], "the title stands above the heads, not on a chest")
+        self.assertEqual(lay["places"]["top"][1], layouts.SAFE[1], "right under the phone's header")
+        self.assertGreaterEqual(lay["places"]["top"][3], talk.HEADLINE_LEAST)
         with self.assertRaises(ValueError) as e:
             talk.make((1280, 720), persons()[:1], shots)
         self.assertIn("found 1 sitting still", str(e.exception))

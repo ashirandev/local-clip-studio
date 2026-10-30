@@ -76,11 +76,16 @@ def style_of(state, default="clean", kind="title"):
 ONE_SIZE = 5
 ONE_GROW = 1.6
 ONE_LOOK = "pop"
+# Captions over people talking (the talk and split layouts) are a news clip's subtitles: white words on a see-through
+# box, a line at a time (Tarm, 10-30: just right for clips of people talking), and the title keeps its own look.
+TALK_LOOK = "news"
+TALK_KINDS = ("talk", "split")
 
 
 def _caption_style(state, default, lines=(), band_h=None):
     """The style of captions shown one line at a time (a talked review): ONE_LOOK's heavy letters and thick outline
-    when the person chose no look (the recipe's guess is not a choice), at ONE_SIZE grown ONE_GROW times, shrunk back
+    when the person chose no look (the recipe's guess is not a choice), TALK_LOOK over people talking, at ONE_SIZE
+    grown ONE_GROW times, shrunk back
     as far as needed (never below ONE_SIZE) for the widest of lines to fit the caption band's width, and the tallest,
     with its outline and shadow, its height band_h; the person's own size for the captions or for all the words
     wins. Measured 10-28 on Tarm's screen recordings of Extreme IT: a line of
@@ -89,7 +94,9 @@ def _caption_style(state, default, lines=(), band_h=None):
     e = state["style"] or {}
     if e.get("size") or (e.get("sizes") or {}).get("caption"):
         return style_of(state, default, "caption")
-    st = text.look(e.get("name") or ONE_LOOK, e.get("font"), e.get("colour"), e.get("fonts"), None,
+    talking = ((state.get("clip") or {}).get("layout") or {}).get("kind") in TALK_KINDS
+    st = text.look(e.get("name") or (TALK_LOOK if talking else ONE_LOOK), e.get("font"), e.get("colour"),
+                   e.get("fonts"), None,
                    dict(e.get("sizes") or {}, caption=ONE_SIZE), e.get("colours"), e.get("part_colours"))["caption"]
     sizes = [text.measure(line["text"].strip(), st, "caption", 4 * layouts.W) for line in lines]
     widest = max([m.w for m in sizes] or [0])
@@ -107,7 +114,8 @@ def _title_style(state, default, said, title):
     """The style a title is drawn in over captions shown one line at a time (said, from _caption_style): said's
     letters at said's caption size, shrunk by TITLE_SHRINK at a time as far as needed for the title to fit its box,
     never below the title's own size; the person's own size for the titles or for all the words wins. On the yeti
-    review (10-29) the hook at the title's own size stood half as tall as the captions under it."""
+    review (10-29) the hook at the title's own size stood half as tall as the captions under it. A see-through box
+    (the news look) lends its size only: in it the title read as one more caption (Tarm, 10-30)."""
     st = style_of(state, default, "title")
     e = state["style"] or {}
     if e.get("size") or (e.get("sizes") or {}).get("title"):
@@ -115,7 +123,8 @@ def _title_style(state, default, said, title):
     w, h = title["box"][2], title["box"][3]
     size = said.sizes[1]
     while size > st.sizes[0]:
-        big = said._replace(name="%s-title%d" % (said.name, size), sizes=(size,) + said.sizes[1:])
+        base = st if 0 < said.box < 1 else said
+        big = base._replace(name="%s-title%d" % (base.name, size), sizes=(size,) + base.sizes[1:])
         got = text.measure(title["text"], big, "title", int(w))
         if got.w <= w and got.h <= h:
             return big

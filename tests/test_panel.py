@@ -126,7 +126,8 @@ class Panel(Clip):
         self.assertEqual([(c["name"], c["label"], c["now"], c["why"]) for c in panel["captions"]],
                          [("off", "Off", True, None), ("plain", "Plain", False, None), ("lit", "Lit", False, None),
                           ("pop", "Pop", False, None)])
-        self.assertEqual([c["name"] for c in panel["styles"]], ["clean", "pop", "sticker", "glow", "3d", "classic"])
+        self.assertEqual([c["name"] for c in panel["styles"]], ["clean", "pop", "sticker", "glow", "3d", "classic",
+                                                               "news"])
         self.assertEqual([c["label"] for c in panel["styles"]][4], "3D")
         self.assertEqual([c["name"] for c in panel["styles"] if c["now"]], ["clean"], "the house style till one is set")
         self.assertEqual([(c["label"], c["now"]) for c in panel["looks"]],
@@ -178,7 +179,7 @@ class Panel(Clip):
         had = list(self.chat.project.entries)
         self.assertEqual(self.chat.set_captions("loud"), "Choose Off, Plain, Lit or Pop for the captions.")
         self.assertEqual(self.chat.set_style("comic"), "Choose one of the text styles: Clean, Pop, Sticker, Glow, 3D, "
-                                                       "Classic.")
+                                                       "Classic, News.")
         self.assertEqual(self.chat.set_look("sepia"), "Choose None, Vivid, Warm or Film for the colour look.")
         self.assertEqual(self.chat.project.entries, had)
         self.assertEqual(self.chat.told, [])
@@ -596,7 +597,7 @@ class Endpoints(Served):
         self.make()
         status, panel = self.ask("GET", "/api/panel?chat=" + self.chat.id)
         self.assertEqual((status, panel["ok"], len(panel["captions"]), len(panel["styles"]), len(panel["looks"])),
-                         (200, True, 4, 6, 4))
+                         (200, True, 4, 7, 4))
         status, answer = self.ask("GET", "/api/panel?chat=nope")
         self.assertEqual((status, answer["error"]), (404, server.GONE))
 
@@ -626,7 +627,7 @@ class Endpoints(Served):
         self.assertEqual((state["captions"]["pop"], state["style"]["name"], state["look"]), (True, "glow", "film"))
         for path, body, said in (("/api/captions", {"mode": "loud"}, "Choose Off, Plain, Lit or Pop for the captions."),
                                  ("/api/style", {}, "Choose one of the text styles: Clean, Pop, Sticker, Glow, 3D, "
-                                                    "Classic."),
+                                                    "Classic, News."),
                                  ("/api/colour", {"look": "film"}, "The clip already has the film look.")):
             self.assertEqual(self.ask("POST", path, dict(body, chat=self.chat.id)),
                              (400, {"ok": False, "error": said}), path)
