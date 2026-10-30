@@ -2422,9 +2422,9 @@ def _layout_unasked(job, recipe, kinds):
     """The sentence refusing, once a job, a layout the recipe's kind of video does not take by default (Tarm 10-28: a
     tutorial with a screen is a card, a talk or a story is faces, unless the person says otherwise; lane 5 asked for 'a
     clip of me talking' on the Eaglet tutorial and the face filled the frame, the page it explained gone), or None. A
-    tap on the page is the person's own choice."""
+    tap on the page is the person's own choice, and so is the layout their saved look keeps for this kind."""
     rule = LAYOUT_RULES.get(recipe)
-    if not rule or job.n is None or not set(kinds) & set(rule[0]):
+    if not rule or job.n is None or not set(kinds) & set(rule[0]) - {_saved(recipe)[0]}:
         return None
     if _told_once(job, "layout_asked"):
         return None
@@ -3545,6 +3545,10 @@ HIDDEN_SAYS = ("The captions are hidden with the eye on the clip: they show agai
                "again, add_captions with hidden false shows them as they were.")
 
 
+CAPTIONS_OFF = ("The person's saved look, \"%s\", keeps the captions off, so leave them off. If the person asked for "
+                "captions in this chat, call add_captions again.")
+
+
 def _eye(job, state, hidden):
     """add_captions with hidden: what the eye on the clip does, every caption hidden and kept as it is, the lines the
     person typed too, or shown again as it was. Tarm 10-30: every tool on the page can be asked for in the chat."""
@@ -3564,6 +3568,8 @@ def add_captions(job, why, on=True, lit=False, pop=None, language="", hidden=Non
         return _eye(job, state, hidden)
     if state["hidden"]:
         raise Refused(HIDDEN_SAYS)
+    if on and job.n is not None and _captions_off() and not _told_once(job, "captions_off"):
+        raise Refused(CAPTIONS_OFF % _captions_off())
     if lit and pop:
         raise Refused("Captions are lit or popped, not both: a popped word already moves as it is said. Choose one.")
     target = _subtitles(language or (job.chat.clip or {}).get("subtitles") or (state["captions"] or {}).get("language"))
@@ -4997,7 +5003,8 @@ def make_clips(job, why, clips, blur=None):
     if unseen and not _told_once(job, "unseen"):
         raise Refused("Nothing was made. %s %s" % (" ".join(unseen), UNSEEN_THEN % "make the clips again"))
     recipe = (job.chat.clip or {}).get("recipe")
-    unasked = _layout_unasked(job, recipe, [c.get("layout") or LAYOUT_OF.get(recipe, "subject") for c in clips])
+    usual = _saved(recipe)[0] or LAYOUT_OF.get(recipe, "subject")
+    unasked = _layout_unasked(job, recipe, [c.get("layout") or usual for c in clips])
     if unasked:
         raise Refused("Nothing was made. " + unasked)
     if recipe == "game" and not blur:
@@ -5011,7 +5018,7 @@ def make_clips(job, why, clips, blur=None):
             break
         job.working("Making clip %d of %d, from moment %d" % (k, len(clips), c["moment"]))
         job.chat.project = project.Project()
-        lines.append(_one_clip(job, rec, k, c, c.get("layout") or LAYOUT_OF.get(recipe, "subject"), blur or []))
+        lines.append(_one_clip(job, rec, k, c, c.get("layout") or usual, blur or []))
         seen = [p for p in job.pictures[pictures:] if p[1].startswith(FINISHED)][-len(REVIEWED):]
         del job.pictures[pictures:]
         looked += [(path, "Clip %d: %s" % (k, caption)) for path, caption in seen]
@@ -5086,7 +5093,10 @@ def _one_clip(job, rec, k, c, layout, blur, opened=None):
                                                           "they are" if len(others) > 1 else "it is"))
         look = channels.in_use() or {}
         try:
-            add_captions(job, BATCH_WHY, lit=look.get("captions") == "lit", pop=look.get("captions") == "pop")
+            if _captions_off():
+                notes.append("no captions, as the person's saved look keeps them off")
+            else:
+                add_captions(job, BATCH_WHY, lit=look.get("captions") == "lit", pop=look.get("captions") == "pop")
         except Refused as e:
             notes.append("no captions: %s" % e)
         words, why_not = c.get("words") or c["title"], ""
@@ -5558,17 +5568,37 @@ def _too_hidden(frames, place, start, end, hidden, words, lay, state, size):
                 % _grid(band, FRAME) if band else "Put it where the person crosses only the bottom of the letters"))
 
 
-def look_of(state, default, name, handle=""):
+def look_of(state, default, name, handle="", made=None):
     """A channel look made from the clip as it is now (state), for channels.save: its style entry or the house style
-    default, its colour look, how its captions show, the place of its first title and its drawn name's spot."""
+    default, its colour look, how its captions show (off when they are hidden with the eye), the place of its first
+    title, its drawn name's spot, and for the kind of clip made is (the chat's recipe) its layout and its length,
+    beside what the look kept for other kinds. Tarm 10-30: "ทำให้ user save template ได้ไปเลย เช่น Enable / disable
+    caption"."""
     style, caps = state["style"], state["captions"]
     places = state["clip"]["layout"]["places"]
+    before = channels.get(name) or {}
+    kind = (made or {}).get("recipe")
     return {"name": name, "handle": handle,
             "style": {k: v for k, v in style.items() if k != "do"} if style else {"name": default, "font": None},
             "look": state["look"],
-            "captions": None if not caps else "lit" if caps.get("lit") else "pop" if caps.get("pop") else "plain",
+            "captions": ("off" if state["hidden"] else None if not caps else "lit" if caps.get("lit") else
+                         "pop" if caps.get("pop") else "plain"),
             "title_place": next((t["place"] for t in state["titles"] if t["place"] in places), None),
-            "spot": (state["channel"] or {}).get("spot")}
+            "spot": (state["channel"] or {}).get("spot"),
+            "layouts": dict(before.get("layouts") or {}, **({kind: state["clip"]["layout"]["kind"]} if kind else {})),
+            "lengths": dict(before.get("lengths") or {}, **({kind: made["length_s"]} if kind else {}))}
+
+
+def _saved(kind):
+    """(the layout, the length) the look in use keeps for the kind of clip, each None when it keeps none."""
+    look = channels.in_use() or {}
+    return (look.get("layouts") or {}).get(kind), (look.get("lengths") or {}).get(kind)
+
+
+def _captions_off():
+    """The look in use's name when it keeps the captions off, else None."""
+    look = channels.in_use() or {}
+    return look["name"] if look.get("captions") == "off" else None
 
 
 def channel_entries(look, entries, every=False):
@@ -5605,7 +5635,8 @@ def look_said(look, muse=True):
     parts += ["the %s colour look" % look["look"]] if look.get("look") else []
     hint = "" if not muse else " (add_captions%s)" % (" with %s true" % look["captions"]
                                                       if look.get("captions") != "plain" else "")
-    parts += ["%s captions%s" % (look["captions"], hint)] if look.get("captions") else []
+    parts += (["no captions"] if look.get("captions") == "off" else
+              ["%s captions%s" % (look["captions"], hint)] if look.get("captions") else [])
     parts += ["titles at the %s" % look["title_place"]] if look.get("title_place") else []
     parts += ["the name %s drawn on the clip" % look["handle"]] if look.get("handle") else []
     return ", ".join(parts) or "nothing yet"
@@ -5637,7 +5668,8 @@ def save_channel_look(job, why, channel, handle=""):
     if unfit:
         raise Refused("Nothing was saved: %s" % unfit)
     try:
-        look = channels.save(look_of(state, job.chat.clip["style"] if job.chat.clip else "clean", channel, handle))
+        look = channels.save(look_of(state, job.chat.clip["style"] if job.chat.clip else "clean", channel, handle,
+                                     job.chat.clip))
         channels.use(look["name"])
     except ValueError as e:
         raise Refused(str(e))
@@ -5769,9 +5801,11 @@ def load_recipe(job, why, type, length_s=None, style=None, language="", brief=""
     asked = None
     if recipe["name"] != MONTAGE and _joining(job):
         asked, recipe = recipe, RECIPES[MONTAGE]
-    guessed = length_s if length_s and length_s != recipe["length"] and not _length_said(job) else None
+    layout_saved, length_saved = _saved(recipe["name"])
+    usual = length_saved or recipe["length"]
+    guessed = length_s if length_s and length_s != usual and not _length_said(job) else None
     clip = {"recipe": recipe["name"], "title": recipe["title"],
-            "length_s": recipe["length"] if guessed else length_s or recipe["length"],
+            "length_s": usual if guessed else length_s or usual,
             "style": style or recipe["style"], "language": language, "brief": brief, "subtitles": subtitles}
     had = job.chat.clip
     job.set_clip(clip, chips(clip))
@@ -5782,9 +5816,14 @@ def load_recipe(job, why, type, length_s=None, style=None, language="", brief=""
              "The person's own words win over this recipe and over your guesses. Do not ask the person to confirm "
              "them: go on with the work. The buttons let them change any guess at any time."]
     if guessed:
-        lines.append("The person named no length, so the clip is the recipe's %d s, not the %d s you gave: a clip runs "
-                     "as long as what it shows needs, and the Shorter and Longer buttons are theirs."
-                     % (recipe["length"], guessed))
+        lines.append("The person named no length, so the clip is %s %d s, not the %d s you gave: a clip runs as long "
+                     "as what it shows needs, and the Shorter and Longer buttons are theirs."
+                     % ("their saved look's" if length_saved else "the recipe's", usual, guessed))
+    keeps = (["the %s layout" % layout_saved] if layout_saved else []) + (
+        ["about %d s" % length_saved] if length_saved else []) + (["no captions"] if _captions_off() else [])
+    if keeps:
+        lines.append("The person's saved look keeps this kind of clip to %s. Keep to it unless they ask for something "
+                     "else." % ", ".join(keeps))
     if had and had["recipe"] != recipe["name"]:
         lines.append("This recipe replaces the %s recipe read earlier in this chat; follow only this one." %
                      had["recipe"])

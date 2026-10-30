@@ -2590,6 +2590,33 @@ class Tools(unittest.TestCase):
         self.assertIn("Clip 1 (moment 1, 0:32-0:40, 8.3 s, card layout): handed over, ", steps[-1]["result"],
                       "from 0.3 s before the line to the end of the sound, which runs to the moment's end")
 
+    def test_a_saved_look_keeps_the_captions_off_and_its_layout_and_length_for_its_kind_of_clip(self):
+        """Tarm 10-30: "ทำให้ user save template ได้ไปเลย เช่น Enable / disable caption"."""
+        channels.save({"name": "Mine", "captions": "off", "layouts": {"explain": "subject", "talk": "split"},
+                       "lengths": {"explain": 25}})
+        channels.use("Mine")
+        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        _, steps = self.several([call("make_clips", clips=clips, why="both")],
+                                [call("add_captions", why="the recipe has them")],
+                                [call("add_captions", why="the person asked")], "Done.")
+        loaded, made, refused, asked = steps[1], steps[-3], steps[-2], steps[-1]
+        self.assertIn("buttons to change them: about 25 s", loaded["result"])
+        self.assertIn("The person's saved look keeps this kind of clip to the subject layout, about 25 s, no captions.",
+                      loaded["result"])
+        self.assertIn("Clip 1 (moment 1, 0:32-0:34, 2.6 s, subject layout): handed over, ", made["result"],
+                      "the look's layout, with no layout given")
+        self.assertIn("no captions, as the person's saved look keeps them off", made["result"])
+        self.assertTrue(refused["refused"])
+        self.assertIn('The person\'s saved look, "Mine", keeps the captions off', refused["result"])
+        self.assertFalse(asked["refused"], "the person asked: their words win over the look")
+        self.assertEqual(tools.look_said(channels.get("Mine"), muse=False), "no captions")
+        job = types.SimpleNamespace(n=1, chat=types.SimpleNamespace(events=[]), emit=lambda kind: None)
+        self.assertIsNotNone(tools._layout_unasked(job, "seller", ["card"]), "the recipe's rule")
+        channels.save({"name": "Seller", "layouts": {"seller": "card"}})
+        channels.use("Seller")
+        self.assertIsNone(tools._layout_unasked(job, "seller", ["card"]), "the layout the person saved is their choice")
+
     def test_several_clips_are_made_in_one_go_and_each_is_reported_on_its_own(self):
         clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
                  {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]

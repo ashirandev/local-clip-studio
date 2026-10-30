@@ -441,6 +441,21 @@ class Words(Clip):
         self.assertEqual(self.chat.set_eye(True), "The clip has no captions to hide.")
         self.assertEqual(self.chat.panel()["eye"], {"has": False, "hidden": False})
 
+    def test_a_look_saved_with_the_captions_hidden_keeps_them_off_and_keeps_the_clips_layout_and_length(self):
+        self.make(SAID, call("add_captions", why="say it"))
+        self.assertIsNone(self.chat.set_eye(True))
+        self.chat.clip = {"recipe": "talk", "style": "clean", "length_s": 60}
+        self.assertIsNone(self.chat.save_channel("Mine", ""))
+        kind, look = "talk", channels.get("Mine")
+        self.assertEqual(look["captions"], "off")
+        self.assertEqual(look["layouts"], {kind: self.chat.project.state()["clip"]["layout"]["kind"]})
+        self.assertEqual(look["lengths"], {kind: self.chat.clip["length_s"]})
+        self.chat.clip = dict(self.chat.clip, recipe="another kind", length_s=33)
+        self.assertIsNone(self.chat.save_channel("Mine", ""))
+        self.assertEqual(sorted(channels.get("Mine")["lengths"].items()), sorted({kind: look["lengths"][kind],
+                                                                                  "another kind": 33}.items()),
+                         "saved again from another kind of clip, the first kind's stays")
+
     def test_the_person_can_ask_muse_to_hide_and_show_the_captions_as_the_eye_does(self):
         """Tarm 10-30: every tool on the page can be asked for in the chat. Off empties the captions; the eye keeps
         them."""

@@ -1,6 +1,7 @@
 """The looks the person saves for their channels, so every clip of a channel looks like it came from that channel: the
-words' style (font, size, colours), the colour look, how the captions show, where the title goes and the channel's
-name drawn on the clip. Each look is kept in work/channels as one file.
+words' style (font, size, colours), the colour look, how the captions show or that they stay off, where the title
+goes, the channel's name drawn on the clip, and for each kind of clip it was saved from its layout and its length.
+Each look is kept in work/channels as one file.
 
 The studio makes clips for the one person at this computer, so the look in use is one setting for the whole studio,
 kept across chats and restarts (work/channels/in_use.json). A new clip starts in it; what the person changes on a
@@ -14,7 +15,7 @@ import time
 
 from . import recording
 
-CAPTIONS = ("plain", "lit", "pop")
+CAPTIONS = ("plain", "lit", "pop", "off")
 SPOTS = ("bottom left", "bottom middle", "bottom right")
 LONGEST_NAME = 40
 LONGEST_HANDLE = 30
@@ -78,7 +79,8 @@ def save(look):
                                                                                     ", ".join(CAPTIONS)))
     kept = {"name": name, "handle": handle, "style": look.get("style") or None, "look": look.get("look") or None,
             "captions": look.get("captions"), "title_place": look.get("title_place") or None,
-            "spot": look.get("spot") or None, "saved": round(time.time())}
+            "spot": look.get("spot") or None, "layouts": look.get("layouts") or {},
+            "lengths": look.get("lengths") or {}, "saved": round(time.time())}
     _write(_path(name), kept)
     return kept
 

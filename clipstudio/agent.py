@@ -557,7 +557,7 @@ class Chat:
         if unfit:
             return "Nothing was saved: %s" % unfit
         try:
-            look = channels.save(look_of(state, (self.clip or {}).get("style", "clean"), name, handle))
+            look = channels.save(look_of(state, (self.clip or {}).get("style", "clean"), name, handle, self.clip))
             channels.use(look["name"])
         except ValueError as e:
             return str(e)
