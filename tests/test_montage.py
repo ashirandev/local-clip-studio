@@ -364,6 +364,24 @@ class Arrange(unittest.TestCase):
         self.assertIn("clip 2: no seconds were given, so its piece starts at 0.5 s, by the middle picture of its strip "
                       "(1.5 s)", said)
 
+    def test_pieces_given_no_seconds_share_the_length_asked(self):
+        self.run_job(*self.opened(), "Done.")
+        self.chat.clip["length_s"] = 6
+        with mock.patch.object(tools, "LONGEST_PIECE", 2.5):
+            steps = self.run_job([call(
+                "arrange_clips", story="the day", why="order", left_out=[],
+                clips=[{"clip": 2, "words": "We arrive", "why": "where we are"}, {"clip": 1, "why": "what we did"},
+                       {"clip": 3, "start": 0.0, "end": 1.5, "why": "the last thing seen"}])], "Done.")
+        said = steps[-1]["result"]
+        self.assertFalse(steps[-1]["refused"], said)
+        self.assertIn("clip 2: no seconds were given, so its piece starts at 0.5 s, by the middle picture of its strip "
+                      "(1.5 s), and runs 2 s, the 6 s asked shared by the 3 pieces", said,
+                      "Glimmer 10-30: seven pieces of the longest, 50 s for 45 asked")
+        self.assertIn("0 s: clip 2, 0.5-2.5 s of it", said)
+        self.assertEqual(tools._each_piece(45, 7), 6.4)
+        self.assertEqual(tools._each_piece(45, 2), tools.LONGEST_PIECE)
+        self.assertEqual(tools._each_piece(10, 30), tools.SHORTEST_FIT)
+
     def test_words_asked_for_in_english_go_on_in_english_unless_the_person_typed_them(self):
         self.chat.emit("person", job=None, text="ทำคลิปทริป ซับภาษาอังกฤษ เปิดด้วยคำว่า สถานีแรก")
         thai = [{"clip": 2, "start": 0.5, "end": 2.5, "words": "ถึงสถานีแล้ว", "why": "where we are"},

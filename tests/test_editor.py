@@ -1735,11 +1735,15 @@ class Tools(unittest.TestCase):
             self.addCleanup(p.stop)
         brain, steps = self.run_job(
             *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the product")],
+            [call("put_background", about="A tidy gaming desk with soft blue light.", why="the example")],
             [call("put_background", about="a tidy gaming desk", why="the cloth")],
             [call("put_background", about="a bright kitchen counter", why="another place")],
             [call("put_background", about="a tidy gaming desk", why="back to the first")],
             "Done.")
-        made, desk, kitchen, again = steps[-4:]
+        made, copied, desk, kitchen, again = steps[-5:]
+        self.assertTrue(copied["refused"], "Glimmer 10-30: the description's example behind an iPad, twice")
+        self.assertIn("is the example in this tool's description, written for no clip in particular", copied["result"])
+        self.assertFalse(kitchen["refused"], "once a job: the person may have asked for those very words")
         self.assertIn(tools.GREEN_SAYS, made["result"], "make_clip tells Muse the cloth is there")
         self.assertNotIn(tools.FOLLOW_SAYS, made["result"], "not a seller clip")
         self.assertFalse(desk["refused"], desk["result"])

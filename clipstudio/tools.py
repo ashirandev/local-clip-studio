@@ -456,6 +456,13 @@ def _take_cuts(c):
     return sorted(x["cut"] + [TAKE_CUT[x["why"]]] for x in clapped + again)
 
 
+def _each_piece(asked, count):
+    """How long a piece given no seconds runs: the length asked shared by the pieces, from SHORTEST_FIT to
+    LONGEST_PIECE. Glimmer's montage 10-30 (164839-7a16) gave no seconds for any of 7 clips: each ran LONGEST_PIECE,
+    one rhythm, 50 s for the 45 s asked."""
+    return round(min(LONGEST_PIECE, max(SHORTEST_FIT, float(asked) / max(1, count))), 1)
+
+
 def arrange_clips(job, why, story, clips, left_out=None, hook="", products=None):
     opened = job.chat.clips
     if not opened:
@@ -493,6 +500,7 @@ def arrange_clips(job, why, story, clips, left_out=None, hook="", products=None)
                         "does not when it does not." % ("s" if len(missing) > 1 else "", ", ".join(map(str, missing)),
                                                         "are" if len(missing) > 1 else "is"))
     pieces, lines, fitted, taken = [], [], [], {}
+    each = _each_piece(job.chat.clip["length_s"], len(clips))
     for k, c in enumerate(clips, 1):
         if c["clip"] not in known:
             continue
@@ -503,10 +511,12 @@ def arrange_clips(job, why, story, clips, left_out=None, hook="", products=None)
         talk = c["clip"] in talking
         if not talk and "start" not in c and "end" not in c and rec["seconds"] > LONGEST_PIECE:
             seen = montage.strip_times(rec["seconds"])[len(montage.STRIP_AT) // 2]
-            a = round(max(0.0, min(seen - MIDDLE_LEAD, rec["seconds"] - LONGEST_PIECE)), 2)
-            b = round(a + LONGEST_PIECE, 2)
+            a = round(max(0.0, min(seen - MIDDLE_LEAD, rec["seconds"] - each)), 2)
+            b = round(a + each, 2)
             fitted.append("clip %d: no seconds were given, so its piece starts at %g s, by the middle picture of its "
-                          "strip (%g s); give a start and an end for other seconds" % (c["clip"], a, seen))
+                          "strip (%g s), and runs %g s, %s; give a start and an end for other seconds" % (
+                              c["clip"], a, seen, each, "the longest a piece runs" if each >= LONGEST_PIECE else
+                              "the %g s asked shared by the %d pieces" % (job.chat.clip["length_s"], len(clips))))
         frozen = [s for s in clip["stills"] if s[0] < b and a < s[1]]
         if talk and ("start" not in c or "end" not in c):
             problems.append("Clip %d is someone talking for %g s: give its piece a start and an end around the lines "
@@ -4072,6 +4082,11 @@ def add_picture(job, why, about, at, length=PICTURE_LENGTH):
     return "\n".join(lines)
 
 
+# The examples in put_background's description. Glimmer gave the first word for word for an iPad seller twice
+# (10-30, 155100-78b2 and 165330-f308): a gaming desk behind a tablet sold in a kitchen.
+BACKDROP_EXAMPLES = ("a tidy gaming desk with soft blue light", "a bright kitchen counter")
+
+
 def put_background(job, why, about):
     """A new background behind the person, drawn by Muse Image for the words about (green.backdrop, from the words
     alone), wherever the clip does not show them, through the whole clip. A person in front of a green cloth comes off
@@ -4083,6 +4098,11 @@ def put_background(job, why, about):
     front of a green cloth: "ตัดผ้าเขียวออก แล้วใส่พื้นหลังให้เหมาะสมด้วยโมเดลของเมต้า"."""
     rec = _open(job, "put a background behind")
     state = _clip_state(job)
+    if " ".join(about.lower().split()).strip(" .") in BACKDROP_EXAMPLES and "backdrop example" not in job.warned:
+        job.warned.add("backdrop example")
+        raise Refused("\"%s\" is the example in this tool's description, written for no clip in particular. Describe a "
+                      "place that suits what this clip sells or is about, from what you saw in it. If the person asked "
+                      "for these very words, put it on again with them." % about.strip())
     clip = state["clip"]
     a, b = min(p[0] for p in clip["pieces"]), max(p[1] for p in clip["pieces"])
     held = state["mask"]
@@ -6210,8 +6230,8 @@ TOOLS = {t.name: t for t in [
          % picture.USD,
          {"about": {"type": "string", "minLength": 3, "maxLength": 300,
                     "description": "The place behind the person, in English, suited to what the clip sells or is "
-                                   "about, such as \"a tidy gaming desk with soft blue light\" or \"a bright kitchen "
-                                   "counter\". No people, no brand, no writing."}},
+                                   "about, such as \"%s\" or \"%s\". No people, no brand, no writing."
+                                   % BACKDROP_EXAMPLES}},
          ["about"], put_background, changes=True),
     Tool("follow_product", "Follow the product",
          "Have SAM 3.1 find the product through the clip and move the vertical frame with it, so a product held out "
