@@ -47,7 +47,7 @@ AIR = 0.25
 _NOT_LETTERS = re.compile(r"[\W_]+", re.UNICODE)
 
 RATE = 16000
-QUIET_STEP, QUIET_LEAST = 0.02, 0.06
+QUIET_STEP, QUIET_LEAST, PAUSE_LEAST = 0.02, 0.06, 0.16
 DIP_LEAST, DIP_BED, PIECE_LEAST = 0.12, 6.0, 0.3
 FRAME = 0.01
 CLAP_FLOOR = -40.0
@@ -167,22 +167,28 @@ def heard_level(rec, a=0.0, b=None):
     return (a, level) if level else None
 
 
-def quiet_near(rec, t, reach, under, bed=None):
-    """[from, to] in recording seconds: the stretch of at least QUIET_LEAST s nearest t, within reach s of it, where the
-    sound stays under the level under (dB), read every QUIET_STEP s. With none, and bed, the same for bed dB under
-    the middle level around t: over music or a crowd nothing is quiet, and the gap between two words is still a dip.
-    None when there is neither or no sound can be read. A tenth of a second averages away the dip between two words,
-    so this listens closer than heard_level."""
+def quiet_near(rec, t, reach, under, bed=None, side=0):
+    """[from, to] in recording seconds: the pause of at least PAUSE_LEAST s nearest t, within reach s of it, where the
+    sound stays under the level under (dB), read every QUIET_STEP s; with side -1 one that starts at or before t, with
+    side 1 one that ends at or after it. With none, and bed, the same for bed dB under the middle level around t: over
+    music or a crowd nothing is quiet, and the gap between two words is still a dip. With neither, the same for a
+    stretch of at least QUIET_LEAST s. None when there is none or no sound can be read. A tenth of a second averages away
+    the dip between two words, so this listens closer than heard_level. A pause comes first because a shorter stretch
+    may be the gap inside a word: "สามพัน" at gold EP1 3:54 has gaps of 60 and 120 ms before its พัน, and a cut in one
+    ended the clip on สาม, 3,000 become 3; the pauses between phrases there run from 160 ms. Fast talk over a crowd has
+    few of them (of 140 cuts, 69 had no pause near), so a shorter stretch is still better than loud sound."""
     a = max(0.0, t - reach)
     samples = _decoded(rec, a, min(rec["seconds"], t + reach))
     if samples is None:
         return None
     db = np.asarray(_levels(samples, step=QUIET_STEP))
-    for limit in [under] + ([float(np.median(db)) - bed] if bed and len(db) else []):
+    limits = [under] + ([float(np.median(db)) - bed] if bed and len(db) else [])
+    for limit, least in [(limit, PAUSE_LEAST) for limit in limits] + [(limit, QUIET_LEAST) for limit in limits]:
         low = np.r_[False, db < limit, False]
         turns = np.flatnonzero(np.diff(low.astype(np.int8)))
         runs = [[round(a + i * QUIET_STEP, 2), round(a + j * QUIET_STEP, 2)] for i, j in zip(turns[::2], turns[1::2])
-                if j - i >= round(QUIET_LEAST / QUIET_STEP)]
+                if j - i >= round(least / QUIET_STEP)]
+        runs = [run for run in runs if side == 0 or (run[0] <= t if side < 0 else run[1] >= t)]
         if runs:
             return min(runs, key=lambda run: max(run[0] - t, t - run[1], 0.0))
     return None

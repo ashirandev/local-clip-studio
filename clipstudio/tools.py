@@ -1441,9 +1441,11 @@ def _quiet_under(level):
 
 
 def _on_quiet(rec, made, level):
-    """made, what _pieces gave (the pieces, its sentence), with every cut moved into the nearest quiet stretch within
-    EDGE_REACH (takes.quiet_near, or over a bed of music or a crowd the nearest dip of EDGE_BED), KEPT_AIR from the sound
-    on the side the clip keeps, and the sentence saying so. A cut with neither near stays where it is and the sentence
+    """made, what _pieces gave (the pieces, its sentence), with every cut moved outward into the nearest quiet stretch
+    within EDGE_REACH (takes.quiet_near, or over a bed of music or a crowd the nearest dip of EDGE_BED), KEPT_AIR from the
+    sound on the side the clip keeps, and the sentence saying so. A cut never moves into what the clip keeps, so it
+    cannot cut off a word it had: a start only moves earlier and an end only later (lane 5 heard it 10-31, an end moved
+    back past the พัน of "สามพัน"). A cut with neither near stays where it is and the sentence
     says that; a cut already in the quiet, and the first and last moments of the recording, stay. Pieces that meet
     become one. Tarm 10-30: "ตัวตัดต่อ อยากให้ตัดเฉพาะตอนเสียงเงียบ แบบ wave เสียงมันเบาแล้ว ไม่เอาตัดกลางคำ", then, as a
     sound engineer: "the program should cut at the silent". Heard lines say where words are only to a fraction of a
@@ -1456,7 +1458,7 @@ def _on_quiet(rec, made, level):
     def land(t, opening):
         if t <= EDGE_FILE or t >= rec["seconds"] - EDGE_FILE:
             return t
-        run = takes.quiet_near(rec, t, EDGE_REACH, under, bed=EDGE_BED)
+        run = takes.quiet_near(rec, t, EDGE_REACH, under, bed=EDGE_BED, side=-1 if opening else 1)
         if not run:
             loud.append(t)
             return t
@@ -1467,7 +1469,6 @@ def _on_quiet(rec, made, level):
     landed, moved = [], []
     for x, y in pieces:
         nx, ny = land(x, True), land(y, False)
-        nx, ny = (nx, ny) if ny > nx else (x, y)
         moved += [abs(new - old) for new, old in ((nx, x), (ny, y)) if abs(new - old) >= 0.01]
         if landed and nx <= landed[-1][1]:
             landed[-1][1] = max(landed[-1][1], ny)

@@ -40,8 +40,8 @@ class Quiet(unittest.TestCase):
         from unittest import mock
         self.asked = []
 
-        def near(rec, t, reach, under, bed=None):
-            self.asked.append((t, reach, under, bed))
+        def near(rec, t, reach, under, bed=None, side=0):
+            self.asked.append((t, reach, under, bed, side))
             return runs.get(t)
 
         with mock.patch.object(tools.takes, "quiet_near", near):
@@ -52,10 +52,10 @@ class Quiet(unittest.TestCase):
         self.assertEqual(pieces, [[9.5, 20.5]], "an opening stays near the sound after it, a closing the sound before")
         self.assertEqual(said, "The program moved 2 cuts, at most 0.5 s, into the nearest quiet sound, so none falls "
                                "inside a word.")
-        self.assertEqual(self.asked[0], (10.0, tools.EDGE_REACH, -30.0, tools.EDGE_BED),
-                         "quiet is 10 dB under the talk, over the stretch's loud quarter; a bed is tried next")
-        self.assertEqual(self.land([[10.0, 20.0]], {10.0: [10.2, 11.0], 20.0: [19.0, 19.7]})[0], [[10.7, 19.3]],
-                         "the other way a cut lands as near the sound the clip keeps")
+        self.assertEqual(self.asked, [(10.0, tools.EDGE_REACH, -30.0, tools.EDGE_BED, -1),
+                                      (20.0, tools.EDGE_REACH, -30.0, tools.EDGE_BED, 1)],
+                         "quiet is 10 dB under the talk, over the stretch's loud quarter; a bed is tried next; a start "
+                         "looks only earlier and an end only later, so no cut moves into what the clip keeps")
 
     def test_a_short_stretch_is_landed_in_whole(self):
         self.assertEqual(self.land([[10.0, 20.0]], {10.0: [9.9, 9.96], 20.0: [20.1, 20.16]})[0], [[9.9, 20.16]])
@@ -77,9 +77,6 @@ class Quiet(unittest.TestCase):
     def test_pieces_that_meet_in_the_quiet_become_one(self):
         pieces, _ = self.land([[10.0, 20.0], [20.3, 30.0]], {20.0: [20.1, 20.5], 20.3: [20.1, 20.5]})
         self.assertEqual(pieces, [[10.0, 30.0]])
-
-    def test_a_piece_is_never_turned_inside_out(self):
-        self.assertEqual(self.land([[10.0, 10.4]], {10.0: [10.3, 10.9], 10.4: [9.5, 10.1]})[0], [[10.0, 10.4]])
 
     def test_a_clip_at_its_longest_keeps_its_cuts_rather_than_grow_past_it(self):
         pieces = [[10.0, 10.0 + tools.LONGEST]]
