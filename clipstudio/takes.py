@@ -47,6 +47,7 @@ AIR = 0.25
 _NOT_LETTERS = re.compile(r"[\W_]+", re.UNICODE)
 
 RATE = 16000
+QUIET_STEP, QUIET_LEAST = 0.02, 0.06
 FRAME = 0.01
 CLAP_FLOOR = -40.0
 CLAP_RISE = 20.0
@@ -165,20 +166,56 @@ def heard_level(rec, a=0.0, b=None):
     return (a, level) if level else None
 
 
-def _levels(samples, rate=RATE):
-    """The level of samples (mono, -1 to 1, at rate) in dB, one value every LEVEL_STEP s: the mean of its energy."""
+def quiet_near(rec, t, reach, under, bed=None):
+    """[from, to] in recording seconds: the stretch of at least QUIET_LEAST s nearest t, within reach s of it, where the
+    sound stays under the level under (dB), read every QUIET_STEP s. With none, and bed, the same for bed dB under
+    the middle level around t: over music or a crowd nothing is quiet, and the gap between two words is still a dip.
+    None when there is neither or no sound can be read. A tenth of a second averages away the dip between two words,
+    so this listens closer than heard_level."""
+    a = max(0.0, t - reach)
+    samples = _decoded(rec, a, min(rec["seconds"], t + reach))
+    if samples is None:
+        return None
+    db = np.asarray(_levels(samples, step=QUIET_STEP))
+    for limit in [under] + ([float(np.median(db)) - bed] if bed and len(db) else []):
+        low = np.r_[False, db < limit, False]
+        turns = np.flatnonzero(np.diff(low.astype(np.int8)))
+        runs = [[round(a + i * QUIET_STEP, 2), round(a + j * QUIET_STEP, 2)] for i, j in zip(turns[::2], turns[1::2])
+                if j - i >= round(QUIET_LEAST / QUIET_STEP)]
+        if runs:
+            return min(runs, key=lambda run: max(run[0] - t, t - run[1], 0.0))
+    return None
+
+
+def _levels(samples, rate=RATE, step=LEVEL_STEP):
+    """The level of samples (mono, -1 to 1, at rate) in dB, one value every step s: the mean of its energy."""
     x = np.asarray(samples, dtype=np.float32)
-    hop = int(round(rate * LEVEL_STEP))
+    hop = int(round(rate * step))
     n = len(x) // hop
     return [round(float(v), 1) for v in 10 * np.log10((x[:n * hop].reshape(n, hop) ** 2).mean(axis=1) + 1e-10)]
+
+
+def _decoded(rec, a, b):
+    """The samples of rec's first sound track from a to b in recording seconds, mono at RATE from -1 to 1, or None."""
+    tool = shutil.which("ffmpeg")
+    if not rec.get("sound_tracks") or b <= a or not tool:
+        return None
+    try:
+        got = subprocess.run([tool, "-v", "error", "-ss", "%.2f" % a, "-t", "%.2f" % (b - a), "-i", rec["path"],
+                              "-map", "0:a:0", "-ac", "1", "-ar", str(RATE), "-f", "s16le", "-"],
+                             stdin=subprocess.DEVNULL, capture_output=True)
+    except OSError:
+        return None
+    if got.returncode != 0 or not got.stdout:
+        return None
+    return np.frombuffer(got.stdout, dtype=np.int16).astype(np.float32) / 32768.0
 
 
 def _heard(rec, a, b):
     """{"claps": claps() from a to b in recording seconds, "level": _levels()}, kept in WORK/claps."""
     b = rec["seconds"] if b is None else b
-    tool = shutil.which("ffmpeg")
     nothing = {"claps": [], "level": []}
-    if not rec.get("sound_tracks") or b <= a or not tool:
+    if not rec.get("sound_tracks") or b <= a or not shutil.which("ffmpeg"):
         return nothing
     try:
         st = os.stat(rec["path"])
@@ -192,15 +229,9 @@ def _heard(rec, a, b):
             return json.load(f)
     except (OSError, ValueError):
         pass
-    try:
-        got = subprocess.run([tool, "-v", "error", "-ss", "%.2f" % a, "-t", "%.2f" % (b - a), "-i", rec["path"],
-                              "-map", "0:a:0", "-ac", "1", "-ar", str(RATE), "-f", "s16le", "-"],
-                             stdin=subprocess.DEVNULL, capture_output=True)
-    except OSError:
+    samples = _decoded(rec, a, b)
+    if samples is None:
         return nothing
-    if got.returncode != 0 or not got.stdout:
-        return nothing
-    samples = np.frombuffer(got.stdout, dtype=np.int16).astype(np.float32) / 32768.0
     found = {"claps": [[round(a + x, 2), round(a + y, 2), n] for x, y, n in claps(samples)], "level": _levels(samples)}
     os.makedirs(os.path.dirname(target), exist_ok=True)
     with open(target + ".part", "w", encoding="utf-8") as f:

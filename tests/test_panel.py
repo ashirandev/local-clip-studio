@@ -729,6 +729,24 @@ class Frame(Clip):
         self.assertEqual(self.chat.project.state()["clip"]["pieces"][0][0], 31.0)
         self.assertEqual(self.whole()["src"][0], 0, "the Trim tab made the clip again where the person had framed it")
 
+    def test_a_drag_says_on_the_page_where_it_landed_and_what_stayed_loud(self):
+        """Tarm 10-30: a cut only where the sound is quiet. Lane 4: show the grip landing there."""
+        from unittest import mock
+        self.make()
+
+        def land(rec, made, level):
+            return [[33.0, made[0][-1][1]]], None
+
+        with mock.patch.object(tools, "_on_quiet", land), mock.patch.object(tools, "_loud_cuts", lambda *a: [49.0]), \
+                mock.patch.object(tools.takes, "heard_level", return_value=(0.0, [-20.0])):
+            self.assertIsNone(self.chat.set_ends(34.8, 49.0))
+            self.until(lambda: not self.chat.making)
+        self.assertEqual(self.chat.panel()["ends"]["start"], 33.0, "the Trim tab's grip reads where it landed")
+        moved = [e for e in self.chat.events if e["kind"] == "moved"][-1]
+        self.assertEqual(moved["said"], "The program moved 1 cut, at most 1.8 s, into the nearest quiet sound, so none "
+                                        "falls inside a word. Nothing is quiet within 1 s of the cut at 0:49.0: it is "
+                                        "on sound as loud as the talk.")
+
     def test_a_clip_without_an_upright_frame_says_why_and_is_not_changed(self):
         self.make()
         for layout in ("card", "face"):

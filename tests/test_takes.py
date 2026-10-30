@@ -152,6 +152,43 @@ class Level(unittest.TestCase):
     def test_no_sound_has_no_level(self):
         self.assertIsNone(takes.heard_level({"path": "x.mp4", "seconds": 5.0, "sound_tracks": 0}))
 
+    def quiet(self, stretches, t, under=-20.0, bed=None, reach=1.0):
+        """quiet_near over a sound built of (seconds, amplitude) stretches, starting at second 0."""
+        from unittest import mock
+        rate = takes.RATE
+        sound = np.concatenate([v * np.sin(np.arange(int(rate * s)) * 0.7) for s, v in stretches])
+        rec = {"path": "x.mp4", "seconds": len(sound) / rate, "sound_tracks": 1}
+
+        def decoded(rec, a, b):
+            return sound[int(a * rate):int(b * rate)]
+
+        with mock.patch.object(takes, "_decoded", decoded):
+            return takes.quiet_near(rec, t, reach, under, bed=bed)
+
+    def test_the_quiet_nearest_a_time_is_found_in_the_sound_itself(self):
+        word = (1.0, 0.5)
+        self.assertEqual(self.quiet([word, (0.2, 0.0), word, (0.4, 0.0), word], 1.5), [1.0, 1.2], "the nearer of two")
+        self.assertEqual(self.quiet([word, (0.2, 0.0), word, (0.4, 0.0), word], 1.9), [2.2, 2.6])
+        self.assertEqual(self.quiet([word, (0.2, 0.0), word], 1.1), [1.0, 1.2], "a time in the quiet is in it")
+
+    def test_a_dip_too_short_to_be_a_gap_is_not_quiet(self):
+        word = (1.0, 0.5)
+        self.assertIsNone(self.quiet([word, (0.04, 0.0), word], 1.0), "the closure of a consonant is inside a word")
+        self.assertEqual(self.quiet([word, (0.08, 0.0), word], 1.0), [1.0, 1.08])
+
+    def test_nothing_quiet_within_reach_is_none(self):
+        self.assertIsNone(self.quiet([(1.0, 0.5), (0.2, 0.0), (3.0, 0.5)], 3.0))
+        self.assertIsNone(self.quiet([(4.0, 0.5)], 2.0))
+
+    def test_over_a_bed_of_sound_the_gap_is_a_dip_against_what_is_around_it(self):
+        over = [(1.0, 0.5), (0.2, 0.2), (1.0, 0.5)]
+        self.assertIsNone(self.quiet(over, 1.0), "the music under the talk is not quiet")
+        self.assertEqual(self.quiet(over, 1.0, bed=6.0), [1.0, 1.2])
+        self.assertIsNone(self.quiet([(1.0, 0.5), (0.2, 0.4), (1.0, 0.5)], 1.0, bed=6.0), "a small dip is not a gap")
+
+    def test_no_sound_read_has_no_quiet(self):
+        self.assertIsNone(takes.quiet_near({"path": "x.mp4", "seconds": 5.0, "sound_tracks": 0}, 2.0, 1.0, -20.0))
+
 
 class Without(unittest.TestCase):
     def test_cuts_come_out_of_the_pieces(self):

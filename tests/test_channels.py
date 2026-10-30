@@ -37,7 +37,7 @@ class Channels(unittest.TestCase):
                            ({"name": "x" * 41}, "Give the channel a name of 1 to 40 letters."),
                            ({"name": "A", "handle": "@" + "a" * 30}, "keep it to 30"),
                            ({"name": "A", "spot": "top"}, "use bottom left, bottom middle, bottom right"),
-                           ({"name": "A", "captions": "loud"}, "use plain, lit, pop, or none")):
+                           ({"name": "A", "captions": "loud"}, "use plain, lit, pop, off, or none")):
             with self.assertRaises(ValueError) as e:
                 channels.save(look)
             self.assertIn(said, str(e.exception))

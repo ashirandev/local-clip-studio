@@ -624,6 +624,21 @@ class Talking(unittest.TestCase):
         takes.heard_claps, hearing.fix = self.heard_claps, self.fix
         Arrange.tearDown(self)
 
+    def test_the_pieces_of_a_clip_someone_talks_through_land_in_the_quiet(self):
+        asked = []
+
+        def land(rec, made, level):
+            asked.append(level)
+            return made
+
+        with mock.patch.object(tools, "_on_quiet", land):
+            Arrange.run_job(self, [call("open_clips", folder=self.folder, why="the review's takes")],
+                            [call("load_recipe", type="montage", why="clips of a review")],
+                            [call("arrange_clips", story="the review", why="order", clips=[
+                                {"clip": 1, "start": 2.5, "end": 23.5, "words": "This mic", "why": "the review"},
+                                {"clip": 2, "why": "the desk"}])], "Done.")
+        self.assertTrue(asked and asked[0], "the piece of talk goes through the same rule, with its level")
+
     def test_a_clip_someone_talks_through_is_cut_by_its_lines_without_the_take_given_up(self):
         opened = [[call("open_clips", folder=self.folder, why="the review's takes")],
                   [call("load_recipe", type="montage", why="clips of a review")]]

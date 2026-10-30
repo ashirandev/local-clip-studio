@@ -2660,6 +2660,52 @@ class Tools(unittest.TestCase):
                       "the frame could not follow, so the box it was given shows the product is in the picture")
         self.assertIn("Clip 2 (moment 2, 0:40-0:50, 10 s, subject layout): not made, the person pressed Stop.", made)
 
+    def test_a_clips_cuts_and_the_persons_own_land_in_the_quiet_and_say_where(self):
+        """Tarm 10-30: "ไม่เอาตัดกลางคำ". The sound is loud from 32 to 46 s; lane 4: change_ends kept a drag where it was
+        put, so it could land inside a word."""
+        takes.heard_level = self.level
+        make_moment(self.clip, loud=(32, 46))
+        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        _, steps = self.several([call("make_clips", clips=clips, why="both")],
+                                [call("change_ends", start="0:32.5", end="0:45", why="into the first word")],
+                                [call("change_ends", start="0:35", why="in the middle of the sound")], "Done.")
+        lands, stays = steps[-2:]
+        self.assertFalse(lands["refused"], lands["result"])
+        self.assertIn("it now runs from 0:31.7 to 0:45.0", lands["result"], "0.3 s before the sound, not 0:32.5")
+        self.assertIn("The program moved 1 cut, at most 0.78 s, into the nearest quiet sound", lands["result"])
+        self.assertIn("it now runs from 0:35.0 to", stays["result"])
+        self.assertIn("Nothing is quiet within 1 s of the cut at 0:35.0: it is on sound as loud as the talk.",
+                      stays["result"])
+        self.assertEqual(self.chat.project.state()["clip"]["pieces"][0][0], 35.0)
+        checked = [c for checks in self.chat.checks.values() for c in checks if c["name"] == "The cuts are in quiet sound"]
+        self.assertEqual(len(checked), 2, "each clip's check asks it")
+        self.assertIn("on sound as loud as the talk at 0:40.0 of the recording", checked[0]["found"])
+
+    def test_a_talk_clips_cuts_land_in_the_quiet_too(self):
+        from unittest import mock
+        with mock.patch.object(tools, "_make_talk", return_value="Made.") as talk, \
+                mock.patch.object(tools, "_on_quiet", lambda rec, made, level: ([[1.0, 2.0]], "landed")):
+            self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="talk", why="the talk")], "Done.")
+        self.assertEqual(talk.call_args[0][4:6], ([[1.0, 2.0]], "landed"))
+
+    def test_a_game_clips_cuts_are_moved_too_and_a_montages_are_not(self):
+        from unittest import mock
+        asked = []
+
+        def land(rec, made, level):
+            asked.append(level)
+            return made
+
+        with mock.patch.object(tools, "_on_quiet", land), mock.patch.object(tools.takes, "heard_level",
+                                                                             return_value=(0.0, [-20.0])):
+            self.several([call("make_clip", moment=1, layout="card", why="the game")], "Done.", recipe="game")
+            self.assertEqual(asked, [(0.0, [-20.0])], "the level reaches the cuts of a game, whose moment stays whole")
+            asked.clear()
+            self.chat.clip = dict(self.chat.clip, recipe=tools.MONTAGE)
+            self.run_job([call("make_clip", moment=1, layout="card", why="the trip")], "Done.")
+        self.assertEqual(asked, [None], "a montage cuts on the picture, under its music")
+
     def test_a_sound_as_loud_as_the_talk_after_the_last_line_stays(self):
         """Lane 5, 10-30: the hearing writes no words for a laugh, and a talk clip lost the 11 s of laughing after its
         last line. Here the line is said at 32-34 s and the sound goes on as loud to 40 s, then the room is quiet."""
@@ -2668,8 +2714,8 @@ class Tools(unittest.TestCase):
         clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
                  {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
         _, steps = self.several([call("make_clips", clips=clips, why="both")], "Done.")
-        self.assertIn("Clip 1 (moment 1, 0:32-0:40, 8.3 s, card layout): handed over, ", steps[-1]["result"],
-                      "from 0.3 s before the line to the end of the sound, which runs to the moment's end")
+        self.assertIn("Clip 1 (moment 1, 0:32-0:40, 8.62 s, card layout): handed over, ", steps[-1]["result"],
+                      "from 0.3 s before the line to 0.3 s after the sound, which runs to the moment's end")
 
     def test_a_saved_look_keeps_the_captions_off_and_its_layout_and_length_for_its_kind_of_clip(self):
         """Tarm 10-30: "ทำให้ user save template ได้ไปเลย เช่น Enable / disable caption"."""
@@ -3019,7 +3065,7 @@ class Tools(unittest.TestCase):
         self.assertTrue(second["result"].startswith("Checked 3 of 3 on the finished file "), second["result"])
         self.assertFalse(ready["refused"], ready["result"])
         shown = [e for e in self.chat.events if e["kind"] == "ready"][-1]
-        self.assertEqual([c["ok"] for c in shown["checks"]], [None, None, True, None, True, True])
+        self.assertEqual([c["ok"] for c in shown["checks"]], [None, None, True, None, True, None, True])
         self.assertEqual(agent.Chat.load(self.chat.id).checks, self.chat.checks)
 
     def test_a_game_clip_passes_the_names_check_only_when_the_names_read_on_the_screen_are_under_a_blur(self):

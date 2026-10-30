@@ -2188,8 +2188,8 @@ function on(e) {
     pageWork("ends", false);
     againLine.textContent = "";
     if (e.kind === "moved") room.trim = null;
-    trimWhy.textContent = e.kind === "moved" ? "" : "The clip was not changed: " + e.error;
-    trimWhy.hidden = e.kind === "moved";
+    trimWhy.textContent = e.kind === "moved" ? e.said || "" : "The clip was not changed: " + e.error;
+    trimWhy.hidden = e.kind === "moved" && !e.said;
     loadPanel();
     return;
   }

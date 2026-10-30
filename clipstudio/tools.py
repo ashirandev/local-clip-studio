@@ -541,8 +541,9 @@ def arrange_clips(job, why, story, clips, left_out=None, hook="", products=None)
                 problems.append("Clip %d: %g-%g s overlaps a piece of it you already use; a line goes in once."
                                 % ((c["clip"],) + given))
             taken.setdefault(c["clip"], []).append((a, b))
-            parts, cut = _pieces(clip["said"] or [], a, b, _still(rec, None, a, b, None), clip.get("claps") or [],
-                                 slates=True, of="the piece", level=takes.heard_level(rec) if clip["said"] else None)
+            level = takes.heard_level(rec) if clip["said"] else None
+            parts, cut = _on_quiet(rec, _pieces(clip["said"] or [], a, b, _still(rec, None, a, b, None),
+                                                clip.get("claps") or [], slates=True, of="the piece", level=level), level)
             parts = takes.without(parts, clip["stills"])
             if not parts:
                 problems.append("Clip %d: nothing is said at %g-%g s once the takes given up and the silences are cut. "
@@ -1332,6 +1333,86 @@ def _pieces(said, a, b, still, claps=(), slates=False, of="the moment", edges=Tr
         "that is part of the moment, not silence." % held) if held >= 0.1 else "")
 
 
+EDGE_REACH = 1.0
+EDGE_BED = 6.0
+EDGE_FILE = 0.05
+MOVED_CUTS = "The program moved %d cut%s, at most %g s, into the nearest quiet sound, so none falls inside a word."
+LOUD_CUT = "Nothing is quiet within %g s of the cut at %s: it is on sound as loud as the talk."
+
+
+def _quiet_under(level):
+    """The level in dB a sound is quiet under, from level, takes.heard_level's: QUIET_UNDER under what the loudest
+    quarter of the stretch starts at, as the talk is there, with or without lines heard."""
+    return float(np.percentile(level[1], 75)) - QUIET_UNDER
+
+
+def _on_quiet(rec, made, level):
+    """made, what _pieces gave (the pieces, its sentence), with every cut moved into the nearest quiet stretch within
+    EDGE_REACH (takes.quiet_near, or over a bed of music or a crowd the nearest dip of EDGE_BED), KEPT_AIR from the sound
+    on the side the clip keeps, and the sentence saying so. A cut with neither near stays where it is and the sentence
+    says that; a cut already in the quiet, and the first and last moments of the recording, stay. Pieces that meet
+    become one. Tarm 10-30: "ตัวตัดต่อ อยากให้ตัดเฉพาะตอนเสียงเงียบ แบบ wave เสียงมันเบาแล้ว ไม่เอาตัดกลางคำ", then, as a
+    sound engineer: "the program should cut at the silent". Heard lines say where words are only to a fraction of a
+    second: of the 140 cuts of the day's chats, 85 sat within 10 dB of the talk."""
+    pieces, said = made
+    if not pieces or not level or not level[1]:
+        return made
+    under, loud = _quiet_under(level), []
+
+    def land(t, opening):
+        if t <= EDGE_FILE or t >= rec["seconds"] - EDGE_FILE:
+            return t
+        run = takes.quiet_near(rec, t, EDGE_REACH, under, bed=EDGE_BED)
+        if not run:
+            loud.append(t)
+            return t
+        if run[0] <= t <= run[1]:
+            return t
+        return round(max(run[0], run[1] - KEPT_AIR) if opening else min(run[1], run[0] + KEPT_AIR), 2)
+
+    landed, moved = [], []
+    for x, y in pieces:
+        nx, ny = land(x, True), land(y, False)
+        nx, ny = (nx, ny) if ny > nx else (x, y)
+        moved += [abs(new - old) for new, old in ((nx, x), (ny, y)) if abs(new - old) >= 0.01]
+        if landed and nx <= landed[-1][1]:
+            landed[-1][1] = max(landed[-1][1], ny)
+        else:
+            landed.append([nx, ny])
+    if sum(y - x for x, y in landed) > LONGEST:
+        return made
+    told = ([MOVED_CUTS % (len(moved), "" if len(moved) == 1 else "s", round(max(moved), 2))] if moved else []) + [
+        LOUD_CUT % (EDGE_REACH, _tenth(t)) for t in loud]
+    return landed, " ".join(([said] if said else []) + told) or None
+
+
+def _loud_cuts(rec, cuts, level):
+    """Those of cuts, seconds of the recording, that no quiet stretch holds, the first and last of the file apart."""
+    under = _quiet_under(level)
+
+    def held(t):
+        run = takes.quiet_near(rec, t, takes.QUIET_LEAST, under)
+        return run and run[0] <= t <= run[1]
+
+    return [t for t in cuts if EDGE_FILE < t < rec["seconds"] - EDGE_FILE and not held(t)]
+
+
+def _cuts_check(rec, state, kind):
+    """(ok, found, who) for the check that the clip's cuts sit in quiet sound. _on_quiet moved those it could, so one
+    left on loud sound had nothing quiet near: only a person can hear whether it is right."""
+    if kind == MONTAGE:
+        return None, "a montage cuts on the picture, under its music", "program"
+    pieces = state["clip"]["pieces"]
+    level = takes.heard_level(rec, pieces[0][0], pieces[-1][1])
+    if not level:
+        return None, "the sound could not be read", "program"
+    loud = _loud_cuts(rec, sum(pieces, []), level)
+    if loud:
+        return None, "on sound as loud as the talk at %s of the recording, with nothing quiet near: tell the person" % (
+            ", ".join(_tenth(t) for t in loud)), "Muse"
+    return True, "every cut is in quiet sound", "program"
+
+
 def _sounds(level, said, a, b):
     """[[from, to]] of the recording from a to b where the sound is less than QUIET_UNDER dB under the talk's, each
     with KEPT_AIR at its sides. level is (start, [dB every takes.LEVEL_STEP s]); the talk's level is the median
@@ -1812,11 +1893,11 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     unasked = None if moved else _layout_unasked(job, recipe, [layout]) or _menu_start(job, rec, a)
     if unasked:
         raise Refused("Not made. " + unasked)
+    level = None if recipe == MONTAGE else takes.heard_level(rec, a, b)
     if layout in ("talk", "speaker", "split"):
-        return _make_talk(job, rec, moment, m, *_pieces(m.get("said") or [], a, b, _still(rec, "talk", a, b, None),
-                                                        takes.heard_claps(rec, a, b), edges=not m.get("ends"),
-                                                        level=takes.heard_level(rec, a, b)),
-                          name=layout, kept=kept)
+        return _make_talk(job, rec, moment, m, *_on_quiet(rec, _pieces(
+            m.get("said") or [], a, b, _still(rec, "talk", a, b, None), takes.heard_claps(rec, a, b),
+            edges=not m.get("ends"), level=level), level), name=layout, kept=kept)
     trim = None
     try:
         if recipe == "vlog" and layout == "card" and not face:
@@ -1833,8 +1914,8 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     except ValueError as e:
         raise Refused(str(e))
     still = _still(rec, recipe, a, b, layouts.face_room(lay))
-    pieces, cut = _pieces(m.get("said") or [], a, b, still, takes.heard_claps(rec, a, b) if still else [],
-                          edges=not m.get("ends"), level=takes.heard_level(rec, a, b) if still else None)
+    pieces, cut = _on_quiet(rec, _pieces(m.get("said") or [], a, b, still, takes.heard_claps(rec, a, b) if still else [],
+                                         edges=not m.get("ends"), level=level), level)
     menus = None
     if recipe == "game":
         try:
@@ -1968,7 +2049,8 @@ KEPT_AT_AN_EVENT = ("%d people's faces are in the clip, all kept as they are: at
 
 def change_ends(job, why, start=None, end=None):
     """The clip's moment with the start or the end moved where the person wants it, made again as it was made (the
-    layout, crop, face and product make_clip was given), its edges kept where they were put. What sits on the footage
+    layout, crop, face and product make_clip was given), its edges where they were put, or in the nearest quiet sound
+    when that is inside a word (_on_quiet), and the result says where they went. What sits on the footage
     stays on it (project.state, a moved clip), so a cut-off start takes its captions with it, and a start taken
     earlier is heard first when the look never heard it. The new moment is one more in the list, so Undo puts the
     clip back as it was and the moment it was made from is still there."""
@@ -2020,8 +2102,15 @@ def change_ends(job, why, start=None, end=None):
                           made.get("product"), made.get("follow", True), moved=True)
     if job.chat.project.state()["clip"]["moment"] != moment["n"]:
         return said_back
+    pieces = job.chat.project.state()["clip"]["pieces"]
+    asked, a, b = (a, b), pieces[0][0], pieces[-1][1]
     lines = ["Moved the clip's ends: it now runs from %s to %s of the recording (it ran from %s to %s)." % (
         tenth(a), tenth(b), tenth(now_a), tenth(now_b))]
+    shifted = [round(abs(x - y), 2) for x, y in zip((a, b), asked) if abs(x - y) >= 0.01]
+    if shifted:
+        lines.append(MOVED_CUTS % (len(shifted), "" if len(shifted) == 1 else "s", max(shifted)))
+    level = takes.heard_level(rec, a, b)
+    lines += [LOUD_CUT % (EDGE_REACH, tenth(t)) for t in (_loud_cuts(rec, [a, b], level) if level else [])]
     framed = _frame_kept(job, rec, clip, job.chat.project.state()["clip"])
     if framed:
         lines.append(framed)
@@ -4710,6 +4799,7 @@ def check_clip(job, why):
         check("The product is in the frame", None, "not a seller's clip")
     check("The length fits a Reel", made["seconds"] <= REEL_LONGEST,
           "%.1f s; a Reel is at most %d s" % (made["seconds"], REEL_LONGEST))
+    check("The cuts are in quiet sound", *_cuts_check(rec, state, kind))
     black, silent = _start_of(path, made["sound_tracks"])
     heard = _sound_at(state, path) if silent and not black else None
     muted = silent and not black and state["mutes"] and state["mutes"][0][0] <= project.SLIVER
@@ -6196,8 +6286,9 @@ TOOLS = {t.name: t for t in [
     Tool("change_ends", "Moved the clip's ends",
          "Move where the clip starts or ends in the recording when the person asks: cut off its start or its end, or "
          "take in more before or after it ('start earlier', 'cut the last bit', 'end after the laugh'). The program "
-         "makes the clip again from the same moment in the same layout, crop and face, and keeps its edges where you "
-         "put them; the captions, blurs, sounds and effects stay on what is said and shown, and the words on screen "
+         "makes the clip again from the same moment in the same layout, crop and face, with its edges where you put "
+         "them, or in the nearest quiet sound when that is inside a word; the captions, blurs, sounds and effects stay "
+         "on what is said and shown, and the words on screen "
          "stay at their time in the clip. The person can do the same from the Trim tab under the clip.",
          {"start": {"type": "string", "maxLength": 20,
                     "description": "The new start, a time of the recording like 1:51:30 or 6704.5. Leave it out to keep "

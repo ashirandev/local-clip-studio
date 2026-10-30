@@ -35,8 +35,8 @@ import traceback
 
 from . import (asr, channels, chatname, countdown, faces, hearing, layer, layouts, maps, mind, montage, needs, previews,
                project, recording, render, spent, text, words)
-from .tools import (CAPTION_LETTERS, LONGEST, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST, STYLES, TOOLS, UNASKED,
-                    Refused, _spoken, _subtitles, _undecided, _waits, channel_entries, channel_unfit, describe, faces_at,
+from .tools import (CAPTION_LETTERS, LONGEST, LOUD_CUT, MOVED_CUTS, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST,
+                    STYLES, TOOLS, UNASKED, Refused, _spoken, _subtitles, _undecided, _waits, channel_entries, channel_unfit, describe, faces_at,
                     features, look_of, look_said)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -69,6 +69,7 @@ TAP_SAID = "(tapped) "
 COVER_SAID = re.compile(r"(?i)\bcovers?\b|หน้าปก|ภาพปก|ปกพร้อม|ปกคลิป|ปกให้|ปกของ|ปกสวย")
 NO_COVER = ("[studio] Your answer speaks of the clip's cover, but no cover is made for the finished clip. Answer the "
             "person again without saying it has one; if they want one, they can tap Make the cover or ask for it.")
+LANDED = (MOVED_CUTS[:MOVED_CUTS.index("%")], LOUD_CUT[:LOUD_CUT.index("%")])
 OPEN_SAID = "(opened) "
 AS_SAID = "said"
 WORDS_GONE = "Those words are not on the clip as the page showed them. Look at the clip again."
@@ -612,9 +613,10 @@ class Chat:
         return None
 
     def _move(self, hand, start, end):
-        before = self.project.state()["clip"]
+        before, landed = self.project.state()["clip"], ""
         try:
             said = TOOLS["change_ends"].run(hand, TAPPED, start="%.2f" % start, end="%.2f" % end)
+            landed = " ".join(line for line in (said or "").splitlines() if line.startswith(LANDED))
             said = None if self.project.state()["clip"]["moment"] != before["moment"] else said
         except Refused as e:
             said = str(e)
@@ -632,7 +634,7 @@ class Chat:
         clip = self.project.state()["clip"]
         self._tell("the person moved the clip's ends on the page: it now runs from %s to %s of the recording"
                    % (recording.clock(clip["pieces"][0][0]), recording.clock(clip["pieces"][-1][1])))
-        self.emit("moved", clip=self.clip_view())
+        self.emit("moved", clip=self.clip_view(), said=landed)
 
     def framing(self, state):
         """Where the upright frame sits over a lying recording, for the Frame tab: {"picture": a frame of the clip's

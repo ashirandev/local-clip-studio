@@ -28,6 +28,88 @@ def ffprobe(path):
     return json.loads(out)
 
 
+class Quiet(unittest.TestCase):
+    """Tarm 10-30: "ตัวตัดต่อ อยากให้ตัดเฉพาะตอนเสียงเงียบ แบบ wave เสียงมันเบาแล้ว ไม่เอาตัดกลางคำ"."""
+    rec = {"path": "x.mp4", "seconds": 200.0, "sound_tracks": 1}
+    level = (0.0, [-20.0] * 300 + [-60.0] * 100)
+
+    def land(self, pieces, runs, said=None):
+        """_on_quiet over pieces, runs the quiet stretch takes.quiet_near finds for each time."""
+        from unittest import mock
+        self.asked = []
+
+        def near(rec, t, reach, under, bed=None):
+            self.asked.append((t, reach, under, bed))
+            return runs.get(t)
+
+        with mock.patch.object(tools.takes, "quiet_near", near):
+            return tools._on_quiet(self.rec, (pieces, said), self.level)
+
+    def test_each_cut_moves_into_the_nearest_quiet_on_the_side_it_keeps(self):
+        pieces, said = self.land([[10.0, 20.0]], {10.0: [9.4, 9.8], 20.0: [20.2, 21.0]})
+        self.assertEqual(pieces, [[9.5, 20.5]], "an opening stays near the sound after it, a closing the sound before")
+        self.assertEqual(said, "The program moved 2 cuts, at most 0.5 s, into the nearest quiet sound, so none falls "
+                               "inside a word.")
+        self.assertEqual(self.asked[0], (10.0, tools.EDGE_REACH, -30.0, tools.EDGE_BED),
+                         "quiet is 10 dB under the talk, over the stretch's loud quarter; a bed is tried next")
+        self.assertEqual(self.land([[10.0, 20.0]], {10.0: [10.2, 11.0], 20.0: [19.0, 19.7]})[0], [[10.7, 19.3]],
+                         "the other way a cut lands as near the sound the clip keeps")
+
+    def test_a_short_stretch_is_landed_in_whole(self):
+        self.assertEqual(self.land([[10.0, 20.0]], {10.0: [9.9, 9.96], 20.0: [20.1, 20.16]})[0], [[9.9, 20.16]])
+
+    def test_a_cut_already_in_the_quiet_stays_and_nothing_is_said(self):
+        self.assertEqual(self.land([[10.0, 20.0]], {10.0: [9.0, 10.5], 20.0: [19.0, 20.0]}), ([[10.0, 20.0]], None))
+
+    def test_with_nothing_quiet_near_the_cut_stays_and_it_is_said(self):
+        pieces, said = self.land([[10.0, 20.0]], {10.0: [9.4, 9.8]}, "The program cut 2 s.")
+        self.assertEqual(pieces, [[9.5, 20.0]])
+        self.assertEqual(said, "The program cut 2 s. The program moved 1 cut, at most 0.5 s, into the nearest quiet "
+                               "sound, so none falls inside a word. Nothing is quiet within 1 s of the cut at 0:20.0: "
+                               "it is on sound as loud as the talk.")
+
+    def test_the_first_and_last_moments_of_the_recording_are_not_cuts(self):
+        self.assertEqual(self.land([[0.0, 200.0]], {}), ([[0.0, 200.0]], None))
+        self.assertEqual(self.asked, [])
+
+    def test_pieces_that_meet_in_the_quiet_become_one(self):
+        pieces, _ = self.land([[10.0, 20.0], [20.3, 30.0]], {20.0: [20.1, 20.5], 20.3: [20.1, 20.5]})
+        self.assertEqual(pieces, [[10.0, 30.0]])
+
+    def test_a_piece_is_never_turned_inside_out(self):
+        self.assertEqual(self.land([[10.0, 10.4]], {10.0: [10.3, 10.9], 10.4: [9.5, 10.1]})[0], [[10.0, 10.4]])
+
+    def test_a_clip_at_its_longest_keeps_its_cuts_rather_than_grow_past_it(self):
+        pieces = [[10.0, 10.0 + tools.LONGEST]]
+        self.assertEqual(self.land(pieces, {10.0: [9.0, 9.5], pieces[0][1]: [100.5, 101.0]}), (pieces, None))
+
+    def test_no_level_leaves_the_pieces_as_they_are(self):
+        made = [[10.0, 20.0]], "said"
+        self.assertEqual(tools._on_quiet(self.rec, made, None), made)
+        self.assertEqual(tools._on_quiet(self.rec, made, (0.0, [])), made)
+        self.assertEqual(tools._on_quiet(self.rec, ([], None), self.level), ([], None))
+
+    def test_the_check_names_the_cuts_left_on_loud_sound(self):
+        from unittest import mock
+        state = {"clip": {"pieces": [[10.0, 20.0]]}}
+
+        def near(rec, t, reach, under, bed=None):
+            return [t - 0.1, t + 0.1] if t == 10.0 else [t + 0.3, t + 0.5]
+
+        with mock.patch.object(tools.takes, "heard_level", return_value=self.level):
+            with mock.patch.object(tools.takes, "quiet_near", near):
+                self.assertEqual(tools._cuts_check(self.rec, state, "talk"),
+                                 (None, "on sound as loud as the talk at 0:20.0 of the recording, with nothing quiet "
+                                        "near: tell the person", "Muse"))
+            with mock.patch.object(tools.takes, "quiet_near", lambda rec, t, reach, under, bed=None: [t - 1, t + 1]):
+                self.assertEqual(tools._cuts_check(self.rec, state, "talk"),
+                                 (True, "every cut is in quiet sound", "program"))
+        with mock.patch.object(tools.takes, "heard_level", return_value=None):
+            self.assertEqual(tools._cuts_check(self.rec, state, "talk")[:2], (None, "the sound could not be read"))
+        self.assertEqual(tools._cuts_check(self.rec, state, tools.MONTAGE)[:2],
+                         (None, "a montage cuts on the picture, under its music"))
+
+
 class Times(unittest.TestCase):
     def test_times_are_read_as_the_map_writes_them(self):
         read = recording.seconds_of
