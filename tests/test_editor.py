@@ -2368,6 +2368,12 @@ class Tools(unittest.TestCase):
         self.assertIn("Captions are lit or popped, not both", both["result"])
         self.assertEqual(tools.describe(self.chat.project.entries[-1]), "the popped captions")
         self.assertIn("popped captions on", self.chat.clip_line())
+        _, steps = self.run_job([call("set_style", style="news", why="subtitles")],
+                                [call("add_captions", pop=True, why="pop again")], "Done.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertIn("each line shows whole on its see-through box", steps[-1]["result"],
+                      "Muse is not told the words pop in when the look's box shows lines whole")
+        self.assertNotIn("pops in", steps[-1]["result"])
 
     def test_a_line_the_hearing_was_not_sure_of_is_marked_for_muse_and_left_out_of_the_captions(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "this is the moment", "sure": 0.95},

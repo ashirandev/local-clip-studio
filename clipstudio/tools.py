@@ -3284,6 +3284,9 @@ def add_captions(job, why, on=True, lit=False, pop=None, language=""):
                "numbers kept but in %d where you were shown the number and left it out, which the check will name to "
                "the person" % len(unnumbered)) if translated else "of what was said, numbers exactly as heard", under,
               "each word lights up as it is said" if lit else
+              "each line shows whole on its see-through box, as a news clip's subtitles do: the look's box does not "
+              "let words pop in" if pop and render.whole_lines(state, job.chat.clip["style"] if job.chat.clip else
+                                                                 "clean") else
               "each word pops in at its place as it is said and stays, so once said the line looks plain" if pop else
               "plain words, none lit, so the eye stays on the picture")]
     if keyed:
