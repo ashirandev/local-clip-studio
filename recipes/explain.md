@@ -40,6 +40,9 @@ After the clip, the viewer has learned one thing they can use: one tip, one step
 - The title says what the viewer will be able to do, in the clip's language, in a few words; a number in it must be
   one that was said.
 - Captions on, plain: the words explain the screen.
+- Pictures: with no face camera the space above the card is empty, so when the person names a thing a picture can
+  show (gold bars, a price going up, a shop counter), a picture of it over the top on the second it is said, 1 or 2
+  in a clip, each a new thing. Never a picture of the screen itself or of words.
 - Look: none. One slow push on the result when it appears.
 - Sounds: a ding when the result appears, and nothing more.
 

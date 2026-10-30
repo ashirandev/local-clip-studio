@@ -3842,9 +3842,11 @@ PICTURE_MOST = 960
 
 def add_picture(job, why, about, at, length=PICTURE_LENGTH):
     """Muse Image draws a picture of what is said (picture.make, from the words about alone) and it covers the top of
-    the frame from `at` for length seconds, down to the highest face (or the product) on screen then, at most to the
-    middle of the frame, its lower edge fading into the footage, under the titles and captions. Tarm 10-30: a talk
-    that shows a new picture on top as each thing is named holds the eye ("ตอนที่พูดถึงเรื่องผีก็มีภาพผี")."""
+    the frame from `at` for length seconds, down to the highest face (or the product) on screen then and never past
+    a card's top, at most to the middle of the frame, its lower edge fading into the footage, under the titles and
+    captions. Tarm 10-30: a talk that shows a new picture on top as each thing is named holds the eye ("ตอนที่พูดถึง
+    เรื่องผีก็มีภาพผี"), and an ad's picture over the top, above what it explains: "ถ้าเราสามารถใช้โมเดลของเมต้าทำภาพได้
+    เลยก็จบ"; on a card with no face the picture ran to the middle of the frame, over the top of the slide."""
     rec = _open(job, "put a picture on")
     state = _clip_state(job)
     _watch_first(job, state)
@@ -3857,7 +3859,8 @@ def add_picture(job, why, about, at, length=PICTURE_LENGTH):
                       % (at, round(clip_length - at, 2), 2 * effects.PICTURE_FADE))
     times, every = _face_times(state, rec)
     tops = [b[1] for t, boxes in times if at - every <= t <= at + length for b in boxes]
-    bottom = layouts._even(min(tops + [PICTURE_MOST]))
+    card = [p["dst"][1] for p in state["clip"]["layout"]["parts"] if p["name"] == "card"]
+    bottom = layouts._even(min(tops + card + [PICTURE_MOST]))
     if bottom < PICTURE_LEAST:
         raise Refused("From %g to %g s a face or the product comes up to y %d on your grid, so a picture above them "
                       "would be too short to see. Put it where they sit lower, or leave it out."
@@ -3882,9 +3885,10 @@ def add_picture(job, why, about, at, length=PICTURE_LENGTH):
     said = " ".join(about.split())
     lines = ["Kept the picture of %s (made before, at no cost)." % said if got["reused"] else
              "%s drew the picture of %s in %g s, for $%g." % (picture.LABEL, said, got["seconds"], got["usd"]),
-             "It covers the top of the frame from %g to %g s, down to just above the people (%s on your grid), its "
+             "It covers the top of the frame from %g to %g s, down to just above the %s (%s on your grid), its "
              "lower edge fading into the footage, under the titles and captions."
-             % (round(at, 2), round(at + length, 2), layouts.on_grid(0, bottom, "y", inward=False))]
+             % (round(at, 2), round(at + length, 2), "card" if card and bottom == layouts._even(min(card)) else
+                "people", layouts.on_grid(0, bottom, "y", inward=False))]
     if replaced:
         lines.append("It replaces %s." % ", ".join("the picture of %s at %g s" % (k["about"], k["at"])
                                                      for k in replaced))
@@ -4029,6 +4033,10 @@ def _product_cut(clip, rec):
 
 
 THING_SEEN = 0.5
+# The check fails only where the frame loses the product this long at a time. On Glimmer's tablet (10-30, chat
+# 152449-7de9) a 0.5 s cut, the frame catching up, failed it, and Muse moved the clip's ends to fix it, which made the
+# clip again without its follow, background and title, and ran out of steps before it handed anything over.
+PRODUCT_LOST = 1.0
 
 
 def add_flurry(job, why, stickers, at, move="burst", count=8, length=None, place=None, box=None, person_said=None):
@@ -4333,9 +4341,13 @@ def check_clip(job, why):
     cut = _product_cut(state["clip"], rec) if kind == "seller" else None
     if cut is not None:
         thing = state["clip"]["layout"]["thing"]["what"]
-        check("The product is in the frame", not cut, "the frame cuts the %s or has left it at %s, while SAM sees it"
-              % (thing, _spans(cut)) if cut else "SAM followed the %s, and the frame holds it whenever it is seen"
-              % thing)
+        lost = [(a, b) for a, b in cut if b - a >= PRODUCT_LOST]
+        check("The product is in the frame", False if lost else None if cut else True,
+              "the frame cuts the %s or has left it at %s, while SAM sees it%s" % (
+                  thing, _spans(cut), "" if lost else "; each under %g s, the frame catching up with the hands: look "
+                                                      "at those seconds" % PRODUCT_LOST) if cut else
+              "SAM followed the %s, and the frame holds it whenever it is seen" % thing, "program" if lost or not cut
+              else "Muse")
     elif kind == "seller":
         product = state["clip"].get("product")
         inside = bool(product) and bool(layouts.to_frame(state["clip"]["layout"], product))

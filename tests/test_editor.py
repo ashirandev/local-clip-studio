@@ -1596,6 +1596,31 @@ class Tools(unittest.TestCase):
         self.assertEqual([(r["label"], r["usd"]) for r in paid], [("Muse Image", 0.01)] * 2,
                          "the two pictures drawn are in the ledger; the one kept cost nothing")
 
+    def test_a_picture_on_a_card_stops_at_the_card_so_the_screen_it_explains_stays_whole(self):
+        """Tarm 10-30 liked an ad's picture over the top, above what it explains; on a card with no face the picture
+        ran down to the middle of the frame, over the top of the slide."""
+        from unittest import mock
+        drawn = os.path.join(self.tmp, "drawn.jpg")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=1920x1280", "-frames:v", "1",
+                        drawn], check=True)
+
+        def make(about):
+            return {"path": drawn, "usd": 0.01, "seconds": 1.0, "reused": False}
+
+        with mock.patch.object(tools.picture, "make", make), mock.patch.object(tools, "_face_times",
+                                                                             return_value=([], 0.5)), \
+                mock.patch.object(tools, "_the_face", return_value=(None, "No face was found.")):
+            brain, steps = self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="card", why="the slide")],
+                                        [call("add_picture", about="gold bars on a table", at=2, why="the gold")],
+                                        "Done.")
+        placed = steps[-1]
+        self.assertFalse(placed["refused"], placed["result"])
+        state = self.chat.project.state()
+        card = next(p for p in state["clip"]["layout"]["parts"] if p["name"] == "card")
+        self.assertLess(card["dst"][1], tools.PICTURE_MOST, "a card higher than where a picture stops by itself")
+        self.assertEqual(state["pictures"][-1]["box"], [0, 0, 1080, layouts._even(card["dst"][1])])
+        self.assertIn("down to just above the card (y 0 to", placed["result"])
+
     def green_cloth(self):
         """Patches for a recording in front of a green cloth: green.find says it is there, green.mask makes a person's
         mask over the seconds asked (counted in self.cut), green.backdrop draws a blue picture once per words."""
@@ -1796,6 +1821,12 @@ class Tools(unittest.TestCase):
         self.assertNotIn("The frame cuts", small["result"])
         self.assertIn("- passed: The product is in the frame (SAM followed the white game controller, and the frame "
                       "holds it whenever it is seen)", again["result"])
+        with mock.patch.object(tools, "_product_cut", return_value=[(2.0, 2.6)]):
+            _, brief = self.run_job([call("check_clip", why="a brief cut")], "Done.")
+        self.assertIn("- for you to check: The product is in the frame (the frame cuts the white game controller or has "
+                      "left it at 2-2.6 s, while SAM sees it; each under 1 s, the frame catching up with the hands: look "
+                      "at those seconds)", brief[-1]["result"],
+                      "Glimmer 10-30: a 0.5 s cut failed the check and Muse remade the clip without its follow")
 
     def test_muse_sends_stickers_flying_in_a_box_clear_of_faces_and_the_clip_draws_them(self):
         face = [430, 660, 570, 755]
