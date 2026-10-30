@@ -76,14 +76,60 @@ def frame_mask(mask, pieces, layout, length, pushes=()):
     if os.path.isfile(target):
         return target
     graph, files = _graph(pieces, layout, length, pushes, start, end)
-    cmd = [shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y", "-i", path]
+    cmd = ["-i", path]
     for f in files:
         cmd += ["-loop", "1", "-framerate", str(FPS), "-i", f]
+    return _make(cmd, graph, length, target)
+
+
+def speaking_mask(mask, pieces, layout, length, pushes=()):
+    """The path of the mask of whoever speaks, on the clip as frame_mask() lays one person's (made once in
+    work/masks): each person's own mask (mask["each"], from cut_out on a talk) white only while they speak
+    (talk.speaking, from the layout's shots), all of them together, so the grey look keeps the speaker's colour and
+    everyone's when they talk together. Tarm 10-30 on four people talking: one person kept in colour through the
+    whole clip "มันดูตลก". frame_mask()'s one person when the mask has no one's own or the layout no shots."""
+    from . import talk
+    each = mask.get("each") or []
+    if layout["kind"] != "talk" or not layout.get("shots") or not any(each):
+        return frame_mask(mask, pieces, layout, length, pushes)
+    turns = talk.speaking(layout["shots"], len(each))
+    laid, gates = [], []
+    for n, path in enumerate(each, 1):
+        spoken = ["between(t,%s,%s)" % (_f(t["from"]), _f(t["to"])) for t in turns if n in t["who"]]
+        if path and spoken:
+            laid.append(frame_mask(dict(mask, path=path), pieces, layout, length, pushes))
+            gates.append("+".join(spoken))
+    folder = os.path.join(recording.WORK, "masks")
+    key = hashlib.sha1(json.dumps([FRAME_MASKS, laid, gates, round(length, 3)]).encode("utf-8")).hexdigest()[:16]
+    target = os.path.join(folder, "speak_%s.mkv" % key)
+    if os.path.isfile(target):
+        return target
+    if not laid:
+        return _make(["-f", "lavfi", "-i", "color=c=black:s=%dx%d:r=%d:d=%s" % (W, H, FPS, _f(length))],
+                     "[0:v]format=gray[o]", length, target)
+    chains, cmd = [], []
+    for k, (path, gate) in enumerate(zip(laid, gates)):
+        cmd += ["-i", path]
+        chains.append("[%d:v]format=gray,lut=c0=0:enable='not(%s)'[g%d]" % (k, gate, k))
+    last = "g0"
+    for k in range(1, len(laid)):
+        chains.append("[%s][g%d]blend=all_mode=lighten:shortest=1[l%d]" % (last, k, k))
+        last = "l%d" % k
+    chains.append("[%s]format=gray[o]" % last)
+    return _make(cmd, ";".join(chains), length, target)
+
+
+def _make(inputs, graph, length, target):
+    """target, an FFV1 file of grey frames at FPS, length seconds of graph's [o] from inputs (FFmpeg's input options),
+    written to a part file and moved in."""
+    folder = os.path.dirname(target)
+    os.makedirs(folder, exist_ok=True)
     fd, part = tempfile.mkstemp(prefix=os.path.basename(target) + ".", suffix=".part.mkv", dir=folder)
     os.close(fd)
     try:
-        done = subprocess.run(cmd + ["-filter_complex", graph, "-map", "[o]", "-t", "%.3f" % length, "-r", str(FPS),
-                                     "-c:v", "ffv1", "-pix_fmt", "gray", "-f", "matroska", part],
+        done = subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y"] + inputs
+                              + ["-filter_complex", graph, "-map", "[o]", "-t", "%.3f" % length, "-r", str(FPS),
+                                 "-c:v", "ffv1", "-pix_fmt", "gray", "-f", "matroska", part],
                               capture_output=True, text=True, errors="replace", timeout=MAKE_SECONDS)
     except (subprocess.SubprocessError, OSError) as e:
         os.remove(part)

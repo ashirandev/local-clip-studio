@@ -422,6 +422,26 @@ def _seats(persons, heads, parts, room, notes):
     return out
 
 
+def speaking(shots_, count):
+    """Who speaks through the shots of a talk of count people, [{"from", "to", "who": [person numbers]}] in clip
+    seconds, neighbours with the same people joined: the person a shot shows; in a cut of REACTION seconds or less to
+    someone else, the one shown on both sides of it, who goes on talking while the listener is seen; in a shot of
+    everyone, all of them, since everyone moves alike there (they talk or laugh together). Tarm 10-30: "ถ้าผมพูดก็
+    ไฮไลท์ผม ถ้าอองรีพูดก็ไฮไลท์ที่อองรี"."""
+    out = []
+    for i, s in enumerate(shots_):
+        who = [s["show"]] if s["show"] else list(range(1, count + 1))
+        before, after = (shots_[i - 1] if i else None), (shots_[i + 1] if i + 1 < len(shots_) else None)
+        if (s["show"] and before and after and before["show"] == after["show"] and before["show"] not in (0, s["show"])
+                and s["to"] - s["from"] <= REACTION + 0.01):
+            who = [before["show"]]
+        if out and out[-1]["who"] == who:
+            out[-1]["to"] = s["to"]
+        else:
+            out.append({"from": s["from"], "to": s["to"], "who": who})
+    return out
+
+
 def with_shot(shots_, start, end, show):
     """The shots with show from start to end (clip seconds), cutting into the ones it overlaps; neighbours that show
     the same are joined."""

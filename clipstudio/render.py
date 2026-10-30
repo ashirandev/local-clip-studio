@@ -284,7 +284,8 @@ CUTOUT_LOOKS = {"grey": cutout.grey, "outline": cutout.outline}
 
 def _cut_out(state, default):
     """The frame stage's fragments that need the person's mask: the cut-out looks, then the words behind the person;
-    none when the clip asks for neither."""
+    none when the clip asks for neither. In a talk the looks follow whoever speaks (cutout.speaking_mask), and the
+    words go behind the person the mask was made for."""
     cuts = state.get("cutouts") or []
     behind_titles = [(t["start"], t["end"]) for t in state["titles"] if t.get("behind")]
     behind_words = [(h["at"], h["at"] + WORD_SECONDS) for h in _hits(state) if h["kind"] == "word" and h.get("behind")]
@@ -300,9 +301,11 @@ def _cut_out(state, default):
     try:
         mask = cutout.frame_mask(state["mask"], clip["pieces"], clip["layout"], state["length"],
                                  state.get("pushes") or [])
+        speaking = cutout.speaking_mask(state["mask"], clip["pieces"], clip["layout"], state["length"],
+                                        state.get("pushes") or []) if cuts else mask
     except RuntimeError as e:
         raise ValueError(str(e))
-    looks = [CUTOUT_LOOKS[c["look"]](mask, c["start"], c["end"]) for c in cuts]
+    looks = [CUTOUT_LOOKS[c["look"]](speaking, c["start"], c["end"]) for c in cuts]
     words = ass(state, default, behind=True)
     if words:
         filters = text._ass_filter(words, fonts(state, default))

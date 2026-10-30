@@ -77,6 +77,21 @@ class Turns(unittest.TestCase):
         self.assertEqual(len(talk.shots(self.wins(rows), talk.turns(self.wins(rows)), 2)), 1,
                          "a listener who barely moves gets no reaction shot")
 
+    def test_whoever_speaks_is_who_a_shot_shows_the_speaker_through_a_reaction_and_everyone_together(self):
+        rows = [(1, [5.0, 1.0])] * 30
+        rows[12] = (1, [5.0, 3.0])
+        wins = self.wins(rows)
+        shots = talk.shots(wins, talk.turns(wins), 2) + [{"from": 15.0, "to": 17.0, "show": 0},
+                                                         {"from": 17.0, "to": 18.0, "show": 3},
+                                                         {"from": 18.0, "to": 25.0, "show": 2}]
+        self.assertEqual(talk.speaking(shots, 3), [
+            {"from": 0.0, "to": 15.0, "who": [1]}, {"from": 15.0, "to": 17.0, "who": [1, 2, 3]},
+            {"from": 17.0, "to": 18.0, "who": [3]}, {"from": 18.0, "to": 25.0, "who": [2]}],
+            "person 1 talks on through person 2's reaction; a short shot between two others is its own")
+        longer = [{"from": 0, "to": 5, "show": 1}, {"from": 5, "to": 8, "show": 2}, {"from": 8, "to": 12, "show": 1}]
+        self.assertEqual([t["who"] for t in talk.speaking(longer, 2)], [[1], [2], [1]],
+                         "a shot longer than a reaction is someone's turn")
+
 
 class Followed(unittest.TestCase):
     """10-29, the brother's podcast in the speaker layout: the three hosts were listed as other people to decide

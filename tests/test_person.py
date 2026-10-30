@@ -53,11 +53,18 @@ n = int(round((job["to"] - job["from"]) * job["fps"]))
 for k in range(10, n + 1, 10):
     say(done=k, of=n)
 w, h = job["size"]
-subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=white:s=%dx%d:r=%g:d=%g,format=gray"
-                % (w, h, job["fps"], n / float(job["fps"])), "-c:v", "ffv1", "-pix_fmt", "gray", "-f", "matroska",
-                job["out"]], check=True)
+def white(out):
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=white:s=%dx%d:r=%g:d=%g,format=gray"
+                    % (w, h, job["fps"], n / float(job["fps"])), "-c:v", "ffv1", "-pix_fmt", "gray", "-f", "matroska",
+                    out], check=True)
+white(job["out"])
+each = {}
+for k in range(1, len(job.get("people") or []) + 1):
+    each[str(k)] = None if str(k) in os.environ.get("LCS_FAKE_LOST", "").split(",") else k
+    if each[str(k)] is not None:
+        white(os.path.join(job["each"], "%d.mkv" % k))
 note("worker end")
-say(ok=True, frames=n, people=[{"id": 0, "sure": 0.97}], kept=0, seconds={})
+say(ok=True, frames=n, people=[{"id": 0, "sure": 0.97}], kept=0, each=each, seconds={})
 '''
 
 
@@ -203,6 +210,28 @@ class CutOut(unittest.TestCase):
             asking.join(2)
         self.assertEqual(got, [first], "a kept mask does not wait for another cut-out to finish")
 
+    def test_each_person_of_a_talk_gets_their_own_mask_from_the_same_run(self):
+        """Tarm 10-30: in a talk the one speaking keeps their colour, so each person needs a mask of their own."""
+        os.environ["LCS_FAKE_LOST"] = "2"
+        self.addCleanup(os.environ.pop, "LCS_FAKE_LOST", None)
+        people = [[10, 10, 8, 10], [40, 10, 8, 10]]
+        made = person.cut_out(self.rec, 2, 5, people=people)
+        self.assertEqual(self.said(), ["unload", "worker start", "worker end", "load"], "one SAM run for everyone")
+        self.assertTrue(os.path.isfile(made["each"][0]))
+        self.assertEqual(made["each"][1:], [None], "SAM found nobody at person 2's face")
+        self.assertEqual(cutout._checked(dict(made, path=made["each"][0]), [64, 36])[1:], (10.0, 2.0, 5.0))
+        open(self.events, "w").close()
+        self.assertEqual(person.cut_out(self.rec, 2, 5, people=people), made, "given back at once")
+        self.assertEqual(self.said(), [])
+        alone = person.cut_out(self.rec, 2, 5)
+        self.assertNotIn("each", alone)
+        self.assertNotEqual(alone["path"], made["path"], "a mask without each person's own is another mask")
+        self.assertEqual([n for n in self.masks() if "part" in n or "pictures" in n], [], "nothing half made is left")
+        with self.assertRaisesRegex(ValueError, r"^people \[\] is not a list of face boxes"):
+            person.cut_out(self.rec, 2, 5, people=[])
+        with self.assertRaisesRegex(ValueError, r"^face \[1, 2\] is not a face box on talk\.mkv"):
+            person.cut_out(self.rec, 2, 5, people=[[10, 10, 8, 10], [1, 2]])
+
     def test_glimmer_comes_back_when_sam_fails_and_the_sentence_says_why(self):
         os.environ["LCS_FAKE_SAM"] = "fail"
         with self.assertRaisesRegex(person.PersonError, "^SAM found no person in the stretch.$"):
@@ -344,6 +373,9 @@ class Worker(unittest.TestCase):
             cut.pick(masks, [120, 2, 4, 4], (128, 72), (64, 36))
         with self.assertRaisesRegex(ValueError, "^SAM found no person in the stretch.$"):
             cut.pick({}, None, (128, 72), (64, 36))
+        self.assertEqual(cut.holders(masks, [[42, 10, 6, 8], [84, 20, 12, 16], [120, 2, 4, 4]], (128, 72), (64, 36)),
+                         {"1": 0, "2": 1, "3": None}, "each face its own person; a face nobody holds, none")
+        self.assertEqual(cut.holders(masks, [], (128, 72), (64, 36)), {})
 
     def test_pictures_are_at_most_1920_on_the_long_side_and_even(self):
         cut = worker_module()

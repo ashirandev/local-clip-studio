@@ -4680,15 +4680,17 @@ def cut_out(job, why, look=None, start=None, end=None):
     clip, length = state["clip"], state["length"]
     a, b = min(p[0] for p in clip["pieces"]), max(p[1] for p in clip["pieces"])
     held = state["mask"]
+    people = [p["box"] for p in clip["layout"].get("people") or []] if clip["layout"]["kind"] == "talk" else []
+    people = people if len(people) > 1 else None
     said = []
-    if held and held["from"] <= a + 0.01 and b - 0.01 <= held["to"]:
+    if held and held["from"] <= a + 0.01 and b - 0.01 <= held["to"] and (held.get("each") or not people):
         said.append("The person was already found for this clip, so SAM did not run again.")
     else:
         job.working("SAM 3.1 is finding the person: starting")
         try:
             mask = person.cut_out(rec, a, b, face=clip["layout"].get("face"), on_start=job.started_work,
                                   on_progress=lambda done, of: job.working(
-                                      "SAM 3.1 is finding the person: picture %d of %d" % (done, of)))
+                                      "SAM 3.1 is finding the person: picture %d of %d" % (done, of)), people=people)
         except ValueError as e:
             raise Refused(str(e))
         except person.Stopped:
@@ -4698,8 +4700,11 @@ def cut_out(job, why, look=None, start=None, end=None):
         finally:
             job.done_working()
         state = job.edit(dict(mask, do="mask"))
-        said.append("SAM 3.1 found the person through the clip, %s to %s of the recording, %d pictures a second."
-                    % (recording.clock(a), recording.clock(b), mask["fps"]))
+        found = sum(1 for p in mask.get("each") or [] if p)
+        said.append("SAM 3.1 found %s through the clip, %s to %s of the recording, %d pictures a second."
+                    % ("%d of the %d people" % (found, len(people)) if people else "the person",
+                       recording.clock(a), recording.clock(b), mask["fps"]))
+    speaking = any((state["mask"] or {}).get("each") or [])
     if look:
         s = 0.0 if start is None else length + start if start < 0 else start
         e = length if end is None else length + end if end < 0 else min(end, length)
@@ -4710,13 +4715,16 @@ def cut_out(job, why, look=None, start=None, end=None):
         job.edit({"do": "cutout", "look": look, "start": s, "end": e})
         said.append("The %s look is on from %g to %g s of the %g s clip%s: %s." % (
             look, s, e, length, "" if e >= length - 0.05 else ", so the clip's last %g s are without it"
-            % round(length - e, 2), CUTOUT_LOOK_SAYS[look]))
+            % round(length - e, 2), (CUTOUT_SPEAKER_SAYS if speaking else CUTOUT_LOOK_SAYS)[look]))
     said.append(_person_said(state, render.style_of(state, job.chat.clip["style"] if job.chat.clip else "clean")))
     return "\n".join(said)
 
 
 CUTOUT_LOOK_SAYS = {"grey": "the footage around the person is black and white, and the person keeps their colour",
                     "outline": "a white edge goes around the person"}
+CUTOUT_SPEAKER_SAYS = {"grey": "the footage is black and white around whoever speaks, who keeps their colour while "
+                               "they speak, everyone when they talk together",
+                       "outline": "a white edge goes around whoever speaks, while they speak"}
 BEHIND_SHARE = 0.05
 HIDDEN_MOST = 1 / 3.0
 PERSON_STEP = 5

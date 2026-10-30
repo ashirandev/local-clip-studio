@@ -766,8 +766,9 @@ class Tools(unittest.TestCase):
     def test_sam_finds_the_person_once_and_a_title_goes_behind_them_only_where_they_cross_it(self):
         asked, broken = [], []
 
-        def cut_out(rec, start, end, face=None, on_progress=None, on_start=None):
+        def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=None):
             asked.append((start, end, face))
+            self.assertIsNone(people, "one person in a subject layout")
             on_progress(5, 10)
             if broken:
                 raise tools.person.PersonError("Muse Glimmer could not step off the graphics card for SAM (refused).")
@@ -849,6 +850,51 @@ class Tools(unittest.TestCase):
                       "(refused). Tell the person.", failed[-1]["result"])
         self.assertEqual(len(asked), 2, "SAM runs again only when the clip's stretch is not covered")
         self.assertEqual(self.chat.project.state()["mask"]["to"], 1, "a failed run leaves the clip as it was")
+
+    def test_in_a_talk_sam_finds_each_person_and_the_look_follows_whoever_speaks(self):
+        """Tarm 10-30 on four people talking: one person kept in colour through the whole clip "มันดูตลก"."""
+        self.faces = found([(30 + i * 0.5, [[60, 40, 40, 40], [220, 40, 40, 40]]) for i in range(40)], size=(320, 180))
+        self.worker.phrases = [{"from": 1, "to": 9, "text": "hello there", "sure": 0.99},
+                               {"from": 10.2, "to": 19, "text": "and you", "sure": 0.99}]
+
+        def moving(rec, a, b, persons, fps=10):
+            first = [a + (i + 1) / fps < 40 for i in range(round((b - a) * fps))]
+            return [[9.0 if f else 1.0 for f in first], [1.0 if f else 9.0 for f in first]]
+
+        asked = []
+
+        def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=None):
+            asked.append(people)
+            path = os.path.join(self.tmp, "person.mkv")
+            subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=320x180:r=10:d=%g"
+                            % (end - start), "-vf", "drawbox=x=50:y=30:w=60:h=150:color=white:t=fill,format=gray",
+                            "-c:v", "ffv1", path], check=True)
+            made = {"path": path, "person": None, "fps": 10, "size": [320, 180], "from": start, "to": end}
+            return dict(made, each=[path, None]) if people else made
+
+        real, talk.motion = talk.motion, moving
+        had, tools.person.cut_out = tools.person.cut_out, cut_out
+        try:
+            _, steps = self.run_job(
+                *self.to_moment(), '{"lines": ["hello there", "and you"]}',
+                [call("make_clip", moment=1, layout="talk", why="two people talking")],
+                [call("cut_out", look="grey", why="the one speaking")],
+                [call("cut_out", look="outline", why="an edge")], "Done.")
+            state = self.chat.project.state()
+            self.chat.edit({"do": "mask", **{k: v for k, v in state["mask"].items() if k not in ("do", "each")}})
+            _, again = self.run_job([call("cut_out", look="grey", why="a mask from before")], "Done.")
+        finally:
+            talk.motion, tools.person.cut_out = real, had
+        grey, outline = steps[-2:]
+        boxes = [p["box"] for p in state["clip"]["layout"]["people"]]
+        self.assertEqual(asked, [boxes, boxes], "each person's face, and again for a mask made before")
+        self.assertIn("SAM 3.1 found 1 of the 2 people through the clip", grey["result"])
+        self.assertIn("The grey look is on from 0 to", grey["result"])
+        self.assertIn("the footage is black and white around whoever speaks, who keeps their colour while they speak",
+                      grey["result"])
+        self.assertIn("The person was already found for this clip, so SAM did not run again.", outline["result"])
+        self.assertIn("a white edge goes around whoever speaks, while they speak", outline["result"])
+        self.assertIn("SAM 3.1 found 1 of the 2 people", again[-1]["result"])
 
     def test_a_line_that_leaves_out_a_number_is_asked_once_with_the_number_then_stands_and_is_named(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "นะครับสามก่อนเข้าไปดู"},

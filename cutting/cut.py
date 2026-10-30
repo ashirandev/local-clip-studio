@@ -10,15 +10,18 @@ starts it with that Python for one stretch and reads what it prints):
     job, one JSON object on stdin:
       {"recording": path, "from": s, "to": s, "fps": n, "size": [w, h] as the studio sees the recording,
        "face": [x, y, w, h] in its pixels or null, "weights": the .safetensors file, "frames": an empty folder for
-       the pictures, "out": the FFV1 file to write}
+       the pictures, "out": the FFV1 file to write, and for a talk "people": [[x, y, w, h] of each person's face]
+       with "each": an empty folder for their own masks}
     stdout, one JSON object a line: {"stage": "pictures" | "loading" | "finding" | "following" | "writing"},
       {"done": k, "of": n} while following, and last {"ok": true, "frames": n, "people": [...], "kept": id,
-      "seconds": {...}} or {"ok": false, "error": a sentence}
+      "each": {"1": id or null, ...}, "seconds": {...}} or {"ok": false, "error": a sentence}
 
 SAM is asked for "person" on the first picture, follows everyone it finds there and anyone who comes in later. The
 person kept is the one whose mask holds the middle of the face box in the most pictures (a stream's face camera),
-or with no face box the one with the most pixels over the stretch. The pictures go in at most LONGEST pixels on
-the long side, since SAM works at 1008 anyway (measured 10-28: the whole 1920x1080 frame and a 640 px crop round the
+or with no face box the one with the most pixels over the stretch. With people, each of them gets their own mask
+too, n.mkv in each for the n-th face, picked the same way from the same following, so a talk's speaker can keep
+their colour while the others do not (Tarm 10-30); a face nobody holds gets none. The pictures go in at most LONGEST
+pixels on the long side, since SAM works at 1008 anyway (measured 10-28: the whole 1920x1080 frame and a 640 px crop round the
 face camera gave the same mask, IoU .988, at the same 0.23 s a picture). The mask goes back on the recording's own
 pixel grid, frame k at recording second from + k / fps, 255 the person, with a soft edge of about a pixel.
 
@@ -68,6 +71,37 @@ def pick(masks, face, size, picture):
     if held[best] == 0:
         raise ValueError("None of the %d people SAM found holds the face at %s." % (len(masks), list(face)))
     return best
+
+
+def holders(masks, people, size, picture):
+    """{"n": the id picked for the n-th face of people, or None when nobody holds it}, as pick() picks for one."""
+    out = {}
+    for n, face in enumerate(people, 1):
+        try:
+            out[str(n)] = pick(masks, face, size, picture)
+        except ValueError:
+            out[str(n)] = None
+    return out
+
+
+def write(frames, path, size, picture, fps):
+    """One person's masks (packed, None where they are not seen) as an FFV1 file of grey frames on the recording's
+    pixel grid of size, from pictures of picture (w, h)."""
+    (w, h), (pw, ph) = size, picture
+    enc = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s",
+                            "%dx%d" % (pw, ph), "-r", "%g" % fps, "-i", "-", "-vf",
+                            "scale=%d:%d:flags=bilinear,gblur=sigma=%g" % (w, h, EDGE), "-c:v", "ffv1", "-pix_fmt",
+                            "gray", "-f", "matroska", path], stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    blank = np.zeros((ph, pw), np.uint8)
+    try:
+        for m in frames:
+            enc.stdin.write(blank.tobytes() if m is None else (np.unpackbits(m, axis=-1)[:, :pw] * 255).tobytes())
+        enc.stdin.close()
+    except OSError:
+        pass
+    err = enc.stderr.read().decode("utf-8", "replace")
+    if enc.wait() != 0:
+        raise ValueError("FFmpeg could not write the mask (%s)." % err.strip()[-200:])
 
 
 def load(weights):
@@ -147,25 +181,15 @@ def cut(job):
     predictor.handle_request(dict(type="close_session", session_id=sid))
     seconds["following"] = round(time.perf_counter() - t, 1)
     kept = pick(masks, job.get("face"), job["size"], (pw, ph))
+    each = holders(masks, job.get("people") or [], job["size"], (pw, ph))
     t = time.perf_counter()
     say(stage="writing")
-    w, h = job["size"]
-    enc = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s",
-                            "%dx%d" % (pw, ph), "-r", "%g" % job["fps"], "-i", "-", "-vf",
-                            "scale=%d:%d:flags=bilinear,gblur=sigma=%g" % (w, h, EDGE), "-c:v", "ffv1", "-pix_fmt",
-                            "gray", "-f", "matroska", job["out"]], stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-    blank = np.zeros((ph, pw), np.uint8)
-    try:
-        for m in masks[kept]:
-            enc.stdin.write(blank.tobytes() if m is None else (np.unpackbits(m, axis=-1)[:, :pw] * 255).tobytes())
-        enc.stdin.close()
-    except OSError:
-        pass
-    err = enc.stderr.read().decode("utf-8", "replace")
-    if enc.wait() != 0:
-        raise ValueError("FFmpeg could not write the mask (%s)." % err.strip()[-200:])
+    write(masks[kept], job["out"], job["size"], (pw, ph), job["fps"])
+    for k, i in each.items():
+        if i is not None:
+            write(masks[i], os.path.join(job["each"], "%s.mkv" % k), job["size"], (pw, ph), job["fps"])
     seconds["writing"] = round(time.perf_counter() - t, 1)
-    return {"ok": True, "frames": n, "people": people, "kept": kept, "seconds": seconds}
+    return {"ok": True, "frames": n, "people": people, "kept": kept, "each": each, "seconds": seconds}
 
 
 def main():

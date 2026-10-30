@@ -17,7 +17,9 @@ and .994, as close as one frame is to the next, at a third of the time: 0.23 to 
 plus 24 s to load SAM, so 70 to 74 s for 30 s. The person was never lost, and the face finder's face was inside the
 mask in every frame where it found one.
 
-Masks are kept per recording, stretch and face in work/masks, so asking again is instant and Glimmer stays.
+Masks are kept per recording, stretch and face in work/masks, so asking again is instant and Glimmer stays. For a
+talk, each person the layout follows gets their own mask from the same run (name.each/n.mkv), so the one speaking
+can keep their colour (cutout.speaking_mask).
 """
 import hashlib
 import json
@@ -70,7 +72,7 @@ def _not_set_up():
     return None
 
 
-def _checked(rec, start, end, face):
+def _checked(rec, start, end, face, people=None):
     if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (start, end)) or not (
             0 <= start < end <= rec["seconds"] + 0.01):
         raise ValueError("from %r to %r is not a stretch of %s: give recording seconds from 0 to %s, to after from."
@@ -78,42 +80,63 @@ def _checked(rec, start, end, face):
     if end - start > MOST_SECONDS:
         raise ValueError("from %r to %r is %.1f s: the cut-out follows a person for at most %d s at a time, so cut "
                          "the stretch the effect needs." % (start, end, end - start, MOST_SECONDS))
-    if face is not None:
-        ok = (isinstance(face, (list, tuple)) and len(face) == 4
-              and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in face)
-              and face[2] > 0 and face[3] > 0 and 0 <= face[0] + face[2] / 2.0 <= rec["width"]
-              and 0 <= face[1] + face[3] / 2.0 <= rec["height"])
-        if not ok:
-            raise ValueError("face %r is not a face box on %s: give [x, y, w, h] in its pixels, the middle inside "
-                             "its %dx%d picture." % (face, rec["name"], rec["width"], rec["height"]))
-        face = [round(float(v), 1) for v in face]
-    return round(float(start), 3), round(float(end), 3), face
+    if people is not None and (not isinstance(people, (list, tuple)) or not people):
+        raise ValueError("people %r is not a list of face boxes: give [[x, y, w, h], ...], one for each person the "
+                         "layout follows." % (people,))
+    face = None if face is None else _box(rec, face)
+    return round(float(start), 3), round(float(end), 3), face, people and [_box(rec, p) for p in people]
 
 
-def key(rec, start, end, face):
+def _box(rec, face):
+    ok = (isinstance(face, (list, tuple)) and len(face) == 4
+          and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in face)
+          and face[2] > 0 and face[3] > 0 and 0 <= face[0] + face[2] / 2.0 <= rec["width"]
+          and 0 <= face[1] + face[3] / 2.0 <= rec["height"])
+    if not ok:
+        raise ValueError("face %r is not a face box on %s: give [x, y, w, h] in its pixels, the middle inside "
+                         "its %dx%d picture." % (face, rec["name"], rec["width"], rec["height"]))
+    return [round(float(v), 1) for v in face]
+
+
+def key(rec, start, end, face, people=None):
     st = os.stat(rec["path"])
     w = os.stat(WEIGHTS) if WEIGHTS and os.path.isfile(WEIGHTS) else None
     return hashlib.sha1(json.dumps([VERSION, rec["path"], st.st_size, st.st_mtime, start, end, FPS, face,
-                                    w and w.st_size]).encode("utf-8")).hexdigest()[:16]
+                                    w and w.st_size] + ([people] if people else [])).encode("utf-8")).hexdigest()[:16]
 
 
-def cut_out(rec, start, end, face=None, on_progress=None, on_start=None):
+def _each(folder, name, people):
+    """[the path of the n-th person's own mask, or None when SAM found nobody at their face], or None without
+    people."""
+    if not people:
+        return None
+    paths = [os.path.join(folder, name + ".each", "%d.mkv" % n) for n in range(1, len(people) + 1)]
+    return [p if os.path.isfile(p) else None for p in paths]
+
+
+def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=None):
     """state['mask'] for the person from start to end (recording seconds): {"path", "person", "fps", "size", "from",
     "to"}, person being the face box the person was picked by (None: the person with the most pixels). face is
     [x, y, w, h] in the recording's pixels (the layout's face camera), so when SAM finds several people the one
-    holding it is kept. on_progress(done, of) as SAM follows them; on_start(stop) hands over a function that ends the
-    work at once (then Stopped is raised). PersonError with a sentence when no mask could be made."""
-    start, end, face = _checked(rec, start, end, face)
+    holding it is kept. With people, the face boxes of a talk's people in their order, the mask has "each" too: the
+    path of each one's own mask, or None for one SAM did not find. on_progress(done, of) as SAM follows them;
+    on_start(stop) hands over a function that ends the work at once (then Stopped is raised). PersonError with a
+    sentence when no mask could be made."""
+    start, end, face, people = _checked(rec, start, end, face, people)
     why = _not_set_up()
     if why:
         raise PersonError(why)
     folder = os.path.join(recording.WORK, "masks")
-    name = key(rec, start, end, face)
+    name = key(rec, start, end, face, people)
     path = os.path.join(folder, name + ".mkv")
     made = {"path": path, "person": face, "fps": FPS, "size": [rec["width"], rec["height"]], "from": start,
             "to": end}
+
+    def given():
+        return dict(made, each=_each(folder, name, people)) if people else made
+
     if os.path.isfile(path):
-        return made
+        return given()
     os.makedirs(folder, exist_ok=True)
     stopped = threading.Event()
     running = {}
@@ -130,30 +153,35 @@ def cut_out(rec, start, end, face=None, on_progress=None, on_start=None):
         on_start(stop)
     with _lock:
         if os.path.isfile(path):
-            return made
+            return given()
         if stopped.is_set():
             raise Stopped()
         aside = _step_aside()
         try:
             if stopped.is_set():
                 raise Stopped()
-            _run(rec, start, end, face, path, folder, name, running, stopped, on_progress)
+            _run(rec, start, end, face, path, folder, name, running, stopped, on_progress, people)
         except BaseException as e:
             if aside:
                 _come_back(*aside, after=e)
             raise
         if aside:
             _come_back(*aside)
-    return made
+    return given()
 
 
-def _run(rec, start, end, face, path, folder, name, running, stopped, on_progress):
+def _run(rec, start, end, face, path, folder, name, running, stopped, on_progress, people=None):
     frames = os.path.join(folder, name + ".pictures")
     part = path + ".part"
+    each, each_part = os.path.join(folder, name + ".each"), os.path.join(folder, name + ".each.part")
     _clear(frames)
     os.makedirs(frames)
     job = {"recording": rec["path"], "from": start, "to": end, "fps": FPS, "size": [rec["width"], rec["height"]],
            "face": face, "weights": WEIGHTS, "frames": frames, "out": part}
+    if people:
+        _clear(each_part)
+        os.makedirs(each_part)
+        job.update(people=people, each=each_part)
     last = {}
     try:
         with open(os.path.join(folder, name + ".log"), "w", encoding="utf-8") as log:
@@ -202,9 +230,13 @@ def _run(rec, start, end, face, path, folder, name, running, stopped, on_progres
                               % (worker.returncode, os.path.join(folder, name + ".log")))
         if not os.path.isfile(part):
             raise PersonError("SAM said it was done, but wrote no mask.")
+        if people:
+            _clear(each)
+            os.replace(each_part, each)
         os.replace(part, path)
     finally:
         _clear(frames)
+        _clear(each_part)
         if os.path.isfile(part):
             os.remove(part)
 

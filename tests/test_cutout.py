@@ -121,6 +121,31 @@ class FrameMask(unittest.TestCase):
         self.assertNotEqual(cutout.frame_mask(mask, [[0, 3]], dict(layout, shots=moved), 3.0), made,
                             "new shots, a new frame mask")
 
+    def test_in_a_talk_the_mask_is_whoever_speaks(self):
+        """Tarm 10-30, four people talking with one kept in colour all through: "ถ้าผมพูดก็ไฮไลท์ผม"."""
+        from clipstudio import talk
+        persons = [{"n": 1, "box": [120, 120, 80, 80]}, {"n": 2, "box": [440, 120, 80, 80]}]
+        shots = [{"from": 0, "to": 1.0, "show": 1}, {"from": 1.0, "to": 2.0, "show": 0},
+                 {"from": 2.0, "to": 3.0, "show": 2}]
+        layout = talk.make((640, 360), persons, shots)
+        one = make_mask(self.tmp, "one.mkv", 3.0, 0, expr="lt(hypot(X-160,Y-200),60)")
+        everywhere = make_mask(self.tmp, "two.mkv", 3.0, 0, expr="1")
+        mask = dict(self.mask, path=one, each=[one, everywhere], **{"from": 0.0, "to": 3.0})
+        made = cutout.speaking_mask(mask, [[0, 3]], layout, 3.0)
+        _, got = grey_frames(made, [15, 45, 75])
+        parts = {p["name"]: p for p in layout["parts"]}
+        (sx, sy, sw, sh), (dx, dy, dw, dh) = parts["person 1"]["src"], parts["person 1"]["dst"]
+        at = int(dy + (270 - sy) * dh / sh), int(dx + (160 - sx) * dw / sw)
+        self.assertEqual(int(got[15][int(dy + (200 - sy) * dh / sh), at[1]]), 255, "person 1 speaks in their shot")
+        self.assertEqual(int(got[15][at]), 0, "and person 2, whose mask fills the picture, is not lit then")
+        cx, cy, cw, ch = parts["everyone"]["dst"]
+        self.assertEqual(int(got[45][cy + ch // 2, cx + cw // 2]), 255, "on the card of everyone, everyone")
+        self.assertEqual(int(got[75][H // 2, W // 2]), 255, "person 2 speaks in theirs")
+        self.assertEqual(cutout.speaking_mask(dict(mask, each=None), [[0, 3]], layout, 3.0),
+                         cutout.frame_mask(mask, [[0, 3]], layout, 3.0), "without each one's own, the one person")
+        self.assertEqual(cutout.speaking_mask(dict(mask, each=[None, None]), [[0, 3]], layout, 3.0),
+                         cutout.frame_mask(mask, [[0, 3]], layout, 3.0))
+
     def test_a_slow_push_pushes_the_mask_with_the_picture(self):
         import numpy as np
         layout = layouts.make("subject", (640, 360))

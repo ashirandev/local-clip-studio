@@ -566,6 +566,16 @@ class Preview(unittest.TestCase):
         with self.assertRaisesRegex(render.NotDrawn, "cut-out look 'blur' is not a look: use one of grey, outline"):
             render.frame(self.rec, dict(grey, cutouts=[{"look": "blur", "start": 0.5, "end": 3.0}]), 1.0)
 
+    def test_the_cut_out_looks_follow_whoever_speaks_and_words_go_behind_the_person(self):
+        """Tarm 10-30: in a talk the speaker keeps their colour; the words behind stay behind the person found."""
+        from unittest import mock
+        st = dict(state(title=[dict(TITLE, behind=True)]), mask={"path": "found.mkv"},
+                  cutouts=[{"look": "grey", "start": 0.5, "end": 3.0}])
+        with mock.patch.object(render.cutout, "frame_mask", return_value="person.mkv"), \
+                mock.patch.object(render.cutout, "speaking_mask", return_value="speaking.mkv"):
+            grey, behind = render._cut_out(st, "clean")
+        self.assertEqual((grey.files, behind.files), (["speaking.mkv"], ["person.mkv"]))
+
     def test_a_crowd_of_blurs_too_long_for_a_command_line_is_drawn(self):
         tracks = [{"track": [[0.2 + 0.03 * k + 0.01 * i, 8 * k + i, 100 + 10 * (k % 9), 20 + k % 40, 20 + k % 40]
                              for i in range(3)], "start": 0.2 + 0.03 * k, "end": 0.22 + 0.03 * k} for k in range(90)]
