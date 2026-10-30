@@ -641,10 +641,13 @@ class Frame(Clip):
         lay = self.chat.project.state()["clip"]["layout"]
         plan = {"shots": [{"from": 0, "to": 10, "x": 0, "y": 0}, {"from": 10, "to": 20, "x": 200, "y": 0}],
                 "size": [102, 180]}
-        self.chat.edit({"do": "layout", "part": "product", "box": None, "layout": layouts.followed(lay, plan, "whole")})
+        followed = dict(layouts.followed(lay, plan, "whole"), thing={"what": "white game controller"})
+        self.chat.edit({"do": "layout", "part": "product", "box": None, "layout": followed})
         self.assertTrue(self.chat.panel()["frame"]["follows"])
         self.assertIsNone(self.chat.set_frame(60))
         self.assertEqual((self.whole()["src"][0], "follow" in self.whole()), (60, False))
+        self.assertNotIn("thing", self.chat.project.state()["clip"]["layout"],
+                         "lane 5: the check would time the product against the follow the person left")
         self.assertFalse(self.chat.panel()["frame"]["follows"])
         self.assertTrue(self.chat.told[-1].endswith("(it no longer follows the product)"))
 

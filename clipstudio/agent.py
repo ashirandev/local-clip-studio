@@ -545,8 +545,9 @@ class Chat:
 
     def set_frame(self, x):
         """The person's place for the upright frame, from the Frame tab: x is its left edge in the recording's pixels.
-        It holds there through the whole clip (a frame that followed the product stops following), as one change Undo
-        takes back, and Muse is told. Returns None, or the sentence why not."""
+        It holds there through the whole clip (a frame that followed the product stops following, and the product it
+        followed is dropped, so check_clip and Muse take the person's place as it is), as one change Undo takes
+        back, and Muse is told. Returns None, or the sentence why not."""
         state = self._clip_now()
         now = self.framing(state)
         if now["why"]:
@@ -557,7 +558,8 @@ class Chat:
         lay = state["clip"]["layout"]
         parts = [dict({k: v for k, v in p.items() if k != "follow"}, src=[x] + list(p["src"][1:]))
                  if p["name"] == "whole" else p for p in lay["parts"]]
-        self.edit({"do": "layout", "part": "frame", "box": None, "layout": dict(lay, parts=parts)})
+        self.edit({"do": "layout", "part": "frame", "box": None,
+                   "layout": dict({k: v for k, v in lay.items() if k != "thing"}, parts=parts)})
         w = float(self.recording["width"])
         self._tell("the person moved the upright frame on the page: it now shows %d%% to %d%% of the recording's "
                    "width, and holds there%s" % (round(100 * x / w), round(100 * (x + now["width"]) / w),
