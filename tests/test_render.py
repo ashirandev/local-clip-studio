@@ -378,6 +378,28 @@ class OneLine(unittest.TestCase):
         st["style"] = {"name": "glow"}
         self.assertEqual(render._caption_style(st, "pop").name[:4], "glow", "the person's own look wins")
 
+    def test_people_talking_see_each_line_whole_on_its_box(self):
+        """EP0 10-30: popped in on the news box, each word came on a box of its own, darker where it met the line's
+        box, and the line's box grew a word at a time. Tarm 10-30: no box over another."""
+        lines = text.caption_lines([{"from": 1.0, "to": 2.0, "text": "watch this now"}])
+        band = [layouts.CAPTIONS[1], layouts.CAPTIONS[3]]
+        st = state(captions=[{"lines": lines, "band": band, "one": True, "pop": True}])
+        self.assertFalse(render.whole_lines(st))
+        with open(render.ass(st), encoding="utf-8") as f:
+            self.assertGreater(f.read().count("\\fscx60"), 0, "a talked review still pops its words in")
+        st["clip"]["layout"]["kind"] = "talk"
+        self.assertTrue(render.whole_lines(st))
+        with open(render.ass(st), encoding="utf-8") as f:
+            body = f.read()
+        self.assertIn("news", body)
+        self.assertEqual((body.count("\\fscx60"), body.count("\\alpha&HFF&")), (0, 0),
+                         "the line shows whole on one box, no word on a box of its own, none hidden")
+        st["captions"]["one"] = False
+        st["style"] = {"name": "news"}
+        self.assertTrue(render.whole_lines(st), "the news look chosen for captions two lines a page")
+        st["style"] = {"name": "clean"}
+        self.assertFalse(render.whole_lines(st))
+
     @unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg, and numpy for the pixel checks")
     def test_one_line_captions_are_drawn_bigger_in_their_band(self):
         """Seen 10-28: the big style was not in the file's styles, and the yeti review would not render."""

@@ -156,6 +156,16 @@ def _hits(state):
     return hits
 
 
+def whole_lines(state, default="clean"):
+    """True when the captions' look puts each line on a see-through box (0 < box < 1): such a line shows whole, as
+    a news clip's subtitles do, and its words never pop in one at a time. Seen on EP0 10-30: a popped word came on a
+    box of its own, darker where it met the line's box, and the line's box grew a word at a time (Tarm 10-30: no
+    box over another)."""
+    shown = state.get("captions") or {}
+    st = _caption_style(state, default) if shown.get("one") else _styles(state, default)["caption"]
+    return 0 < st.box < 1
+
+
 def ass(state, default="clean", behind=False):
     """The path of the clip's ASS file (written once per content) with its titles, captions, big words and the
     channel's name (state['channel']: {"name", "spot"}, or None), or None when there are no words on screen. With
@@ -185,7 +195,8 @@ def ass(state, default="clean", behind=False):
         for who in sorted({str(line.get("who")) for line in captions["lines"]}):
             lines = [line for line in captions["lines"] if str(line.get("who")) == who]
             events += text.captions(lines, said, bands.get(who) or captions["band"], lit=captions.get("lit", False),
-                                    pop=captions.get("pop", False), one=bool(captions.get("one")))
+                                    pop=captions.get("pop", False) and not whole_lines(state, default),
+                                    one=bool(captions.get("one")))
     for h in words:
         events += text.big_word(h["word"], h["at"], WORD_SECONDS, h["centre"], st["big"])
     if channel:
