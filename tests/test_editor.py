@@ -2468,6 +2468,24 @@ class Tools(unittest.TestCase):
         self.assertEqual("".join(line["text"] for line in self.chat.project.state()["captions"]["drafts"]),
                          "bxo noqa mumble")
 
+    def test_a_phrase_heard_from_the_very_end_of_a_piece_is_left_out_and_the_others_are_captioned(self):
+        self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")], "Done.")
+        (start, end), length = self.chat.project.state()["clip"]["pieces"][0], self.chat.project.state()["length"]
+        self.assertLessEqual(start + 3, end)
+        self.assertGreater(length, 3)
+        self.chat.moments[0]["said"] = [{"from": start + 1, "to": start + 3, "text": "watch him fall", "sure": 0.9},
+                                        {"from": end, "to": end + 0.5, "text": "and then", "sure": 0.9},
+                                        {"from": end - 0.02, "to": end + 0.5, "text": "so close", "sure": 0.9}]
+        _, steps = self.run_job([call("add_captions", why="say what he says")], "Done.")
+        self.assertFalse(steps[0]["refused"], "10-30 seller: 'add_captions broke (phrase 3's to 28.69 is not after "
+                                              "its from 28.69 ...)', and the clip went out with no captions")
+        shown = " ".join(line["text"] for line in self.chat.project.state()["captions"]["lines"])
+        self.assertIn("fall", shown)
+        self.assertNotIn("then", shown)
+        self.assertNotIn("close", shown, "0.02 s of it plays: less than a frame")
+        self.assertEqual(tools._in_clip([[6.27, 34.96], [35.68, 37.0]], {"from": 34.9, "to": 35.3}, 30.01),
+                         (28.63, 28.69), "two frames of it play, so it stays")
+
     def test_a_spot_the_person_asked_for_is_used_and_what_covers_it_is_said(self):
         self.chat.emit("person", job=None, text="Put the title at the bottom. Up top over my face is fine too, and "
                                                 "blur my face please")

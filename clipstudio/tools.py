@@ -3033,7 +3033,9 @@ def _unsure(phrase):
 
 def _in_clip(pieces, p, length):
     """(from, to) in clip seconds of a phrase heard from p["from"] to p["to"] of the recording, or None when it starts
-    where the clip has no picture. A phrase whose end was cut out ends with its piece, not at the clip's end."""
+    where the clip has no picture, or plays in it for less than a frame. A phrase whose end was cut out ends with its
+    piece, not at the clip's end. 10-30 seller: one heard from the first piece's very end came to 28.69-28.69 s, and
+    the whole caption step broke on it."""
     a = project.from_recording(pieces, p["from"])
     if a is None:
         return None
@@ -3045,7 +3047,8 @@ def _in_clip(pieces, p, length):
                 b = at + y - x
                 break
             at += y - x
-    return round(a, 2), round(min(length, b), 2)
+    a, b = round(a, 2), round(min(length, b), 2)
+    return (a, b) if b - a >= 1 / text.FPS else None
 
 
 def _subtitles(name):
