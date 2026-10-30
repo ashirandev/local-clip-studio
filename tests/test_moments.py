@@ -72,7 +72,7 @@ class Quiet(unittest.TestCase):
                                "it is on sound as loud as the talk.")
 
     def test_a_last_end_on_loud_sound_looks_further_for_a_real_pause(self):
-        """EP 22's joke: the line ended at 26:19.30 with its last word in its text, the sound at talk level to 26:22.36."""
+        """EP 22: a line ended at 26:19.30 with its last word in its text, the sound at talk level to 26:22.36."""
         pieces, said = self.land([[10.0, 20.0]], {10.0: [9.4, 9.8]}, far={20.0: [22.8, 23.3]})
         self.assertEqual(pieces, [[9.5, 23.1]])
         self.assertEqual(self.asked[-1], (20.0, tools.LAST_REACH, -30.0, None, 1), "a pause outward, no dip of a bed")

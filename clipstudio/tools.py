@@ -1470,9 +1470,9 @@ def _on_quiet(rec, made, level, last_end=False):
     become one. Tarm 10-30: "ตัวตัดต่อ อยากให้ตัดเฉพาะตอนเสียงเงียบ แบบ wave เสียงมันเบาแล้ว ไม่เอาตัดกลางคำ", then, as a
     sound engineer: "the program should cut at the silent". Heard lines say where words are only to a fraction of a
     second: of the 140 cuts of the day's chats, 85 sat within 10 dB of the talk. With last_end, the clip's last end on
-    loud sound looks on LAST_REACH s for a real pause, and no shorter gap or dip, as those lie between words: EP 22's
-    joke was cut 2.8 s before it, the line ending at 26:19.30 with its last word already in its text and the sound at
-    talk level until 26:22.36. Of 75 last ends this moves 4, and a clip at its longest stays."""
+    loud sound looks on LAST_REACH s for a real pause, and no shorter gap or dip, as those lie between words: an end on
+    loud sound breaks Tarm's rule, and EP 22 has a line ending at 26:19.30 with the sound at talk level until 26:22.36.
+    Of 75 last ends this moves 4, and a clip at its longest stays."""
     pieces, said = made
     if not pieces or not level or not level[1]:
         return made
@@ -1627,7 +1627,7 @@ def _waits(job):
 
 
 # A moment that stops where its look stops was never seen to end: 94 of 127 moments on 10-30 ended within 3 s of the
-# look's end, and EP 22's stopped 2 s before the joke (lane 4). Recipe lines did not move Glimmer's pick, so the program
+# look's end (lane 4). Recipe lines did not move Glimmer's pick, so the program
 # looks on once, EDGE seconds from the edge, and Muse keeps the moment or moves it. A game's end is its death, so a game
 # is only looked back from, when its moment runs under the recipe's length: all of Sifu's runs took one look opening a
 # second after "ตรงนี้อีกแล้ววะ", and 35:52-36:11 shipped as 13 s of 30, three deaths at that spot unseen (lane 4). Once a
@@ -2830,11 +2830,19 @@ def _shown_private(job, rec, state):
 NAME_LINE = "a person's handle"
 
 
+def _no_chat(job):
+    """True when Muse said this recording shows no chat box (no_chat_box), since it was opened."""
+    told = next((e for e in reversed(job.chat.events) if e["kind"] in ("no_chat", "opened")), None)
+    return bool(told) and told["kind"] == "no_chat"
+
+
 def _names_check(job, rec, state):
     """(ok, found) for the check that no viewer's name can be read in a game stream's clip: every line read on the
     screen with a handle is under a blur for as long as it shows, and one blur stays for the whole clip, as the chat
     box does (a name read without its @ is not known to be a name). Game afc1 10-28: the check passed on a blur over
-    the whole clip that lay under the face, while the chat at the top right showed."""
+    the whole clip that lay under the face, while the chat at the top right showed. A recording with no chat box has
+    nothing to blur, so Muse says so (no_chat_box) and names read on the screen still fail it: lane 5's 022940-2e20, a
+    console match with no chat, went round this check by blurring the whole picture and ran out of steps."""
     shown, why = _shown_private(job, rec, state)
     if shown is None:
         return False, why
@@ -2844,8 +2852,10 @@ def _names_check(job, rec, state):
         return False, "names can be read at %s on your grid from %g to %g s, not under a blur" % (
             _grid(_around(bare), rec), min(f["start"] for f in bare), max(f["end"] for f in bare))
     whole = [b for b in state["blurs"] if b.get("box") and b["start"] <= 0.1 and b["end"] >= state["length"] - 0.1]
+    if not whole and _no_chat(job):
+        return True, "Muse saw no chat box, and no name was read on the screen", "Muse"
     if not whole:
-        return False, "no blur covers the whole clip, so the chat box shows"
+        return False, "no blur covers the whole clip, so a chat box would show: blur it, or say the recording has none"
     return True, ("%d line%s with a name, under a blur for as long as it shows" % (
         len(names), "" if len(names) == 1 else "s") if names else
         "%d blur over the whole clip; no name read on the screen" % len(whole))
@@ -4326,6 +4336,9 @@ def _numbers(ns):
 
 
 BLUR_FACE_SHARE = 0.3
+BLUR_MOST = 0.5
+BLUR_WIDE = ("That blur covers most of the picture for the whole clip, so nothing would be left to watch. Blur only what "
+             "must not be read, such as the chat or the names.")
 PART_NAMES = {"card": "the card", "circle": "the circle with the face", "top": "the top panel",
               "bottom": "the panel below", "whole": "the frame"}
 
@@ -4378,6 +4391,15 @@ def _whole_names(job, rec, state, px, face):
         len(names), "" if len(names) == 1 else "s", "it" if len(names) == 1 else "them")]
 
 
+def _blurs_the_picture(px, rec):
+    return px[2] * px[3] > BLUR_MOST * rec["width"] * rec["height"]
+
+
+def _blur_wide(job):
+    return BLUR_WIDE + (" A recording with no chat box needs no blur: say so with no_chat_box."
+                        if (job.chat.clip or {}).get("recipe") == "game" else "")
+
+
 def blur_box(job, why, box, start=None, end=None, person_said=None):
     asked = _asked(job, person_said)
     rec = _open(job, "blur")
@@ -4401,6 +4423,8 @@ def blur_box(job, why, box, start=None, end=None, person_said=None):
     if not 0 <= a < length or b - a < SHORTEST_WORDS:
         raise Refused("A blur runs from a start inside the clip (0 to %g s) to a later end; %g-%g s is not that. Leave "
                       "both out to blur the whole clip." % (round(length - SHORTEST_WORDS, 1), a, b))
+    if b - a >= length - 0.1 and _blurs_the_picture(px, rec) and not asked:
+        raise Refused(_blur_wide(job))
     px, widened = _whole_names(job, rec, state, px, face)
     state = job.edit({"do": "blur", "box": [round(v) for v in px], "start": round(a, 2), "end": round(b, 2)})
     where = "; ".join(_where(lay, px))
@@ -4408,6 +4432,15 @@ def blur_box(job, why, box, start=None, end=None, person_said=None):
              % (_grid(px, rec), a, b, where)] + widened
     lines.append(_show_frame(job, state, rec, (a + b) / 2, "The clip with the blur:"))
     return "\n".join(lines)
+
+
+def no_chat_box(job, why):
+    _open(job, "check")
+    if (job.chat.clip or {}).get("recipe") != "game":
+        raise Refused("Only a game stream is checked for a chat box.")
+    job.emit("no_chat")
+    return ("Noted: this recording shows no chat box, so no blur is asked for. The screen is still read, and a viewer's "
+            "name read on it fails the check.")
 
 
 def add_hit(job, why, at, kind, word=None):
@@ -5365,10 +5398,12 @@ def make_clips(job, why, clips, blur=None):
     unasked = _layout_unasked(job, recipe, [c.get("layout") or usual for c in clips])
     if unasked:
         raise Refused("Nothing was made. " + unasked)
-    if recipe == "game" and not blur:
+    if any(_blurs_the_picture(_pixels("blur", box, rec), rec) for box in blur or ()):
+        raise Refused("Nothing was made. " + _blur_wide(job))
+    if recipe == "game" and not blur and not _no_chat(job):
         raise Refused("Nothing was made. A game stream's clips show its chat box with the viewers' names: give the "
                       "chat box in blur, on your 0-1000 grid of the pictures from your looks, and every clip hides it. "
-                      "Leave the face camera out of the box.")
+                      "Leave the face camera out of the box. If your looks show no chat box, say so with no_chat_box.")
     if recipe == "seller":
         wide = rec["width"] > rec["height"]
         bare = [c["moment"] for c in clips if not c.get("product") or wide and not c.get("what")]
@@ -6834,6 +6869,10 @@ TOOLS = {t.name: t for t in [
                                     "on the clip does; false shows them again as they were. Use it when the person "
                                     "asks to hide or show the captions; on false takes them off for good."}},
          [], add_captions, changes=True),
+    Tool("no_chat_box", "Said there is no chat box",
+         "Only when your looks show no chat box in a game recording, such as a console game with no stream: say so, and "
+         "no blur is asked for. Never blur the whole picture instead.",
+         {}, [], no_chat_box, changes=True),
     Tool("blur_box", "Blurred a box",
          "Blur one box of the recording's picture so nothing in it can be read, such as a stream's chat with "
          "viewers' names, or a phone number. The box is fixed on the picture for the whole clip unless you give a "

@@ -352,6 +352,14 @@
   "show": "mute"
  },
  {
+  "tool": "no_chat_box",
+  "group": "Blur",
+  "name": "No chat box here",
+  "says": "Tells the studio a game recording shows no chat box, so it asks for no blur. A viewer's name read on the screen still stops the clip.",
+  "ask": "This is a console game, there is no chat.",
+  "show": "blur-box"
+ },
+ {
   "tool": "blur_box",
   "group": "Blur",
   "name": "Blur a box",

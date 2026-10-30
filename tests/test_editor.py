@@ -2810,10 +2810,11 @@ class Tools(unittest.TestCase):
     def test_the_album_tools_are_offered_only_with_an_album_so_a_first_draft_is_asked_as_before(self):
         names = lambda schemas: [s["function"]["name"] for s in schemas]
         none = agent.Job.offered(types.SimpleNamespace(chat=types.SimpleNamespace(events=[], album=[], clip=None)))
-        self.assertEqual(names(none), [n for n in names(tools.UNASKED) if n not in tools.ALBUM_TOOLS])
-        self.assertEqual(sorted(set(names(tools.UNASKED)) - set(names(none))), sorted(tools.ALBUM_TOOLS))
+        later = list(tools.ALBUM_TOOLS) + ["no_chat_box"]
+        self.assertEqual(names(none), [n for n in names(tools.UNASKED) if n not in later])
+        self.assertEqual(sorted(set(names(tools.UNASKED)) - set(names(none))), sorted(later))
         some = agent.Job.offered(types.SimpleNamespace(chat=types.SimpleNamespace(events=[], album=[{}], clip=None)))
-        self.assertEqual(names(some), names(tools.UNASKED))
+        self.assertEqual(names(some), [n for n in names(tools.UNASKED) if n != "no_chat_box"])
         self.assertIn("open_clip", names(none), "as it was")
 
     def test_the_clip_open_is_not_asked_about_itself(self):
@@ -3218,7 +3219,7 @@ class Tools(unittest.TestCase):
         self.assertEqual([p["name"] for p in parts], ["card"], "a face the finder sees stays in the picture")
 
     def test_a_moment_at_its_looks_end_is_seen_past_it_once_and_the_second_answer_stands(self):
-        """Lane 4 10-30: 94 of 127 moments ended within 3 s of the look's end, EP 22's 2 s before the joke."""
+        """Lane 4 10-30: 94 of 127 moments ended within 3 s of the look's end."""
         tools.EDGE_RECIPES = self.edge_recipes
         first = [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the site", "start": "0:34",
                                                                    "end": "0:49"}])]
@@ -3459,6 +3460,87 @@ class Tools(unittest.TestCase):
         shown = [e for e in self.chat.events if e["kind"] == "ready"][-1]
         self.assertEqual([c["ok"] for c in shown["checks"]], [None, None, True, None, True, None, True])
         self.assertEqual(agent.Chat.load(self.chat.id).checks, self.chat.checks)
+
+    GAME_MOMENT = [[call("load_recipe", type="game", why="a stream")],
+                   [call("make_clip", moment=1, layout="subject", why="the action")],
+                   [call("decide_people", keep=[1], why="it is him")]]
+
+    def test_a_blur_over_most_of_the_picture_for_the_whole_clip_is_refused(self):
+        """Lane 5's 022940-2e20: a console match, so no chat box, and the check said one must be blurred."""
+        self.chat.emit("person", job=None, text="ทำให้เบลอทั้งจอเลย")
+        with mock.patch.object(tools, "_share", lambda *a: 0):
+            _, steps = self.run_job(*self.to_moment(), *self.GAME_MOMENT,
+                                    [call("blur_box", box=[0, 0, 1000, 1000], why="the check")],
+                                    [call("blur_box", box=[0, 0, 1000, 1000], start=1, end=3, why="a page for a moment")],
+                                    [call("blur_box", box=[0, 0, 1000, 1000], why="asked", person_said="เบลอทั้งจอ")],
+                                    "Done.")
+        whole, moment, asked = [s for s in steps if s["tool"] == "blur_box"]
+        self.assertTrue(whole["refused"])
+        self.assertIn("That blur covers most of the picture for the whole clip", whole["result"])
+        self.assertIn("A recording with no chat box needs no blur: say so with no_chat_box.", whole["result"])
+        self.assertFalse(moment["refused"], "the whole picture for a moment is a blur that leaves the clip to watch")
+        self.assertFalse(asked["refused"], "a person may ask for it in their own words: " + asked["result"])
+
+    def test_half_the_picture_may_be_blurred(self):
+        self.assertFalse(tools._blurs_the_picture([0, 0, 500, 1000], {"width": 1000, "height": 1000}))
+        self.assertTrue(tools._blurs_the_picture([0, 0, 501, 1000], {"width": 1000, "height": 1000}))
+
+    def test_a_blur_over_the_whole_picture_makes_no_clips(self):
+        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        _, steps = self.several([call("make_clips", clips=clips, blur=[[0, 0, 1000, 1000]], why="both")], "Done.",
+                                recipe="game")
+        self.assertTrue(steps[-1]["refused"])
+        self.assertIn("Nothing was made. That blur covers most of the picture", steps[-1]["result"])
+
+    def test_a_game_with_no_chat_box_says_so_and_its_clips_are_made_and_pass(self):
+        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        _, steps = self.several([call("no_chat_box", why="a console game, no stream")],
+                                [call("make_clips", clips=clips, why="both")], "Done.", recipe="game")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        ready = [e for e in self.chat.events if e["kind"] == "ready"]
+        self.assertEqual(len(ready), 2)
+        for e in ready:
+            self.assertIn(("No viewer's name can be read", True, "Muse"), [(c["name"], c["ok"], c.get("who"))
+                                                                            for c in e["checks"]])
+        back = agent.Chat.load(self.chat.id)
+        self.assertTrue(tools._no_chat(types.SimpleNamespace(chat=back)), "a chat read back still knows")
+
+    def test_saying_there_is_no_chat_box_does_not_hide_a_name_on_the_screen(self):
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        chat = {"text": "@viewer_one ผมว่าดีครับ", "box": [130, 10, 60, 12], "sure": 0.95}
+        had = screen.readings, getattr(render, "export", None)
+        screen.readings = lambda rec, a, b, on_start=None: [{"at": a + 1, "lines": [chat]}, {"at": b - 1, "lines": [chat]}]
+        render.export = export
+        try:
+            _, steps = self.run_job(*self.to_moment(), *self.GAME_MOMENT, [call("no_chat_box", why="none seen")],
+                                    [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
+                                    "Done.")
+        finally:
+            screen.readings, render.export = had
+        self.assertIn("- FAILED: No viewer's name can be read (names can be read at", steps[-1]["result"])
+
+    def test_no_chat_box_is_for_a_game_after_its_moments_and_is_forgotten_with_the_recording(self):
+        offered = lambda recipe, moments: "no_chat_box" in [s["function"]["name"] for s in agent.Job.offered(
+            types.SimpleNamespace(chat=types.SimpleNamespace(events=[], album=[], clip={"recipe": recipe},
+                                                             moments=moments)))]
+        self.assertTrue(offered("game", [{}]))
+        self.assertFalse(offered("game", None), "a tool in every request moved Glimmer's moment")
+        self.assertFalse(offered("vlog", [{}]))
+        job = types.SimpleNamespace(chat=types.SimpleNamespace(events=[{"kind": "no_chat"}, {"kind": "opened"}]))
+        self.assertFalse(tools._no_chat(job))
+        job.chat.events.append({"kind": "no_chat"})
+        self.assertTrue(tools._no_chat(job))
+        self.assertFalse(tools._no_chat(types.SimpleNamespace(chat=types.SimpleNamespace(events=[]))))
+
+    def test_only_a_game_is_checked_for_a_chat_box(self):
+        _, steps = self.run_job(*self.to_moment(), [call("no_chat_box", why="none")], "Done.")
+        self.assertTrue(steps[-1]["refused"])
+        self.assertIn("Only a game stream is checked for a chat box.", steps[-1]["result"])
 
     def test_a_game_clip_passes_the_names_check_only_when_the_names_read_on_the_screen_are_under_a_blur(self):
         def export(rec, state, out, on_progress=None, on_start=None, *, default):

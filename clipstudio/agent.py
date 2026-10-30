@@ -1658,7 +1658,10 @@ class Job:
         said = [e["text"] for e in self.chat.events if e["kind"] == "person"]
         match = (self.chat.clip or {}).get("recipe") == "sport"
         tools = SCHEMAS if match or countdown.asked(said) is not None else UNASKED
-        return tools if self.chat.album else [s for s in tools if s["function"]["name"] not in ALBUM_TOOLS]
+        left = set(() if self.chat.album else ALBUM_TOOLS)
+        if (self.chat.clip or {}).get("recipe") != "game" or not self.chat.moments:
+            left.add("no_chat_box")
+        return [s for s in tools if s["function"]["name"] not in left]
 
     def only_talk(self):
         """True when the person's typed message only talks, so Muse answers it in words with no tools offered. Asked
