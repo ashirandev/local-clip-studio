@@ -131,6 +131,10 @@
         <div class="frame" id="frame"><p class="hint">Your clip shows here while Muse makes it.</p></div>
         <button type="button" class="big-play" id="bigPlay" aria-label="Play" hidden><svg class="ico"><use href="#i-play"/></svg></button>
         <button type="button" class="full" id="full" aria-label="Full screen" hidden><svg class="ico"><use href="#i-full"/></svg></button>
+        <div class="watch" id="watch" hidden>
+          <video id="watchVideo" controls playsinline preload="metadata"></video>
+          <button type="button" class="pill watch-back" id="watchBack"><svg class="ico sm"><use href="#i-back"/></svg>Back to the newest</button>
+        </div>
       </div>
     </div>
     <p class="preview-line" id="previewLine" role="status" hidden></p>

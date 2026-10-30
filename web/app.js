@@ -27,6 +27,9 @@ const MONEY = { TH: "THB", JP: "JPY", KR: "KRW", CN: "CNY", TW: "TWD", HK: "HKD"
 const EURO = ["AT", "BE", "CY", "DE", "EE", "ES", "FI", "FR", "GR", "HR", "IE", "IT", "LT", "LU", "LV", "MT", "NL", "PT", "SI", "SK"];
 const darkScheme = window.matchMedia("(prefers-color-scheme: dark)");
 const clipBox = $("clip");
+const watchBox = $("watch");
+const watchVideo = $("watchVideo");
+const watchBack = $("watchBack");
 const clipBack = $("clipBack");
 const clipCost = $("clipCost");
 const clipSave = $("clipSave");
@@ -141,16 +144,22 @@ function toast(words) {
   room.toastTimer = setTimeout(() => (t.hidden = true), 1800);
 }
 
-function nearBottom() {
-  const scroller = getComputedStyle(chatView).overflowY === "auto" ? chatView : document.scrollingElement;
-  return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 320;
+function chatScroller() {
+  return getComputedStyle(chatView).overflowY === "auto" ? chatView : document.scrollingElement;
+}
+
+function reading() {
+  return room.pinned !== null && room.pinned !== undefined && chatScroller().scrollTop < room.pinned - 48;
 }
 
 function scrollDown(always) {
   if (app.dataset.screen !== "chat" && app.dataset.screen !== "clip") return;
-  if (!always && !nearBottom()) return;
-  if (getComputedStyle(chatView).overflowY === "auto") chatView.scrollTop = chatView.scrollHeight;
-  else if (app.dataset.screen === "chat") window.scrollTo(0, document.scrollingElement.scrollHeight);
+  if (getComputedStyle(chatView).overflowY !== "auto" && app.dataset.screen !== "chat") return;
+  if (!always && reading()) return;
+  const scroller = chatScroller();
+  if (scroller === chatView) chatView.scrollTop = chatView.scrollHeight;
+  else window.scrollTo(0, document.scrollingElement.scrollHeight);
+  room.pinned = scroller.scrollTop;
 }
 
 function clearWelcome() {
@@ -327,6 +336,8 @@ function plural(n, one) {
 
 function setScreen(name, push) {
   if (room.screen === name) return;
+  const from = room.screen;
+  if (from === "chat") room.left = { at: chatScroller().scrollTop, reading: reading() };
   room.screen = name;
   app.dataset.screen = name;
   closeSheet();
@@ -335,13 +346,17 @@ function setScreen(name, push) {
     loadHome();
     window.scrollTo(0, 0);
   } else if (name === "chat") {
-    scrollDown(true);
+    if (from !== "clip") scrollDown(true);
+    else if (chatScroller() === chatView) scrollDown(false);
+    else if (room.left && room.left.reading) window.scrollTo(0, room.left.at);
+    else scrollDown(true);
   } else {
     window.scrollTo(0, 0);
   }
   if (name !== "clip") {
     const v = playerVideo();
     if (v && !v.paused && getComputedStyle(clipBox).display === "none") v.pause();
+    if (getComputedStyle(clipBox).display === "none") watchVideo.pause();
   }
 }
 
@@ -671,6 +686,8 @@ function thumb(src) {
 }
 
 function clearClip() {
+  stopWatching();
+  room.pinned = null;
   frameBox.replaceChildren(...[...emptyFrame].map((n) => n.cloneNode(true)));
   clipLine.textContent = "";
   clipTitle.textContent = "Your clip";
@@ -810,9 +827,30 @@ function drawChecked(j, e) {
   j.flow.appendChild(box);
 }
 
-function openClip() {
+function openClip(e) {
+  if (e.file !== room.finished || room.open.size) watch(e);
+  else stopWatching();
   setScreen("clip");
 }
+
+function watch(e) {
+  watchVideo.src = "/api/clip/" + e.file;
+  watchVideo.poster = "/api/clip/" + e.file.replace(/\.mp4$/, ".jpg");
+  watchVideo.setAttribute("aria-label", "Your clip: " + e.title);
+  watchBox.hidden = false;
+  clipBox.classList.add("watching");
+}
+
+function stopWatching() {
+  if (watchBox.hidden) return;
+  watchVideo.pause();
+  watchVideo.removeAttribute("src");
+  watchVideo.load();
+  watchBox.hidden = true;
+  clipBox.classList.remove("watching");
+}
+
+watchBack.addEventListener("click", stopWatching);
 
 function drawReady(j, e) {
   room.ready = e;
@@ -820,7 +858,7 @@ function drawReady(j, e) {
   const img = el("img");
   img.src = "/api/clip/" + e.file.replace(/\.mp4$/, ".jpg");
   img.alt = "";
-  img.addEventListener("click", openClip);
+  img.addEventListener("click", () => openClip(e));
   const pics = el("div", "ready-pics");
   pics.appendChild(img);
   if (e.cover) {
@@ -837,7 +875,7 @@ function drawReady(j, e) {
   }
   const body = el("div", "ready-body");
   const title = el("p", "ready-title", e.title);
-  title.addEventListener("click", openClip);
+  title.addEventListener("click", () => openClip(e));
   const meta = el("div", "ready-meta");
   if (e.length) {
     const len = el("span", "tag");
@@ -859,7 +897,7 @@ function drawReady(j, e) {
   if (e.work) body.appendChild(el("p", "ready-work", e.work.line));
   const go = el("div", "ready-go");
   const open = iconButton("round go", "Open the clip: " + e.title, "play");
-  open.addEventListener("click", openClip);
+  open.addEventListener("click", () => openClip(e));
   const save = iconButton("round", "Save the clip or the post", "save");
   save.addEventListener("click", () => {
     room.ready = e;
