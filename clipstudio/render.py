@@ -242,7 +242,8 @@ def after_source(state, src, out, first_input, default="clean", words=True):
     - the layout, to the 1080x1920 frame, with the slow pushes inside its main part, so the frame's design holds
       still while the footage pushes in;
     - frame stage: first what needs the person cut out (cutout.py, from the person's mask state['mask']): the
-      footage in black and white around them and a white edge around them (state['cutouts']: {"look": grey or
+      background behind them (state['backdrop'], a picture where the clip does not show them), the footage in black
+      and white around them and a white edge around them (state['cutouts']: {"look": grey or
       outline, "start", "end"}) and the titles and big words with "behind": True drawn under them; then the camera
       hits (punch-in, shake), so the person and all of that move together; then the pictures drawn for what is
       said (state['pictures'], effects.picture), under the words, the glass boxes, the stickers, the
@@ -263,7 +264,7 @@ def after_source(state, src, out, first_input, default="clean", words=True):
                               state.get("pushes") or [])
     files = files + more
     hits = _hits(state)
-    fragments = _cut_out(state, default)
+    fragments = _backdrop(state) + _cut_out(state, default)
     camera = {"shake": lambda h: effects.shake(h["at"]),
               "punch": lambda h: effects.punch_in(h["at"], centre=h["centre"])}
     fragments += [camera[h["kind"]](h) for h in hits if h["kind"] in camera]
@@ -282,6 +283,25 @@ def after_source(state, src, out, first_input, default="clean", words=True):
 
 
 CUTOUT_LOOKS = {"grey": cutout.grey, "outline": cutout.outline}
+
+
+def _backdrop(state):
+    """The background behind the person (state['backdrop'], from put_background) as the frame stage's first
+    fragment, or none. It needs the person's mask over the whole clip: where the mask has no frame, the clip would
+    show the background alone."""
+    ground = state.get("backdrop")
+    if not ground:
+        return []
+    mask, clip = state.get("mask"), state["clip"]
+    a, b = min(p[0] for p in clip["pieces"]), max(p[1] for p in clip["pieces"])
+    if not mask or mask["from"] > a + 0.01 or mask["to"] < b - 0.01:
+        raise ValueError("The background needs the person found over the whole clip, %g to %g s of the recording, "
+                         "and the clip has changed since: put the background on again." % (round(a, 2), round(b, 2)))
+    try:
+        path = cutout.frame_mask(mask, clip["pieces"], clip["layout"], state["length"], state.get("pushes") or [])
+    except RuntimeError as e:
+        raise ValueError(str(e))
+    return [cutout.backdrop(path, ground["png"], bool(mask.get("green")))]
 
 
 def _cut_out(state, default):

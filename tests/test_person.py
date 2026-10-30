@@ -33,6 +33,8 @@ def note(what):
 def say(**what):
     print(json.dumps(what), flush=True)
 note("worker start")
+if job.get("prompt"):
+    note("find " + job["prompt"])
 say(stage="pictures")
 if mode == "silent":
     note("worker end")
@@ -232,6 +234,15 @@ class CutOut(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"^face \[1, 2\] is not a face box on talk\.mkv"):
             person.cut_out(self.rec, 2, 5, people=[[10, 10, 8, 10], [1, 2]])
 
+    def test_sam_finds_the_product_named_instead_of_a_person_in_a_mask_of_its_own(self):
+        """Tarm 10-30, on a seller clip: "โปรแกรมต้องฉลาดพอจะรู้ว่าต้องโฟกัสสินค้ามากกว่าคน"."""
+        made = person.cut_out(self.rec, 2, 5, what="white game controller")
+        self.assertEqual(self.said(), ["unload", "worker start", "find white game controller", "worker end", "load"])
+        self.assertNotEqual(person.cut_out(self.rec, 2, 5)["path"], made["path"], "the person's mask is another")
+        open(self.events, "w").close()
+        self.assertEqual(person.cut_out(self.rec, 2, 5, what="white game controller"), made, "given back at once")
+        self.assertEqual(self.said(), [])
+
     def test_glimmer_comes_back_when_sam_fails_and_the_sentence_says_why(self):
         os.environ["LCS_FAKE_SAM"] = "fail"
         with self.assertRaisesRegex(person.PersonError, "^SAM found no person in the stretch.$"):
@@ -373,6 +384,8 @@ class Worker(unittest.TestCase):
             cut.pick(masks, [120, 2, 4, 4], (128, 72), (64, 36))
         with self.assertRaisesRegex(ValueError, "^SAM found no person in the stretch.$"):
             cut.pick({}, None, (128, 72), (64, 36))
+        with self.assertRaisesRegex(ValueError, "^SAM found no white game controller in the stretch.$"):
+            cut.pick({}, None, (128, 72), (64, 36), "white game controller")
         self.assertEqual(cut.holders(masks, [[42, 10, 6, 8], [84, 20, 12, 16], [120, 2, 4, 4]], (128, 72), (64, 36)),
                          {"1": 0, "2": 1, "3": None}, "each face its own person; a face nobody holds, none")
         self.assertEqual(cut.holders(masks, [], (128, 72), (64, 36)), {})

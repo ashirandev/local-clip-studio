@@ -98,11 +98,12 @@ def _box(rec, face):
     return [round(float(v), 1) for v in face]
 
 
-def key(rec, start, end, face, people=None):
+def key(rec, start, end, face, people=None, what=None):
     st = os.stat(rec["path"])
     w = os.stat(WEIGHTS) if WEIGHTS and os.path.isfile(WEIGHTS) else None
     return hashlib.sha1(json.dumps([VERSION, rec["path"], st.st_size, st.st_mtime, start, end, FPS, face,
-                                    w and w.st_size] + ([people] if people else [])).encode("utf-8")).hexdigest()[:16]
+                                    w and w.st_size] + ([people] if people else []) + ([what] if what else []))
+                        .encode("utf-8")).hexdigest()[:16]
 
 
 def _each(folder, name, people):
@@ -114,12 +115,14 @@ def _each(folder, name, people):
     return [p if os.path.isfile(p) else None for p in paths]
 
 
-def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=None):
+def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=None, what=None):
     """state['mask'] for the person from start to end (recording seconds): {"path", "person", "fps", "size", "from",
     "to"}, person being the face box the person was picked by (None: the person with the most pixels). face is
     [x, y, w, h] in the recording's pixels (the layout's face camera), so when SAM finds several people the one
     holding it is kept. With people, the face boxes of a talk's people in their order, the mask has "each" too: the
-    path of each one's own mask, or None for one SAM did not find. on_progress(done, of) as SAM follows them;
+    path of each one's own mask, or None for one SAM did not find. With what, SAM finds that instead of a person,
+    such as "white game controller" (the product a seller holds), and keeps the one with the most pixels over the
+    stretch when there are several. on_progress(done, of) as SAM follows them;
     on_start(stop) hands over a function that ends the work at once (then Stopped is raised). PersonError with a
     sentence when no mask could be made."""
     start, end, face, people = _checked(rec, start, end, face, people)
@@ -127,7 +130,7 @@ def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=
     if why:
         raise PersonError(why)
     folder = os.path.join(recording.WORK, "masks")
-    name = key(rec, start, end, face, people)
+    name = key(rec, start, end, face, people, what)
     path = os.path.join(folder, name + ".mkv")
     made = {"path": path, "person": face, "fps": FPS, "size": [rec["width"], rec["height"]], "from": start,
             "to": end}
@@ -160,7 +163,7 @@ def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=
         try:
             if stopped.is_set():
                 raise Stopped()
-            _run(rec, start, end, face, path, folder, name, running, stopped, on_progress, people)
+            _run(rec, start, end, face, path, folder, name, running, stopped, on_progress, people, what)
         except BaseException as e:
             if aside:
                 _come_back(*aside, after=e)
@@ -170,7 +173,7 @@ def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=
     return given()
 
 
-def _run(rec, start, end, face, path, folder, name, running, stopped, on_progress, people=None):
+def _run(rec, start, end, face, path, folder, name, running, stopped, on_progress, people=None, what=None):
     frames = os.path.join(folder, name + ".pictures")
     part = path + ".part"
     each, each_part = os.path.join(folder, name + ".each"), os.path.join(folder, name + ".each.part")
@@ -178,6 +181,8 @@ def _run(rec, start, end, face, path, folder, name, running, stopped, on_progres
     os.makedirs(frames)
     job = {"recording": rec["path"], "from": start, "to": end, "fps": FPS, "size": [rec["width"], rec["height"]],
            "face": face, "weights": WEIGHTS, "frames": frames, "out": part}
+    if what:
+        job["prompt"] = what
     if people:
         _clear(each_part)
         os.makedirs(each_part)

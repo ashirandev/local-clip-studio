@@ -436,3 +436,77 @@ def expression(shots, axis):
         text = "if(lt(t,%.3f),%d,if(lt(t,%.3f),%d+(%d)*%s*%s*(3-2*%s),%s))" % (
             s["from"], before[axis], s["from"] + PAN, before[axis], s[axis] - before[axis], u, u, u, text)
     return text
+
+
+# ---- following a thing SAM followed ------------------------------------------------------------------------------
+# A seller's product, held out to one side, then up by the face, then low: Tarm 10-30, on a frame that sat on his face
+# while the controller he sold was at its edge, "โปรแกรมต้องฉลาดพอจะรู้ว่าต้องโฟกัสสินค้ามากกว่าคน ... ไม่ได้ขายหน้าตา".
+THING_W = 192
+EDGE_SHARE = 0.2
+THING_PERSIST = 0.5
+THING_HOLD = 1.0
+THING_SMOOTH = 0.5
+THING_LOST = 1.5
+THING_STEP = 0.15
+
+
+def thing(mask, pieces, size, aspect, rest=None):
+    """The window of the vertical frame following a thing SAM followed (mask: person.cut_out's entry made with what,
+    on the recording's pixel grid), as plan() gives one: {"size": [w, h], "shots": [{"from", "x", "y"}], "seen": the
+    share of the clip's pictures the thing is in}, or None when it is in none or the recording is no wider than the
+    window. The window is the recording's full height and as wide as aspect makes it. It starts centred on the thing
+    (at rest when the thing is not in the first picture) and moves to centre it again once the thing's middle has
+    been within EDGE_SHARE of the window's side, or past it, for THING_PERSIST s, no sooner than THING_HOLD s after
+    its last move, so it follows a product held out to the side and does not shake with the hand that holds it; a
+    move under THING_STEP of its width is not made. Where the thing is not seen the window holds, and once it has
+    been gone THING_LOST s (put down, out of the picture) the window goes to rest, the x the person is at, so the
+    clip shows them rather than an empty place. Measured 10-30 on Tarm's controller, 39 s: SAM saw it in 79% of the
+    pictures, and the window moved 6 times."""
+    w, h = size
+    ww = min(w, int(round(h * aspect / 2.0)) * 2)
+    if ww >= w:
+        return None
+    sw, sh = THING_W, max(2, int(round(THING_W * h / float(w) / 2)) * 2)
+    raw = subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-i", mask["path"], "-vf",
+                          "scale=%d:%d" % (sw, sh), "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                         capture_output=True).stdout
+    frames = np.frombuffer(raw[:len(raw) // (sw * sh) * sw * sh], np.uint8).reshape(-1, sh, sw)
+    seen, offset = [], 0.0
+    for a, b in pieces:
+        for k, f in enumerate(frames):
+            t = mask["from"] + k / float(mask["fps"])
+            if a <= t < b:
+                cols = (f >= 128).sum(axis=0)
+                seen.append((offset + t - a, float((cols * np.arange(sw)).sum() / cols.sum()) * w / sw
+                             if cols.sum() else None))
+        offset += b - a
+    found = [(t, c) for t, c in seen if c is not None]
+    if not found:
+        return None
+    middles = [(t, statistics.median(c for u, c in found if abs(u - t) <= THING_SMOOTH / 2)) for t, _ in found]
+
+    def place(c):
+        return int(round(min(max(c - ww / 2.0, 0), w - ww) / 2.0)) * 2
+
+    x, smooth = place(rest if seen[0][1] is None and rest is not None else middles[0][1]), dict(middles)
+    shots, since, out, lost = [{"from": 0.0, "x": x, "y": 0}], 0.0, [], None
+    for t, c in seen:
+        if c is None:
+            out, lost = [], t if lost is None else lost
+            if rest is None or t - lost < THING_LOST:
+                continue
+            move, to = max(lost, since + THING_HOLD), place(rest)
+        else:
+            lost, c = None, smooth[t]
+            if x + ww * EDGE_SHARE <= c <= x + ww * (1 - EDGE_SHARE):
+                out = []
+                continue
+            out.append((t, c))
+            if t - out[0][0] < THING_PERSIST:
+                continue
+            move, to = max(out[0][0], since + THING_HOLD), place(statistics.median(c for _, c in out))
+            out = []
+        if abs(to - x) >= THING_STEP * ww and move < offset:
+            x, since = to, move
+            shots.append({"from": round(move, 2), "x": x, "y": 0})
+    return {"size": [ww, h], "shots": shots, "seen": round(len(found) / float(len(seen)), 2)}

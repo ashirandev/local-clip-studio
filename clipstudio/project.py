@@ -43,7 +43,10 @@ the recording, and boxes on the frame are pixels of the 1080x1920 clip.
 - people: {"blur": [person numbers], "keep": [person numbers]}: who of the clip's people is blurred; a later
   decision about the same person wins, and a new clip entry starts with nobody decided
 - mask: {"path", "person", "fps", "size", "from", "to"}: the person found frame by frame over recording seconds from
-  to (person.cut_out), for the cut-out looks and the titles behind the person; the last one stands
+  to (person.cut_out, or green.mask off a green cloth with "green" too), for the cut-out looks, the titles behind the
+  person and the background; the last one stands
+- backdrop: {"png": a 1080x1920 picture, "about": the words it was drawn from}: the background behind the person
+  wherever the clip does not show them (green.backdrop), or {"png": None} to take it off; the last one stands
 - cutout: {"look": grey or outline, "start", "end"}, or {"look": None, "start", "end"} to take the looks at that time
   off; a cut-out look at an overlapping time replaces an earlier one
 - mute: {"spans": [[recording a, recording b], ...], "start", "end": the clip seconds asked for, "back": False}: the
@@ -57,7 +60,7 @@ import json
 import os
 
 DOES = ("clip", "style", "title", "captions", "blur", "hit", "sticker", "people", "look", "push", "layout", "untitle",
-        "sound", "music", "glass", "mask", "cutout", "channel", "flurry", "mute", "picture")
+        "sound", "music", "glass", "mask", "cutout", "channel", "flurry", "mute", "picture", "backdrop")
 MADE_BY = ("clipstudio", "cutting", "fonts", "stickers")
 
 
@@ -91,10 +94,12 @@ class Project:
         """What the entries add up to: {"clip": the last clip entry or None, "length": clip seconds, "style": the
         last style entry or None, "titles": [title entries inside the clip], "captions": the last captions entry or
         None, "blurs": [blur entries], "hits": [hit entries inside the clip], "stickers": [sticker entries inside the
-        clip], "pictures": [picture entries inside the clip], "glass": [glass entries inside the clip], "flurries": [flurry entries inside the clip], "look": the colour look's name or None, "pushes": [push entries inside the clip], "people": the clip's
-        people, each with "blur" True, False or None when not decided, "sounds": [sound entries inside the clip],
-        "music": the last music entry with a path or None, "speech": the clip's speech spans or None, "mask": the last
-        mask entry or None, "cutouts": [cutout entries inside the clip], "channel": the last channel entry, the
+        clip], "pictures": [picture entries inside the clip], "glass": [glass entries inside the clip], "flurries":
+        [flurry entries inside the clip], "look": the colour look's name or None, "pushes": [push entries inside the
+        clip], "people": the clip's people, each with "blur" True, False or None when not decided, "sounds": [sound
+        entries inside the clip], "music": the last music entry with a path or None, "speech": the clip's speech spans
+        or None, "mask": the last mask entry or None, "backdrop": the last backdrop entry with a picture or None,
+        "cutouts": [cutout entries inside the clip], "channel": the last channel entry, the
         channel's name drawn on the clip ({"name", "spot"}), or None when its name is empty, "mutes": [[clip a, clip
         b]] where the recording's own sound is muted}. A blurred person's track is one of the blurs. A new clip entry
         keeps the words and effects; what starts after its end is not drawn. Where the sound is muted nobody is heard:
@@ -104,7 +109,7 @@ class Project:
         titles, blurs, hits, stickers, pushes, sounds, glass, cutouts, flurries = [], [], [], [], [], [], [], [], []
         pictures = []
         muted = []
-        look = music = mask = channel = None
+        look = music = mask = channel = backdrop = None
         decided = {}
         for e in self.entries:
             if e["do"] == "clip":
@@ -154,6 +159,8 @@ class Project:
                 decided.update({n: False for n in e["keep"]})
             elif e["do"] == "mask":
                 mask = e
+            elif e["do"] == "backdrop":
+                backdrop = e if e.get("png") else None
             elif e["do"] == "channel":
                 channel = e if e.get("name") else None
             elif e["do"] == "cutout":
@@ -184,6 +191,7 @@ class Project:
                 "music": music if clip else None,
                 "speech": _less(speech, mutes) if speech else speech,
                 "mask": mask if clip else None,
+                "backdrop": backdrop if clip else None,
                 "channel": channel if clip else None,
                 "cutouts": sorted([c for c in cutouts if inside(c["start"])], key=lambda c: c["start"]),
                 "mutes": mutes}

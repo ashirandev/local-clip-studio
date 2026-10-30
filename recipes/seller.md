@@ -20,6 +20,8 @@ the seller said one.
 - Loudness says little here. A person talking at a table is just as loud the whole time.
 - Prefer a stretch where the product is in the frame while the seller says what it does.
 - In a selling live with many products, each product gets its own clip.
+- A clip ends after the seller says the price. A seller often says it right after the product's best point, so when
+  a stretch ends on what the product does, look a little past its end for the price before you propose it.
 
 ## Rules
 
@@ -32,9 +34,13 @@ the seller said one.
 
 ## The clip
 
-- Layout: the vertical frame follows the product, the most prominent thing in every shot, not the seller's face.
+- Layout: the vertical frame follows the product, the most prominent thing in every shot, not the seller's face. In
+  a landscape recording, make the clip in the subject layout, then have follow_product move the frame with the
+  product.
 - The title names the product or its one best point, in the clip's language.
 - A spec card may show one number the seller said.
+- Background: when the seller sits in front of a green cloth, put a background behind them that suits the product
+  (a gaming desk for a game controller, a bathroom shelf for a balm), with its top calm for the title.
 - Look: warm, so faces look natural and a white product stays white. One slow push while the product is shown.
 - Sounds: a ding when a price or a number title comes on, and nothing more: the voice sells.
 - A glass box under a price or a short list when the picture behind is busy, with the words on it. At most one sticker, such as money_bag on the price.

@@ -1577,6 +1577,167 @@ class Tools(unittest.TestCase):
         self.assertEqual([(r["label"], r["usd"]) for r in paid], [("Muse Image", 0.01)] * 2,
                          "the two pictures drawn are in the ledger; the one kept cost nothing")
 
+    def green_cloth(self):
+        """Patches for a recording in front of a green cloth: green.find says it is there, green.mask makes a person's
+        mask over the seconds asked (counted in self.cut), green.backdrop draws a blue picture once per words."""
+        from unittest import mock
+        from test_cutout import make_mask
+        png = os.path.join(self.tmp, "ground.png")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x3050A0:s=1080x1920", "-frames:v",
+                        "1", png], check=True)
+        self.cut, drawn = [], set()
+        cloth = {"clear": 60.0, "solid": 24.0, "edge": 0.8}
+
+        def mask(rec, a, b):
+            self.cut.append((a, b))
+            return {"path": make_mask(self.tmp, "green_%d.mkv" % len(self.cut), b - a, a, size=(320, 180)),
+                    "person": None, "fps": 30, "size": [320, 180], "from": a, "to": b, "green": cloth}
+
+        def backdrop(about):
+            again = about in drawn
+            drawn.add(about)
+            return {"path": png, "usd": 0.0 if again else 0.01, "seconds": 0.0 if again else 9.0, "reused": again}
+
+        return [mock.patch.object(tools.green, "find", return_value=dict(cloth, scores=[])),
+                mock.patch.object(tools.green, "mask", mask), mock.patch.object(tools.green, "backdrop", backdrop)]
+
+    def test_a_person_on_a_green_cloth_gets_a_background_muse_image_draws_and_the_layout_stays(self):
+        """Tarm 10-30, on a seller recorded in front of a green cloth: "ตัดผ้าเขียวออก แล้วใส่พื้นหลังให้เหมาะสมด้วยโมเดล
+        ของเมต้า"; and the product stays the focus: "โปรแกรมต้องฉลาดพอจะรู้ว่าต้องโฟกัสสินค้ามากกว่าคน"."""
+        patches = self.green_cloth()
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        brain, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the product")],
+            [call("put_background", about="a tidy gaming desk", why="the cloth")],
+            [call("put_background", about="a bright kitchen counter", why="another place")],
+            [call("put_background", about="a tidy gaming desk", why="back to the first")],
+            "Done.")
+        made, desk, kitchen, again = steps[-4:]
+        self.assertIn(tools.GREEN_SAYS, made["result"], "make_clip tells Muse the cloth is there")
+        self.assertNotIn(tools.FOLLOW_SAYS, made["result"], "not a seller clip")
+        self.assertFalse(desk["refused"], desk["result"])
+        self.assertIn("The person was cut off the green cloth by its colour, on this computer with no GPU, with what "
+                      "they hold; the cloth covers 80% of the frame's edge", desk["result"])
+        self.assertIn("Muse Image drew the background, a tidy gaming desk, in 9 s, for $0.01.", desk["result"])
+        self.assertIn("It is behind the person wherever the clip does not show them, through the whole clip",
+                      desk["result"])
+        self.assertIn("comes next as a picture", desk["result"])
+        self.assertIn("The person was already cut off the green cloth for this clip, so it was not done again.",
+                      kitchen["result"])
+        self.assertIn("Kept the background of a tidy gaming desk (made before, at no cost).", again["result"])
+        self.assertEqual(len(self.cut), 1, "the cloth is cut once for the clip")
+        state = self.chat.project.state()
+        self.assertEqual(state["backdrop"]["about"], "a tidy gaming desk")
+        self.assertTrue(state["mask"]["green"])
+        self.assertEqual(state["clip"]["layout"]["kind"], "subject", "the layout Muse chose stays")
+        self.assertIn("background drawn: a tidy gaming desk", self.chat.clip_line())
+        self.assertEqual(tools.describe(self.chat.project.entries[-1]), "the background of a tidy gaming desk")
+        with open(os.path.join(agent.WORK, "spent.jsonl"), encoding="utf-8") as f:
+            paid = [json.loads(line) for line in f if '"image"' in line]
+        self.assertEqual([(r["label"], r["usd"]) for r in paid], [("Muse Image", 0.01)] * 2,
+                         "two backgrounds drawn are in the ledger; the one kept cost nothing")
+
+    def test_after_sam_found_the_person_the_cloth_is_still_cut_so_what_they_hold_stays_in_front(self):
+        """Live 10-30: Muse ran cut_out (SAM, the person alone) for a title behind them, then put the background on;
+        SAM's person leaves out the controller in their hands, the cloth's cut keeps it."""
+        from unittest import mock
+        from test_cutout import make_mask
+        patches = self.green_cloth()
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+        def sam(rec, a, b, **kw):
+            return {"path": make_mask(self.tmp, "sam.mkv", b - a, a, size=(320, 180)), "person": None, "fps": 10,
+                    "size": [320, 180], "from": a, "to": b}
+
+        with mock.patch.object(tools.person, "cut_out", sam):
+            with mock.patch.object(tools.green, "mask", return_value=None):
+                _, steps = self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="go")],
+                                        [call("cut_out", why="a title behind them")],
+                                        [call("put_background", about="a desk", why="no cloth")], "Done.")
+            self.assertIn("The person SAM 3.1 found for this clip is kept in front", steps[-1]["result"],
+                          "with no cloth, SAM's person is used")
+            self.assertFalse(self.chat.project.state()["mask"].get("green"))
+            _, steps = self.run_job([call("put_background", about="a desk", why="the cloth")], "Done.")
+        self.assertIn("cut off the green cloth by its colour", steps[-1]["result"])
+        self.assertTrue(self.chat.project.state()["mask"]["green"], "the cloth's cut replaces SAM's person")
+
+    def test_without_a_green_cloth_the_background_waits_for_sam_and_a_bad_cloth_or_drawing_is_said(self):
+        from unittest import mock
+        patches = self.green_cloth()
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+        def refused_drawing(about):
+            raise tools.picture.PictureError("Muse Image refused to draw it (HTTP 400: no).", 0.0)
+
+        with mock.patch.object(tools.green, "mask", return_value=None):
+            _, steps = self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="go")],
+                                    [call("put_background", about="a desk", why="no cloth")], "Done.")
+        self.assertTrue(steps[-1]["refused"])
+        self.assertIn("No green cloth is behind the person, so the person must be found with SAM 3.1 first: call "
+                      "cut_out, then put_background again.", steps[-1]["result"])
+        with mock.patch.object(tools.green, "mask", side_effect=tools.green.GreenError("The cloth is too grey.")):
+            _, steps = self.run_job([call("put_background", about="a desk", why="a grey cloth")], "Done.")
+        self.assertTrue(steps[-1]["refused"])
+        self.assertIn("The cloth is too grey. Or find the person with cut_out (SAM 3.1), then put the background on "
+                      "again.", steps[-1]["result"])
+        with mock.patch.object(tools.green, "backdrop", refused_drawing):
+            _, steps = self.run_job([call("put_background", about="a desk", why="refused")], "Done.")
+        self.assertFalse(steps[-1]["refused"])
+        self.assertIn("No background: Muse Image refused to draw it (HTTP 400: no). Tell the person, or go on without "
+                      "it.", steps[-1]["result"])
+        self.assertIsNone(self.chat.project.state()["backdrop"])
+
+    def test_sam_follows_the_product_and_the_vertical_frame_moves_with_it(self):
+        """Tarm 10-30: "โปรแกรมต้องฉลาดพอจะรู้ว่าต้องโฟกัสสินค้ามากกว่าคน ... ไม่ได้ขายหน้าตา"."""
+        from unittest import mock
+        from test_cutout import make_mask
+        asked = []
+
+        def cut_out(rec, a, b, on_start=None, on_progress=None, what=None):
+            asked.append(what)
+            if what == "a broken thing":
+                raise tools.person.PersonError("SAM is not set up.")
+            where = "-1000" if what == "a missing thing" else "280"
+            return {"path": make_mask(self.tmp, "thing_%d.mkv" % len(asked), b - a, a, "lt(abs(X-%s),20)" % where,
+                                      size=(320, 180)), "person": None, "fps": 10, "size": [320, 180], "from": a,
+                    "to": b}
+
+        script = self.to_moment()
+        with mock.patch.object(tools.person, "cut_out", cut_out):
+            _, steps = self.run_job(
+                script[0], [call("load_recipe", type="seller", why="a seller")], *script[1:],
+                [call("make_clip", moment=1, layout="subject", why="the product")],
+                [call("follow_product", what="white game controller", why="the product leads")],
+                [call("follow_product", what="a missing thing", why="not there")],
+                [call("follow_product", what="a broken thing", why="SAM fails")],
+                "Done.")
+            made, followed, missing, broken = steps[-4:]
+            self.assertIn(tools.FOLLOW_SAYS, made["result"], "a seller in a landscape recording is told to follow it")
+            self.assertFalse(followed["refused"], followed["result"])
+            self.assertIn("SAM 3.1 followed the white game controller through the clip: it is in 100% of the pictures.",
+                          followed["result"])
+            self.assertIn("The frame holds one place", followed["result"])
+            self.assertIn("comes next as a picture", followed["result"])
+            self.assertIn("SAM 3.1 did not see the a missing thing anywhere in the clip, so the frame stays where it is.",
+                          missing["result"])
+            self.assertIn("The a broken thing could not be followed: SAM is not set up.", broken["result"])
+            whole = self.chat.project.state()["clip"]["layout"]["parts"][0]
+            self.assertEqual(whole["src"][0], 218, "the window at the product, on the right")
+            self.assertTrue(whole["follow"])
+            self.assertEqual(tools.describe([e for e in self.chat.project.entries if e["do"] == "layout"][-1]),
+                             "following the product")
+            _, steps = self.run_job([call("make_clip", moment=1, layout="card", why="a card")],
+                                    [call("follow_product", what="white game controller", why="on a card")], "Done.")
+        self.assertTrue(steps[-1]["refused"])
+        self.assertIn("Only the subject layout's frame can follow the product", steps[-1]["result"])
+        self.assertEqual(asked, ["white game controller", "a missing thing", "a broken thing"])
+
     def test_muse_sends_stickers_flying_in_a_box_clear_of_faces_and_the_clip_draws_them(self):
         face = [430, 660, 570, 755]
         brain, steps = self.run_job(

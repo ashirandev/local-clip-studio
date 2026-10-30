@@ -296,6 +296,20 @@ class Snap(unittest.TestCase):
         self.assertEqual(tools._snapped(self.LOOK, 40.0, 55.0), (40.0, 55.0, None))
         self.assertEqual(tools._snapped(self.LOOK, 65.0, 75.0), (65.0, 75.0, None), "5 s into a line is too far")
 
+    def test_a_sellers_end_takes_in_the_price_said_right_after_it(self):
+        """Tarm's green-screen seller, 10-30: the controller's moment ended at 0:39, its price was said at 0:41."""
+        look = {"start": 9.0, "end": 39.0, "heard": [3.0, 45.0], "said": [
+            {"from": 33.9, "to": 38.6, "text": "แล้วก็กดยิงได้เลยนะครับจอยนี้สนนราคาอยู่ที่"},
+            {"from": 40.9, "to": 41.9, "text": "สามพันบาทนะครับ"},
+            {"from": 42.3, "to": 44.3, "text": "ใครอยากได้กด CF ไปได้เลย"}]}
+        a, b, said = tools._snapped(look, 9.0, 39.0, price=True)
+        self.assertEqual(b, 42.15)
+        self.assertIn("ends 3.1 s later, so the price said right after it is in the clip", said)
+        self.assertEqual(tools._snapped(look, 9.0, 39.0)[1], 39.0, "not a seller: the end stays")
+        self.assertEqual(tools._snapped(dict(look, heard=[3.0, 41.0]), 9.0, 39.0, price=True)[1], 39.0,
+                         "a price not heard whole is not reached for")
+        self.assertEqual(tools._snapped(look, 9.0, 34.0, price=True)[1], 34.0, "7 s on is past PRICE_REACH")
+
     def test_edges_never_leave_the_look(self):
         look = dict(self.LOOK, start=30.9)
         self.assertEqual(tools._snapped(look, 31.5, 48.0)[0], 30.9)

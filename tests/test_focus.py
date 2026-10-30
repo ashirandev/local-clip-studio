@@ -298,3 +298,39 @@ class Followed(unittest.TestCase):
         self.assertEqual(layouts.to_frame(self.lay, box, 6.0), [], "the card has moved away")
         self.assertEqual(len(layouts.to_frame(self.lay, box)), 2, "the first and the last place show it")
         self.assertEqual(layouts.parts_at(self.lay, 6.0)[0]["src"], [700, 300, 960, 630])
+
+@unittest.skipUnless(FFMPEG, "needs ffmpeg")
+class Thing(unittest.TestCase):
+    """A product SAM followed in a 640x360 recording, 60 px wide at the middle of the height: where it is from
+    recording second T (8 s from 0 = second 0 of the clip), and the window of the vertical frame, 202 px wide."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def plan(self, where, rest=320):
+        from test_cutout import make_mask
+        path = make_mask(self.tmp, "thing.mkv", 8, 0, "lt(abs(X-(%s)),30)*lt(abs(Y-180),40)" % where)
+        return focus.thing({"path": path, "fps": 30, "from": 0, "to": 8}, [[0, 8]], (640, 360), 9 / 16.0, rest)
+
+    def test_the_frame_holds_on_the_product_moves_when_it_leaves_and_rests_on_the_person_when_it_is_gone(self):
+        plan = self.plan("if(lt(T,2),520,if(lt(T,4),610,if(lt(T,6),-1000,100)))")
+        self.assertEqual(plan["size"], [202, 360])
+        self.assertEqual([s["x"] for s in plan["shots"]], [418, 220, 0],
+                         "centred on it; 20 px further to the edge is no move; put down, back to the person; "
+                         "then to where it is held again")
+        for got, want in zip([s["from"] for s in plan["shots"]], [0, 4.0, 6.0]):
+            self.assertAlmostEqual(got, want, delta=0.3)
+        self.assertEqual(plan["seen"], 0.75)
+        self.assertEqual([s["x"] for s in self.plan("if(lt(T,2),520,if(lt(T,4),610,if(lt(T,6),-1000,100)))",
+                                                    rest=None)["shots"]], [418, 0], "with no person, it holds")
+
+    def test_a_product_not_there_at_first_starts_on_the_person_and_one_never_there_is_no_plan(self):
+        plan = self.plan("if(lt(T,2),-1000,100)")
+        self.assertEqual([s["x"] for s in plan["shots"]], [220, 0])
+        self.assertAlmostEqual(plan["shots"][1]["from"], 2.0, delta=0.3)
+        self.assertIsNone(self.plan("-1000"))
+        self.assertIsNone(focus.thing({"path": "never read", "fps": 30, "from": 0, "to": 8}, [[0, 8]], (360, 640),
+                                      9 / 16.0), "a vertical recording has nowhere to move")

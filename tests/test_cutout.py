@@ -159,6 +159,19 @@ class FrameMask(unittest.TestCase):
             tall.append(ys.max() + 1 - ys.min())
         self.assertGreater(tall[1], tall[0] * 1.15, "the person grows with the push: %s" % tall)
 
+    def test_a_frame_that_follows_the_product_moves_the_mask_with_the_picture(self):
+        import numpy as np
+        still = make_mask(self.tmp, "left.mkv", 2.0, 0, expr="lt(abs(X-60),40)")
+        lay = layouts.followed(layouts.make("subject", (640, 360)),
+                               {"size": [202, 360], "shots": [{"from": 0, "x": 0, "y": 0},
+                                                              {"from": 1.0, "x": 438, "y": 0}]}, "whole")
+        made = cutout.frame_mask({"path": still, "person": None, "fps": 30, "size": [640, 360], "from": 0, "to": 2},
+                                 [[0, 2]], lay, 2.0)
+        _, got = grey_frames(made, [15, 54])
+        xs = np.nonzero(got[15].max(axis=0) > 128)[0]
+        self.assertLess(abs(xs.min() - 20 * W / 202.0), 8, "while the frame is at the left, the person shows there")
+        self.assertEqual(int(got[54].max()), 0, "the frame has moved right, away from them")
+
     def test_it_is_made_once_and_again_when_the_mask_changes(self):
         layout = layouts.make("subject", (640, 360))
         made = cutout.frame_mask(self.mask, self.PIECES, layout, 3.0)
@@ -224,6 +237,11 @@ class Looks(unittest.TestCase):
         words = text._ass_filter(cls.ass, text.fonts_folder(st))
         cls.words = drawn([effects.Fragment("[in]%s[out]" % words, [])], [30])
         cls.behind = drawn([cutout.behind(words, cls.mask, [(0.5, 1.5)])], [12, 30, 57])
+        cls.ground = os.path.join(cls.tmp, "ground.png")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x3050A0:s=%dx%d" % (W, H),
+                        "-frames:v", "1", cls.ground], check=True)
+        cls.backdrop = drawn([cutout.backdrop(cls.mask, cls.ground)], [3, 30, 57])
+        cls.despilled = drawn([cutout.backdrop(cls.mask, cls.ground, despill=True)], [30])
 
     @classmethod
     def tearDownClass(cls):
@@ -246,6 +264,21 @@ class Looks(unittest.TestCase):
         self.assertTrue((self.inside(v, 2) == self.inside(pv, 2)).all())
         for n in (12, 57):
             self.assertTrue(all((a == b).all() for a, b in zip(self.grey[n], self.plain[n])), "frame %d is its own" % n)
+
+    def test_a_background_is_behind_the_person_through_the_whole_clip_and_they_stay_as_they_are(self):
+        for n in (3, 30, 57):
+            y, u, v = self.backdrop[n]
+            py, pu, pv = self.plain[n] if n in self.plain else drawn([], [n])[n]
+            self.assertTrue((self.inside(y) == self.inside(py)).all(), "frame %d: the person as they were" % n)
+            self.assertTrue((self.inside(u, 2) == self.inside(pu, 2)).all())
+            for plane, s in ((y, 1), (u, 2), (v, 2)):
+                around = self.outside(plane, s)
+                self.assertLessEqual(int(around.max() - around.min()), 2, "frame %d: the background's one colour "
+                                                                          "around them, not the busy picture" % n)
+        y, _, _ = self.despilled[30]
+        self.assertFalse((self.inside(y) == self.inside(self.plain[30][0])).all(),
+                         "off a green cloth the green is taken off the person's colours")
+        self.assertTrue((self.outside(y) == self.outside(self.backdrop[30][0])).all())
 
     def test_grey_eases_in_and_out(self):
         full = abs(self.outside(self.plain[30][1], 2) - 128).mean()

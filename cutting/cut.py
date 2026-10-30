@@ -11,7 +11,8 @@ starts it with that Python for one stretch and reads what it prints):
       {"recording": path, "from": s, "to": s, "fps": n, "size": [w, h] as the studio sees the recording,
        "face": [x, y, w, h] in its pixels or null, "weights": the .safetensors file, "frames": an empty folder for
        the pictures, "out": the FFV1 file to write, and for a talk "people": [[x, y, w, h] of each person's face]
-       with "each": an empty folder for their own masks}
+       with "each": an empty folder for their own masks, and "prompt": what to find instead of "person", such as
+       "white game controller" for the product a seller holds}
     stdout, one JSON object a line: {"stage": "pictures" | "loading" | "finding" | "following" | "writing"},
       {"done": k, "of": n} while following, and last {"ok": true, "frames": n, "people": [...], "kept": id,
       "each": {"1": id or null, ...}, "seconds": {...}} or {"ok": false, "error": a sentence}
@@ -55,13 +56,13 @@ def picture_size(size):
     return max(2, int(w * k / 2 + 0.5) * 2), max(2, int(h * k / 2 + 0.5) * 2)
 
 
-def pick(masks, face, size, picture):
+def pick(masks, face, size, picture, prompt=PROMPT):
     """The id to keep from masks {id: [mask per picture, packed by np.packbits along rows, or None]}, pictures of
     picture (w, h): the one holding the middle of face (in pixels of the recording's size) in the most pictures, or
-    with no face the one with the most pixels. ValueError with a sentence when nobody is found or nobody holds the
+    with no face the one with the most pixels. ValueError with a sentence when nothing is found or nobody holds the
     face."""
     if not masks:
-        raise ValueError("SAM found no person in the stretch.")
+        raise ValueError("SAM found no %s in the stretch." % prompt)
     if face is None:
         return max(masks, key=lambda i: sum(int(np.unpackbits(m).sum()) for m in masks[i] if m is not None))
     x = min(picture[0] - 1, int((face[0] + face[2] / 2.0) * picture[0] / size[0]))
@@ -162,7 +163,8 @@ def cut(job):
     say(stage="finding")
     sid = predictor.handle_request(dict(type="start_session", resource_path=job["frames"],
                                         offload_video_to_cpu=True))["session_id"]
-    first = predictor.handle_request(dict(type="add_prompt", session_id=sid, frame_index=0, text=PROMPT))["outputs"]
+    prompt = job.get("prompt") or PROMPT
+    first = predictor.handle_request(dict(type="add_prompt", session_id=sid, frame_index=0, text=prompt))["outputs"]
     people = [{"id": int(i), "sure": round(float(p), 3)}
               for i, p in zip(first["out_obj_ids"].tolist(), first["out_probs"].tolist())]
     seconds["finding"] = round(time.perf_counter() - t, 1)
@@ -180,7 +182,7 @@ def cut(job):
             say(done=done, of=n)
     predictor.handle_request(dict(type="close_session", session_id=sid))
     seconds["following"] = round(time.perf_counter() - t, 1)
-    kept = pick(masks, job.get("face"), job["size"], (pw, ph))
+    kept = pick(masks, job.get("face"), job["size"], (pw, ph), prompt)
     each = holders(masks, job.get("people") or [], job["size"], (pw, ph))
     t = time.perf_counter()
     say(stage="writing")

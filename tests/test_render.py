@@ -348,6 +348,23 @@ class Stages(unittest.TestCase):
         letters = (titled[y:y + h, x:x + w].min(axis=2) > 240).sum()
         self.assertGreater(int(letters), 2000, "the title's white letters are on top of the picture")
 
+    def test_a_background_goes_first_behind_the_person_found_over_the_whole_clip(self):
+        from test_cutout import make_mask
+        png = os.path.join(self.tmp, "ground.png")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=0x3050A0:s=1080x1920", "-frames:v",
+                        "1", png], check=True)
+        ground = {"do": "backdrop", "png": png, "about": "a tidy desk"}
+        mask = {"path": make_mask(self.tmp, "person.mkv", 4, 0), "person": None, "fps": 30, "size": [640, 360],
+                "from": 0, "to": 4, "green": {"clear": 60, "solid": 24, "edge": 0.8}}
+        graph, files = render.after_source(dict(state(), backdrop=ground, mask=mask), "src", "whole", 1)
+        self.assertEqual(files[1], png, "the background is the first thing on the frame, after the person's mask")
+        self.assertIn("despill=type=green", graph, "off a green cloth the green is taken off their edges")
+        for cut in (None, dict(mask, to=3)):
+            with self.assertRaises(ValueError) as e:
+                render.after_source(dict(state(), backdrop=ground, mask=cut), "src", "whole", 1)
+            self.assertIn("put the background on again", str(e.exception))
+        self.assertNotIn(png, render.after_source(dict(state(), mask=mask), "src", "whole", 1)[1])
+
     def test_a_drawing_that_cannot_be_made_is_refused_with_its_sentence(self):
         lines = text.caption_lines([{"from": 1.0, "to": 2.0, "text": "watch this now"}])
         st = state(captions=[{"lines": lines, "band": [1090, 10]}])

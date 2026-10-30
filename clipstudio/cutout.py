@@ -9,7 +9,8 @@ lined up with the person as the clip shows them.
 
 Each effect is a Fragment (effects.join) with the frame mask as its file [f0]: the renderer opens that file as a
 video from clip second 0 (from the preview frame's 1/30 s step for a preview), not as a looped picture. Outside an
-effect's start to end every pixel is the frame's own. The renderer draws them before the camera hits, so the person,
+effect's start to end every pixel is the frame's own. The background (backdrop) has its picture as [f1] and holds the
+whole clip. The renderer draws them before the camera hits, so the person,
 the words behind them and their edge move together with a shake or a punch-in.
 """
 import hashlib
@@ -61,7 +62,8 @@ def frame_mask(mask, pieces, layout, length, pushes=()):
     """The path of the person's mask on the clip, made once in work/masks: an FFV1 file of grey 1080x1920 frames at
     30 fps, frame n at clip second n / 30, length seconds long, white where the clip shows the person. Each part of
     the layout maps its piece of the recording to its place on the frame as the picture does (the card's corners and
-    the face circle cut the same way, the main part pushed in by the same slow pushes, a talk layout's shots cut
+    the face circle cut the same way, a following part moving as the picture's does, the main part pushed in by the
+    same slow pushes, a talk layout's shots cut
     between its people as the picture's are); the frame's design shows no person. Where the clip shows a moment the
     mask holds no frame for, it is black."""
     path, fps, start, end = _checked(mask, layout["size"])
@@ -175,7 +177,12 @@ def _graph(pieces, layout, length, pushes, start, end):
     files = []
     for j, part in enumerate(parts):
         (sx, sy, sw, sh), (dx, dy, dw, dh) = part["src"], part["dst"]
-        drawn = "[c%d]crop=%d:%d:%d:%d,scale=%d:%d" % (j, sw, sh, sx, sy, dw, dh)
+        if part.get("follow"):
+            from . import focus
+            drawn = "[c%d]crop=w=%d:h=%d:x='%s':y='%s',scale=%d:%d" % (
+                j, sw, sh, focus.expression(part["follow"], "x"), focus.expression(part["follow"], "y"), dw, dh)
+        else:
+            drawn = "[c%d]crop=%d:%d:%d:%d,scale=%d:%d" % (j, sw, sh, sx, sy, dw, dh)
         if part["name"] in PUSHED:
             for p in pushes:
                 cx, cy = effects._centre(p.get("centre", (W / 2, H / 2)))
@@ -233,6 +240,16 @@ def _window(start, end):
 def _person(mask, label):
     """Graph text: the frame [label] with the person's mask [f0] as its alpha, to [_p]."""
     return "[%s]format=yuva420p[_c];[f0]format=gray[_m];[_c][_m]alphamerge[_p]" % label
+
+
+def backdrop(mask, png, despill=False):
+    """The background png (a 1080x1920 picture) wherever the clip does not show the person, through the whole clip.
+    mask is frame_mask()'s path. despill takes the cloth's green off the person's edges and hair, for a mask cut off
+    a green cloth."""
+    clean = "despill=type=green," if despill else ""
+    return effects.Fragment("[in]%sformat=yuva420p[_c];[f0]format=gray[_m];[_c][_m]alphamerge[_p];"
+                            "[f1]scale=%d:%d,format=yuv420p[_g];[_g][_p]overlay=0:0:shortest=1:format=yuv420[out]"
+                            % (clean, W, H), [mask, png])
 
 
 def grey(mask, start, end):

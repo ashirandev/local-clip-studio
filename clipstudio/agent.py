@@ -841,6 +841,8 @@ class Chat:
         if state["pictures"]:
             extras.append("pictures drawn: " + ", ".join("%s at %g s" % (k["about"], k["at"])
                                                          for k in state["pictures"]))
+        if state["backdrop"]:
+            extras.append("background drawn: " + state["backdrop"]["about"])
         if state["flurries"]:
             extras.append("flurries: " + ", ".join("%s %s at %g s" % (" and ".join(f["names"]), f["move"], f["at"])
                                                    for f in state["flurries"]))

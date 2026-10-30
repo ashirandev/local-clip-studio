@@ -43,20 +43,20 @@ class PictureError(Exception):
         self.usd = usd
 
 
-def prompt(about):
-    """What Muse Image is asked for the words about, on one line."""
+def prompt(about, ask=ASK):
+    """What Muse Image is asked for the words about, on one line: ask with them in it."""
     about = " ".join((about or "").split()).rstrip(".")
     if not about:
         raise PictureError("A picture needs words saying what it shows, such as \"a ghost peeking from a dark "
                            "doorway\".")
-    return ASK % about
+    return ask % about
 
 
-def make(about):
-    """{path, usd, seconds, reused}: Muse Image's picture for the words about, in work/pictures, the one already
-    drawn for the same words given back at no cost. PictureError with one sentence."""
-    asked = prompt(about)
-    sign = hashlib.sha256(json.dumps([cover.model(), SIZE, asked], ensure_ascii=False).encode("utf-8")).hexdigest()
+def make(about, ask=ASK, size=SIZE):
+    """{path, usd, seconds, reused}: Muse Image's picture for the words about (in ask, at size), in work/pictures,
+    the one already drawn for the same words given back at no cost. PictureError with one sentence."""
+    asked = prompt(about, ask)
+    sign = hashlib.sha256(json.dumps([cover.model(), size, asked], ensure_ascii=False).encode("utf-8")).hexdigest()
     target = os.path.join(render.folder("pictures"), sign[:16] + ".jpg")
     if os.path.isfile(target):
         return {"path": target, "usd": 0.0, "seconds": 0.0, "reused": True}
@@ -65,7 +65,7 @@ def make(about):
         raise PictureError("%s is on Meta's API: set %s to your own Meta API key, or name a file that holds it in "
                            "LCS_KEYS, then start the studio again." % (LABEL, cover.KEY_ENV))
     t0 = time.time()
-    data = _ask(asked, key)
+    data = _ask(asked, key, size)
     part = render._part(target)
     try:
         with open(part, "wb") as f:
@@ -77,9 +77,9 @@ def make(about):
     return {"path": target, "usd": USD, "seconds": round(time.time() - t0, 1), "reused": False}
 
 
-def _ask(asked, key):
-    """The picture Muse Image drew for asked, as bytes."""
-    body = {"model": cover.model(), "prompt": asked, "n": 1, "size": SIZE, "output_format": "jpeg",
+def _ask(asked, key, size=SIZE):
+    """The picture Muse Image drew for asked at size, as bytes."""
+    body = {"model": cover.model(), "prompt": asked, "n": 1, "size": size, "output_format": "jpeg",
             "response_format": "b64_json",
             "tool_enablement": {"enable_image_search": False, "enable_web_search": False, "enable_shell": False},
             "reasoning_strength": "low"}

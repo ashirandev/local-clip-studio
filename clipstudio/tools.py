@@ -19,8 +19,8 @@ import types
 
 import numpy as np
 
-from . import (channels, cover, cutout, effects, faces, focus, hearing, layouts, maps, mind, montage, pauses, person,
-               picture,
+from . import (channels, cover, cutout, effects, faces, focus, green, hearing, layouts, maps, mind, montage, pauses,
+               person, picture,
                countdown, previews,
                project, recording, render, review, sends, voices,
                screen, spoken, takes, talk, text, thai, tracks, watch, words)
@@ -1186,7 +1186,7 @@ def _carried(before, line):
                 or (NUMBER_STARTS.search(text) and NUMBER_ENDS.search(text)))
 
 
-def _snapped(look, a, b):
+def _snapped(look, a, b, price=False):
     """(start, end, sentence or None): a moment's edges moved out of the words they would cut through, to just before
     the line the start falls in when it began within SNAP_REACH, and just after the line the end falls in when it
     finishes within FINISH_REACH (a sentence cut short is worse than an opening), AIR seconds from the words; never
@@ -1194,7 +1194,9 @@ def _snapped(look, a, b):
     edits: 47%, 77% within 0.6 s), so a clip would often open or close on half a word. A start in the pause before a
     line that goes on from the line ahead of it (_carried) moves to that line's start, within CARRY_REACH: seen 10-29
     on a seller's review, a moment at 1:20 opened on "มิลลิลิตรต่อวัน" (millilitres a day), the 750 and what it
-    measured said in the 4 s before."""
+    measured said in the 4 s before. With price (a seller), an end that the price follows within PRICE_REACH, in what
+    was heard, moves to just after the price: on Tarm's own green-screen seller (10-30) Muse ended the controller's
+    moment at 0:39 and 0:36 both times, and its price was said at 0:41."""
     na, nb, said = a, b, look.get("said") or []
     lo, hi = look.get("heard") or (look["start"], look["end"])
     for p in said:
@@ -1209,6 +1211,10 @@ def _snapped(look, a, b):
             and lines[k - 1]["from"] - AIR >= lo and nb - lines[k - 1]["from"] + AIR <= LONGEST \
             and _carried(lines[k - 1], lines[k]):
         k -= 1
+    priced = next((p for p in lines if price and nb - AIR <= p["from"] <= nb + PRICE_REACH and p["to"] <= hi
+                   and PRICE.search(p["text"]) and p["to"] + AIR - na <= LONGEST), None)
+    if priced:
+        nb = round(priced["to"] + AIR, 2)
     moved = []
     if opened is not None and lines[k] is not opened:
         na = round(lines[k]["from"] - AIR, 2)
@@ -1216,9 +1222,15 @@ def _snapped(look, a, b):
                      "before it" % (a - na, " ".join(opened["text"].split())[:CARRY_SHOWN]))
     elif na != a:
         moved.append("starts %.1f s earlier, so it opens before a line rather than inside it" % (a - na))
-    if nb != b:
+    if priced:
+        moved.append("ends %.1f s later, so the price said right after it is in the clip" % (nb - b))
+    elif nb != b:
         moved.append("ends %.1f s later, so it closes after a line rather than inside it" % (nb - b))
     return round(na, 2), round(nb, 2), " and ".join(moved) or None
+
+
+PRICE = re.compile("บาท|฿")
+PRICE_REACH = 6.0
 
 
 DEAD_AIR = 1.0
@@ -1331,7 +1343,7 @@ def propose_moments(job, why, moments, then="make"):
                           "saw, or look at that stretch first." % (i, clock(a), clock(b), look["n"],
                                                                    clock(look["start"]), clock(look["end"])))
         a, b = max(a, look["start"]), min(b, look["end"])
-        a, b, snapped = _snapped(look, a, b)
+        a, b, snapped = _snapped(look, a, b, (job.chat.clip or {}).get("recipe") == "seller")
         if round(rec["seconds"]) < SHORTEST:
             raise Refused(TOO_SHORT % (rec["name"], round(rec["seconds"], 1), SHORTEST) + " Do not propose it again.")
         if round(look["end"] - look["start"]) < SHORTEST:
@@ -1723,6 +1735,8 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
         lay["notes"].append("This is a seller clip and no product box was named, so nothing keeps words off the "
                             "product. Make the clip again with product: [x1, y1, x2, y2] on your grid around the product "
                             "in the picture.")
+    if (job.chat.clip or {}).get("recipe") == "seller" and lay["kind"] == "subject" and rec["width"] > rec["height"]:
+        lay["notes"].append(FOLLOW_SAYS)
     private = _private_lines(job, rec, lay, pieces, [a, b])
     if private is None:
         return "Not made: the person pressed Stop."
@@ -1736,6 +1750,11 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     state = job.chat.project.state()
     lines = ["Made the clip from moment %d (%s-%s, %g s) in the %s layout." % (
         moment, recording.clock(a), recording.clock(b), state["length"], lay["kind"]), face_line] + lay["notes"]
+    try:
+        if green.find(rec["path"], a, b, (rec["width"], rec["height"]), samples=2):
+            lines.append(GREEN_SAYS)
+    except green.GreenError as e:
+        lines.append("A green cloth is behind the person, but: %s" % e)
     if channel:
         lines.append(channel)
     if cut:
@@ -1781,6 +1800,11 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     return "\n".join(lines)
 
 
+FOLLOW_SAYS = ("This is a seller clip from a landscape recording, so the frame stays where the face is while the product "
+               "moves in the hands: next, call follow_product with the product in a few English words, so the frame "
+               "follows the product. The seller sells the product, not their face.")
+GREEN_SAYS = ("A green cloth is behind the person: put a new background behind them with put_background, a place that "
+              "suits what the clip is about.")
 KEPT_AT_AN_EVENT = ("%d people's faces are in the clip, all kept as they are: at a trip or an event the people are "
                     "part of the day. Blur someone only when the person asks: show_people numbers the faces at the "
                     "second they mean, and decide_people blurs that number.")
@@ -3809,6 +3833,125 @@ def add_picture(job, why, about, at, length=PICTURE_LENGTH):
     return "\n".join(lines)
 
 
+def put_background(job, why, about):
+    """A new background behind the person, drawn by Muse Image for the words about (green.backdrop, from the words
+    alone), wherever the clip does not show them, through the whole clip. A person in front of a green cloth comes off
+    it by its colour (green.mask: FFmpeg on this computer, no GPU), once for the clip's stretch of the recording, even
+    after SAM found them: the cloth's cut keeps what they hold, and SAM's person leaves out the product in their hands
+    (live 10-30). With no cloth, the person found by SAM (cut_out) is used. The clip's layout stays as it is, so a
+    seller clip keeps the
+    product big: Tarm 10-30, "โปรแกรมต้องฉลาดพอจะรู้ว่าต้องโฟกัสสินค้ามากกว่าคน". Tarm 10-30, on recording a seller in
+    front of a green cloth: "ตัดผ้าเขียวออก แล้วใส่พื้นหลังให้เหมาะสมด้วยโมเดลของเมต้า"."""
+    rec = _open(job, "put a background behind")
+    state = _clip_state(job)
+    clip = state["clip"]
+    a, b = min(p[0] for p in clip["pieces"]), max(p[1] for p in clip["pieces"])
+    held = state["mask"]
+    covered = held and held["from"] <= a + 0.01 and b - 0.01 <= held["to"]
+    lines = []
+    if covered and held.get("green"):
+        lines.append("The person was already cut off the green cloth for this clip, so it was not done again.")
+    else:
+        job.working("Looking for a green cloth behind the person")
+        try:
+            mask = green.mask(rec, a, b)
+        except green.GreenError as e:
+            if not covered:
+                raise Refused("%s Or find the person with cut_out (SAM 3.1), then put the background on again." % e)
+            mask = None
+        finally:
+            job.done_working()
+        if mask:
+            state = job.edit(dict(mask, do="mask"))
+            lines.append("The person was cut off the green cloth by its colour, on this computer with no GPU, with "
+                         "what they hold; the cloth covers %d%% of the frame's edge, and anything it misses apart from "
+                         "the person stays out." % round(mask["green"]["edge"] * 100))
+        elif covered:
+            lines.append("The person SAM 3.1 found for this clip is kept in front: what they hold is in front only "
+                         "where SAM counted it as part of them.")
+        else:
+            raise Refused("No green cloth is behind the person, so the person must be found with SAM 3.1 first: call "
+                          "cut_out, then put_background again.")
+    job.working("%s is drawing the background" % picture.LABEL)
+    try:
+        got = green.backdrop(about)
+    except picture.PictureError as e:
+        got = {"usd": e.usd, "error": str(e)}
+    finally:
+        job.done_working()
+    if got["usd"]:
+        job.paid({"engine": {"read_new": None, "reused": None, "written": None, "usd": got["usd"]}},
+                 types.SimpleNamespace(key="image", label=picture.LABEL, model_id=cover.model()))
+    if got.get("error"):
+        return "\n".join(lines + ["No background: %s Tell the person, or go on without it." % got["error"]])
+    said = " ".join(about.split())
+    state = job.edit({"do": "backdrop", "png": got["path"], "about": said})
+    lines += ["Kept the background of %s (made before, at no cost)." % said if got["reused"] else
+              "%s drew the background, %s, in %g s, for $%g." % (picture.LABEL, said, got["seconds"], got["usd"]),
+              "It is behind the person wherever the clip does not show them, through the whole clip; the person, "
+              "what they hold and the words stay in front.",
+              _show_frame(job, state, rec, round(state["length"] / 2, 2), "The clip with the background:")]
+    return "\n".join(lines)
+
+
+def follow_product(job, why, what):
+    """SAM 3.1 finds what (the product, in English words) through the clip (person.cut_out with what as its prompt),
+    and the vertical frame moves with it (focus.thing), so a product held out to the side stays in the picture. Tarm
+    10-30, on a seller clip whose frame sat on his face while the controller he sold was at its edge:
+    "โปรแกรมต้องฉลาดพอจะรู้ว่าต้องโฟกัสสินค้ามากกว่าคน ... ไม่ได้ขายหน้าตา"."""
+    rec = _open(job, "follow the product in")
+    state = _clip_state(job)
+    clip = state["clip"]
+    lay = clip["layout"]
+    if lay["kind"] != "subject":
+        raise Refused("Only the subject layout's frame can follow the product; this clip is in the %s layout: make it "
+                      "again in the subject layout." % lay["kind"])
+    if rec["height"] >= rec["width"]:
+        raise Refused("The recording is already as tall as the frame, so the frame shows it whole and has nowhere to "
+                      "move: frame the product with crop when you make the clip.")
+    a, b = min(p[0] for p in clip["pieces"]), max(p[1] for p in clip["pieces"])
+    said = " ".join(what.split())
+    job.working("SAM 3.1 is finding the %s: starting" % said)
+    try:
+        found = person.cut_out(rec, a, b, on_start=job.started_work, what=said,
+                               on_progress=lambda done, of: job.working(
+                                   "SAM 3.1 is following the %s: picture %d of %d" % (said, done, of)))
+    except ValueError as e:
+        raise Refused(str(e))
+    except person.Stopped:
+        return "Not followed: the person pressed Stop."
+    except person.PersonError as e:
+        return "The %s could not be followed: %s Tell the person, or leave the frame where it is." % (said, e)
+    finally:
+        job.done_working()
+    face = lay.get("face")
+    plan = focus.thing(found, clip["pieces"], (rec["width"], rec["height"]), layouts.W / float(layouts.H),
+                       face[0] + face[2] / 2.0 if face else None)
+    if not plan:
+        return ("SAM 3.1 did not see the %s anywhere in the clip, so the frame stays where it is. Name it as it looks "
+                "in the picture, such as \"white game controller\"." % said)
+    new = layouts.followed(lay, plan, "whole")
+    state = job.edit({"do": "layout", "part": "product", "box": None, "layout": new})
+    shots = plan["shots"]
+    lines = ["SAM 3.1 followed the %s through the clip: it is in %d%% of the pictures." % (said,
+                                                                                          round(plan["seen"] * 100)),
+             "The frame %s." % ("holds one place, %s on your grid, where the %s is" % (
+                 _grid([shots[0]["x"], 0] + plan["size"], rec), said) if len(shots) == 1 else
+                 "moves with it, %d places: %s" % (len(shots), "; ".join(
+                     "%s on your grid from %g s" % (_grid([s["x"], 0] + plan["size"], rec), s["from"])
+                     for s in shots)))]
+    if plan["seen"] < THING_SEEN:
+        lines.append("It is missing from most of the clip: where it is not seen the frame holds, so look at the "
+                     "frames, and name it another way if SAM found the wrong thing.")
+    lines.append("Places for words now:")
+    lines += _place_lines(state, rec)
+    lines.append(_show_frame(job, state, rec, round(state["length"] / 2, 2), "The clip following the %s:" % said))
+    return "\n".join(lines)
+
+
+THING_SEEN = 0.5
+
+
 def add_flurry(job, why, stickers, at, move="burst", count=8, length=None, place=None, box=None, person_said=None):
     asked = _asked(job, person_said)
     rec = _open(job, "put a flurry on")
@@ -5072,7 +5215,9 @@ def use_channel_look(job, why, channel):
 
 def describe(entry):
     if entry["do"] == "mask":
-        return "finding the person with SAM 3.1"
+        return "cutting the person off the green cloth" if entry.get("green") else "finding the person with SAM 3.1"
+    if entry["do"] == "backdrop":
+        return "the background of %s" % entry["about"] if entry.get("png") else "taking the background off"
     if entry["do"] == "cutout":
         return "the %s cut-out look at %g-%g s" % (entry["look"], entry["start"], entry["end"]) if entry["look"] \
             else "taking the cut-out look off at %g-%g s" % (entry["start"], entry["end"])
@@ -5102,7 +5247,8 @@ def describe(entry):
     if entry["do"] == "flurry":
         return "the %s flurry of %s at %g s" % (entry["move"], " and ".join(entry["names"]), entry["at"])
     if entry["do"] == "layout":
-        return "changing the shots" if entry["part"] == "shots" else "moving the %s" % entry["part"]
+        return {"shots": "changing the shots", "product": "following the product"}.get(entry["part"]) or \
+            "moving the %s" % entry["part"]
     if entry["do"] == "untitle":
         return 'taking the title "%s" off' % entry["text"]
     if entry["do"] == "look":
@@ -5765,6 +5911,27 @@ TOOLS = {t.name: t for t in [
           "length": {"type": "number", "minimum": 0.6, "maximum": 10,
                      "description": "How long it stays, in seconds. Leave it out for %g." % PICTURE_LENGTH}},
          ["about", "at"], add_picture, changes=True),
+    Tool("put_background", "Put a background behind the person",
+         "Have Muse Image draw a new background and put it behind the person wherever the clip does not show them, "
+         "through the whole clip: for a person in front of a green cloth (cut off it by its colour on this computer, "
+         "no GPU, in seconds), or after cut_out has found the person with SAM. The layout stays as it is, so the "
+         "product stays as big as you framed it. Only your words go to Meta, never the footage. It costs $%g; the "
+         "same words again cost nothing. Make the clip first; after changing its ends, put it on again."
+         % picture.USD,
+         {"about": {"type": "string", "minLength": 3, "maxLength": 300,
+                    "description": "The place behind the person, in English, suited to what the clip sells or is "
+                                   "about, such as \"a tidy gaming desk with soft blue light\" or \"a bright kitchen "
+                                   "counter\". No people, no brand, no writing."}},
+         ["about"], put_background, changes=True),
+    Tool("follow_product", "Follow the product",
+         "Have SAM 3.1 find the product through the clip and move the vertical frame with it, so a product held out "
+         "to the side or moved around stays in the picture: for a seller in a landscape recording, made in the "
+         "subject layout. The frame holds where the product is not seen. It runs on this computer's graphics card, "
+         "about a second for every few seconds of the clip.",
+         {"what": {"type": "string", "minLength": 3, "maxLength": 80,
+                   "description": "The product as it looks in the picture, in a few English words SAM can find, "
+                                  "such as \"white game controller\" or \"yellow balm jar\". No brand."}},
+         ["what"], follow_product, changes=True),
     Tool("add_flurry", "Send stickers flying",
          "Send many copies of the studio's stickers moving together for a moment: money bursting out on a payout, "
          "coins raining on a win, hearts rising on a thank-you, confetti at the end. The moves: " +

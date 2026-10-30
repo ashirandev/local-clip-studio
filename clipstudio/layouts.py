@@ -497,11 +497,11 @@ def face_room(layout):
     return _grown(layout["face"], LEAVE_OUT, *layout["size"]) if layout.get("face") else None
 
 
-def followed(layout, plan):
-    """The card layout with its card following the action (focus.plan): the card shows plan's window, at the place
-    of each shot in turn."""
+def followed(layout, plan, name="card"):
+    """The layout with its part `name` following the action (focus.plan) or a thing (focus.thing): the card, or the
+    subject layout's whole frame, shows plan's window, at the place of each shot in turn."""
     first = plan["shots"][0]
-    parts = [dict(p, src=[first["x"], first["y"]] + list(plan["size"]), follow=plan["shots"]) if p["name"] == "card"
+    parts = [dict(p, src=[first["x"], first["y"]] + list(plan["size"]), follow=plan["shots"]) if p["name"] == name
              else p for p in layout["parts"]]
     return dict(layout, parts=parts)
 
