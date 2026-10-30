@@ -60,7 +60,7 @@ import json
 import os
 
 DOES = ("clip", "style", "title", "captions", "blur", "hit", "sticker", "people", "look", "push", "layout", "untitle",
-        "sound", "music", "glass", "mask", "cutout", "channel", "flurry", "mute", "picture", "backdrop")
+        "sound", "music", "glass", "mask", "cutout", "channel", "flurry", "mute", "picture", "backdrop", "eye")
 MADE_BY = ("clipstudio", "cutting", "fonts", "stickers")
 
 
@@ -101,7 +101,11 @@ class Project:
         or None, "mask": the last mask entry or None, "backdrop": the last backdrop entry with a picture or None,
         "cutouts": [cutout entries inside the clip], "channel": the last channel entry, the
         channel's name drawn on the clip ({"name", "spot"}), or None when its name is empty, "mutes": [[clip a, clip
-        b]] where the recording's own sound is muted}. A blurred person's track is one of the blurs. A new clip entry
+        b]] where the recording's own sound is muted, "hidden": the captions the person hid with the eye over the
+        clip, or None}. Hidden, the captions are kept as they are, the lines the person typed too, and are left out of
+        "captions", so the video, the checks and the page leave them off until the eye shows them again (Khun Eve
+        10-30: the hearing is not always right, and Off emptied the lines). A blurred person's track is one of the
+        blurs. A new clip entry
         keeps the words and effects; what starts after its end is not drawn. Where the sound is muted nobody is heard:
         the speech spans leave out those seconds, so the music does not go down there, and the captions leave out the
         words said there."""
@@ -110,6 +114,7 @@ class Project:
         pictures = []
         muted = []
         look = music = mask = channel = backdrop = None
+        hidden = False
         decided = {}
         for e in self.entries:
             if e["do"] == "clip":
@@ -168,6 +173,8 @@ class Project:
                 cutouts += [e] if e["look"] else []
             elif e["do"] == "mute":
                 muted = _less(muted, e["spans"]) if e.get("back") else _joined(muted + e["spans"])
+            elif e["do"] == "eye":
+                hidden = e["hidden"]
         length = round(sum(b - a for a, b in clip["pieces"]), 2) if clip else 0
         mutes = to_clip_spans(clip["pieces"], muted) if clip else []
         speech = clip.get("speech") if clip else None
@@ -177,7 +184,8 @@ class Project:
                          for p in people if p["blur"]]
         return {"clip": clip, "length": length, "style": style,
                 "titles": [t for t in titles if inside(t["start"])],
-                "captions": _heard(captions, mutes) if clip else None,
+                "captions": _heard(captions, mutes) if clip and not hidden else None,
+                "hidden": _heard(captions, mutes) if clip and hidden and captions else None,
                 "blurs": [b for b in blurs if inside(b["start"])],
                 "hits": sorted([h for h in hits if inside(h["at"])], key=lambda h: h["at"]),
                 "stickers": sorted([k for k in stickers if inside(k["at"])], key=lambda k: k["at"]),

@@ -341,6 +341,7 @@ class Chat:
 
         captions = choices("captions", CAPTION_CHOICES, str.capitalize, "add_captions", CAPTION_CHOICES.get)
         return {"clip": True, "length": state["length"], "captions": captions,
+                "eye": {"has": bool(state["captions"] or state["hidden"]), "hidden": bool(state["hidden"])},
                 "languages": self.languages(state, next(c["why"] for c in captions if c["name"] == "plain")),
                 "styles": choices("style", STYLES, lambda n: LOOK_LABELS.get(n, n.capitalize()), "set_style",
                                   lambda n: {"style": n}),
@@ -408,6 +409,21 @@ class Chat:
             self._tell("the person %s on the page" % ("turned the captions off" if mode == "off" else
                                                       "put on %s" % describe(entry)))
         return refused
+
+    def set_eye(self, hidden):
+        """The person's tap on the eye over the clip: every caption hidden, or shown again as it was (the lines they
+        typed too), as one change Undo takes back, and told to Muse before its next job. Returns None, or the sentence
+        why not."""
+        state = self._clip_now()
+        if bool(state["hidden"]) == hidden:
+            return None
+        if hidden and not state["captions"]:
+            return "The clip has no captions to hide."
+        self.edit({"do": "eye", "hidden": hidden})
+        self._tell("the person %s with the eye on the page" % (
+            "hid every caption (kept as they are, off the video until they show them again)" if hidden else
+            "showed the captions again"))
+        return None
 
     def set_style(self, name):
         """The person's tap on one of the house styles of the words: set_style's own edit, as set_captions."""

@@ -38,6 +38,7 @@ const frameBox = $("frame");
 const emptyFrame = frameBox.cloneNode(true).childNodes;
 const bigPlay = $("bigPlay");
 const fullButton = $("full");
+const eyeButton = $("eye");
 const playButton = $("play");
 const timeLine = $("time");
 const clipLine = $("clipLine");
@@ -1041,6 +1042,7 @@ function loadPanel() {
     if (chat !== room.chat) return;
     if (!d.ok || !d.clip) {
       room.panel = null;
+      drawEye(null);
       hidePanel();
       updatePlayer();
       return;
@@ -1196,7 +1198,31 @@ partTabs.addEventListener("click", (e) => {
   else openSheet(b.dataset.show);
 });
 
+function drawEye(d) {
+  const eye = d && d.eye;
+  eyeButton.hidden = !eye || !eye.has;
+  if (!eye) return;
+  eyeButton.setAttribute("aria-pressed", eye.hidden ? "true" : "false");
+  eyeButton.setAttribute("aria-label", eye.hidden ? "Show the captions" : "Hide the captions");
+  eyeButton.title = eye.hidden ? "Captions hidden: tap to show them" : "Hide every caption";
+  eyeButton.replaceChildren(ico(eye.hidden ? "eye-off" : "eye"));
+}
+
+eyeButton.addEventListener("click", async () => {
+  if (!room.panel || !room.panel.eye) return;
+  eyeButton.disabled = true;
+  try {
+    const d = await post("/api/captions", { chat: room.chat, hidden: !room.panel.eye.hidden });
+    if (!d.ok) panelNote.textContent = d.error || "That could not be changed.";
+  } catch (err) {
+    panelNote.textContent = "The studio is not answering. Start it again with: python app.py";
+  }
+  eyeButton.disabled = false;
+  loadPanel();
+});
+
 function drawPanel(d) {
+  drawEye(d);
   partTabs.querySelectorAll(".tool[data-show]").forEach((b) => (b.disabled = false));
   partTabs.querySelector('[data-show="words"]').hidden = !d.words.length;
   partTabs.querySelector('[data-show="channel"]').hidden = !d.channels;

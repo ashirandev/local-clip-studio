@@ -269,7 +269,9 @@ class Handler(BaseHTTPRequestHandler):
         """A tap beside or under the clip: {"ok": true} once the change is made (for /api/remake, once the video is
         being made), else 404 when the clip or the words are not there and 400 with the reason it was refused."""
         try:
-            if path == "/api/captions" and "language" in body:
+            if path == "/api/captions" and "hidden" in body:
+                why = chat.set_eye(body.get("hidden") is True)
+            elif path == "/api/captions" and "language" in body:
                 why = chat.set_captions_language(str(body.get("language") or ""))
             elif path == "/api/captions":
                 why = chat.set_captions(str(body.get("mode") or ""))

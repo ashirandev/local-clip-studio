@@ -404,6 +404,40 @@ class Words(Clip):
                       steps[0]["result"])
         self.assertEqual([ln["text"] for ln in self.chat.project.state()["captions"]["lines"]][0], "this is it")
 
+    def test_the_eye_hides_every_caption_and_shows_them_again_as_the_person_left_them(self):
+        """Tarm 10-30, showing clips to Khun Eve: the hearing is not always right, so one tap hides every caption,
+        and the lines the person fixed come back when they show again (Off emptied them)."""
+        self.make(SAID, call("add_captions", why="say it"))
+        self.chat.set_words("caption", 0, "this is the moment", "this is it")
+        typed = self.chat.project.state()["captions"]
+        self.assertEqual(self.chat.panel()["eye"], {"has": True, "hidden": False})
+        self.assertIsNone(self.chat.set_eye(True))
+        state = self.chat.project.state()
+        self.assertIsNone(state["captions"], "off the video, the checks and the page")
+        self.assertEqual(state["hidden"], typed)
+        self.assertNotIn("this is it", render.ass(state) or "")
+        panel = self.chat.panel()
+        self.assertEqual(panel["eye"], {"has": True, "hidden": True})
+        self.assertNotIn("caption", [b["kind"] for b in panel["words"]])
+        self.assertEqual({c["name"]: c["why"] for c in panel["captions"] if not c["now"]},
+                         dict.fromkeys(("plain", "lit", "pop"), "The captions are hidden with the eye on the clip: "
+                                                                   "they show again from there."))
+        self.assertEqual(self.chat.told[-1], "the person hid every caption (kept as they are, off the video until they "
+                                             "show them again) with the eye on the page")
+        _, steps = self.run_job([call("add_captions", lit=True, why="karaoke")], "Done.")
+        self.assertTrue(steps[0]["refused"])
+        self.assertIn("The person hid them, so leave them hidden", steps[0]["result"])
+        self.assertIsNone(self.chat.set_eye(True), "hidden already: nothing changes")
+        self.assertIsNone(self.chat.set_eye(False))
+        self.assertEqual(self.chat.project.state()["captions"], typed, "as the person left them, typed lines too")
+        self.assertEqual(self.chat.told[-1], "the person showed the captions again with the eye on the page")
+        self.chat.set_eye(True)
+        self.chat.undo()
+        self.assertEqual(self.chat.project.state()["captions"], typed, "Undo takes the hiding back")
+        self.chat.set_captions("off")
+        self.assertEqual(self.chat.set_eye(True), "The clip has no captions to hide.")
+        self.assertEqual(self.chat.panel()["eye"], {"has": False, "hidden": False})
+
     def test_a_line_the_hearing_was_not_sure_of_is_a_draft_until_the_person_keeps_or_fixes_it(self):
         self.make([dict(p, sure=0.6) for p in SAID])
         _, steps = self.run_job([call("add_captions", why="say it")], "Done.")
@@ -723,6 +757,10 @@ class Endpoints(Served):
                                  ("/api/colour", {"look": "film"}, "The clip already has the film look.")):
             self.assertEqual(self.ask("POST", path, dict(body, chat=self.chat.id)),
                              (400, {"ok": False, "error": said}), path)
+        self.assertEqual(self.ask("POST", "/api/captions", {"chat": self.chat.id, "hidden": True}), (200, {"ok": True}))
+        self.assertTrue(self.chat.project.state()["hidden"])
+        self.assertEqual(self.ask("POST", "/api/captions", {"chat": self.chat.id, "hidden": False}), (200, {"ok": True}))
+        self.assertTrue(self.chat.project.state()["captions"]["pop"])
         self.assertEqual(self.ask("POST", "/api/captions", {"chat": "nope", "mode": "pop"})[0], 404)
         self.assertEqual(self.ask("POST", "/api/style", {"chat": self.chat.id, "style": "pop"}, "text/plain")[0], 415)
 

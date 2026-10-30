@@ -3476,9 +3476,15 @@ def _shows_whole(lay, box, at):
     return False
 
 
+HIDDEN_SAYS = ("The captions are hidden with the eye on the clip: they show again from there. The person hid "
+               "them, so leave them hidden; tell the person, if they asked for captions.")
+
+
 def add_captions(job, why, on=True, lit=False, pop=None, language=""):
     rec = _open(job, "caption")
     state = _clip_state(job)
+    if state["hidden"]:
+        raise Refused(HIDDEN_SAYS)
     if lit and pop:
         raise Refused("Captions are lit or popped, not both: a popped word already moves as it is said. Choose one.")
     target = _subtitles(language or (job.chat.clip or {}).get("subtitles") or (state["captions"] or {}).get("language"))
@@ -5585,6 +5591,8 @@ def use_channel_look(job, why, channel):
 
 
 def describe(entry):
+    if entry["do"] == "eye":
+        return "hiding the captions" if entry["hidden"] else "showing the captions again"
     if entry["do"] == "mask":
         return "cutting the person off the green cloth" if entry.get("green") else "finding the person with SAM 3.1"
     if entry["do"] == "backdrop":
