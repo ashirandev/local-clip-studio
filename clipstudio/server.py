@@ -44,6 +44,8 @@ computer only.
   program makes the edit Muse's tool makes, at once, without asking Muse; Undo takes it back, and Muse is told
 - POST /api/words {chat, kind, n, was, words}: the person's own words for a title, a caption phrase or a caption
   draft (kept as it is when the words are the same)
+- POST /api/title/time {chat, n, was, start, end}: title n, whose words the page showed as was, shows from start to
+  end s of the clip, as the person dragged its ends
 - POST /api/mute {chat, start, end, back}: the clip's own sound muted from start to end s of the clip, or brought back
 - POST /api/ends {chat, start, end}: the clip starts and ends there, in seconds of the recording: change_ends, run in
   the background ({"ok": true} once it has started); a "moved" event says when the clip is made, a "not_moved" event
@@ -108,7 +110,10 @@ POSTER_AT = 1.0
 READ_TRIES, READ_WAIT = 10, 0.05
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 CHANGES = ("/api/captions", "/api/style", "/api/colour", "/api/words", "/api/remake", "/api/channel",
-           "/api/channel/save", "/api/mute", "/api/ends")
+           "/api/channel/save", "/api/mute", "/api/ends", "/api/title/time")
+TIMES = {"/api/mute": "Send the start and the end of the part to mute, in seconds of the clip.",
+         "/api/ends": "Send the new start and end of the clip, in seconds of the recording.",
+         "/api/title/time": "Send the title's new start and end, in seconds of the clip."}
 UPLOAD_WAIT = 60
 ONLY_HERE = "Open Options on the computer the studio runs on to change this."
 
@@ -279,16 +284,19 @@ class Handler(BaseHTTPRequestHandler):
                 why = chat.use_channel(str(body.get("name") or ""))
             elif path == "/api/channel/save":
                 why = chat.save_channel(str(body.get("name") or ""), str(body.get("handle") or ""))
-            elif path in ("/api/mute", "/api/ends"):
-                start, end = body.get("start"), body.get("end")
+            elif path in TIMES:
+                start, end, n = body.get("start"), body.get("end"), body.get("n")
                 said = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (start, end))
                 if not said:
-                    why = "Send the start and the end of the part to mute, in seconds of the clip." if \
-                        path == "/api/mute" else "Send the new start and end of the clip, in seconds of the recording."
+                    why = TIMES[path]
                 elif path == "/api/mute":
                     why = chat.set_mute(start, end, body.get("back") is True)
-                else:
+                elif path == "/api/ends":
                     why = chat.set_ends(float(start), float(end))
+                elif not isinstance(n, int) or isinstance(n, bool):
+                    why = "Send which title to move: its number."
+                else:
+                    why = chat.set_title_time(n, str(body.get("was") or ""), float(start), float(end))
             elif body.get("kind") not in ("title", "caption", "draft") or not isinstance(body.get("n"), int) or \
                     isinstance(body.get("n"), bool):
                 why = "Send which words to change: a title or a caption, and its number."

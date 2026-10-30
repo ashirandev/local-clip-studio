@@ -243,6 +243,34 @@ class Words(Clip):
         self.assertEqual(self.chat.undo()["text"], "The boss is down")
         self.assertEqual([t["text"] for t in self.chat.project.state()["titles"]], ["Boss down"])
 
+    def test_the_person_drags_a_titles_ends_and_it_shows_then_in_its_place_and_undo_takes_it_back(self):
+        self.make(SAID, call("add_title", words="Boss down", start=0, end=3, place="top", why="the hook"),
+                  call("add_title", words="Again", start=9, end=11, place="top", why="later"))
+        times = lambda: [(t["text"], t["start"], t["end"], t["place"]) for t in self.chat.project.state()["titles"]]
+        self.assertIsNone(self.chat.set_title_time(0, "Boss down", 0.5, 2.5))
+        self.assertEqual(times(), [("Again", 9, 11, "top"), ("Boss down", 0.5, 2.5, "top")], "the same words, moved")
+        self.assertEqual(self.chat.told, ['the person dragged the ends of the title "Boss down" on the page: it shows '
+                                          'from 0.5 to 2.5 s now, not 0-3 s'])
+        had = list(self.chat.project.entries)
+        self.assertIsNone(self.chat.set_title_time(1, "Boss down", 0.52, 2.5), "nothing to change")
+        self.assertEqual(self.chat.set_title_time(1, "Boss down", 0.5, 9.5),
+                         'It would run into "Again", which shows in the same place from 9 to 11 s: keep it before 9 s.')
+        self.assertEqual(self.chat.set_title_time(0, "Again", 2, 11),
+                         'It would run into "Boss down", which shows in the same place from 0.5 to 2.5 s: keep it '
+                         'after 2.5 s.')
+        self.assertEqual(self.chat.set_title_time(1, "Boss down", 0.5, 1.2),
+                         "The title must stay on screen at least 1 s; 0.5-1.2 s is shorter.")
+        self.assertEqual(self.chat.project.entries, had, "a refused drag changes nothing")
+        wide = self.chat.project.state()["titles"][1]["box"]
+        self.assertIsNone(self.chat.set_title_time(1, "Boss down", 0.5, 6))
+        moved = self.chat.project.state()["titles"][1]
+        self.assertEqual((moved["start"], moved["end"]), (0.5, 6))
+        self.assertLess(moved["box"][2], wide[2], "the face that rises at 3.3 s keeps it in the clear part of the top")
+        with self.assertRaises(agent.Missing):
+            self.chat.set_title_time(0, "Boss down", 0, 3)
+        self.assertEqual([self.chat.undo()["end"], self.chat.undo()["end"]], [6, 2.5])
+        self.assertEqual(times(), [("Boss down", 0, 3, "top"), ("Again", 9, 11, "top")])
+
     def test_a_title_in_a_box_keeps_its_box_and_its_key_word_while_the_words_hold_it(self):
         self.make(SAID)
         self.chat.edit({"do": "title", "text": "Look", "start": 1.0, "end": 3.0, "place": "box at 100, 400",
@@ -657,6 +685,21 @@ class Endpoints(Served):
                                                               "and its number."), wrong)
         status, answer = self.ask("POST", "/api/words", dict(body, was="this is it", words=""))
         self.assertEqual((status, answer["error"]), (400, "Type the words first."))
+
+    def test_a_titles_time_is_changed_with_a_post_naming_it_and_its_words(self):
+        self.make(SAID, call("add_title", words="Boss down", start=0, end=3, place="top", why="the hook"))
+        body = {"chat": self.chat.id, "n": 0, "was": "Boss down", "start": 0.5, "end": 2.5}
+        self.assertEqual(self.ask("POST", "/api/title/time", body), (200, {"ok": True}))
+        self.assertEqual([(t["start"], t["end"]) for t in self.chat.project.state()["titles"]], [(0.5, 2.5)])
+        status, answer = self.ask("POST", "/api/title/time", dict(body, was="Boss up"))
+        self.assertEqual((status, answer["error"]), (404, agent.WORDS_GONE))
+        for wrong, said in (({"start": "0"}, "Send the title's new start and end, in seconds of the clip."),
+                            ({"end": True}, "Send the title's new start and end, in seconds of the clip."),
+                            ({"n": "0"}, "Send which title to move: its number."),
+                            ({"n": True}, "Send which title to move: its number."),
+                            ({"end": 0.9}, "The title must stay on screen at least 1 s; 0.5-0.9 s is shorter.")):
+            self.assertEqual(self.ask("POST", "/api/title/time", dict(body, **wrong)),
+                             (400, {"ok": False, "error": said}), wrong)
 
     def test_the_video_is_made_again_with_a_post(self):
         self.make(SAID)

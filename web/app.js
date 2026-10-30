@@ -682,6 +682,8 @@ function clearClip() {
   room.ready = null;
   room.finished = null;
   room.mute = {};
+  room.pick = null;
+  room.pickWhy = "";
   againLine.textContent = "";
   previewLine.hidden = true;
   clipSave.hidden = true;
@@ -978,6 +980,7 @@ clipAt.addEventListener("input", () => {
 function hidePanel() {
   lanes.replaceChildren();
   wordList.replaceChildren();
+  pickBar.hidden = true;
   againButton.hidden = true;
   partTabs.querySelectorAll(".tool[data-show]").forEach((b) => (b.disabled = true));
   closeWords();
@@ -1251,6 +1254,12 @@ const trimWhy = $("trimWhy");
 const trimGo = $("trimGo");
 const trimReset = $("trimReset");
 const TRIM_STEP = 2;
+const TITLE_SHORTEST = 1;
+const pickBar = $("pickBar");
+const pickSays = $("pickSays");
+const pickBack = $("pickBack");
+const pickWords = $("pickWords");
+const pickGo = $("pickGo");
 
 function tenths(t) {
   const m = Math.floor(t / 60);
@@ -1291,7 +1300,6 @@ function setTrim(k, v) {
   room.trim = Math.abs(t.start - e.start) < 0.05 && Math.abs(t.end - e.end) < 0.05 ? null : t;
   trimWhy.hidden = true;
   drawTrim();
-  drawTrimMarks();
 }
 
 function drawTrim() {
@@ -1321,25 +1329,102 @@ function drawTrim() {
     trimWhy.textContent = "A clip is " + e.shortest + " to " + e.longest + " s long.";
     trimWhy.hidden = false;
   }
+  drawTrimMarks();
+  drawPick();
+}
+
+function edgeAt(k) {
+  const e = room.panel.ends;
+  const t = trimNow();
+  if (k === "start") return t.start < e.start ? t.start - e.start : inClip(t.start);
+  return t.end > e.end ? room.panel.length + t.end - e.end : inClip(t.end);
 }
 
 function drawTrimMarks() {
   const track = lanes.querySelector(".lane.film .track");
   if (!track || !room.panel || !room.panel.ends) return;
-  track.querySelectorAll(".trim-span, .trim-more").forEach((n) => n.remove());
-  if (!room.trim) return;
+  track.querySelectorAll(".trim-span, .trim-more, .grip").forEach((n) => n.remove());
   const e = room.panel.ends;
   const length = room.panel.length;
+  const t = trimNow();
   const shade = (a, b) => {
     const s = el("i", "trim-span");
     s.style.left = (100 * a / length) + "%";
     s.style.width = (100 * Math.max(0, b - a) / length) + "%";
     track.appendChild(s);
   };
-  if (room.trim.start > e.start) shade(0, inClip(room.trim.start));
-  if (room.trim.end < e.end) shade(inClip(room.trim.end), length);
-  if (room.trim.start < e.start) track.appendChild(el("b", "trim-more left", "+" + (e.start - room.trim.start).toFixed(1) + " s"));
-  if (room.trim.end > e.end) track.appendChild(el("b", "trim-more right", "+" + (room.trim.end - e.end).toFixed(1) + " s"));
+  if (t.start > e.start) shade(0, inClip(t.start));
+  if (t.end < e.end) shade(inClip(t.end), length);
+  const at = (k) => 100 * Math.max(0, Math.min(length, edgeAt(k))) / length;
+  const more = (k, by) => {
+    if (Math.abs(by) < 0.05) return;
+    const b = el("b", "trim-more", (by > 0 ? "+" : "−") + Math.abs(by).toFixed(1) + " s");
+    if (k === "start") b.style.left = "calc(" + at(k) + "% + 18px)";
+    else b.style.right = "calc(" + (100 - at(k)) + "% + 18px)";
+    track.appendChild(b);
+  };
+  more("start", e.start - t.start);
+  more("end", t.end - e.end);
+  if (e.why || room.work.ends) return;
+  ["start", "end"].forEach((k) => {
+    const g = el("i", "grip " + k);
+    g.dataset.edge = k;
+    g.style.left = at(k) + "%";
+    track.appendChild(g);
+  });
+}
+
+function trimDrag(e, k) {
+  const box = e.target.closest(".track").getBoundingClientRect();
+  const ends = room.panel.ends;
+  const length = room.panel.length;
+  const per = length / box.width;
+  const from = edgeAt(k);
+  const x0 = e.clientX;
+  const out = k === "start" ? -1 : 1;
+  let x = x0;
+  let grown = 0;
+  let last = 0;
+  let shown = -1;
+  let frame = 0;
+  const place = () => {
+    let v = from + (x - x0) * per + out * grown;
+    const far = k === "start" ? -ends.start : length + (ends.recording || Infinity) - ends.end;
+    if (out * (v - far) > 0) {
+      grown -= out * (v - far);
+      v = far;
+    }
+    if (k === "start") v = Math.min(v, edgeAt("end") - 1);
+    else v = Math.max(v, edgeAt("start") + 1);
+    if (v < 0) setTrim(k, ends.start + v);
+    else if (v > length) setTrim(k, ends.end + v - length);
+    else {
+      setTrim(k, onRecording(v));
+      if (Math.abs(v - shown) > 0.05) seek((shown = v));
+    }
+  };
+  const grow = (now) => {
+    const past = out * (x - (k === "start" ? box.left : box.right));
+    if (past > 0 && last) grown += (now - last) / 1000 * Math.min(6, 0.5 + past / 10);
+    last = now;
+    if (room.dragged) place();
+    frame = requestAnimationFrame(grow);
+  };
+  const move = (ev) => {
+    x = ev.clientX;
+    if (Math.abs(x - x0) > 3) room.dragged = true;
+  };
+  const up = () => {
+    cancelAnimationFrame(frame);
+    setTimeout(() => (room.dragged = false), 0);
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", up);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+  window.addEventListener("pointercancel", up);
+  frame = requestAnimationFrame(grow);
 }
 
 const trimAt = $("trimAt");
@@ -1358,17 +1443,21 @@ $("trimLater").addEventListener("click", () => setTrim("end", trimNow().end + TR
 $("trimStart").addEventListener("click", () => setTrim("start", onRecording(clipNow())));
 $("trimEnd").addEventListener("click", () => setTrim("end", onRecording(clipNow())));
 
-trimReset.addEventListener("click", () => {
+function trimBack() {
   room.trim = null;
   trimWhy.hidden = true;
   drawTrim();
-  drawTrimMarks();
-});
+}
 
-trimGo.addEventListener("click", async () => {
+trimReset.addEventListener("click", trimBack);
+pickBack.addEventListener("click", trimBack);
+trimGo.addEventListener("click", trimApply);
+pickGo.addEventListener("click", trimApply);
+
+async function trimApply() {
   const t = room.trim;
   if (!t) return;
-  trimGo.disabled = true;
+  trimGo.disabled = pickGo.disabled = true;
   trimWhy.hidden = true;
   try {
     const d = await post("/api/ends", { chat: room.chat, start: t.start, end: t.end });
@@ -1384,7 +1473,105 @@ trimGo.addEventListener("click", async () => {
     trimWhy.hidden = false;
   }
   drawTrim();
+}
+
+function pickedTitle() {
+  if (!room.pick || !room.panel) return null;
+  const same = room.panel.words.filter((b) => b.kind === "title" && b.text === room.pick.was);
+  return same.length === 1 ? same[0] : same.find((b) => b.n === room.pick.n) || null;
+}
+
+function drawPick() {
+  const b = pickedTitle();
+  const e = room.panel && room.panel.ends;
+  const trimming = Boolean(!b && e && room.trim);
+  pickWords.hidden = !b;
+  pickBack.hidden = pickGo.hidden = !trimming;
+  pickBar.hidden = !b && !trimming;
+  if (b) {
+    pickSays.textContent = room.pickWhy || b.start.toFixed(1) + "–" + b.end.toFixed(1) + " s · drag its ends";
+  } else if (trimming) {
+    pickSays.textContent = trimWhy.hidden ? "New: " + (room.trim.end - room.trim.start).toFixed(1) + " s" : trimWhy.textContent;
+    pickGo.disabled = trimGo.disabled;
+    pickGo.lastChild.textContent = trimGo.lastChild.textContent;
+  }
+}
+
+function drawPicked() {
+  const b = pickedTitle();
+  if (b) room.pick.n = b.n;
+  lanes.querySelectorAll(".lane.title .block").forEach((node) => {
+    const on = Boolean(b) && Number(node.dataset.n) === b.n;
+    node.classList.toggle("picked", on);
+    node.setAttribute("aria-pressed", String(on));
+    node.querySelectorAll(".grip").forEach((g) => g.remove());
+    if (!on) return;
+    ["start", "end"].forEach((k) => {
+      const g = el("i", "grip " + k);
+      g.dataset.edge = k;
+      node.appendChild(g);
+    });
+  });
+  drawPick();
+}
+
+function tapBlock(b) {
+  if (room.dragged) return;
+  room.pickWhy = "";
+  if (b.kind === "title" && !(pickedTitle() && pickedTitle().n === b.n)) {
+    room.pick = { n: b.n, was: b.text };
+    seek(b.start);
+    drawPicked();
+    return;
+  }
+  if (b.kind !== "title") room.pick = null;
+  drawPicked();
+  openWords(b);
+}
+
+pickWords.addEventListener("click", () => {
+  const b = pickedTitle();
+  if (b) openWords(b);
 });
+
+function titleDrag(e, k, node) {
+  const b = pickedTitle();
+  if (!b) return;
+  const box = node.parentNode.getBoundingClientRect();
+  const length = room.panel.length;
+  const x0 = e.clientX;
+  const t = { start: b.start, end: b.end };
+  const move = (ev) => {
+    if (Math.abs(ev.clientX - x0) > 3) room.dragged = true;
+    if (!room.dragged) return;
+    const v = Math.round(Math.max(0, Math.min(length, b[k] + (ev.clientX - x0) / box.width * length)) * 10) / 10;
+    if (k === "start") t.start = Math.min(v, t.end - TITLE_SHORTEST);
+    else t.end = Math.max(v, t.start + TITLE_SHORTEST);
+    node.style.left = (100 * t.start / length) + "%";
+    node.style.width = (100 * (t.end - t.start) / length) + "%";
+    pickSays.textContent = t.start.toFixed(1) + "–" + t.end.toFixed(1) + " s · let go to keep it";
+    seek(t[k]);
+  };
+  const up = async () => {
+    const dragged = room.dragged;
+    setTimeout(() => (room.dragged = false), 0);
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", up);
+    if (!dragged || (t.start === b.start && t.end === b.end)) return;
+    pickSays.textContent = "Moving the words…";
+    try {
+      const d = await post("/api/title/time", { chat: room.chat, n: b.n, was: b.text, start: t.start, end: t.end });
+      room.pickWhy = d.ok ? "" : d.error || "The words could not be moved.";
+    } catch (err) {
+      room.pickWhy = "The studio is not answering. Start it again with: python app.py";
+    }
+    loadPanel();
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+  window.addEventListener("pointercancel", up);
+}
 
 const channelSave = $("channelSave");
 const channelName = $("channelName");
@@ -1474,8 +1661,9 @@ function drawWords(d) {
       button.style.left = (100 * b.start / d.length) + "%";
       button.style.width = (100 * Math.max(0, Math.min(b.end, d.length) - b.start) / d.length) + "%";
       button.style.top = row[i] * 30 + "px";
+      button.dataset.n = b.n;
       button.setAttribute("aria-label", wordName(b) + " from " + b.start.toFixed(1) + " to " + b.end.toFixed(1) + " s: " + b.text + (b.kind === "draft" ? ". Not on the video until you keep or fix it." : b.typed ? ". Your own words." : ""));
-      button.addEventListener("click", () => openWords(b));
+      button.addEventListener("click", () => tapBlock(b));
       track.appendChild(button);
     });
     lane.append(ico(icon, "sm lane-ico"), track);
@@ -1487,6 +1675,7 @@ function drawWords(d) {
   drawWordList(d);
   drawMuteMarks();
   drawTrimMarks();
+  drawPicked();
   movePlayhead(room.made ? Number(clipAt.value) : 0);
   if (room.editing && !d.words.some((b) => b.kind === room.editing.kind && b.n === room.editing.n && b.text === room.editing.was)) closeWords();
 }
@@ -1551,7 +1740,21 @@ function seek(t) {
 }
 
 $("timeline").addEventListener("pointerdown", (e) => {
-  if (e.target.closest(".block") || !room.panel) return;
+  room.dragged = false;
+  if (!room.panel) return;
+  const grip = e.target.closest(".grip");
+  if (grip) {
+    e.preventDefault();
+    if (grip.closest(".block")) titleDrag(e, grip.dataset.edge, grip.closest(".block"));
+    else trimDrag(e, grip.dataset.edge);
+    return;
+  }
+  if (e.target.closest(".block")) return;
+  if (room.pick) {
+    room.pick = null;
+    room.pickWhy = "";
+    drawPicked();
+  }
   const at = (ev) => {
     const r = lanes.getBoundingClientRect();
     seek(Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * room.panel.length);

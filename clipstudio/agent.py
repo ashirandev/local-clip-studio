@@ -65,6 +65,7 @@ NO_COVER = ("[studio] Your answer speaks of the clip's cover, but no cover is ma
             "person again without saying it has one; if they want one, they can tap Make the cover or ask for it.")
 OPEN_SAID = "(opened) "
 AS_SAID = "said"
+WORDS_GONE = "Those words are not on the clip as the page showed them. Look at the clip again."
 SCRIPTS = (("Thai", re.compile("[฀-๿]")), ("Japanese", re.compile("[぀-ヿ]")),
            ("Korean", re.compile("[가-힯]")), ("Chinese", re.compile("[一-鿿]")),
            ("Arabic", re.compile("[؀-ۿ]")), ("Hindi", re.compile("[ऀ-ॿ]")))
@@ -556,7 +557,7 @@ class Chat:
         state = self._clip_now()
         block = next((b for b in self.words_on(state) if b["kind"] == kind and b["n"] == n), None)
         if block is None or block["text"] != was:
-            raise Missing("Those words are not on the clip as the page showed them. Look at the clip again.")
+            raise Missing(WORDS_GONE)
         words = " ".join(str(words).split())
         if not words:
             return "Type the words first."
@@ -564,10 +565,9 @@ class Chat:
             return None
         if kind == "title":
             t = state["titles"][n]
-            spot = {"place": t["place"]} if t["place"] in state["clip"]["layout"]["places"] else \
-                {"box": _grid_box(t["box"])}
             refused, entry = self.tap("add_title", words=words, start=t["start"], end=t["end"],
-                                      key=t["key"] if t.get("key") and t["key"] in words else None, **spot)
+                                      key=t["key"] if t.get("key") and t["key"] in words else None,
+                                      **_spot(state, t))
             if refused:
                 return refused
         else:
@@ -590,6 +590,34 @@ class Chat:
                            [ln for ln in caps["lines"] if ln["phrase"] > n]))
         self._tell('the person typed their own words for the %s at %g-%g s on the page: "%s" is now "%s"'
                    % (kind, block["start"], block["end"], was, words))
+        return None
+
+    def set_title_time(self, n, was, start, end):
+        """The person's drag of a title's ends under the clip: it shows from start to end s of the clip. It goes on
+        again through add_title with its own words, place and key, so its checks hold (long enough on screen, off
+        faces). A title of the same place it would run into is not replaced, as a new title there would replace it:
+        the drag is refused with that title's time. Told to Muse before its next job. Returns None, or the sentence
+        why not; Missing when the title is not on the clip as the page showed it."""
+        state = self._clip_now()
+        titles = state["titles"]
+        if not 0 <= n < len(titles) or titles[n]["text"] != was:
+            raise Missing(WORDS_GONE)
+        t = titles[n]
+        start, end = round(start, 2), round(end, 2)
+        if abs(start - t["start"]) < 0.05 and abs(end - t["end"]) < 0.05:
+            return None
+        hit = next((o for k, o in enumerate(titles) if k != n and project.same_spot(o, dict(t, start=start, end=end))),
+                   None)
+        if hit:
+            return 'It would run into "%s", which shows in the same place from %g to %g s: keep it %s.' % (
+                hit["text"], hit["start"], hit["end"],
+                "after %g s" % hit["end"] if hit["start"] < t["start"] else "before %g s" % hit["start"])
+        refused, entry = self.tap("add_title", words=t["text"], start=start, end=end, key=t.get("key"),
+                                  **_spot(state, t))
+        if refused:
+            return refused
+        self._tell('the person dragged the ends of the title "%s" on the page: it shows from %g to %g s now, not '
+                   '%g-%g s' % (t["text"], entry["start"], entry["end"], t["start"], t["end"]))
         return None
 
     def make_again(self):
@@ -1520,6 +1548,11 @@ def _grid_box(box):
     box this way and gives back the same pixels."""
     x, y, w, h = box
     return [x * 1000 / 1080, y * 1000 / 1920, (x + w) * 1000 / 1080, (y + h) * 1000 / 1920]
+
+
+def _spot(state, t):
+    """Where title t goes on again through add_title: its place while the layout has it, else its own box."""
+    return {"place": t["place"]} if t["place"] in state["clip"]["layout"]["places"] else {"box": _grid_box(t["box"])}
 
 
 def make_room(messages, need):

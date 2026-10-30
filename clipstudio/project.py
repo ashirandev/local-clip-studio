@@ -114,7 +114,7 @@ class Project:
             elif e["do"] == "style":
                 style = e
             elif e["do"] == "title":
-                titles = [t for t in titles if not _same_spot(t, e)] + [e]
+                titles = [t for t in titles if not same_spot(t, e)] + [e]
             elif e["do"] == "captions":
                 captions = e if e["lines"] or e.get("drafts") else None
             elif e["do"] == "blur":
@@ -242,7 +242,7 @@ def _same_box(a, b, start, end):
             and a[start] < until(b) and b[start] < until(a))
 
 
-def _same_spot(a, b):
+def same_spot(a, b):
     """Two titles in the same place, or drawn in the same box, at overlapping times: the later one replaces the earlier.
     The box also matches a title saved when a box's place was named in pixels ("box at 100, 400")."""
     same = a["place"] == b["place"] or (a.get("box") is not None and a.get("box") == b.get("box"))

@@ -386,11 +386,15 @@ Detailed steps the input, the result and the engine numbers.
   the check on captions passes them as the person's own words. A line the hearing was not sure of is a draft on the
   timeline, outlined in dashes and marked Not sure: it is not on the video until the person saves it as it is or fixed,
   because a wrong caption is worse than none, and a talk heard unsure all through still has every line ready to check.
-  When the clip has changed since its video was made,
+  A tap on a title picks it and a second tap opens its words; a picked title has handles on its ends, and dragging
+  one changes when it shows, through the title's own checks (it keeps off faces, and it never runs over another title
+  in its place). When the clip has changed since its video was made,
   Update video renders it as Muse's render does. Under Captions, As said puts them back in the words as
   said at a tap; English is a tap that asks Muse, which writes the translation.
-- **Trim, or take in more, at a tap.** Muse picks the moment; under Trim the person taps a spot on the timeline and
-  starts or ends the clip there, or takes in 2 s more before or after it at each tap, then Apply. The clip is made
+- **Trim, or take in more, at a tap.** Muse picks the moment; the person drags a yellow handle at either end of the
+  film strip under the clip, inward to cut, or out past the strip's edge and held there to take in more of the video,
+  with the seconds shown as it moves. Under Trim the person can also tap a spot on the timeline and start or end the
+  clip there, or take in 2 s more before or after it at each tap. Apply makes the clip
   again in the same layout, crop and face, and its edges stay where the person put them. The captions, blurs, hits,
   stickers, sounds and slow pushes stay on what is said and shown, so a cut-off start takes its captions with it;
   the titles stay at their time in the clip, so the opening title still opens it. Seconds the moment never heard are
