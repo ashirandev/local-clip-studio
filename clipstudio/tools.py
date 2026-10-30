@@ -2135,6 +2135,8 @@ def _reads_screen(job):
 
 
 NEAR_NAME = 0.4
+OWN_WORDS = ("talk", "vlog")
+OWN_HALF = 0.5
 
 
 def _screen_words(job, rec, state):
@@ -3321,6 +3323,55 @@ def _talked(clip, phrases, length, translated=False):
         sum(p["to"] - p["from"] for p in phrases) >= TALKED * length
 
 
+def _off_own_words(job, rec, state, lines):
+    """(the caption lines to draw, the sentence for Muse or None): in a kind of video an editor may have written words
+    on (OWN_WORDS), a line said while the video's own words show in the clip's frame for at least half of it is left
+    out, since two sets of words fight (EP0 10-30, a talk clip: the editor's names and reactions, such as "พี่ตูมตาม",
+    sat over ours). A line the person typed stays. (None, None) when the person pressed Stop."""
+    if (job.chat.clip or {}).get("recipe") not in OWN_WORDS:
+        return lines, None
+    job.working("Looking for words the video already shows")
+    try:
+        found = screen.own_words(rec, state["clip"]["pieces"], on_start=job.started_work)
+    except screen.Stopped:
+        return None, None
+    except screen.ScreenError as e:
+        return lines, ("The picture could not be looked at for words of its own (%s): if it shows subtitles of its "
+                       "own, take the captions off." % e)
+    finally:
+        job.done_working()
+    lay = state["clip"]["layout"]
+    kept, out, seen = [], [], []
+    for line in lines:
+        mid = (line["from"] + line["to"]) / 2
+        shows = [w for w in found if _shows_whole(lay, w["box"], mid)]
+        over = sum(max(0.0, min(line["to"], w["end"]) - max(line["from"], w["start"])) for w in shows)
+        if over >= OWN_HALF * (line["to"] - line["from"]) and not line.get("typed"):
+            out.append(line)
+            seen += [w for w in shows if w not in seen]
+        else:
+            kept.append(line)
+    if not out:
+        return lines, None
+    return kept, ("The video shows words of its own in the clip's frame (an editor's subtitles or names) at %s, so the "
+                  "%d caption line%s said then %s left out: two sets of words fight. The other %d %s drawn." % (
+                      ", ".join("%g-%g s" % (w["start"], w["end"]) for w in sorted(seen, key=lambda w: w["start"])),
+                      len(out), "" if len(out) == 1 else "s", "is" if len(out) == 1 else "are", len(kept),
+                      "is" if len(kept) == 1 else "are"))
+
+
+def _shows_whole(lay, box, at):
+    """True when at least half of box (pixels of the recording) is in one part of the clip's frame at clip second at,
+    both across and down: a sliver at a part's edge cannot be read."""
+    for part in layouts.parts_at(lay, at):
+        sx, sy, sw, sh = part["src"]
+        across = min(box[0] + box[2], sx + sw) - max(box[0], sx)
+        down = min(box[1] + box[3], sy + sh) - max(box[1], sy)
+        if across >= box[2] * OWN_HALF and down >= box[3] * OWN_HALF:
+            return True
+    return False
+
+
 def add_captions(job, why, on=True, lit=False, pop=None, language=""):
     rec = _open(job, "caption")
     state = _clip_state(job)
@@ -3388,6 +3439,13 @@ def add_captions(job, why, on=True, lit=False, pop=None, language=""):
             line["no_number"] = True
         if (shown[line["phrase"]]["from"], shown[line["phrase"]]["to"]) in typed:
             line["typed"] = True
+    if not translated:
+        lines, own = _off_own_words(job, rec, state, lines)
+        if lines is None:
+            return "No captions: the person pressed Stop."
+        if own and not lines:
+            job.edit({"do": "captions", "lines": [], "band": None})
+            return own + " So no captions are drawn."
     if pop is None:
         pop = one and not lit
     try:
@@ -3430,6 +3488,8 @@ def add_captions(job, why, on=True, lit=False, pop=None, language=""):
               "plain words, none lit, so the eye stays on the picture")]
     if keyed:
         out.append("In %d of the %d lines the word a viewer must not miss is in the key colour." % (keyed, len(lines)))
+    if not translated and own:
+        out.append(own)
     if spelling:
         out.append(spelling)
     if translated:

@@ -253,6 +253,50 @@ class Reads(unittest.TestCase):
         self.assertTrue(any("Settings" in line["text"] for line in read[0]["lines"]), read)
 
 
+@unittest.skipUnless(FFMPEG and OCR, "needs ffmpeg and RapidOCR")
+class OwnWords(unittest.TestCase):
+    """The video's own words found whatever their language: a 12 s recording with a Thai subtitle low in the picture
+    from 1 to 3 s, a channel's name held still at the bottom left the whole time, and a Thai line at the top from 5 to
+    7 s."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.work = recording.WORK
+        recording.WORK = os.path.join(self.tmp, "work")
+        fonts = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fonts")
+        for name, words in (("sub.txt", "พี่ตูมตามมาแล้ว"), ("logo.txt", "OUR CHANNEL NAME"), ("top.txt", "ตอนที่หนึ่งเริ่ม")):
+            with open(os.path.join(self.tmp, name), "w", encoding="utf-8") as f:
+                f.write(words)
+        shutil.copy(os.path.join(fonts, "Kanit-Bold.ttf"), os.path.join(self.tmp, "k.ttf"))
+        draw = "drawtext=fontfile=k.ttf:textfile=%s:fontsize=%d:fontcolor=white:borderw=4:bordercolor=black:x=%s:y=%d%s"
+        self.path = os.path.join(self.tmp, "talk.mp4")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x506070:s=1280x720:r=30:d=12", "-vf",
+                        ",".join([draw % ("sub.txt", 56, "(w-tw)/2", 560, ":enable='between(t,1,3)'"),
+                                  draw % ("logo.txt", 40, "30", 650, ""),
+                                  draw % ("top.txt", 56, "(w-tw)/2", 80, ":enable='between(t,5,7)'")]),
+                        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "talk.mp4"],
+                       check=True, cwd=self.tmp)
+        st = os.stat(self.path)
+        self.rec = {"path": self.path, "size": st.st_size, "mtime": st.st_mtime, "width": 1280, "height": 720}
+
+    def tearDown(self):
+        recording.WORK = self.work
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_a_thai_subtitle_low_in_the_picture_is_found_for_as_long_as_it_shows(self):
+        found = screen.own_words(self.rec, [[0.0, 12.0]])
+        self.assertEqual(len(found), 1, found)
+        self.assertEqual(found[0]["start"], 1.0)
+        self.assertTrue(3.0 <= found[0]["end"] <= 3.5, found)
+        x, y, w, h = found[0]["box"]
+        self.assertTrue(y > 520 and y + h < 660 and 300 < x + w / 2 < 980, found[0]["box"])
+        self.assertEqual(screen.own_words(self.rec, [[0.0, 12.0]]), found, "kept, so asking again is instant")
+
+    def test_clip_seconds_count_from_the_clips_own_start(self):
+        found = screen.own_words(self.rec, [[0.0, 0.5], [2.0, 4.0]])
+        self.assertEqual([(f["start"], f["end"]) for f in found], [(0.5, 1.5)], "shown from 2 to 3 s of the recording")
+
+
 class Misspelled(unittest.TestCase):
     def test_a_name_written_another_way_than_on_the_screen_is_found(self):
         from clipstudio import tools

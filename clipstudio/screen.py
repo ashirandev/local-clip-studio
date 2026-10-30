@@ -45,6 +45,13 @@ FORCE = 3.0
 PAD = 0.35
 SAME = 0.5
 READERS = 4
+OWN_SIDE = 1280
+OWN_LOW = 0.45
+OWN_TALL = 0.035
+OWN_WIDE = 0.1
+LOOK = (48, 12)
+STILL = 10.0
+SAME_LOOK = 0.1
 SURE = 0.9
 MOST_WORDS = 40
 WORDS_FROM = 3
@@ -471,6 +478,116 @@ def hidden(rec, pieces, on_start=None, span=None):
         out += [dict(item, end=round(at + b - a, 2)) for item in shown]
         at += b - a
     return sorted(out, key=lambda item: (item["start"], item["box"][1]))
+
+
+def own_words(rec, pieces, on_start=None):
+    """[{"box": [x, y, w, h] in pixels of the recording, "start", "end": clip seconds}]: where the clip's pieces show
+    the video's own words in the lower part of the picture, such as an editor's subtitles burned in, and for how long.
+    Found by RapidOCR's detector alone, CHECKS times a second, so words in any language count: its reader reads no Thai
+    and drops what it cannot read (EP0 10-30: "พี่ตูมตาม" from 10 to 12.5 s, where the readings hold nothing or
+    "gagna"). Words that hold still and look the same for STILL seconds or more are a logo or a name bar, not words
+    said, and so are words that look the same through a clip shorter than that; both across the clip's cuts, as a
+    logo over a talk clip cut into short pieces holds still for the whole clip, not for one piece."""
+    runs, at, step = [], 0.0, 1.0 / CHECKS
+    for a, b in pieces:
+        for item in _own_stretch(rec, a, b, on_start):
+            start, end = at + item["from"] - a, at + item["to"] - a
+            on = next((r for r in runs if item["from"] < a + step and r["end"] > at - step and
+                       _overlap(r["box"], item["box"]) >= SAME), None) if at else None
+            if on:
+                on.update(box=_union(on["box"], item["box"]), end=end, last=item["last"])
+            else:
+                runs.append(dict(item, start=start, end=end))
+        at += b - a
+    return [{"box": r["box"], "start": round(r["start"], 2), "end": round(r["end"], 2)} for r in runs
+            if not _held_still(r, min(STILL, at - step))]
+
+
+def _own_stretch(rec, a, b, on_start):
+    """The video's own words from a to b, [{"box", "from", "to": recording seconds, "first", "last": how they look
+    when first and last seen}], kept per stretch."""
+    target = os.path.join(recording.WORK, "screen", _key(rec, a, b) + ".own.json")
+    try:
+        with open(target, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        pass
+    tool = shutil.which("ffmpeg")
+    if not tool:
+        raise ScreenError("FFmpeg is not installed, so the screen cannot be read.")
+    scale = min(1.0, OWN_SIDE / max(rec["width"], rec["height"]))
+    w, h = max(2, int(rec["width"] * scale) // 2 * 2), max(2, int(rec["height"] * scale) // 2 * 2)
+    back = (rec["width"] / float(w), rec["height"] / float(h))
+    proc = subprocess.Popen([tool, "-v", "error", "-ss", "%.2f" % a, "-t", "%.2f" % (b - a), "-i", rec["path"],
+                             "-map", "0:v:0", "-vf", "fps=%d,scale=%d:%d" % (CHECKS, w, h), "-f", "rawvideo",
+                             "-pix_fmt", "bgr24", "pipe:1"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    stopped = []
+
+    def stop():
+        stopped.append(True)
+        proc.kill()
+
+    if on_start:
+        on_start(stop)
+    picked, k = [], 0
+    pool = ThreadPoolExecutor(READERS, thread_name_prefix="screen")
+    try:
+        while True:
+            data = proc.stdout.read(w * h * 3)
+            if len(data) < w * h * 3 or stopped:
+                break
+            picked.append((a + k / float(CHECKS), pool.submit(_own_lines, np.frombuffer(data, np.uint8)
+                                                              .reshape(h, w, 3), back)))
+            k += 1
+    finally:
+        proc.stdout.close()
+        proc.wait()
+        pool.shutdown(wait=True, cancel_futures=bool(stopped))
+    if stopped:
+        raise Stopped()
+    items, shown = [], []
+    for at, found in picked:
+        seen, still = list(found.result()), []
+        for item in shown:
+            match = next((s for s in seen if _overlap(s[0], item["box"]) >= SAME), None)
+            if match:
+                seen.remove(match)
+                still.append(dict(item, box=_union(item["box"], match[0]), last=match[1], to=at + 1.0 / CHECKS))
+            else:
+                items.append(item)
+        shown = still + [{"box": box, "from": at, "to": at + 1.0 / CHECKS, "first": look, "last": look}
+                         for box, look in seen]
+    out = [{"box": item["box"], "from": round(item["from"], 2), "to": round(min(b, item["to"]), 2),
+            "first": item["first"].tolist(), "last": item["last"].tolist()} for item in items + shown]
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target + ".part", "w", encoding="utf-8") as f:
+        json.dump(out, f)
+    os.replace(target + ".part", target)
+    return out
+
+
+def _own_lines(picture, back):
+    """[(box in pixels of the recording, its small grey look)]: the lines of writing the detector finds in the lower
+    part of one picture, wide and tall enough to be read from across a room."""
+    h, w = picture.shape[:2]
+    found, _ = _engine()(picture, use_det=True, use_cls=False, use_rec=False)
+    out = []
+    for points in found or []:
+        xs, ys = [p[0] for p in points], [p[1] for p in points]
+        x, y, bw, bh = min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)
+        if y + bh / 2 < h * OWN_LOW or bh < h * OWN_TALL or bw < w * OWN_WIDE or bw < 2 * bh:
+            continue
+        x0, y0 = max(0, int(x)), max(0, int(y))
+        look = cv2.cvtColor(cv2.resize(picture[y0:int(y + bh) + 1, x0:int(x + bw) + 1], LOOK,
+                                       interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY).astype(np.int16)
+        out.append(([round(x * back[0]), round(y * back[1]), round(bw * back[0]), round(bh * back[1])], look))
+    return out
+
+
+def _held_still(item, still):
+    """True when words showed still seconds or more of the clip and look at their end as they did at their start."""
+    first, last = np.array(item["first"], np.int16), np.array(item["last"], np.int16)
+    return item["end"] - item["start"] >= still and float((np.abs(first - last) > LEVEL).mean()) < SAME_LOOK
 
 
 def covered(item, blurs):

@@ -683,6 +683,42 @@ class Tools(unittest.TestCase):
         self.assertEqual([p["text"] for p in self.chat.moments[0]["said"]],
                          ["ตั้งค่าเครื่องง่ายมาก", "ราคาถูกมาก"], "the check reads the line as the caption shows it")
 
+    def test_a_talk_clip_leaves_out_the_lines_said_while_the_video_shows_words_of_its_own_in_the_frame(self):
+        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "this is the moment"},
+                               {"from": 5.0, "to": 8.0, "text": "watch him fall down now"}]
+        _, steps = self.run_job(
+            *self.to_moment()[:2], [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "talk"}])],
+            '{"lines": ["this is the moment", "watch him fall down now"]}',
+            [call("make_clip", moment=1, layout="subject", why="the talk")], "Done.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        from unittest import mock
+        x, _, w, _ = next(p for p in self.chat.project.state()["clip"]["layout"]["parts"] if p["name"] == "whole")["src"]
+        asked = []
+
+        def own(rec, pieces, on_start=None):
+            asked.append(pieces)
+            return [{"box": [x + 10, 140, w - 20, 20], "start": 0.0, "end": 2.5},
+                    {"box": [x + w + 5, 140, 40, 20], "start": 3.0, "end": 7.0}]
+        with mock.patch.object(tools.screen, "own_words", own):
+            self.chat.clip = {"recipe": "seller", "title": "Review", "length_s": 30, "style": "clean", "language": "",
+                              "brief": "", "subtitles": None}
+            _, steps = self.run_job([call("add_captions", why="the words")],
+                                    '{"texts": ["this is the moment", "watch him fall down now"]}', "Done.")
+            self.assertEqual(asked, [], "a seller's pack has words of its own that are not subtitles")
+            self.chat.clip["recipe"] = "talk"
+            _, steps = self.run_job([call("add_captions", why="the words")],
+                                    '{"texts": ["this is the moment", "watch him fall down now"]}', "Done.")
+        caps = steps[-1]
+        self.assertFalse(caps["refused"], caps["result"])
+        self.assertEqual(len(asked), 1)
+        shown = "".join(line["text"] for line in self.chat.project.state()["captions"]["lines"])
+        self.assertNotIn("moment", shown, "said while the video's own words show in the frame")
+        self.assertIn("fall down", shown, "the second words are outside the frame, so they are not seen")
+        self.assertIn("The video shows words of its own in the clip's frame (an editor's subtitles or names) at 0-2.5 s, "
+                      "so the 2 caption lines said then are left out: two sets of words fight. The other 2 are drawn.",
+                      caps["result"])
+        self.assertIn("Captions on: %d lines" % len(self.chat.project.state()["captions"]["lines"]), caps["result"])
+
     def test_a_recording_talked_through_gets_its_captions_one_big_line_at_a_time(self):
         said = ["เครื่องนี้ดูดความชื้นได้ดีมากจริงๆครับ", "บ้านไหนชื้นมากก็เก็บน้ำได้เต็มถังเลย"]
         self.worker.phrases = [{"from": 1.0, "to": 9.0, "text": said[0]}, {"from": 9.2, "to": 18.5, "text": said[1]}]
