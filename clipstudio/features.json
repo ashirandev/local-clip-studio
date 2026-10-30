@@ -32,6 +32,14 @@
   "show": "subject"
  },
  {
+  "tool": "follow_product",
+  "group": "Layout",
+  "name": "Frame follows the product",
+  "says": "SAM 3.1 finds the product in every frame on this computer, and the vertical frame moves with it as you pick it up, turn it and put it down.",
+  "ask": "Keep the frame on the controller as I move it around.",
+  "show": "subject"
+ },
+ {
   "tool": "watch_piece",
   "group": "Clips",
   "name": "Watched with sound by Muse Wonder",
@@ -200,6 +208,14 @@
   "show": "sticker"
  },
  {
+  "tool": "add_picture",
+  "group": "Effects",
+  "name": "Picture of what you talk about",
+  "says": "Muse Image draws a picture of a thing you name, such as a ghost in a ghost story, and shows it over the top of the frame for a few seconds, above the faces. Only your words go to Meta, never your footage. With your Meta key.",
+  "ask": "When I talk about the ghost, show a picture of a ghost.",
+  "show": "sticker"
+ },
+ {
   "tool": "add_flurry",
   "group": "Effects",
   "name": "Sticker burst",
@@ -302,6 +318,14 @@
   "says": "A white edge follows your outline as you move, found by SAM 3.1 on this computer.",
   "ask": "Put a white outline around me when I laugh.",
   "show": "cut-outline"
+ },
+ {
+  "tool": "put_background",
+  "group": "Cut-out",
+  "name": "A new place behind a green cloth",
+  "says": "Filmed in front of a green cloth? The studio cuts you off the cloth on this computer, and Muse Image draws a place behind you that suits the product, from words alone, never your footage. With your Meta key.",
+  "ask": "Put a gaming desk behind me instead of the green cloth.",
+  "show": "cut-bw"
  },
  {
   "tool": "add_sound",
