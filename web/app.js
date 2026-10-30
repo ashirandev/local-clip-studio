@@ -2694,7 +2694,7 @@ function drawParts() {
   setupLine.classList.toggle("bad", !s.running && !!(s.error || d.engine));
   if (s.running) {
     const part = d.parts.find((p) => p.key === s.part);
-    const doing = { check: "Checking", unpack: "Unpacking" }[s.step] || "Downloading";
+    const doing = { check: "Checking", unpack: "Unpacking", copy: "Copying" }[s.step] || "Downloading";
     setupLine.textContent = doing + " " + (part ? part.label : "") + " · " + sizeText(s.done) + " of " + sizeText(s.total);
   } else {
     setupLine.textContent = s.error || d.engine || "";

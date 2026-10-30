@@ -113,6 +113,27 @@ class Fetch(unittest.TestCase):
         with open(self.dest, "rb") as f:
             self.assertEqual(f.read(), self.blob)
 
+    def test_a_file_handed_over_in_the_parts_folder_is_used_and_nothing_is_downloaded(self):
+        handed = os.path.join(self.tmp, "parts")
+        os.makedirs(handed)
+        with open(os.path.join(handed, "blob.bin"), "wb") as f:
+            f.write(self.blob)
+        gone = "http://127.0.0.1:%d/not-yet.bin" % self.http.server_port
+        had, parts.HANDED = parts.HANDED, handed
+        try:
+            parts.fetch(gone, len(self.blob), sha(self.blob), self.dest)
+            with open(self.dest, "rb") as f:
+                self.assertEqual(f.read(), self.blob, "10-30: the hearing's address is private, a tester's copy has it")
+            with open(os.path.join(handed, "blob.bin"), "wb") as f:
+                f.write(b"x" * len(self.blob))
+            os.remove(self.dest)
+            with self.assertRaises(parts.PartError) as said:
+                parts.fetch(gone, len(self.blob), sha(self.blob), self.dest)
+        finally:
+            parts.HANDED = had
+        self.assertIn("did not match the file the studio expects, so it was deleted", str(said.exception))
+        self.assertFalse(os.path.exists(self.dest))
+
     def test_a_file_not_at_its_address_yet_says_so_and_nothing_is_kept(self):
         url = "http://127.0.0.1:%d/not-yet.bin" % self.http.server_port
         with self.assertRaises(parts.PartError) as said:

@@ -7,7 +7,9 @@ can be downloaded, or says in a sentence why it cannot.
 The guarantee: every file comes from one address pinned here and is used only after its size and SHA-256 match the
 ones pinned here. A download cut off part way carries on from where it stopped, a file that does not match is deleted
 and never used, and a part counts as set up only once all its files are in place whole: each is written to a .part
-file, checked, then moved to its name, and a zip is unpacked beside its folder and moved in one step.
+file, checked, then moved to its name, and a zip is unpacked beside its folder and moved in one step. A file handed
+over with the studio, in the parts folder beside it (LCS_PARTS), is used in place of its download and checked the same
+way: the hearing model's address is in a private repository until the release, so a tester's copy carries it (10-30).
 
 When Glimmer's file and llama-server are both on this computer, the local mind is at its default address, and
 nothing answers there, the studio starts llama-server the way the README shows (router mode, from a preset, with
@@ -42,6 +44,7 @@ VISION_NAME = "mmproj-Muse-Glimmer-30B-Q4_K_M.gguf"
 GLIMMER_FILE = os.environ.get("LCS_GLIMMER_FILE") or os.path.join(WORK, "models", "glimmer", GLIMMER_NAME)
 VISION_FILE = os.environ.get("LCS_GLIMMER_VISION") or os.path.join(WORK, "models", "glimmer", VISION_NAME)
 HEARING_DIR = os.environ.get("LCS_HEARING_MODELS") or os.path.join(WORK, "models", "hearing")
+HANDED = os.environ.get("LCS_PARTS") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "parts")
 HEARING_FROM = os.environ.get("LCS_HEARING_FROM",
                               "https://github.com/ashirandev/local-clip-studio/releases/download/hearing-1").rstrip("/")
 LOCAL_URL = "http://127.0.0.1:8863/v1"
@@ -281,6 +284,13 @@ def fetch(url, size, sha256, dest):
         return dest
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     part = dest + ".part"
+    handed = os.path.join(HANDED, os.path.basename(dest))
+    if os.path.isfile(handed) and os.path.getsize(handed) == size:
+        _step("copy")
+        try:
+            os.replace(handed, part)
+        except OSError:
+            shutil.copyfile(handed, part)
     have = os.path.getsize(part) if os.path.isfile(part) else 0
     if have > size:
         os.remove(part)
@@ -460,7 +470,7 @@ def main(argv=None):
         if not job["running"]:
             break
         label = next((p["label"] for p in parts(gpu, look=False) if p["key"] == job["part"]), "")
-        doing = {"check": "Checking", "unpack": "Unpacking"}.get(job["step"], "Downloading")
+        doing = {"check": "Checking", "unpack": "Unpacking", "copy": "Copying"}.get(job["step"], "Downloading")
         sys.stdout.write("\r  %s %s - %s of %s     " % (doing, label, _size(job["done"]), _size(job["total"])))
         sys.stdout.flush()
         threading.Event().wait(1)
