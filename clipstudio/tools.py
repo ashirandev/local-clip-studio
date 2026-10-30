@@ -2766,14 +2766,16 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
         others = []
         for name, box in lay["places"].items():
             clear = _clear(_covered(box, times, every, 0, length), 0, length)
-            opening = None if clear else _longest(start, end, every, lambda t: _clear_part(
+            opening = _longest(start, end, every, lambda t: _clear_part(
                 box, words, st, key, times, every, start, t, product))
-            others.append("%s: %s" % (name, _spans(clear, inward=True) if clear else (
-                "its part at %s, %s on your grid at %g-%g s" % (
-                    layouts.on_grid(opening[1][0][0], opening[1][0][0] + opening[1][0][2], "x"),
-                    layouts.on_grid(opening[1][0][1], opening[1][0][1] + opening[1][0][3], "y"), start,
-                    math.floor(opening[0] * 10) / 10)) if opening else
-                "never clear"))
+            if opening and any(lo <= start + 1e-6 and opening[0] <= hi + 1e-6 for lo, hi in clear):
+                opening = None
+            part = opening and "its part at %s, %s on your grid at %g-%g s" % (
+                layouts.on_grid(opening[1][0][0], opening[1][0][0] + opening[1][0][2], "x"),
+                layouts.on_grid(opening[1][0][1], opening[1][0][1] + opening[1][0][3], "y"), start,
+                math.floor(opening[0] * 10) / 10)
+            others.append("%s: %s" % (name, ", or ".join(filter(None, [_spans(clear, inward=True), part])) if (
+                clear or part) else "never clear"))
         stuck = "" if any(not o.endswith("never clear") for o in others) else (
             " No place is clear for %g s or more: the faces%s fill the picture. %sor leave the title off." % (
                 LISTED, " and the product" if state["clip"].get("product") else "",

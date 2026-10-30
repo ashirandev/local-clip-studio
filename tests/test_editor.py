@@ -546,6 +546,25 @@ class Tools(unittest.TestCase):
         self.assertIn('The title "Boss down" is on screen at the top from 0 to 4.5 s: 1 line', drawn["result"])
         self.assertIn('words on screen: "Boss down" 0-4.5 s at the top', brain.sent[-1][-2]["content"])
 
+    def test_a_refusal_offers_a_clear_part_that_holds_the_title_longer_than_the_place_is_clear_across(self):
+        """The green seller 10-30: the frame followed the product and the head came into the top place at times, the
+        refusal named only the stretches clear across its width, the first 0-2.7 s, and the title held 2.7 s of 31
+        though a part of the top held it from 0 to 17.5 s."""
+        from unittest import mock
+
+        def times(state, rec):
+            return [(k * 0.5, [] if k * 0.5 < 3 else [[480, 300, 300, 400]] if k * 0.5 < 12 else
+                     [[65, 300, 950, 400]]) for k in range(41)], 0.5
+
+        with mock.patch.object(tools, "_face_times", times):
+            brain, steps = self.run_job(
+                *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("add_title", words="Boss down", start=0, end=15, place="top", why="the hook")], "Done.")
+        refused = steps[-1]
+        self.assertTrue(refused["refused"])
+        self.assertIn("Clear: top: 0-2.7 s, or its part at x 61 to 425, y 149 to 270 on your grid at 0-11.5 s; middle: "
+                      "0-20 s.", refused["result"])
+
     def test_with_no_place_clear_across_its_width_the_title_is_offered_the_clear_part_of_the_opening(self):
         """The seller beat 10-29: the face filled the top place's middle all clip long and the product the middle
         place, so no place was clear and the clip went out with no title; the top's left was clear at the start."""
