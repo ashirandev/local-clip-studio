@@ -11,10 +11,11 @@ import threading
 import time
 import unittest
 from http.server import ThreadingHTTPServer
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, channels, faces, hearing, mind, recording, render, server, tools  # noqa: E402
+from clipstudio import agent, channels, faces, hearing, mind, project, recording, render, server, tools  # noqa: E402
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_editor import found  # noqa: E402
 from test_hearing import Worker  # noqa: E402
@@ -500,6 +501,43 @@ class Again(Clip):
                                 "Done.")
         self.assertFalse(any(s["refused"] for s in steps), [s["result"] for s in steps])
         self.assertEqual(agent.Chat.load(self.chat.id).rendered, self.chat.rendered)
+
+    def test_a_video_made_before_the_program_was_updated_is_made_again_from_the_clip_as_it_is(self):
+        self.make(SAID, call("decide_people", keep=[1], why="him"))
+        self.run_job([call("render_clip", why="make the file")], "Done.")
+        old = self.chat.finished()["name"]
+        with mock.patch.object(project, "program", lambda: "an update"):
+            self.assertIsNone(self.chat.finished(), "10-30: the file the old code drew was given back as the clip")
+            self.assertTrue(self.chat.panel()["again"])
+            _, steps = self.run_job([call("render_clip", why="make the file")], "Done.")
+            self.assertTrue(steps[0]["result"].startswith("Rendered the finished clip"), steps[0]["result"])
+            self.assertNotEqual(self.chat.finished()["name"], old)
+        self.assertEqual(self.exported, ["clean", "clean"])
+        self.assertTrue(os.path.isfile(os.path.join(render.folder("clips"), old)), "the file handed over before stays")
+
+    def test_the_programs_fingerprint_is_the_files_that_draw_the_video_and_not_pythons_cache(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+
+        def put(path, data):
+            os.makedirs(os.path.dirname(os.path.join(root, path)), exist_ok=True)
+            with open(os.path.join(root, path), "wb") as f:
+                f.write(data)
+
+        put("clipstudio/render.py", b"draw")
+        put("fonts/Kanit-Bold.ttf", b"font")
+        put("web/app.js", b"page")
+        first = project.fingerprint(root)
+        put("clipstudio/__pycache__/render.cpython-311.pyc", b"run")
+        put("web/app.js", b"another page")
+        self.assertEqual(project.fingerprint(root), first, "what has run, and the page, do not draw the video")
+        put("fonts/Kanit-Bold.ttf", b"another font")
+        self.assertNotEqual(project.fingerprint(root), first)
+        put("fonts/Kanit-Bold.ttf", b"font")
+        put("cutting/cut.py", b"the worker")
+        self.assertNotEqual(project.fingerprint(root), first)
+        here = os.path.dirname(os.path.dirname(os.path.abspath(project.__file__)))
+        self.assertEqual(project.program(), project.fingerprint(here))
 
     def test_the_video_is_not_made_again_while_someone_is_undecided_or_muse_works(self):
         self.make(SAID)

@@ -49,11 +49,14 @@ the recording, and boxes on the frame are pixels of the 1080x1920 clip.
   on what was said when the clip is cut again; "back": True brings the sound back over them
 """
 
+import functools
 import hashlib
 import json
+import os
 
 DOES = ("clip", "style", "title", "captions", "blur", "hit", "sticker", "people", "look", "push", "layout", "untitle",
         "sound", "music", "glass", "mask", "cutout", "channel", "flurry", "mute")
+MADE_BY = ("clipstudio", "cutting", "fonts", "stickers")
 
 
 class Project:
@@ -227,10 +230,35 @@ class _Mover:
         return dict(captions, **moved)
 
 
+def fingerprint(root, tops=MADE_BY):
+    """A short name for the files in root's folders tops, by their paths and bytes. Python's own cache is left out, so
+    the same files give the same name whether they have run or not."""
+    sha = hashlib.sha1()
+    for top in tops:
+        for folder, dirs, files in os.walk(os.path.join(root, top)):
+            dirs[:] = sorted(d for d in dirs if d != "__pycache__")
+            for name in sorted(files):
+                path = os.path.join(folder, name)
+                sha.update(os.path.relpath(path, root).replace(os.sep, "/").encode("utf-8") + b"\0")
+                with open(path, "rb") as f:
+                    sha.update(f.read())
+    return sha.hexdigest()[:16]
+
+
+@functools.lru_cache(maxsize=None)
+def program():
+    """The fingerprint of the program that draws the finished file: its code, fonts and stickers. An update to any of
+    them changes it."""
+    return fingerprint(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
 def signature(entries):
-    """A short name for the clip as these entries make it: the same entries always give the same name, so a finished
-    file can be matched to the clip it was made from."""
-    return hashlib.sha1(json.dumps(entries, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+    """A short name for the clip as these entries make it with this program: the same entries give the same name until
+    the program is updated, so a finished file is matched to the clip it was made from, and a file the program drew
+    before an update is not (10-30: after an update changed how a look is drawn, render_clip gave back the file the
+    old code drew)."""
+    said = program() + json.dumps(entries, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha1(said.encode("utf-8")).hexdigest()[:16]
 
 
 def _same_box(a, b, start, end):
