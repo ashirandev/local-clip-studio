@@ -803,6 +803,48 @@ class Endpoints(Served):
         refused = [e for e in self.chat.events if e["kind"] == "not_moved"][-1]
         self.assertTrue(refused["error"].startswith("From 0:45.0 to 0:50.0 is 5 s"), refused)
 
+    def test_the_layout_tab_makes_the_clip_again_in_the_layout_tapped_and_undo_takes_it_back(self):
+        """Tarm 10-30: "ให้คนเลือก layout เองง่ายที่สุด": one tap, the clip made again in that layout, no Muse."""
+        self.make(SAID, call("add_title", words="Boss down", start=0, end=4, place="top", why="the hook"))
+        panel = "/api/panel?chat=" + self.chat.id
+        shown = self.ask("GET", panel)[1]["layouts"]
+        self.assertEqual([(c["name"], c["label"], c["now"], c["picture"]) for c in shown],
+                         [("card", "Card", False, True), ("stack", "Stack", False, True),
+                          ("face", "Face", False, True), ("subject", "Fill", True, True)])
+        state = self.chat.project.state()
+        standing = dict(state, clip=dict(state["clip"], layout=dict(state["clip"]["layout"], size=[180, 320])))
+        self.assertEqual([c["name"] for c in self.chat.layouts_now(standing)], ["face", "subject"],
+                         "a recording standing up: a card or a stack would show its face twice")
+        recipe = self.chat.clip
+        self.chat.clip = dict(recipe or {}, recipe="talk")
+        self.assertEqual([(c["name"], c["picture"]) for c in self.chat.layouts_now(state)][4:],
+                         [("talk", False), ("speaker", False), ("split", False)], "people talking take the talk layouts")
+        self.chat.clip = recipe
+        faceless = dict(state, clip=dict(state["clip"], layout=dict(state["clip"]["layout"], face=None)))
+        self.assertEqual([(c["name"], c["picture"]) for c in self.chat.layouts_now(faceless)],
+                         [("card", True), ("stack", False), ("face", False), ("subject", True)],
+                         "no face found yet: the stack and the face cannot be drawn until a tap finds it")
+        base = "/api/clipframe?chat=%s&t=1&width=160" % self.chat.id
+        got = self.fetch(base + "&layout=card")
+        self.assertEqual(got[:2], (200, "image/jpeg"))
+        self.assertNotEqual(got[2], self.fetch(base)[2], "the picture is the clip drawn in the card")
+        self.assertEqual(self.fetch(base + "&layout=talk")[0], 404)
+        self.assertEqual(self.chat.project.state()["clip"]["layout"]["kind"], "subject", "a picture changes nothing")
+        self.assertEqual(self.ask("POST", "/api/layout", {"chat": self.chat.id, "layout": "split"}),
+                         (400, {"ok": False, "error": "Choose one of the layouts: Card, Stack, Face, Fill."}))
+        self.assertEqual(self.ask("POST", "/api/layout", {"chat": self.chat.id, "layout": "subject"}),
+                         (200, {"ok": True}), "the layout it has already")
+        self.assertEqual(self.ask("POST", "/api/layout", {"chat": self.chat.id, "layout": "card"}), (200, {"ok": True}))
+        self.until(lambda: self.chat.making is None and any(e["kind"] == "relaid" for e in self.chat.events))
+        state = self.chat.project.state()
+        self.assertEqual(state["clip"]["layout"]["kind"], "card")
+        self.assertEqual([t["text"] for t in state["titles"]], ["Boss down"], "the words stay")
+        self.assertTrue(any("the person chose the card layout on the page: the clip was made again in it from "
+                            "moment 1" in t for t in self.chat.told), self.chat.told)
+        self.assertEqual([c["name"] for c in self.ask("GET", panel)[1]["layouts"] if c["now"]], ["card"])
+        self.chat.undo()
+        self.assertEqual(self.chat.project.state()["clip"]["layout"]["kind"], "subject", "one Undo puts it back")
+
     def test_words_are_changed_with_a_post_naming_the_block_and_its_words(self):
         self.make(SAID, call("add_captions", why="say it"))
         body = {"chat": self.chat.id, "kind": "caption", "n": 0, "was": "this is the moment", "words": "this is it"}

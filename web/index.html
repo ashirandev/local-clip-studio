@@ -164,6 +164,7 @@
     <nav class="tools" id="partTabs" aria-label="Change the clip">
       <button type="button" class="tool muse" id="toChat"><svg class="ico"><use href="#i-muse"/></svg>Chat</button>
       <button type="button" class="tool" data-show="trim" aria-pressed="false"><svg class="ico"><use href="#i-cut"/></svg>Trim</button>
+      <button type="button" class="tool" data-show="layout" aria-pressed="false" hidden><svg class="ico"><use href="#i-stack"/></svg>Layout</button>
       <button type="button" class="tool" data-show="frame" aria-pressed="false" hidden><svg class="ico"><use href="#i-move"/></svg>Frame</button>
       <button type="button" class="tool" data-show="caps" aria-pressed="false"><svg class="ico"><use href="#i-cc"/></svg>Captions</button>
       <button type="button" class="tool" data-show="style" aria-pressed="false"><svg class="ico"><use href="#i-aa"/></svg>Style</button>
@@ -186,6 +187,10 @@
       <p class="s-sub"><svg class="ico sm"><use href="#i-bubble"/></svg>Language</p>
       <div class="seg" id="langRow" role="group" aria-label="Language of the captions"></div>
       <p class="panel-why" id="langWhy" hidden></p>
+    </div>
+    <div class="panel-group" data-part="layout">
+      <div class="panel-row" id="layoutRow"></div>
+      <p class="panel-why" id="layoutWhy" role="status" hidden></p>
     </div>
     <div class="panel-group" data-part="style">
       <div class="panel-row wide" id="styleRow"></div>

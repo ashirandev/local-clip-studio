@@ -92,11 +92,11 @@ const phoneFiles = $("phoneFiles");
 const attached = $("attached");
 const idle = text.placeholder;
 
-const SHEETS = { trim: ["cut", "Trim"], frame: ["move", "Frame"], caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
-const EDITS = ["trim", "frame", "caps", "style", "look", "sound", "words", "channel"];
+const SHEETS = { layout: ["stack", "Layout"], trim: ["cut", "Trim"], frame: ["move", "Frame"], caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
+const EDITS = ["layout", "trim", "frame", "caps", "style", "look", "sound", "words", "channel"];
 const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_ends: "cut", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", move_part: "move", mute_sound: "mute", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", show_people: "people", slow_push: "move", undo: "undo", use_channel_look: "at", watch_piece: "eye" };
 
-const room = { mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null, sends: false };
+const room = { mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false, layout: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null, sends: false };
 
 function localStore(key, value) {
   try {
@@ -643,7 +643,7 @@ function stopTimer() {
 
 function setBusy() {
   const busy = room.open.size > 0;
-  stopButton.hidden = !(busy || room.work.video || room.work.preview || room.work.ends);
+  stopButton.hidden = !(busy || room.work.video || room.work.preview || room.work.ends || room.work.layout);
   stopButton.disabled = false;
   text.placeholder = room.attached ? "What to do? Or just send" : busy ? "Change what Muse is doing" : idle;
   showStatus();
@@ -1228,6 +1228,7 @@ function drawPanel(d) {
   partTabs.querySelector('[data-show="channel"]').hidden = !d.channels;
   partTabs.querySelector('[data-show="sound"]').hidden = !(d.sound && d.sound.has);
   partTabs.querySelector('[data-show="frame"]').hidden = !d.frame || Boolean(d.frame.why);
+  partTabs.querySelector('[data-show="layout"]').hidden = !d.layouts;
   const caps = $("capsRow");
   const langs = $("langRow");
   const styles = $("styleRow");
@@ -1249,6 +1250,7 @@ function drawPanel(d) {
   drawChoices(langs, $("langWhy"), d.languages, (c) => (c.say ? askMuse(langs, c) : choose(langs, "/api/captions", { language: c.name })), null);
   drawChoices(styles, $("styleWhy"), d.styles, (c) => choose(styles, "/api/style", { style: c.name }), stylePic);
   drawChoices(looks, $("lookWhy"), d.looks, (c) => choose(looks, "/api/colour", { look: c.name }), lookPic);
+  if (d.layouts) drawLayouts(d.layouts, at);
   if (d.channels) drawChannels(d.channels);
   drawSound(d.sound);
   drawTrim();
@@ -1773,6 +1775,44 @@ async function askMuse(row, c) {
   loadPanel();
 }
 
+function drawLayouts(choices, at) {
+  const row = $("layoutRow");
+  const tile = () => {
+    const none = el("div", "layout-none");
+    none.appendChild(ico("stack"));
+    return none;
+  };
+  const pic = (c) => {
+    if (!c.picture) return tile();
+    const img = el("img", "look-pic layout-pic");
+    img.addEventListener("error", () => img.replaceWith(tile()));
+    img.src = "/api/clipframe?chat=" + encodeURIComponent(room.chat) + "&t=" + at.toFixed(1) + "&layout=" + c.name + "&width=180";
+    img.alt = "";
+    return img;
+  };
+  drawChoices(row, $("layoutWhy"), choices, chooseLayout, pic);
+  if (room.work.layout) row.querySelectorAll("button").forEach((b) => (b.disabled = true));
+}
+
+async function chooseLayout(c) {
+  const row = $("layoutRow");
+  const why = $("layoutWhy");
+  row.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  why.hidden = false;
+  why.textContent = "Making the clip in the " + c.label + " layout…";
+  try {
+    const d = await post("/api/layout", { chat: room.chat, layout: c.name });
+    if (!d.ok) {
+      why.textContent = d.error || "The layout could not be changed.";
+      loadPanel();
+      return;
+    }
+    pageWork("layout", true);
+  } catch (err) {
+    why.textContent = "The studio is not answering. Start it again with: python app.py";
+  }
+}
+
 async function choose(row, path, body) {
   row.querySelectorAll("button").forEach((b) => (b.disabled = true));
   panelNote.textContent = "";
@@ -2135,6 +2175,15 @@ function on(e) {
     loadPanel();
     return;
   }
+  if (e.kind === "relaid" || e.kind === "not_relaid") {
+    pageWork("layout", false);
+    againLine.textContent = "";
+    const why = $("layoutWhy");
+    why.textContent = e.kind === "relaid" ? "" : "The layout was not changed: " + e.error;
+    why.hidden = e.kind === "relaid";
+    loadPanel();
+    return;
+  }
   if (e.kind === "moved" || e.kind === "not_moved") {
     pageWork("ends", false);
     againLine.textContent = "";
@@ -2211,7 +2260,12 @@ function on(e) {
 
 function onThinking(live) {
   if (live.job === null) {
-    if (live.work && live.page === "ends") {
+    if (live.work && live.page === "layout") {
+      if (!room.work.layout) pageWork("layout", true);
+      againLine.textContent = live.work;
+      $("layoutWhy").hidden = false;
+      $("layoutWhy").textContent = live.work;
+    } else if (live.work && live.page === "ends") {
       if (!room.work.ends) pageWork("ends", true);
       againLine.textContent = live.work;
     } else if (live.work && live.page === "preview") {
@@ -2446,7 +2500,7 @@ function show(chatId) {
   room.showing = null;
   room.minded = [];
   room.paid = false;
-  room.work = { video: false, preview: false };
+  room.work = { video: false, preview: false, ends: false, layout: false };
   const known = listed(chatId);
   room.title = known ? known.title || known.first : "";
   chatName.textContent = room.title || "New clip";

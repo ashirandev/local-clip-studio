@@ -520,6 +520,9 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .choice { display: grid; justify-items: center; gap: 6px; flex: none; padding: 0; border: 0; background: none; color: var(--sh-text); font-size: 13px; font-weight: 600; cursor: pointer; }
 .choice .mini, .choice .look-pic { width: 100%; border-radius: 12px; outline: 3px solid transparent; }
 .choice .frame-pic { aspect-ratio: 1; object-fit: cover; object-position: 50% 40%; }
+.choice .layout-pic { aspect-ratio: 9 / 16; object-fit: cover; }
+.choice .layout-none { display: grid; place-items: center; width: 100%; aspect-ratio: 9 / 16; border-radius: 12px; background: var(--sh-raise); color: var(--sh-muted); outline: 3px solid transparent; }
+.choice[aria-pressed="true"] .layout-none { outline-color: var(--sh-accent); }
 .choice[aria-pressed="true"] { color: var(--sh-accent); cursor: default; }
 .choice[aria-pressed="true"] .mini, .choice[aria-pressed="true"] .look-pic { outline-color: var(--sh-accent); }
 .choice:disabled { opacity: 0.5; cursor: not-allowed; }

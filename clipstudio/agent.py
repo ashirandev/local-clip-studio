@@ -33,8 +33,8 @@ import threading
 import time
 import traceback
 
-from . import (asr, channels, chatname, countdown, faces, hearing, layer, maps, mind, montage, needs, previews, project,
-               recording, render, spent, text, words)
+from . import (asr, channels, chatname, countdown, faces, hearing, layer, layouts, maps, mind, montage, needs, previews,
+               project, recording, render, spent, text, words)
 from .tools import (CAPTION_LETTERS, LONGEST, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST, STYLES, TOOLS, UNASKED,
                     Refused, _spoken, _subtitles, _undecided, _waits, channel_entries, channel_unfit, describe, faces_at,
                     features, look_of, look_said)
@@ -59,6 +59,9 @@ CHATS_LISTED = 20
 CHAT_ID = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{4}$")
 TAPPED = "the person tapped it on the page"
 CAPTION_CHOICES = {"off": {"on": False}, "plain": {"pop": False}, "lit": {"lit": True}, "pop": {"pop": True}}
+TALK_KINDS = ("talk", "speaker", "split")
+LAYOUT_LABELS = {"card": "Card", "stack": "Stack", "face": "Face", "subject": "Fill", "talk": "Talk",
+                 "speaker": "Speaker", "split": "Split"}
 COLOUR_LOOKS = ("none",) + tuple(n for n in LOOKS if n != "none")
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"(])")
 PREVIEW_WAIT = 1.0
@@ -349,7 +352,95 @@ class Chat:
                 "words": self.words_on(state), "again": bool(self.rendered) and self.finished() is None,
                 "making": self.making is not None, "channels": self.channels_now(state),
                 "sound": {"mutes": state["mutes"], "has": self.has_sound()}, "ends": self.ends(state),
-                "frame": self.framing(state)}
+                "frame": self.framing(state), "layouts": self.layouts_now(state)}
+
+    def layouts_now(self, state):
+        """The layouts the Layout tab offers this clip, [{"name", "label", "now", "why", "picture"}] (picture: the
+        page may draw the clip in it with /api/clipframe's layout), or None for clips joined from several videos,
+        whose layout Muse chooses. A recording lying down takes every layout of layouts.KINDS, one standing up only
+        the face and the subject (a card or a stack would show its face twice); people talking take the talk
+        layouts too. A layout the recording cannot take is refused when tapped, with make_clip's own reason."""
+        clip = state["clip"]
+        if self.clips or not self.recording or clip.get("moment") is None:
+            return None
+        kind, (w, h) = clip["layout"]["kind"], clip["layout"]["size"]
+        names = list(layouts.KINDS) if w > h else ["face", "subject"]
+        if kind in TALK_KINDS or (self.clip or {}).get("recipe") == "talk":
+            names += list(TALK_KINDS)
+        return [{"name": n, "label": LAYOUT_LABELS[n], "now": n == kind, "why": None,
+                 "picture": self._shape(state, n) is not None} for n in names]
+
+    def layout_for(self, name):
+        """The clip's layout drawn as name would draw it, for the picture of name in the Layout tab, or None. It is
+        made from what the clip has already found (the face), so it costs no looking; the tap makes the clip again
+        and finds more (the action a game's card follows, the product)."""
+        return self._shape(self.project.state(), name)
+
+    def _shape(self, state, name):
+        clip = state["clip"]
+        if not clip:
+            return None
+        lay = clip["layout"]
+        if name == lay["kind"]:
+            return lay
+        if name not in layouts.KINDS:
+            return None
+        try:
+            return layouts.make(name, lay["size"], lay.get("face"), None,
+                                tall=(self.clip or {}).get("recipe") == "game")
+        except ValueError:
+            return None
+
+    def set_layout(self, name):
+        """The person's tap on a layout in the Layout tab: the clip made again from its moment in that layout, by
+        make_clip's own work run in the background as the Trim tab's is, without asking Muse, as a moved clip: what
+        sits on the footage stays on the same seconds of the recording when the pieces come out otherwise (a game's
+        menus cut since it was made); one Undo takes it back, and Muse is told. Tarm 10-30: "ให้คนเลือก layout เองง่ายที่สุด ดูเหมือนเราจะทำให้มัน
+        อัตโนมัติ 100% ไม่ได้". Returns None once it has started, or the sentence why not."""
+        state = self._clip_now()
+        offered = self.layouts_now(state)
+        if offered is None:
+            return "A clip joined from several videos keeps the layout Muse chose: ask Muse to change it."
+        if name not in [c["name"] for c in offered]:
+            return "Choose one of the layouts: %s." % ", ".join(c["label"] for c in offered)
+        if name == state["clip"]["layout"]["kind"]:
+            return None
+        hand = Hand(self, page="layout", whole=True)
+        with self.cond:
+            if self.making:
+                return "The video is being made now. Change the layout when it is done."
+            if self.busy():
+                return "Muse is working on the clip now. Wait until it is done, or press Stop."
+            self.making = hand
+        threading.Thread(target=self._relayout, args=(hand, name, state["clip"]), name="change-layout",
+                         daemon=True).start()
+        return None
+
+    def _relayout(self, hand, name, clip):
+        made = clip.get("made") or {}
+        args = dict({k: made[k] for k in ("face", "product") if made.get(k)}, moment=clip["moment"], layout=name)
+        if made.get("follow") is False:
+            args["follow"] = False
+        before = sum(e["do"] == "clip" for e in self.project.entries)
+        try:
+            said = TOOLS["make_clip"].run(hand, TAPPED, moved=True, **args)
+            said = None if sum(e["do"] == "clip" for e in self.project.entries) > before else said
+        except Refused as e:
+            said = str(e)
+        except (hearing.Stopped, faces.Stopped):
+            said = "Stopped."
+        except Exception as e:
+            said = "The studio broke while making the clip in the %s layout (%s)." % (LAYOUT_LABELS[name], e)
+        finally:
+            hand.done_working()
+            with self.cond:
+                self.making, hand.done = None, True
+        if said:
+            self.emit("not_relaid", error=_first_sentence(said))
+            return
+        self._tell("the person chose the %s layout on the page: the clip was made again in it from moment %d, its "
+                   "words and effects kept" % (name, clip["moment"]))
+        self.emit("relaid", clip=self.clip_view())
 
     def channels_now(self, state):
         """The channel looks the page offers: each saved look with what it puts on a clip, the one in use, and the
