@@ -97,6 +97,23 @@ def values(text):
     return digits(text) | cut_short(text) | thai.values(text or "") | english(text)
 
 
+SCALE_AFTER = re.compile(r"\s*(?:สิบ|ร้อย|พัน|หมื่น|แสน|ล้าน)")
+
+
+def filled(text):
+    """text with each number cut short after its comma written with its zeros back, as cut_short reads it: 5,0บาท is
+    5,000บาท, so the caption shows the price the check reads (lane 5's seller 10-30: a viewer read 5 baht while the
+    title and the post said 5,000). Not a number led by 0, nor one a scale word follows, as 1,5 ล้าน may be one and a
+    half million."""
+    def fill(m):
+        head, _, last = m.group(0).rpartition(",")
+        if not head or not last.isdigit() or len(last) >= 3 or head.lstrip("0") == "" or \
+                SCALE_AFTER.match(m.string, m.end()):
+            return m.group(0)
+        return head + "," + last.ljust(3, "0")
+    return DIGITS.sub(fill, text or "")
+
+
 def cut_short(text):
     """The numbers in text whose group after a comma has fewer than three digits, read with the group filled with
     zeros: the hearing wrote ห้าพันบาท (5,000 baht) as 5,0บาท (lane 5's seller, 10-30), and hand_over refused the right

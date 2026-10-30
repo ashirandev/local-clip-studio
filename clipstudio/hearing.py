@@ -33,7 +33,7 @@ import threading
 import time
 import urllib.parse
 
-from . import asr, ears, mind, recording, sends, thai
+from . import asr, ears, mind, recording, sends, spoken, thai
 
 VERSION = 2
 OWN_URL = os.environ.get("LCS_HEARING_URL", "")
@@ -133,7 +133,7 @@ def heard(rec, start, end):
     """What was heard and kept for this stretch, or None."""
     try:
         with open(os.path.join(recording.WORK, "heard", key(rec, start, end) + ".json"), encoding="utf-8") as f:
-            return json.load(f)
+            return [dict(p, text=spoken.filled(p["text"])) for p in json.load(f)]
     except (OSError, ValueError):
         return None
 
@@ -194,7 +194,8 @@ def hear(rec, start, end, on_start=None, on_paid=None):
         raise Stopped()
     if answer.status != 200:
         raise HearingError("The hearing worker could not hear it (%s)." % got.get("error"))
-    return [{"from": round(start + p["from"], 2), "to": round(start + p["to"], 2), "text": thai.repair(p["text"]),
+    return [{"from": round(start + p["from"], 2), "to": round(start + p["to"], 2),
+             "text": spoken.filled(thai.repair(p["text"])),
              "sure": p.get("sure", 1.0)} for p in got["phrases"] if p["text"].strip()]
 
 
@@ -207,8 +208,8 @@ def _hear_meta(pcm, start, stopped, on_paid):
         raise Stopped()
     if on_paid:
         on_paid(usd)
-    return [{"from": round(start + p["from"], 2), "to": round(start + p["to"], 2), "text": p["text"], "sure": 1.0}
-            for p in said]
+    return [{"from": round(start + p["from"], 2), "to": round(start + p["to"], 2), "text": spoken.filled(p["text"]),
+             "sure": 1.0} for p in said]
 
 
 def fix(ask, lines, kind, before=(), names=()):

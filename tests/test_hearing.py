@@ -254,6 +254,23 @@ class Look(unittest.TestCase):
         self.assertEqual([p["from"] for p in self.steps()[1]["look"]["said"]], [31.0, 34.0])
         self.assertEqual(len(brain.sent), 4, "a look asks Muse nothing aside")
 
+    def test_a_price_the_hearing_cut_short_is_shown_with_its_zeros_back_heard_now_or_kept(self):
+        self.worker.phrases = [{"from": 1.0, "to": 2.5, "text": "ราคา 5,0บาทนะครับ"}]
+        brain, job = self.run_job([call("open_recording", path=self.clip, why="open it")],
+                                  [call("look_at_piece", start="0:30", end="0:50", why="look")], "Done.")
+        job.run()
+        self.assertIn("0:31 ราคา 5,000บาทนะครับ", self.steps()[-1]["result"], "lane 5's seller 10-30: ห้าพันบาท")
+        rec = recording.probe(self.clip)
+        hearing.keep(rec, 1.0, 9.0, [{"from": 2.0, "to": 3.0, "text": "5,0บาท", "sure": 0.9}])
+        self.assertEqual(hearing.heard(rec, 1.0, 9.0)[0]["text"], "5,000บาท", "kept before this was written")
+
+    def test_meta_hearing_shows_a_price_cut_short_with_its_zeros_back_too(self):
+        from unittest import mock
+        heard = ([{"from": 0.0, "to": 1.0, "text": "5,0บาท"}], 0.001)
+        with mock.patch.object(hearing.asr, "hear", lambda pcm, stopped=None: heard):
+            said = hearing._hear_meta(b"\0\0", 30.0, threading.Event(), None)
+        self.assertEqual([(p["from"], p["text"]) for p in said], [(30.0, "5,000บาท")])
+
     def test_the_proposed_moments_get_their_words_fixed_from_context_with_numbers_as_heard(self):
         fixed = json.dumps({"lines": ["สินค้าราคา <N1> บาท", "ใส่ทุกอย่างเข้าไป"]}, ensure_ascii=False)
         brain, job = self.run_job([call("open_recording", path=self.clip, why="open it")],

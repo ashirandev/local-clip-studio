@@ -38,6 +38,13 @@ class Spoken(unittest.TestCase):
         self.assertEqual(spoken.digits("5,0"), {50.0}, "what is written is still read as written")
         self.assertEqual(tools._not_said("iPad ราคา 5,000 บาท", ["5,0บาทนะครับ"]), [])
 
+    def test_a_number_cut_short_after_its_comma_is_written_with_its_zeros_back(self):
+        for heard, shown in (("5,0บาทนะครับ", "5,000บาทนะครับ"), ("ราคา 12,50 บาท", "ราคา 12,500 บาท"),
+                             ("3,000,0", "3,000,000"), ("ราคา 5,000 บาท", "ราคา 5,000 บาท"),
+                             ("5,000.50 บาท", "5,000.50 บาท"), ("1,5 ล้าน", "1,5 ล้าน"), ("1,5ล้าน", "1,5ล้าน"),
+                             ("0,5", "0,5"), ("", "")):
+            self.assertEqual(spoken.filled(heard), shown, heard)
+
     def test_the_language_says_whether_number_words_are_read(self):
         self.assertTrue(spoken.reads("Thai", []))
         self.assertTrue(spoken.reads("ไทย", []))
