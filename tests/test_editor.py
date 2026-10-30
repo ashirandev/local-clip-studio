@@ -466,6 +466,28 @@ class Tools(unittest.TestCase):
                 [call("look_at_piece", start="0:30", end="0:50", why="the top stretch")],
                 [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the tone rings"}])]]
 
+    def test_a_person_who_asked_to_see_the_moments_first_gets_the_cards_and_no_clip_until_a_card_is_tapped(self):
+        script = self.to_moment()
+        wait = [call("propose_moments", why="they asked to see the highlights first", then="wait", plan_step=1,
+                     moments=[{"look": 1, "reason": "the tone rings"}])]
+        _, steps = self.run_job([call("set_plan", steps=["find the moments", "make the clip", "caption it"], why="plan")],
+                                *script[:2], wait, "The cards are ready.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertIn("no clip is made in this job: answer now", steps[-1]["result"])
+        self.assertNotIn("go on with moment 1 by yourself", steps[-1]["result"])
+        answers = [e for e in self.chat.events if e["kind"] == "answer" and e.get("job") == self.chat.job.n]
+        self.assertEqual([(a["text"], a["final"]) for a in answers], [("The cards are ready.", True)],
+                         "the plan's open step does not send Muse on to make the clip")
+        self.assertIsNone(self.chat.project.state()["clip"])
+        _, steps = self.run_job(wait, [call("make_clip", moment=1, layout="subject", why="go on with the best")],
+                                "The cards are ready.")
+        self.assertTrue(steps[-1]["refused"])
+        self.assertIn("the person asked to see the moments first", steps[-1]["result"])
+        self.assertIsNone(self.chat.project.state()["clip"])
+        _, steps = self.run_job([call("make_clip", moment=1, layout="subject", why="the person tapped the card")],
+                                "Done.")
+        self.assertFalse(steps[-1]["refused"], "a tap on a card is a new job, which makes the clip")
+
     def test_the_clip_is_made_from_a_moment_and_muse_sees_its_frame(self):
         brain, steps = self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
                                     "Done.")

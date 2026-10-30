@@ -36,7 +36,7 @@ import traceback
 from . import (asr, channels, chatname, countdown, faces, hearing, layer, maps, mind, montage, needs, previews, project,
                recording, render, spent, text, words)
 from .tools import (CAPTION_LETTERS, LONGEST, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST, STYLES, TOOLS, UNASKED,
-                    Refused, _spoken, _subtitles, _undecided, channel_entries, channel_unfit, describe, faces_at,
+                    Refused, _spoken, _subtitles, _undecided, _waits, channel_entries, channel_unfit, describe, faces_at,
                     features, look_of, look_said)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1132,7 +1132,7 @@ class Job:
                 chat.add(got["message"])
                 if not calls:
                     left = self.finish_plan()
-                    if left and not nudged and not self.refused_last and not closing:
+                    if left and not nudged and not self.refused_last and not closing and not _waits(self):
                         nudged = True
                         self.emit("answer", final=False, text=words.unslipped(got["text"]),
                                   thinking=got["thinking"], engine=got["engine"], mind=self.brain.label)

@@ -10,9 +10,13 @@
 2. **Paste one key.** Setup asks for the endpoint and your own key: type `meta` for Meta's API (Muse Spark,
    `https://api.meta.ai/v1`), `baseten` or `fireworks` for Muse Spark Open there, or paste your Modal endpoint's
    address. Or open Options > API and give the address there.
-3. **Open a recording.** Drop a video on the page, or type the path of a recording or of a folder of clips.
-4. **Type one line**, such as "make a short clip ready to post". Muse plans, cuts, checks and hands over the clip,
-   with a reason for every step.
+3. **Open a recording.** Drop a video on the page, or type the path of a recording or of a folder of clips. A video
+   you drop, pick or send waits on the message box until you press Send, so nothing starts before you say what you
+   want.
+4. **Type one line**, such as "make a short clip ready to post", or send with no words and Muse makes the clip its
+   kind of video calls for. Muse plans, cuts, checks and hands over the clip, with a reason for every step. Ask
+   "find the highlights, don't make anything yet" and it stops at the moments, as cards to look at; a tap on a card
+   makes the clip from it.
 
 Measured 10-29 on Linux, in a clean `python:3.12-slim` container with FFmpeg from apt and no graphics card:
 `setup.sh` finished in 26 s, and with a Meta key one typed line ("ทำคลิปสั้นจาก <a review>.MOV ให้พร้อมโพสต์") took a
@@ -111,8 +115,8 @@ uploaded, and the recording is only ever read.
 computer's Wi-Fi address and its Tailscale address too (only those), and Options shows each address with a QR code
 for the phone's camera. Windows asks once whether Python may use the network. On the phone, tap **+** beside the
 message box, or **Send from this phone**, and pick photos and videos: they go into the `From phone` folder next to the
-studio (a folder for each time you send), one video opens at once, and several open together for Muse to make one
-clip from. Muse makes clips from videos; photos are kept there. Several people can use the studio at once, so a
+studio (a folder for each time you send), and the video waits on the message box (several wait together, for Muse to
+make one clip from) until you press Send, with or without words. Muse makes clips from videos; photos are kept there. Several people can use the studio at once, so a
 group can try it from their own phones; there is nothing to pair, and anyone on that Wi-Fi or Tailscale can use it,
 your API key included (Tarm, 10-29: it is open source, and who shares their Wi-Fi is their call). Phone: Off in
 Options keeps it to this computer, and only this computer can set the key or turn Phone off. Measured on 10-29

@@ -1301,7 +1301,17 @@ def _still(rec, recipe, a, b, avoid):
     return still
 
 
-def propose_moments(job, why, moments):
+# The event of a job whose person asked to see the moments first ("find the highlights, don't make anything yet",
+# Tarm 10-30): its propose_moments ends the work, and make_clip refuses in it; a tap on a card is a new job.
+WAITING = "waiting"
+
+
+def _waits(job):
+    """True when the person asked job to stop at the moments (WAITING)."""
+    return any(e["kind"] == WAITING and e.get("job") == job.n for e in job.chat.events)
+
+
+def propose_moments(job, why, moments, then="make"):
     rec = _open(job, "propose")
     clock, looks = recording.clock, job.chat.looks
     if not looks:
@@ -1386,6 +1396,12 @@ def propose_moments(job, why, moments):
     if len(picked) > 1:
         lines.append("Misheard words are fixed in moment 1's lines; the other moments show theirs as heard until a "
                      "clip is made from one of them.")
+    if then == "wait":
+        job.emit(WAITING)
+        lines.append("The person asked to see the moments first, so no clip is made in this job: answer now, in one or "
+                     "two short lines, that the cards are there to look at, and stop. They tap a card when they want a "
+                     "clip from it. Do not list the moments again in words.")
+        return "\n".join(lines)
     lines.append("When the person asked for several clips, make them all in one go, one from each moment. Otherwise "
                  "go on with moment 1 by yourself and make the clip from it: do not ask the person to choose, and do not "
                  "list the moments again in words. They can tap another card to switch. Nothing is cut, laid out, captioned or blurred until a "
@@ -1643,6 +1659,9 @@ def _show_frame(job, state, rec, t, caption):
 
 def make_clip(job, why, moment, layout, crop=None, face=None, product=None, follow=True, moved=False):
     rec = _open(job, "make a clip from")
+    if _waits(job):
+        raise Refused("Not made: the person asked to see the moments first, and they are on the cards. Answer them now "
+                      "and stop; they tap a card when they want a clip from it.")
     moments = job.chat.moments
     if not moments:
         raise Refused("No moments are proposed yet. Look at the recording and propose moments first: the clip is made "
@@ -5328,8 +5347,13 @@ TOOLS = {t.name: t for t in [
     Tool("propose_moments", "Proposed the moments",
          "Propose the best moments for the clip, best first, each from a look you made. The person sees each as a "
          "card with your reason, a picture from your look and a rough video of the stretch. Then go on with the "
-         "best one yourself; do not ask the person to choose.",
-         {"moments": {"type": "array", "minItems": 1, "maxItems": MOST_MOMENTS,
+         "best one yourself; do not ask the person to choose, unless they asked to see the moments first.",
+         {"then": {"type": "string", "enum": ["make", "wait"],
+                   "description": "wait when the person asked only to find or see the moments and not for a clip yet "
+                                  "(\"just find the highlights\", \"don't make anything yet\", \"ยังไม่ต้องทำ บอกช่วงที่"
+                                  "น่าสนใจ\"): the work stops at the cards. make (the default) when they asked for a "
+                                  "clip, or gave no words."},
+          "moments": {"type": "array", "minItems": 1, "maxItems": MOST_MOMENTS,
                       "description": "1 to %d moments, best first." % MOST_MOMENTS,
                       "items": {"type": "object", "properties": {
                           "look": {"type": "integer", "minimum": 1,

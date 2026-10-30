@@ -85,6 +85,7 @@ const sendsLine = $("sendsLine");
 const phoneLine = $("phoneLine");
 const phoneCodes = $("phoneCodes");
 const phoneFiles = $("phoneFiles");
+const attached = $("attached");
 const idle = text.placeholder;
 
 const SHEETS = { trim: ["cut", "Trim"], caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
@@ -628,7 +629,7 @@ function setBusy() {
   const busy = room.open.size > 0;
   stopButton.hidden = !(busy || room.work.video || room.work.preview || room.work.ends);
   stopButton.disabled = false;
-  text.placeholder = busy ? "Change what Muse is doing" : idle;
+  text.placeholder = room.attached ? "What to do? Or just send" : busy ? "Change what Muse is doing" : idle;
   showStatus();
 }
 
@@ -2514,7 +2515,7 @@ async function sendFiles(files) {
       const d = await upload(f, batch, (part) => {
         words.textContent = head + " · " + Math.round(part * 100) + "%";
       });
-      if (d.ok) sent.push(d);
+      if (d.ok) sent.push(Object.assign({ name: f.name, size: f.size }, d));
       else failed.push(d.error);
     } catch (e) {
       failed.push(f.name + " did not reach the computer. Keep this page open while it sends, then send it again.");
@@ -2526,8 +2527,28 @@ async function sendFiles(files) {
   if (photos) said.push((photos === 1 ? "1 photo is" : photos + " photos are") + " kept there; Muse makes clips from videos.");
   words.textContent = said.join(" ");
   failed.forEach((why) => note(why));
-  if (videos.length === 1) openRecording({ path: videos[0].path });
-  else if (videos.length > 1) openRecording({ folder: videos[0].folder });
+  if (videos.length === 1) attach({ path: videos[0].path }, videos[0].name, sizeText(videos[0].size));
+  else if (videos.length > 1) attach({ folder: videos[0].folder }, videos.length + " videos", "from your phone");
+}
+
+function attach(body, name, meta) {
+  const off = el("button", "off");
+  off.type = "button";
+  off.setAttribute("aria-label", "Take " + name + " off");
+  off.append(ico("x", "sm"));
+  off.addEventListener("click", detach);
+  room.attached = { body: body, name: name };
+  attached.replaceChildren(ico("film", "sm"), el("span", "name", name), el("span", "meta", meta || ""), off);
+  attached.hidden = false;
+  setBusy();
+  text.focus();
+}
+
+function detach() {
+  room.attached = null;
+  attached.hidden = true;
+  attached.replaceChildren();
+  setBusy();
 }
 
 function sizeText(bytes) {
@@ -2616,6 +2637,10 @@ async function say(words) {
 composer.addEventListener("submit", async (e) => {
   e.preventDefault();
   const words = text.value.trim();
+  if (room.attached) {
+    openRecording(room.attached.body);
+    return;
+  }
   if (!words || !room.chat) return;
   text.value = "";
   fitText();
@@ -2884,7 +2909,7 @@ async function fillNewest() {
       const b = el("button", "recording");
       b.type = "button";
       b.append(ico("film"), el("span", "first", rec.name), el("span", "meta", [rec.length, rec.size, rec.when].filter(Boolean).join(" · ")));
-      b.addEventListener("click", () => openRecording({ path: rec.path }));
+      b.addEventListener("click", () => attach({ path: rec.path }, rec.name, rec.length));
       box.appendChild(b);
     });
   } catch (err) {
@@ -2899,6 +2924,7 @@ async function openRecording(body) {
     if (d.ok) {
       text.value = "";
       fitText();
+      detach();
       return;
     }
     note(d.error || "Something went wrong.");
@@ -2908,7 +2934,7 @@ async function openRecording(body) {
 }
 
 function openFile(file) {
-  if (file) openRecording({ name: file.name, size: file.size, mtime: file.lastModified / 1000 });
+  if (file) attach({ name: file.name, size: file.size, mtime: file.lastModified / 1000 }, file.name, sizeText(file.size));
 }
 
 $("add").addEventListener("click", () => {
