@@ -231,25 +231,38 @@ class Moments(unittest.TestCase):
         self.assertIn("Nothing was proposed yet. A heard line is a stretch of sound, not a sentence", said[0]["result"])
         self.assertIn("The moment's start at 0:31.00:\n  0:31.00-0:36.00 a long line of sound\n  0:36.00-0:42.00 a long line",
                       said[0]["result"])
-        self.assertIn("Propose again: start each moment at the time the piece that opens a thought begins, and end it "
-                      "at the time the piece that finishes a thought ends", said[0]["result"])
+        self.assertIn("Propose again: start each moment at the time the piece that opens a new thought begins, and end "
+                      "it at the time the piece that finishes a thought ends", said[0]["result"])
+        self.assertIn("A piece that still finishes or agrees with what came before is the close of that thought, not "
+                      "a start.", said[0]["result"])
         self.assertEqual(self.chat.moments[0]["start"], 36.0)
         self.assertEqual(self.chat.moments[0]["n"], 1)
 
-    def test_moments_that_only_touch_are_both_kept(self):
-        """Spark 10-30 on the seller: the program moved two edges past each other by 0.3 s, and Muse, sending the same
-        moments, was refused 5 times in a run."""
+    def test_an_overlap_the_program_made_is_settled_by_the_program(self):
+        """Spark 10-30 on the seller: the program moved the edges of two moments Muse kept apart past each other, Muse
+        could not see why it was refused, and it sent the same moments 5 times or dropped one."""
+        self.worker.phrases = [{"from": 18.0, "to": 21.0, "text": "a line"}]
+        moment = {"look": 1, "reason": "the tone"}
+        fixed = '{"lines": ["a line"]}'
+        _, steps = self.run_job(self.opened(), [call("look_at_piece", start="0:20", end="1:00", why="look")],
+                                [call("propose_moments", moments=[dict(moment, start="0:20", end="0:40"),
+                                                                  dict(moment, start="0:40", end="0:55")],
+                                      why="side by side")], fixed,
+                                [call("propose_moments", moments=[dict(moment, start="0:40", end="0:55"),
+                                                                  dict(moment, start="0:20", end="0:40")],
+                                      why="the other way round")], fixed, "Done.")
+        said = [s for s in steps if s["tool"] == "propose_moments"]
+        self.assertEqual([s["refused"] for s in said], [False, False], said[0]["result"][:200])
+        self.assertEqual([(m["start"], m["end"]) for m in self.chat.moments], [(37.75, 55.0), (20.0, 37.75)])
+
+    def test_a_moment_the_settling_leaves_too_short_is_refused(self):
+        self.worker.phrases = [{"from": 18.0, "to": 21.0, "text": "a line"}]
         moment = {"look": 1, "reason": "the tone"}
         _, steps = self.run_job(self.opened(), [call("look_at_piece", start="0:20", end="1:00", why="look")],
-                                [call("propose_moments", moments=[dict(moment, start="0:20", end="0:40.6"),
-                                                                  dict(moment, start="0:40", end="0:55")],
-                                      why="side by side")],
-                                [call("propose_moments", moments=[dict(moment, start="0:40", end="0:55"),
-                                                                  dict(moment, start="0:20", end="0:40.6")],
-                                      why="the other way round")], "Done.")
-        said = [s for s in steps if s["tool"] == "propose_moments"]
-        self.assertEqual([s["refused"] for s in said], [False, False])
-        self.assertEqual([(m["start"], m["end"]) for m in self.chat.moments], [(40.0, 55.0), (20.0, 40.0)])
+                                [call("propose_moments", moments=[dict(moment, start="0:20", end="0:40"),
+                                                                  dict(moment, start="0:40", end="0:50")],
+                                      why="side by side")], "Done.")
+        self.assertIn("Moment 2 is 9 s long", steps[-1]["result"])
 
     def test_a_moment_may_use_what_the_look_heard_beyond_its_pictures(self):
         moment = {"look": 1, "reason": "the tone"}
@@ -572,13 +585,17 @@ class Snap(unittest.TestCase):
             {"from": 40.9, "to": 41.9, "text": "สามพันบาทนะครับ"},
             {"from": 42.3, "to": 44.3, "text": "ใครอยากได้กด CF ไปได้เลย"}]}
         a, b, said = tools._snapped(look, 9.0, 39.0, price=True)
-        self.assertEqual(b, 42.15)
-        self.assertIn("ends 3.1 s later, so the price said right after it is in the clip", said)
+        self.assertEqual(b, 44.55)
+        self.assertIn("ends 5.5 s later, so the call to buy said right after the price is in the clip", said)
+        alone = dict(look, said=look["said"][:2])
+        self.assertEqual(tools._snapped(alone, 9.0, 39.0, price=True)[1], 42.15)
+        self.assertIn("ends 3.1 s later, so the price said right after it is in the clip",
+                      tools._snapped(alone, 9.0, 39.0, price=True)[2])
         self.assertEqual(tools._snapped(look, 9.0, 39.0)[1], 39.0, "not a seller: the end stays")
         self.assertEqual(tools._snapped(dict(look, heard=[3.0, 41.0]), 9.0, 39.0, price=True)[1], 39.0,
                          "a price not heard whole is not reached for")
         self.assertEqual(tools._snapped(look, 9.0, 32.0, price=True)[1], 32.0, "8.9 s on is past PRICE_REACH")
-        self.assertEqual(tools._snapped(look, 9.0, 34.0, price=True)[1], 42.15, "inside the line before the price, "
+        self.assertEqual(tools._snapped(look, 9.0, 34.0, price=True)[1], 44.55, "inside the line before the price, "
                          "the end finishes the line, and the price follows it")
 
     def test_edges_never_leave_the_look(self):
@@ -619,6 +636,35 @@ class Snap(unittest.TestCase):
         self.assertEqual(tools._snapped(self.CLOSING, 205.5, 215.0)[0], 205.5, "10 s is the least a clip can be")
         more = dict(self.CLOSING, said=self.CLOSING["said"] + [{"from": 211.0, "to": 212.0, "text": "b"}])
         self.assertEqual(tools._snapped(more, 207.0, 240.0)[0], 207.0, "a line that only ends on it is its own")
+
+    ASK = {"start": 0.0, "end": 60.0, "said": [{"from": 12.0, "to": 39.5, "text": "จอยตัวนี้ดีมาก"},
+                                               {"from": 39.71, "to": 41.71, "text": "สนนราคาอยู่ที่สามพันบาท"},
+                                               {"from": 42.15, "to": 44.03, "text": "ใครอยากได้กดสี่เอฟไว้ได้เลย"},
+                                               {"from": 44.65, "to": 46.34, "text": "สินค้าชิ้นที่สองครับ"}]}
+
+    def test_a_sellers_call_to_buy_right_after_the_price_is_in_that_clip(self):
+        """The balm clip opened on the PS5's "กดสี่เอฟไว้ได้เลย": the PS5's clip stopped at the price, and the line
+        after it was left for the next clip to open on."""
+        a, b, said = tools._snapped(self.ASK, 12.0, 41.96, price=True)
+        self.assertEqual((a, b), (12.0, 44.28), "from a clip that ends right after the price")
+        self.assertEqual(said, "ends 2.3 s later, so the call to buy said right after the price is in the clip")
+        self.assertEqual(tools._snapped(self.ASK, 12.0, 40.0, price=True)[1], 44.28, "from a clip that ends in the price")
+        self.assertEqual(tools._snapped(self.ASK, 12.0, 38.0, price=True)[1], 44.28, "from one the price follows")
+
+    def test_a_call_to_buy_counts_only_for_a_seller_right_after_a_price(self):
+        self.assertEqual(tools._snapped(self.ASK, 12.0, 41.96)[1], 41.96, "not a seller")
+        plain = dict(self.ASK, said=[dict(self.ASK["said"][1], text="จอยตัวนี้ดี")] + self.ASK["said"][2:])
+        self.assertEqual(tools._snapped(plain, 20.0, 41.96, price=True)[1], 41.96, "no price before it")
+        far = dict(self.ASK, said=self.ASK["said"][:2] + [dict(self.ASK["said"][2], **{"from": 43.5, "to": 44.5})])
+        self.assertEqual(tools._snapped(far, 12.0, 41.96, price=True)[1], 41.96, "too long after the price")
+        other = dict(self.ASK, said=self.ASK["said"][:2] + [dict(self.ASK["said"][2], text="ต่อไปครับ")])
+        self.assertEqual(tools._snapped(other, 12.0, 41.96, price=True)[1], 41.96, "not a call to buy")
+        cut = dict(self.ASK, heard=[0.0, 43.0])
+        self.assertEqual(tools._snapped(cut, 12.0, 41.96, price=True)[1], 41.96, "past what was heard")
+
+    def test_a_clip_with_no_room_keeps_to_the_longest_a_clip_can_be(self):
+        with mock.patch.object(tools, "LONGEST", 30):
+            self.assertEqual(tools._snapped(self.ASK, 12.0, 41.96, price=True)[1], 41.96)
 
     def test_a_start_on_a_unit_moves_back_to_the_number_and_what_it_measures(self):
         a, b, said = tools._snapped(self.SELLER, 80.0, 110.0)

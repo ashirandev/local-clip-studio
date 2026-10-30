@@ -1260,6 +1260,12 @@ def _snapped(look, a, b, price=False):
                    and PRICE.search(p["text"]) and p["to"] + AIR - na <= LONGEST), None)
     if priced:
         nb = round(priced["to"] + AIR, 2)
+    last = next((p for p in reversed(lines) if p["from"] < nb), None)
+    asked = next((p for p in lines if price and last and PRICE.search(last["text"]) and p["to"] <= hi
+                  and 0 <= p["from"] - last["to"] <= ASK_GAP and ASKS.search(p["text"])
+                  and p["to"] + AIR - na <= LONGEST), None)
+    if asked:
+        nb = round(asked["to"] + AIR, 2)
     moved = []
     if closing:
         moved.append("starts %.1f s later, so it does not open on \"%s\", which closes what was said before it"
@@ -1270,7 +1276,9 @@ def _snapped(look, a, b, price=False):
                      "before it" % (a - na, " ".join(opened["text"].split())[:CARRY_SHOWN]))
     elif na != a:
         moved.append("starts %.1f s earlier, so it opens before a line rather than inside it" % (a - na))
-    if priced:
+    if asked:
+        moved.append("ends %.1f s later, so the call to buy said right after the price is in the clip" % (nb - b))
+    elif priced:
         moved.append("ends %.1f s later, so the price said right after it is in the clip" % (nb - b))
     elif nb > b:
         moved.append("ends %.1f s later, so it closes after a line rather than inside it" % (nb - b))
@@ -1282,15 +1290,18 @@ def _snapped(look, a, b, price=False):
 
 PRICE = re.compile("บาท|฿")
 PRICE_REACH = 6.0
+ASKS = re.compile("สนใจ|อยากได้|CF|ซีเอฟ|สี่เอฟ|DM|ดีเอ็ม|ทักมา|ทักแชท|อินบ็อกซ์", re.I)
+ASK_GAP = 1.5
 ONLY_CLOSES = re.compile("^(?:นะครับ|นะคะ|ครับผม|ครับ|ค่ะ|คะ|นะ)$")
 CLOSES_FIRST = re.compile("^\\s*(?:นะครับ|นะคะ|ครับผม|ครับ|ค่ะ|คะ|นะ)\\s+\\S")
 FINER_OVER = 6.0
 FINER_KINDS = ("explain", "seller", "talk")
 FINER = ("Nothing was proposed yet. A heard line is a stretch of sound, not a sentence, and these lines at the edges of "
          "your moments were one stretch each, so the program heard them again piece by piece, each with when it begins "
-         "and when it ends:\n%s\nPropose again: start each moment at the time the piece that opens a thought begins, and "
-         "end it at the time the piece that finishes a thought ends, so the clip does not open on the close of what "
-         "came before and does not stop inside a sentence.")
+         "and when it ends:\n%s\nPropose again: start each moment at the time the piece that opens a new thought "
+         "begins, and end it at the time the piece that finishes a thought ends, so the clip does not stop inside a "
+         "sentence. A piece that still finishes or agrees with what came before is the close of that thought, not a "
+         "start.")
 
 
 def _fine(t):
@@ -1576,15 +1587,12 @@ def _waits(job):
     return any(e["kind"] == WAITING and e.get("job") == job.n for e in job.chat.events)
 
 
-TOUCHING = 1.0
-
-
 def propose_moments(job, why, moments, then="make"):
     rec = _open(job, "propose")
     clock, looks = recording.clock, job.chat.looks
     if not looks:
         raise Refused("You have not looked at any stretch yet. Look first: a moment you propose must be one you saw.")
-    picked, finer = [], []
+    picked, gave, finer = [], [], []
     for i, m in enumerate(moments, 1):
         if not 1 <= m["look"] <= len(looks):
             raise Refused("Moment %d names look %d, but your looks are: %s. Name one of them, or look first."
@@ -1599,11 +1607,21 @@ def propose_moments(job, why, moments, then="make"):
                           "saw, or look at that stretch first." % (i, clock(a), clock(b), look["n"],
                                                                    clock(look["start"]), clock(look["end"])))
         a, b = max(a, lo), min(b, hi)
+        gave.append((a, b))
         try:
             finer += _finer_edges(job, rec, look, a, b)
         except hearing.Stopped:
             return "Not proposed: the person pressed Stop."
         a, b, snapped = _snapped(look, a, b, (job.chat.clip or {}).get("recipe") == "seller")
+        for other, (x, y) in zip(picked, gave):
+            if y <= gave[-1][0] and a < other["end"]:
+                a = other["end"]
+            elif gave[-1][1] <= x and other["start"] < b:
+                b = other["start"]
+            elif a < other["end"] and other["start"] < b:
+                raise Refused("Moments %d and %d overlap (%s-%s and %s-%s). Each moment must be its own stretch: move "
+                              "one, or keep only the better." % (other["n"], i, clock(other["start"]),
+                                                                  clock(other["end"]), clock(a), clock(b)))
         if round(rec["seconds"]) < SHORTEST:
             raise Refused(TOO_SHORT % (rec["name"], round(rec["seconds"], 1), SHORTEST) + " Do not propose it again.")
         if round(look["end"] - look["start"]) < SHORTEST:
@@ -1620,15 +1638,6 @@ def propose_moments(job, why, moments, then="make"):
                           % (look["n"], len(pictures), i, m["picture"]))
         aim = look["loudest"] if look["loudest"] is not None and a <= look["loudest"] <= b else (a + b) / 2
         shown = pictures[m["picture"] - 1] if m.get("picture") else min(pictures, key=lambda p: abs(p["t"] - aim))
-        for other in picked:
-            if other["start"] < a < other["end"] <= a + TOUCHING:
-                a = other["end"]
-            elif a < other["start"] < b <= other["start"] + TOUCHING:
-                b = other["start"]
-            elif a < other["end"] and other["start"] < b:
-                raise Refused("Moments %d and %d overlap (%s-%s and %s-%s). Each moment must be its own stretch: move "
-                              "one, or keep only the better." % (other["n"], i, clock(other["start"]),
-                                                                  clock(other["end"]), clock(a), clock(b)))
         picked.append({"n": i, "look": look["n"], "start": round(a, 2), "end": round(b, 2), "reason": m["reason"],
                        "snapped": snapped,
                        "frame": shown["frame"], "t": shown["t"]})
