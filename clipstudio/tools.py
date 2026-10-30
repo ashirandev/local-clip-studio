@@ -20,6 +20,7 @@ import types
 import numpy as np
 
 from . import (channels, cover, cutout, effects, faces, focus, hearing, layouts, maps, mind, montage, pauses, person,
+               picture,
                countdown, previews,
                project, recording, render, review, sends, voices,
                screen, spoken, takes, talk, text, thai, tracks, watch, words)
@@ -3751,6 +3752,63 @@ def _flurry_size(pngs, box, move, count, length):
     raise Refused(str(error))
 
 
+PICTURE_LENGTH = 3.0
+PICTURE_LEAST = 480
+PICTURE_MOST = 960
+
+
+def add_picture(job, why, about, at, length=PICTURE_LENGTH):
+    """Muse Image draws a picture of what is said (picture.make, from the words about alone) and it covers the top of
+    the frame from `at` for length seconds, down to the highest face (or the product) on screen then, at most to the
+    middle of the frame, its lower edge fading into the footage, under the titles and captions. Tarm 10-30: a talk
+    that shows a new picture on top as each thing is named holds the eye ("ตอนที่พูดถึงเรื่องผีก็มีภาพผี")."""
+    rec = _open(job, "put a picture on")
+    state = _clip_state(job)
+    _watch_first(job, state)
+    clip_length = state["length"]
+    if not 0 <= at < clip_length:
+        raise Refused("at %g s is outside the clip, which is %g s long: use seconds of the clip." % (at, clip_length))
+    length = min(length, round(clip_length - at, 2))
+    if length < 2 * effects.PICTURE_FADE:
+        raise Refused("At %g s the clip ends %g s later; a picture needs %g s to come in and go out. Put it earlier."
+                      % (at, round(clip_length - at, 2), 2 * effects.PICTURE_FADE))
+    times, every = _face_times(state, rec)
+    tops = [b[1] for t, boxes in times if at - every <= t <= at + length for b in boxes]
+    bottom = layouts._even(min(tops + [PICTURE_MOST]))
+    if bottom < PICTURE_LEAST:
+        raise Refused("From %g to %g s a face or the product comes up to y %d on your grid, so a picture above them "
+                      "would be too short to see. Put it where they sit lower, or leave it out."
+                      % (at, round(at + length, 2), layouts.grid(bottom, "y", up=False)))
+    box = [0, 0, layouts.W, bottom]
+    job.working("%s is drawing %s" % (picture.LABEL, " ".join(about.split())[:60]))
+    try:
+        got = picture.make(about)
+        png = picture.fitted(got["path"], box[2], box[3])
+    except picture.PictureError as e:
+        got = {"usd": e.usd, "error": str(e)}
+    finally:
+        job.done_working()
+    if got["usd"]:
+        job.paid({"engine": {"read_new": None, "reused": None, "written": None, "usd": got["usd"]}},
+                 types.SimpleNamespace(key="image", label=picture.LABEL, model_id=cover.model()))
+    if got.get("error"):
+        return "No picture: %s Tell the person, or go on without it." % got["error"]
+    replaced = [k for k in state["pictures"] if k["at"] < at + length and at < k["at"] + k["length"]]
+    state = job.edit({"do": "picture", "png": png, "at": round(at, 2), "length": length, "box": box,
+                      "about": " ".join(about.split())})
+    said = " ".join(about.split())
+    lines = ["Kept the picture of %s (made before, at no cost)." % said if got["reused"] else
+             "%s drew the picture of %s in %g s, for $%g." % (picture.LABEL, said, got["seconds"], got["usd"]),
+             "It covers the top of the frame from %g to %g s, down to just above the people (%s on your grid), its "
+             "lower edge fading into the footage, under the titles and captions."
+             % (round(at, 2), round(at + length, 2), layouts.on_grid(0, bottom, "y", inward=False))]
+    if replaced:
+        lines.append("It replaces %s." % ", ".join("the picture of %s at %g s" % (k["about"], k["at"])
+                                                     for k in replaced))
+    lines.append(_show_frame(job, state, rec, round(at + length / 2, 2), "The clip with the picture:"))
+    return "\n".join(lines)
+
+
 def add_flurry(job, why, stickers, at, move="burst", count=8, length=None, place=None, box=None, person_said=None):
     asked = _asked(job, person_said)
     rec = _open(job, "put a flurry on")
@@ -5037,6 +5095,8 @@ def describe(entry):
         return "the %s at %g s" % (entry["kind"], entry["at"])
     if entry["do"] == "sticker":
         return "the sticker %sat %g s" % (entry["name"] + " " if entry.get("name") else "", entry["at"])
+    if entry["do"] == "picture":
+        return "the picture of %s at %g s" % (entry["about"], entry["at"])
     if entry["do"] == "glass":
         return "the %s glass box at %g-%g s" % (entry["tint"], entry["start"], entry["end"])
     if entry["do"] == "flurry":
@@ -5689,6 +5749,22 @@ TOOLS = {t.name: t for t in [
                                          "chat, quoted. Then it goes there even over a face or where a phone covers "
                                          "it, and the result says so."}},
          ["sticker", "at"], add_sticker, changes=True),
+    Tool("add_picture", "Drew a picture",
+         "Have Muse Image draw a picture of something the clip names, and show it over the top of the frame, above "
+         "the people, its lower edge fading into the footage, under the titles and captions: a ghost while they "
+         "tell a ghost story, a crowd on phones while they talk about millions of viewers. A new picture each time "
+         "a new thing is named holds the eye through a talk; 1 to 3 in a clip, each on the second its thing is "
+         "said. Only your words go to Meta, never the footage. It costs $%g a picture; the same words again cost "
+         "nothing. A picture at an overlapping time replaces the earlier one." % picture.USD,
+         {"about": {"type": "string", "minLength": 3, "maxLength": 300,
+                    "description": "What the picture shows, in English, as a scene: the thing named and where it is, "
+                                   "such as \"a pale ghost peeking from a dark doorway of an old wooden house at "
+                                   "night\". No real or famous person, no brand, no writing."},
+          "at": {"type": "number", "minimum": 0, "description": "When it comes in, in seconds of the clip: when its "
+                                                                 "thing is said."},
+          "length": {"type": "number", "minimum": 0.6, "maximum": 10,
+                     "description": "How long it stays, in seconds. Leave it out for %g." % PICTURE_LENGTH}},
+         ["about", "at"], add_picture, changes=True),
     Tool("add_flurry", "Send stickers flying",
          "Send many copies of the studio's stickers moving together for a moment: money bursting out on a payout, "
          "coins raining on a win, hearts rising on a thank-you, confetti at the end. The moves: " +

@@ -862,6 +862,44 @@ class StudioStickers(unittest.TestCase):
 
 
 @unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")
+class Pictures(unittest.TestCase):
+    """A white 1080x600 picture, see-through from y 390 down to its lower edge, over the top of the frame from 0.5 s
+    for 1.5 s."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.png = os.path.join(cls.tmp, "a picture.png")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=white:s=1080x600", "-vf",
+                        "format=rgba,geq=r=255:g=255:b=255:a='255*min(1,(600-Y)/210)'", "-frames:v", "1", cls.png],
+                       check=True)
+        cls.frames = sticker_frames(effects.picture(cls.png, 0.5, 1.5, (0, 0, 1080, 600)),
+                                    [14, 15, 20, 30, 55, 60], seconds=2.2)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_it_covers_the_top_and_fades_into_the_frame_at_its_lower_edge(self):
+        top, low, under = (int(self.frames[30][y, 540]) for y in (100, 597, 700))
+        self.assertGreater(top, 225, "the picture over the top")
+        self.assertLess(abs(low - 128), 6, "its lower edge fades into the frame")
+        self.assertEqual(under, 128, "under it the frame is its own")
+
+    def test_it_comes_in_and_goes_out_and_nothing_shows_outside_its_time(self):
+        self.assertIsNone(drawn_box(self.frames[14]), "nothing before at")
+        coming, held, going = (int(self.frames[n][100, 540]) for n in (20, 30, 55))
+        self.assertTrue(128 < coming < held and 128 < going < held, (coming, held, going))
+        self.assertIsNone(drawn_box(self.frames[60]), "nothing after its length")
+
+    def test_wrong_input_says_what_to_send(self):
+        with self.assertRaisesRegex(ValueError, "length 0.4 is not a picture's length: use 0.6 to 60 seconds"):
+            effects.picture(self.png, 1, 0.4, (0, 0, 1080, 600))
+        with self.assertRaisesRegex(ValueError, r"box \(0, 0, 1080, 2000\) runs off the 1080x1920 frame"):
+            effects.picture(self.png, 1, 1, (0, 0, 1080, 2000))
+
+
+@unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")
 class Sounds(unittest.TestCase):
     """Each sound added at 1 s to a quiet tone of 3 s, and alone on silence."""
 

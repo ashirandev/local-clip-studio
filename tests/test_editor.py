@@ -239,6 +239,17 @@ class Projects(unittest.TestCase):
         p.add({"do": "mute", "spans": [[14, 16.5]], "start": 1, "end": 3.5, "back": False})
         self.assertEqual(p.state()["captions"]["drafts"], [], "a draft said where the sound is muted goes")
 
+    def test_a_picture_at_an_overlapping_time_replaces_the_earlier_one_and_stays_on_its_second(self):
+        p = project.Project([{"do": "clip", "moment": 1, "pieces": [[10, 30]], "layout": {"kind": "card"}}])
+        for about, at, length in (("a ghost", 2, 3), ("a crowd", 4, 3), ("money", 8, 2), ("a cat", 25, 2)):
+            p.add({"do": "picture", "png": "%s.png" % about, "at": at, "length": length, "box": [0, 0, 1080, 900],
+                   "about": about})
+        self.assertEqual([(k["about"], k["at"]) for k in p.state()["pictures"]], [("a crowd", 4), ("money", 8)],
+                         "a crowd at 4-7 s went over a ghost's 2-5 s; a cat at 25 s is after the 20 s clip")
+        p.add({"do": "clip", "moment": 1, "pieces": [[13, 30]], "layout": {"kind": "card"}, "moved": True})
+        self.assertEqual([(k["about"], k["at"]) for k in p.state()["pictures"]], [("a crowd", 1), ("money", 5)],
+                         "each stays on the second of the recording it was put on")
+
     def test_a_private_blur_belongs_to_its_clip_and_a_plain_one_is_kept(self):
         p = project.Project()
         p.add({"do": "clip", "moment": 1, "pieces": [[30, 50]], "layout": {"kind": "card"}})
@@ -1504,6 +1515,67 @@ class Tools(unittest.TestCase):
                          [([108, 845, 756, 221], 1, 5, "dark", True), ([108, 845, 756, 221], 10, 14, "light", True),
                           ([108, 845, 756, 221], 15, 18, "light", True)])
         self.assertIn("glass boxes: dark 1-5 s, light 10-14 s, light 15-18 s, stickers: fire at 1 s, star at 2.5 s", self.chat.clip_line())
+
+    def test_muse_image_draws_a_picture_of_what_is_said_over_the_top_above_the_people(self):
+        """Tarm 10-30, on a talk that shows a new picture on top as each thing is named: "ตอนที่พูดถึงเรื่องผีก็มีภาพผี"."""
+        from unittest import mock
+        drawn = os.path.join(self.tmp, "drawn.jpg")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=1920x1280", "-frames:v", "1",
+                        drawn], check=True)
+        asked = []
+
+        def make(about):
+            asked.append(about)
+            if about == "a refused thing":
+                raise tools.picture.PictureError("Muse Image refused to draw it (HTTP 400: no).", 0.0)
+            again = len(asked) > 2
+            return {"path": drawn, "usd": 0.0 if again else 0.01, "seconds": 0.0 if again else 9.5, "reused": again}
+
+        low, high = (([(t / 2.0, [[300, y, 300, 300]]) for t in range(41)], 0.5) for y in (1100, 200))
+        with mock.patch.object(tools.picture, "make", make), mock.patch.object(tools, "_face_times",
+                                                                             return_value=low):
+            brain, steps = self.run_job(
+                *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("add_picture", about="a pale ghost in a dark doorway", at=2, why="the ghost story")],
+                [call("add_picture", about="a crowd looking at their phones", at=3, length=4, why="the viewers")],
+                [call("add_picture", about="a crowd looking at their phones", at=12, why="again")],
+                [call("add_picture", about="a ghost", at=19.8, why="at the very end")],
+                [call("add_picture", about="a refused thing", at=8, why="refused")],
+                "Done.")
+            with mock.patch.object(tools, "_face_times", return_value=high):
+                _, more = self.run_job([call("add_picture", about="a ghost", at=8, why="faces high")], "Done.")
+        ghost, crowd, again, late, refused = steps[-5:]
+        self.assertFalse(ghost["refused"], ghost["result"])
+        self.assertIn("Muse Image drew the picture of a pale ghost in a dark doorway in 9.5 s, for $0.01.",
+                      ghost["result"])
+        self.assertIn("It covers the top of the frame from 2 to 5 s, down to just above the people (y 0 to 500 on "
+                      "your grid), its lower edge fading into the footage, under the titles and captions.",
+                      ghost["result"])
+        self.assertIn("comes next as a picture", ghost["result"])
+        self.assertIn("It replaces the picture of a pale ghost in a dark doorway at 2 s.", crowd["result"])
+        self.assertIn("Kept the picture of a crowd looking at their phones (made before, at no cost).",
+                      again["result"])
+        self.assertTrue(late["refused"])
+        self.assertIn("a picture needs 0.6 s to come in and go out. Put it earlier.", late["result"])
+        self.assertFalse(refused["refused"])
+        self.assertIn("No picture: Muse Image refused to draw it (HTTP 400: no). Tell the person, or go on without "
+                      "it.", refused["result"])
+        self.assertTrue(more[-1]["refused"])
+        self.assertIn("From 8 to 11 s a face or the product comes up to y 104 on your grid, so a picture above them "
+                      "would be too short to see.", more[-1]["result"])
+        state = self.chat.project.state()
+        self.assertEqual([(k["about"], k["at"], k["length"], k["box"]) for k in state["pictures"]],
+                         [("a crowd looking at their phones", 3, 4, [0, 0, 1080, 960]),
+                          ("a crowd looking at their phones", 12, 3.0, [0, 0, 1080, 960])])
+        self.assertTrue(state["pictures"][0]["png"].endswith(".png"))
+        self.assertIn("pictures drawn: a crowd looking at their phones at 3 s, a crowd looking at their phones at 12 s",
+                      self.chat.clip_line())
+        self.assertEqual(tools.describe(self.chat.project.entries[-1]), "the picture of a crowd looking at their "
+                                                                        "phones at 12 s")
+        with open(os.path.join(agent.WORK, "spent.jsonl"), encoding="utf-8") as f:
+            paid = [json.loads(line) for line in f if '"image"' in line]
+        self.assertEqual([(r["label"], r["usd"]) for r in paid], [("Muse Image", 0.01)] * 2,
+                         "the two pictures drawn are in the ledger; the one kept cost nothing")
 
     def test_muse_sends_stickers_flying_in_a_box_clear_of_faces_and_the_clip_draws_them(self):
         face = [430, 660, 570, 755]

@@ -433,6 +433,26 @@ def sticker(png, at, length, box):
                        _f(x + w / 2), _f(y + h / 2), when), [png])
 
 
+PICTURE_FADE = 0.3
+
+
+def picture(png, at, length, box):
+    """A picture drawn for what is said (picture.fitted's PNG, already box's size) over box (x, y, w, h on the
+    1080x1920 frame) from `at` for length seconds, coming in and going out over PICTURE_FADE s: it changes what the
+    viewer looks at without a jump. Outside its time every frame is the input's own; its stream's time is clip time,
+    as a sticker's is."""
+    at, length = _number("at", at, 0), _number("length", length)
+    if not 2 * PICTURE_FADE <= length <= 60:
+        raise ValueError("length %s is not a picture's length: use %s to 60 seconds, so it can come in and go out."
+                         % (_f(length), _f(2 * PICTURE_FADE)))
+    x, y, w, h = _frame_box(box)
+    when = "gte(t,%s)*lt(t,%s)" % (_f(at), _f(at + length))
+    return Fragment("[f0]format=rgba,scale=%d:%d,fade=t=in:st=%s:d=%s:alpha=1,fade=t=out:st=%s:d=%s:alpha=1[_p];"
+                    "[in][_p]overlay=x=%d:y=%d:shortest=1:format=auto:enable='%s'[out]"
+                    % (w, h, _f(at), _f(PICTURE_FADE), _f(at + length - PICTURE_FADE), _f(PICTURE_FADE), x, y,
+                       when), [png])
+
+
 def _popping(u):
     """The size, in times its own, of a picture u seconds after it appears: POP's steps joined by straight lines."""
     (t0, s0), (t1, s1), (t2, s2) = POP

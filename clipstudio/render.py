@@ -1,7 +1,7 @@
 """The clip drawn from its project list: one FFmpeg filter graph from the recording to the 1080x1920 frame.
 
     recording piece(s)  ->  [src] at clip time t  ->  source stage (blurs, look)  ->  layout (layouts.py, pushes)
-                        ->  frame stage (camera hits, glass, stickers, flurries, then the words, then flashes)
+                        ->  frame stage (camera hits, pictures, glass, stickers, flurries, the words, flashes)
 
 The preview frame is the same graph started at the frame's time: the piece is opened at the matching recording
 second and its timestamps are set so t is still clip time, so a title from 2 s to 5 s shows in the preview at 3 s
@@ -244,7 +244,8 @@ def after_source(state, src, out, first_input, default="clean", words=True):
     - frame stage: first what needs the person cut out (cutout.py, from the person's mask state['mask']): the
       footage in black and white around them and a white edge around them (state['cutouts']: {"look": grey or
       outline, "start", "end"}) and the titles and big words with "behind": True drawn under them; then the camera
-      hits (punch-in, shake), so the person and all of that move together; then the glass boxes, the stickers, the
+      hits (punch-in, shake), so the person and all of that move together; then the pictures drawn for what is
+      said (state['pictures'], effects.picture), under the words, the glass boxes, the stickers, the
       flurries (state['flurries']:
       {"pngs", "at", "box", "move", "count", "length", "size"}, see effects.flurry), then the words (titles, captions
       and big words, one ASS file), so the words hold still while the picture moves and stay on top of a sticker, a
@@ -266,6 +267,7 @@ def after_source(state, src, out, first_input, default="clean", words=True):
     camera = {"shake": lambda h: effects.shake(h["at"]),
               "punch": lambda h: effects.punch_in(h["at"], centre=h["centre"])}
     fragments += [camera[h["kind"]](h) for h in hits if h["kind"] in camera]
+    fragments += [effects.picture(k["png"], k["at"], k["length"], k["box"]) for k in state.get("pictures") or []]
     fragments += [layouts.glass(g["box"], g["start"], g["end"], g.get("tint", "light"), g.get("shine", True))
                   for g in state.get("glass") or []]
     fragments += [effects.sticker(k["png"], k["at"], k["length"], k["box"]) for k in state.get("stickers") or []]

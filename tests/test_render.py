@@ -333,6 +333,21 @@ class Stages(unittest.TestCase):
         letters = (titled[y:y + h, x:x + w].min(axis=2) > 240).sum()
         self.assertGreater(int(letters), 2000, "the title's white letters are on top of the blue sticker")
 
+    def test_a_picture_drawn_for_what_is_said_covers_the_top_under_the_words(self):
+        png = os.path.join(self.tmp, "picture.png")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=0x2040ff:s=1080x600", "-frames:v",
+                        "1", png], check=True)
+        shown = {"png": png, "at": 0.5, "length": 3.0, "box": [0, 0, 1080, 600], "about": "a ghost"}
+        plain = state("card")
+        with_picture = dict(state("card"), pictures=[shown])
+        found = changed(drawn(plain, 1.5), drawn(with_picture, 1.5))
+        self.assertTrue(inside(found, [0, 0, 1080, 600], slack=2), "the picture is over the top: %s" % (found,))
+        self.assertIsNone(changed(drawn(plain, 0.2), drawn(with_picture, 0.2)), "nothing before its time")
+        titled = drawn(dict(state("card", title=[TITLE]), pictures=[shown]), 1.5)
+        x, y, w, h = layouts.TOP
+        letters = (titled[y:y + h, x:x + w].min(axis=2) > 240).sum()
+        self.assertGreater(int(letters), 2000, "the title's white letters are on top of the picture")
+
     def test_a_drawing_that_cannot_be_made_is_refused_with_its_sentence(self):
         lines = text.caption_lines([{"from": 1.0, "to": 2.0, "text": "watch this now"}])
         st = state(captions=[{"lines": lines, "band": [1090, 10]}])
