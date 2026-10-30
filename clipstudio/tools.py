@@ -1290,7 +1290,7 @@ def _snapped(look, a, b, price=False):
 
 PRICE = re.compile("บาท|฿")
 PRICE_REACH = 6.0
-ASKS = re.compile("สนใจ|อยากได้|CF|ซีเอฟ|สี่เอฟ|DM|ดีเอ็ม|ทักมา|ทักแชท|อินบ็อกซ์", re.I)
+ASKS = re.compile("สนใจ|อยากได้|(?<![a-z])(?:CF|DM)(?![a-z])|ซีเอฟ|สี่เอฟ|ดีเอ็ม|ทักมา|ทักแชท|อินบ็อกซ์", re.I)
 ASK_GAP = 1.5
 ONLY_CLOSES = re.compile("^(?:นะครับ|นะคะ|ครับผม|ครับ|ค่ะ|คะ|นะ)$")
 CLOSES_FIRST = re.compile("^\\s*(?:นะครับ|นะคะ|ครับผม|ครับ|ค่ะ|คะ|นะ)\\s+\\S")
@@ -1588,6 +1588,63 @@ def _waits(job):
     return any(e["kind"] == WAITING and e.get("job") == job.n for e in job.chat.events)
 
 
+# A moment that stops where its look stops was never seen to end: 94 of 127 moments on 10-30 ended within 3 s of the
+# look's end, and EP 22's stopped 2 s before the joke (lane 4). Recipe lines did not move Glimmer's pick, so the program
+# looks on once, EDGE seconds from the edge, and Muse keeps the moment or moves it. A game's end is its death: left out.
+EDGE = 3.0
+SEEN_ON, SEEN_BACK = 20.0, 25.0
+EDGE_RECIPES = ("talk", "vlog", "explain")
+
+
+def _seen_past(job, why, rec, i, m, look, a, b):
+    """What Muse sees past the edges of moment i, m as Muse gave it (a to b inside look), when a start or an end Muse
+    gave stops at one and no look has shown what is there, else what it reads again (_read_cold). Once for a look, so
+    Muse's second answer stands."""
+    if (job.chat.clip or {}).get("recipe") not in EDGE_RECIPES or look.get("seen_past"):
+        return None
+    before = m.get("start") and a - look["start"] <= EDGE
+    after = m.get("end") and look["end"] - b <= EDGE
+    if not before and not after:
+        return _read_cold(look, i, m, a)
+    clock = recording.clock
+    start = max(0.0, look["start"] - SEEN_BACK) if before else look["start"]
+    end = min(rec["seconds"], look["end"] + SEEN_ON) if after else look["end"]
+    looks = job.chat.looks
+    look["seen_past"] = True
+    if any(s["start"] <= start and end <= s["end"] for s in looks):
+        return None
+    had = len(looks)
+    seen = look_at_piece(job, why, clock(start), clock(end))
+    if len(looks) == had:
+        return seen
+    looks[-1]["seen_past"] = True
+    edges = " and ".join(([clock(look["start"])] if before else []) + ([clock(look["end"])] if after else []))
+    return ("Not proposed yet: moment %d sits at the edge of look %d (%s), so you have not seen what is said on the other "
+            "side. The program looked on for you.\n%s\nPropose again from look %d: keep the moment's start and end if it "
+            "really starts and lands there, or move them to where the thought starts and to after its point and the "
+            "reaction." % (i, look["n"], edges, seen, looks[-1]["n"]))
+
+
+def _read_cold(look, i, m, a):
+    """What Muse reads again when moment i, m as Muse gave it, starts at a inside what Muse saw: the words a stranger
+    would miss, else None. Once for a look. Glimmer started EP 0's story at 18:21, 3 of 3, mid-story with its look
+    open from 18:00, and two recipe lines did not move it; shown the words before that start it moved to 17:48 and
+    17:49 (Tarm: the moment first, a good first draft)."""
+    said = [p for p in look.get("said") or [] if p["to"] > p["from"]]
+    missed = [p for p in said if a - SEEN_BACK < p["to"] <= a + AIR]
+    opens = next((p for p in said if p["from"] >= a - AIR), None)
+    if not m.get("start") or not missed or opens is None:
+        return None
+    look["seen_past"] = True
+    clock = recording.clock
+    lines = "\n".join("%s %s" % (clock(p["from"]), " ".join(p["text"].split())) for p in missed)
+    return ("Not proposed yet: a stranger who never saw this recording starts moment %d at %s, on \"%s\", and has not "
+            "heard what is said just before it:\n%s\nPropose again: keep the start only if a stranger follows the first "
+            "line with nothing before it. If it leans on anything above (a person, a place, what happened, a story already "
+            "going), move the start back to the line where this story or thought begins." % (
+                i, clock(a), " ".join(opens["text"].split())[:80], lines))
+
+
 def propose_moments(job, why, moments, then="make"):
     rec = _open(job, "propose")
     clock, looks = recording.clock, job.chat.looks
@@ -1609,6 +1666,9 @@ def propose_moments(job, why, moments, then="make"):
                                                                    clock(look["start"]), clock(look["end"])))
         a, b = max(a, lo), min(b, hi)
         gave.append((a, b))
+        seen = _seen_past(job, why, rec, i, m, look, a, b) if i == 1 else None
+        if seen:
+            return seen
         try:
             finer += _finer_edges(job, rec, look, a, b)
         except hearing.Stopped:

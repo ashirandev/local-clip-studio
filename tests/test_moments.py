@@ -135,6 +135,8 @@ class Moments(unittest.TestCase):
         shutil.rmtree(cls.made, ignore_errors=True)
 
     def setUp(self):
+        self.addCleanup(setattr, tools, "EDGE_RECIPES", tools.EDGE_RECIPES)
+        tools.EDGE_RECIPES = ()
         self.tmp = tempfile.mkdtemp()
         self.videos = os.path.join(self.tmp, "videos")
         os.makedirs(self.videos)
@@ -658,6 +660,13 @@ class Snap(unittest.TestCase):
         self.assertEqual(tools._snapped(other, 12.0, 41.96, price=True)[1], 41.96, "not a call to buy")
         cut = dict(self.ASK, heard=[0.0, 43.0])
         self.assertEqual(tools._snapped(cut, 12.0, 41.96, price=True)[1], 41.96, "past what was heard")
+
+    def test_the_letters_of_a_call_to_buy_inside_another_word_are_not_one(self):
+        """The balm's clip ran on through "โทรศัพท์ Redmi", DM in it, and took away the clip of the phone."""
+        for line, taken in (("สินค้าชิ้นที่สามคือโทรศัพท์ Redmi นะครับ", False), ("กด CF ไว้ได้เลย", True),
+                            ("ทักDMมาได้เลย", True), ("dm มาเลย", True)):
+            ask = dict(self.ASK, said=self.ASK["said"][:2] + [dict(self.ASK["said"][2], text=line)])
+            self.assertEqual(tools._snapped(ask, 12.0, 41.96, price=True)[1] != 41.96, taken, line)
 
     def test_a_clip_with_no_room_keeps_to_the_longest_a_clip_can_be(self):
         with mock.patch.object(tools, "LONGEST", 30):

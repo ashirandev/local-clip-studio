@@ -436,6 +436,9 @@ class Tools(unittest.TestCase):
         shutil.rmtree(cls.made, ignore_errors=True)
 
     def setUp(self):
+        self.edge_recipes = tools.EDGE_RECIPES
+        self.addCleanup(setattr, tools, "EDGE_RECIPES", self.edge_recipes)
+        tools.EDGE_RECIPES = ()
         self.tmp = tempfile.mkdtemp()
         self.videos = os.path.join(self.tmp, "videos")
         os.makedirs(self.videos)
@@ -3070,6 +3073,92 @@ class Tools(unittest.TestCase):
         self.assertIn("The card has no face circle, as nobody looks for one.", card["result"])
         parts = self.chat.project.state()["clip"]["layout"]["parts"]
         self.assertEqual([p["name"] for p in parts], ["card"], "a face the finder sees stays in the picture")
+
+    def test_a_moment_at_its_looks_end_is_seen_past_it_once_and_the_second_answer_stands(self):
+        """Lane 4 10-30: 94 of 127 moments ended within 3 s of the look's end, EP 22's 2 s before the joke."""
+        tools.EDGE_RECIPES = self.edge_recipes
+        first = [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the site", "start": "0:34",
+                                                                   "end": "0:49"}])]
+        _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="vlog", why="an episode")],
+                                self.to_moment()[1], first, first, "Done.")
+        looked, again = steps[3], steps[4]
+        self.assertFalse(looked["refused"], looked["result"])
+        self.assertTrue(looked["result"].startswith("Not proposed yet: moment 1 sits at the edge of look 1 (0:50)"),
+                        looked["result"])
+        self.assertIn("Look 2: 0:30-1:00", looked["result"], "on to the recording's end, 60 s here")
+        self.assertEqual([(s["start"], s["end"]) for s in self.chat.looks], [(30.0, 50.0), (30.0, 60.0)])
+        self.assertFalse(again["refused"], again["result"])
+        self.assertTrue(again["result"].startswith("Proposed 1 moment"), again["result"])
+
+    def test_a_moment_at_its_looks_start_is_seen_before_it(self):
+        tools.EDGE_RECIPES = self.edge_recipes
+        _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="talk", why="two people")],
+                                self.to_moment()[1],
+                                [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the site",
+                                                                                   "start": "0:31", "end": "0:44"}])],
+                                [call("propose_moments", why="from the start", moments=[
+                                    {"look": 2, "reason": "the site", "start": "0:06", "end": "0:40"}])], "Done.")
+        self.assertTrue(steps[3]["result"].startswith("Not proposed yet: moment 1 sits at the edge of look 1 (0:30)"),
+                        steps[3]["result"])
+        self.assertIn("Look 2: 0:05-0:50", steps[3]["result"], "25 s before it, the end stays")
+        self.assertTrue(steps[4]["result"].startswith("Proposed 1 moment"), "the wider look is not looked past again")
+
+    def test_a_moment_inside_its_look_is_read_from_a_strangers_seat_once_and_the_second_answer_stands(self):
+        """10-30: Glimmer opened EP 0's story at 18:21 3 of 3, the story under way since 17:48."""
+        tools.EDGE_RECIPES = self.edge_recipes
+        self.worker.phrases = [{"from": 1.0, "to": 3.0, "text": "ตอนเด็กพี่ชอบแกล้งเรื่องผี"},
+                               {"from": 3.1, "to": 3.8, "text": "แล้วคืนนั้นล่ะ"},
+                               {"from": 4.0, "to": 19.0, "text": "เขาก็เดินไปปิดไฟ"}]
+        moment = [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the prank", "start": "0:34",
+                                                                    "end": "0:46"}])]
+        _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="talk", why="two people")],
+                                self.to_moment()[1], moment, moment,
+                                json.dumps({"lines": ["เขาก็เดินไปปิดไฟ"]}, ensure_ascii=False), "Done.")
+        read, again = steps[3], steps[4]
+        self.assertFalse(read["refused"], read["result"])
+        self.assertTrue(read["result"].startswith("Not proposed yet: a stranger who never saw this recording starts "
+                                                  "moment 1 at 0:34, on "), read["result"])
+        self.assertIn("เขาก็เดินไปปิดไฟ", read["result"].split("has not")[0], "the line the moment opens on")
+        lines = read["result"].split("has not")[1]
+        for said in ("ตอนเด็กพี่ชอบแกล้งเรื่องผี", "แล้วคืนนั้นล่ะ"):
+            self.assertIn(said, lines, "what is said before the start")
+        self.assertNotIn("เขาก็เดินไปปิดไฟ", lines, "only what the stranger missed")
+        self.assertEqual(len(self.chat.looks), 1, "these words were seen: no new look")
+        self.assertTrue(again["result"].startswith("Proposed 1 moment"), again["result"])
+
+    def test_a_stranger_is_shown_a_long_line_that_began_before_the_reach_and_nothing_older(self):
+        """EP 0: the one line before 18:21 ran 27 s from 17:54, on a pause-cut hearing, and was missed at first."""
+        tools.EDGE_RECIPES = self.edge_recipes
+        look = {"said": [{"from": 10.0, "to": 12.0, "text": "too old"}, {"from": 20.0, "to": 49.0, "text": "the long one"},
+                         {"from": 49.2, "to": 52.0, "text": "the first"}]}
+        cold = tools._read_cold(look, 1, {"start": "0:49"}, 49.0)
+        self.assertIn("the long one", cold)
+        self.assertNotIn("too old", cold)
+        self.assertTrue(look["seen_past"])
+        for bare in ({}, {"said": [{"from": 49.2, "to": 52.0, "text": "the first"}]}):
+            self.assertIsNone(tools._read_cold(bare, 1, {"start": "0:49"}, 49.0), "nothing was said before it")
+        self.assertIsNone(tools._read_cold(dict(look), 1, {}, 49.0), "Muse gave no start: the whole look is the moment")
+
+    def test_a_moment_clear_of_the_edges_a_game_and_the_recordings_own_end_are_proposed_at_once(self):
+        tools.EDGE_RECIPES = self.edge_recipes
+        clear = ("vlog", "0:30", "0:50", {"start": "0:34", "end": "0:45"})
+        game = ("game", "0:30", "0:50", {"start": "0:32", "end": "0:49"})
+        last = ("vlog", "0:40", "1:00", {"start": "0:44", "end": "0:59"})
+        whole = ("vlog", "0:30", "0:50", {})
+        for kind, a, b, ends in (clear, game, last, whole):
+            self.chat.recording, self.chat.looks[:] = None, []
+            _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type=kind, why="the kind")],
+                                    [call("look_at_piece", start=a, end=b, why="the stretch")],
+                                    [call("propose_moments", why="the best",
+                                          moments=[dict(ends, look=1, reason="the site")])], "Done.")
+            self.assertTrue(steps[-1]["result"].startswith("Proposed 1 moment"), (kind, steps[-1]["result"]))
+        self.chat.recording, self.chat.looks[:] = None, []
+        _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="vlog", why="the kind")],
+                                [call("look_at_piece", start="0:10", end="0:50", why="the stretch")],
+                                [call("propose_moments", why="the two best", moments=[
+                                    {"look": 1, "reason": "first", "start": "0:15", "end": "0:30"},
+                                    {"look": 1, "reason": "second", "start": "0:32", "end": "0:49"}])], "Done.")
+        self.assertTrue(steps[-1]["result"].startswith("Proposed 2 moments"), "only the one made next is looked past")
 
     def test_a_seller_clip_is_not_cut_in_two_unless_the_person_asked(self):
         _, steps = self.run_job(*self.to_moment(), [call("load_recipe", type="seller", why="a product")],
