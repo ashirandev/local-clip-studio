@@ -39,6 +39,7 @@ class Meta:
 
     def __init__(self, status=200):
         self.got, self.status = [], status
+        self.stray = self.fails = None
         meta = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -56,14 +57,18 @@ class Meta:
                     parts[name] = data[:-2]
                 meta.got.append({"auth": self.headers.get("Authorization"), "request": json.loads(parts["request"]),
                                  "audio": parts["audio"]})
-                if meta.status != 200:
-                    self.send_response(meta.status)
-                    self.end_headers()
-                    return
                 with wave.open(io.BytesIO(parts["audio"])) as w:
                     ms = round(1000 * w.getnframes() / w.getframerate())
+                status = 500 if meta.fails and meta.fails(ms, len(meta.got)) else meta.status
+                if status != 200:
+                    self.send_response(status)
+                    self.end_headers()
+                    return
                 answer = json.dumps({"transcript": "x", "turns": [
-                    {"turnId": 0, "startMs": 100, "endMs": ms - 100, "transcript": "พูด %d ms" % ms}]}).encode()
+                    {"turnId": 0, "startMs": 100, "endMs": ms - 100, "transcript": "พูด %d ms" % ms}]},
+                    ensure_ascii=False).encode()
+                if meta.stray:
+                    answer = answer.replace("พูด".encode(), "พู".encode() + meta.stray + "ด".encode())
                 self.send_response(200)
                 self.send_header("Content-Length", str(len(answer)))
                 self.end_headers()
@@ -115,6 +120,46 @@ class Hears(unittest.TestCase):
         said, _ = asr.hear(sound((8, True), (0.6, False), (8, True)))
         self.assertEqual([(p["from"], p["to"]) for p in said], [(0.1, 8.2), (8.4, 16.5)],
                          "a second piece's turns start where it starts")
+
+    def test_a_broken_byte_in_the_answer_costs_only_that_byte(self):
+        """Lane 4 10-31: "byte 0xad at position 831" lost the hearing of a whole look, 8 of 261 looks, and EP 22's joke."""
+        self.meta.stray = b"\xad"
+        said, _ = asr.hear(sound((3, True)))
+        self.assertEqual([p["text"] for p in said], ["พูด 3000 ms"])
+
+    def test_a_piece_that_fails_once_is_asked_again(self):
+        self.meta.fails = lambda ms, n: n == 1
+        said, _ = asr.hear(sound((3, True)))
+        self.assertEqual((len(self.meta.got), [p["text"] for p in said]), (2, ["พูด 3000 ms"]))
+
+    def test_a_piece_that_keeps_failing_costs_that_piece_and_the_rest_is_kept(self):
+        self.meta.fails = lambda ms, n: ms > 6000
+        with self.assertRaises(asr.PartHeard) as got:
+            asr.hear(sound((8, True), (0.6, False), (5, True)))
+        part = got.exception
+        self.assertEqual([p["text"] for p in part.said], ["พูด 5300 ms"], "the other piece")
+        self.assertEqual([(round(a, 1), round(b, 1)) for a, b in part.lost], [(0.0, 8.3)])
+        self.assertEqual(len(self.meta.got), 3, "the failed piece twice, the other once")
+        self.assertAlmostEqual(part.usd, 13.6 / 3600 * 0.18, places=5)
+        self.assertIn("refused the sound (500)", str(part))
+
+    def test_when_nothing_was_heard_it_is_not_a_part(self):
+        self.meta.fails = lambda ms, n: True
+        with self.assertRaises(asr.VoiceError) as got:
+            asr.hear(sound((8, True), (0.6, False), (5, True)))
+        self.assertNotIsInstance(got.exception, asr.PartHeard)
+
+    def test_stop_asks_nothing_again(self):
+        self.meta.fails = lambda ms, n: True
+        asked = []
+
+        def stopped():
+            asked.append(1)
+            return len(asked) > 1
+
+        with self.assertRaises(asr.VoiceError):
+            asr.hear(sound((3, True)), stopped=stopped)
+        self.assertEqual(len(self.meta.got), 1)
 
     def test_no_key_and_a_refused_key_are_said(self):
         with mock.patch.dict(os.environ, {"META_API_KEY": ""}):

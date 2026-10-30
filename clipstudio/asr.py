@@ -30,6 +30,7 @@ QUIET_OVER = 6.0
 QUIET_MOST = -35.0
 AT_ONCE = 6
 TIMEOUT = 120
+PIECE_TRIES = 2
 USD_PER_HOUR = 0.18
 
 
@@ -90,6 +91,15 @@ def pieces(pcm, rate=RATE):
             if not quiet[int(a / FRAME):max(int(a / FRAME) + 1, int(b / FRAME))].all()]
 
 
+class PartHeard(VoiceError):
+    """Some pieces of the sound were heard and some were not: said and usd as hear returns them, lost the pieces not
+    heard, [(from, to)] in seconds of the sound."""
+
+    def __init__(self, sentence, said, usd, lost):
+        super().__init__(sentence)
+        self.said, self.usd, self.lost = said, usd, lost
+
+
 def _wav(pcm, rate=RATE):
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
@@ -103,7 +113,8 @@ def _wav(pcm, rate=RATE):
 def ask(pcm, rate=RATE, languages=()):
     """[(start s, end s, text)] Muse Voice Transcribe heard in the sound pcm, by its turns; VoiceError with a
     sentence when it could not be asked. languages, by their English names, are what it should expect to hear
-    (languageBias): it steers, it does not force."""
+    (languageBias): it steers, it does not force. Its answer sometimes holds a broken Thai byte: that costs the one
+    letter, as 10-31 it lost the hearing of 8 of 261 looks and EP 22's joke with them (lane 4)."""
     boundary = uuid.uuid4().hex
     asked = {"model": MODEL, "audioEncoding": "WAV", "mode": "ENDPOINTING"}
     if languages:
@@ -118,7 +129,7 @@ def ask(pcm, rate=RATE, languages=()):
         "Authorization": "Bearer " + secret(), "Content-Type": "multipart/form-data; boundary=" + boundary})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-            got = json.loads(r.read().decode("utf-8"))
+            got = json.loads(r.read().decode("utf-8", "ignore"))
     except urllib.error.HTTPError as e:
         said = e.read()[:300].decode("utf-8", "replace")
         raise VoiceError("Muse Voice Transcribe refused the sound (%d%s)." % (
@@ -135,20 +146,36 @@ def ask(pcm, rate=RATE, languages=()):
 
 def hear(pcm, rate=RATE, stopped=None, languages=()):
     """[{from, to, text}] said in the sound pcm, in seconds of it, and the US dollars it cost: each piece asked,
-    AT_ONCE at a time, expecting languages (ask). stopped() True leaves the pieces not yet sent unsent."""
+    AT_ONCE at a time, expecting languages (ask), up to PIECE_TRIES times. stopped() True leaves the pieces not yet
+    sent unsent. A piece that still fails costs that piece: PartHeard holds the rest. VoiceError when none was
+    heard."""
     if not secret():
         raise VoiceError("Muse Voice Transcribe needs your Meta API key, and none is set.")
     cut = pieces(pcm, rate)
     width = 2 * rate
 
+    failed = {}
+
     def one(span):
-        if stopped and stopped():
-            return []
         a, b = span
-        return [(a + x, min(b, a + y) if y > x else b, text) for x, y, text in ask(pcm[int(a * width):int(b * width)],
-                                                                                    rate, languages)]
+        for _ in range(PIECE_TRIES):
+            if stopped and stopped():
+                break
+            try:
+                turns = ask(pcm[int(a * width):int(b * width)], rate, languages)
+            except VoiceError as e:
+                failed[span] = str(e)
+                continue
+            failed.pop(span, None)
+            return [(a + x, min(b, a + y) if y > x else b, text) for x, y, text in turns]
+        return []
 
     with concurrent.futures.ThreadPoolExecutor(AT_ONCE) as pool:
         heard = [t for got in pool.map(one, cut) for t in got]
     usd = sum(b - a for a, b in cut) / 3600 * USD_PER_HOUR
-    return [{"from": round(a, 2), "to": round(b, 2), "text": text} for a, b, text in heard], usd
+    said = [{"from": round(a, 2), "to": round(b, 2), "text": text} for a, b, text in heard]
+    if len(failed) == len(cut):
+        raise VoiceError(next(iter(failed.values())))
+    if failed:
+        raise PartHeard(next(iter(failed.values())), said, usd, sorted(failed))
+    return said, usd

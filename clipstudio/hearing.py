@@ -57,6 +57,15 @@ class HearingError(Exception):
     """Nothing could be heard. The sentence says why."""
 
 
+class PartHeard(HearingError):
+    """Some of what was asked was heard and some was not: said are the lines heard, lost the stretches not heard,
+    [(from, to)] in seconds of the recording. Everything that takes HearingError as no hearing still may."""
+
+    def __init__(self, sentence, said, lost):
+        super().__init__(sentence)
+        self.said, self.lost = said, lost
+
+
 class Stopped(Exception):
     """The person pressed Stop while the stretch was being heard."""
 
@@ -206,16 +215,22 @@ def hear(rec, start, end, on_start=None, on_paid=None, languages=()):
 
 
 def _hear_meta(pcm, start, stopped, on_paid, languages=()):
+    part = None
     try:
         said, usd = asr.hear(pcm, stopped=stopped.is_set, languages=languages)
+    except asr.PartHeard as e:
+        part, said, usd = e, e.said, e.usd
     except asr.VoiceError as e:
         raise HearingError(str(e))
     if stopped.is_set():
         raise Stopped()
     if on_paid:
         on_paid(usd)
-    return [{"from": round(start + p["from"], 2), "to": round(start + p["to"], 2), "text": spoken.filled(p["text"]),
-             "sure": 1.0} for p in said]
+    lines = [{"from": round(start + p["from"], 2), "to": round(start + p["to"], 2), "text": spoken.filled(p["text"]),
+              "sure": 1.0} for p in said]
+    if part:
+        raise PartHeard(str(part), lines, [(round(start + a, 2), round(start + b, 2)) for a, b in part.lost])
+    return lines
 
 
 def fix(ask, lines, kind, before=(), names=()):

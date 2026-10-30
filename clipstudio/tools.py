@@ -1137,21 +1137,28 @@ def _what_is_said(job, rec, look):
         return ["The recording has no sound, so nothing is said."]
     ha, hb = round(max(0.0, a - SPILL), 2), round(min(rec["seconds"], b + SPILL), 2)
     said = hearing.heard(rec, ha, hb, job.languages())
+    lost = []
     if said is None:
         started = time.time()
         try:
             said = job.hear(rec, ha, hb)
+        except hearing.PartHeard as e:
+            said, lost = e.said, e.lost
         except hearing.HearingError as e:
             return ["What is said here could not be heard: %s" % e]
         look["took"] = round(time.time() - started, 1)
-        hearing.keep(rec, ha, hb, said, job.languages())
+        if not lost:
+            hearing.keep(rec, ha, hb, said, job.languages())
     look["said"], look["heard"] = said, [ha, hb]
+    holes = ["The hearing failed from %s to %s, so what is said there is missing here, whatever the lines around it "
+             "say: look at that stretch again before you judge it." % (clock(x), clock(y)) for x, y in lost
+             if y > a and x < b]
     inside = [p for p in said if p["to"] > a and p["from"] < b]
     if not inside:
-        return ["No words were heard here."]
+        return holes or ["No words were heard here."]
     return (["What is said here, by time, as heard (some words may be misheard; the numbers are as heard; a line "
              "marked (not sure) is one the hearing was not sure of, so do not build on it):"] +
-            ["%s %s%s" % (clock(p["from"]), p["text"], " (not sure)" if _unsure(p) else "") for p in inside])
+            ["%s %s%s" % (clock(p["from"]), p["text"], " (not sure)" if _unsure(p) else "") for p in inside] + holes)
 
 
 def _fixed_said(job, rec, look, a, b, said=None):

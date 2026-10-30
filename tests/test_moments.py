@@ -271,6 +271,60 @@ class Moments(unittest.TestCase):
         self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
         self.assertEqual((self.chat.moments[0]["start"], self.chat.moments[0]["end"]), (25.0, 52.0))
 
+    def test_a_look_with_a_stretch_not_heard_says_so_and_is_heard_again_next_time(self):
+        """Lane 4 10-31: a look's hearing lost, Muse moved on, and EP 22's joke went with it 3 of 3. A hole read as
+        silence would be the same mistake, and kept it would stay."""
+        line = {"from": 31.0, "to": 34.0, "text": "what was heard", "sure": 1.0}
+        parts = [hearing.PartHeard("Muse Voice Transcribe did not answer.", [line], [(40.0, 48.0)]), [line]]
+        rec = {"name": "x.mp4", "seconds": 60.0, "sound_tracks": 1}
+        job = types.SimpleNamespace(languages=lambda: ())
+
+        def hear(rec, a, b):
+            got = parts.pop(0)
+            if isinstance(got, Exception):
+                raise got
+            return got
+
+        job.hear = hear
+        look = {"start": 30.0, "end": 50.0}
+        kept = []
+        with mock.patch.object(hearing, "heard", lambda *a: kept[-1] if kept else None), \
+                mock.patch.object(hearing, "keep", lambda rec, a, b, said, languages: kept.append(said)):
+            said = tools._what_is_said(job, rec, look)
+            self.assertEqual(said[1], "0:31 what was heard")
+            self.assertIn("The hearing failed from 0:40 to 0:48, so what is said there is missing here", said[2])
+            self.assertEqual(look["said"], [line], "what was heard is used")
+            self.assertEqual(kept, [], "a hole is not kept")
+            self.assertEqual(len(tools._what_is_said(job, rec, look)), 2, "the next look hears it whole")
+            self.assertEqual(kept, [[line]])
+
+    def test_a_look_with_nothing_but_a_hole_does_not_say_no_words(self):
+        rec = {"name": "x.mp4", "seconds": 60.0, "sound_tracks": 1}
+
+        def hear(rec, a, b):
+            raise hearing.PartHeard("no", [{"from": 2.0, "to": 3.0, "text": "elsewhere", "sure": 1.0}], [(30.0, 50.0)])
+
+        job = types.SimpleNamespace(languages=lambda: (), hear=hear)
+        with mock.patch.object(hearing, "heard", lambda *a: None):
+            said = tools._what_is_said(job, rec, {"start": 30.0, "end": 50.0})
+        self.assertEqual(len(said), 1)
+        self.assertIn("The hearing failed from 0:30 to 0:50", said[0])
+
+    def test_a_hole_outside_the_look_is_not_said_and_still_not_kept(self):
+        line = {"from": 31.0, "to": 34.0, "text": "what was heard", "sure": 1.0}
+
+        def hear(rec, a, b):
+            raise hearing.PartHeard("no", [line], [(24.0, 29.0)])
+
+        job = types.SimpleNamespace(languages=lambda: (), hear=hear)
+        kept = []
+        with mock.patch.object(hearing, "heard", lambda *a: None), \
+                mock.patch.object(hearing, "keep", lambda *a: kept.append(a)):
+            said = tools._what_is_said(job, {"name": "x.mp4", "seconds": 60.0, "sound_tracks": 1},
+                                       {"start": 30.0, "end": 50.0})
+        self.assertEqual(said[1:], ["0:31 what was heard"])
+        self.assertEqual(kept, [])
+
     def test_stop_while_a_line_is_heard_again_proposes_nothing(self):
         self.worker.phrases = [{"from": 1.0, "to": 12.0, "text": "a long line of sound"}]
         moment = {"look": 1, "reason": "the tone", "start": "0:31", "end": "0:50"}

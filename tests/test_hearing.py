@@ -271,6 +271,25 @@ class Look(unittest.TestCase):
             said = hearing._hear_meta(b"\0\0", 30.0, threading.Event(), None)
         self.assertEqual([(p["from"], p["text"]) for p in said], [(30.0, "5,000บาท")])
 
+    def test_a_hearing_cut_short_keeps_its_seconds_and_what_it_cost(self):
+        from unittest import mock
+        part = hearing.asr.PartHeard("no answer", [{"from": 0.0, "to": 1.0, "text": "5,0บาท"}], 0.001, [(2.0, 4.0)])
+
+        def hears(pcm, stopped=None, languages=()):
+            raise part
+
+        paid = []
+        with mock.patch.object(hearing.asr, "hear", hears):
+            with self.assertRaises(hearing.PartHeard) as got:
+                hearing._hear_meta(b"\0\0", 30.0, threading.Event(), paid.append)
+            stop = threading.Event()
+            stop.set()
+            with self.assertRaises(hearing.Stopped):
+                hearing._hear_meta(b"\0\0", 30.0, stop, None)
+        self.assertEqual(got.exception.lost, [(32.0, 34.0)])
+        self.assertEqual([(p["from"], p["text"]) for p in got.exception.said], [(30.0, "5,000บาท")])
+        self.assertEqual(paid, [0.001])
+
     def test_the_proposed_moments_get_their_words_fixed_from_context_with_numbers_as_heard(self):
         fixed = json.dumps({"lines": ["สินค้าราคา <N1> บาท", "ใส่ทุกอย่างเข้าไป"]}, ensure_ascii=False)
         brain, job = self.run_job([call("open_recording", path=self.clip, why="open it")],
