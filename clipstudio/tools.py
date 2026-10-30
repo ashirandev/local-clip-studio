@@ -1579,10 +1579,14 @@ def _covered(box, times, every, a, b):
 GROWS = (render.TITLE_GROW, 1.4, 1.2)
 
 
-def _grown(state, default, words, band, times, every, a, b):
+def _grown(state, default, words, band, times, every, a, b, readable=None):
     """(grow, its Measure, the box it draws in) for a title that covers no face at its own size in band from a to b:
     the first of GROWS at which band still holds it and it still covers no face, or (1, None, None) when none does or
-    the person chose a size. Over captions shown one line at a time render draws it in their letters as tall."""
+    the person chose a size. Over captions shown one line at a time render draws it in their letters as tall. A title
+    behind the person grows with no faces given, since they stand in front of it: on the PS5 seller (10-30) no place
+    was clear of the face and the product, and the title went behind at its own size, 477 x 62 px, under the hands.
+    There readable(box) says whether the person still leaves the words readable: grown about its centre a title can
+    reach further over them ("Go now" beside a person's edge: 32% hidden at its own size, 39% at TITLE_GROW)."""
     own = render.style_of(state, default, "title").sizes[0]
     for grow in GROWS:
         st = render.grown_style(state, default, grow)
@@ -1590,7 +1594,8 @@ def _grown(state, default, words, band, times, every, a, b):
             break
         size = text.measure(words, st, "title", band[2])
         drawn = [band[0] + (band[2] - size.w) / 2, band[1] + (band[3] - size.h) / 2, size.w, size.h]
-        if size.w <= band[2] and size.h <= band[3] and not _covered(drawn, times, every, a, b):
+        if size.w <= band[2] and size.h <= band[3] and not _covered(drawn, times, every, a, b) and (
+                readable is None or readable(drawn)):
             return grow, size, drawn
     return 1, None, None
 
@@ -2880,10 +2885,14 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
                                 layouts.on_grid(band[0], band[0] + band[2], "x"))
         hit = []
     grow = 1
-    if not hit and not behind:
-        grow, bigger, at = _grown(state, default, words, band, times, every, start, end)
+    if behind or not hit:
+        grow, bigger, at = _grown(state, default, words, band, [] if behind else times, every, start, end,
+                                  (lambda box: (_hidden(frames, box) > HIDDEN_MOST).mean() <= 0.5) if behind else None)
         if bigger:
             size, drawn = bigger, at
+        if bigger and behind:
+            crossed, hidden, hit = (_crossing(frames, drawn, start, end), _hidden(frames, drawn),
+                                    _covered(drawn, times, every, start, end))
     notes = _phone(drawn, lay, state, asked) + ([moved] if part else [])
     if crossed is not None:
         notes.append("Behind the person: they cross the words %s and hide about %d%% of their width." % (

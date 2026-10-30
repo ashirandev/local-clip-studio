@@ -928,6 +928,8 @@ class Tools(unittest.TestCase):
                       missed["result"], "lane 5 10-28: a behind title above the face circle went behind nobody")
         self.assertIn("Give a box such as [60, 546, 940, 668], on top of their head", missed["result"])
         self.assertFalse(moved["refused"], moved["result"])
+        self.assertIn('1 line, 353 x 81 px', moved["result"], "a title behind the person grows as far as its box holds it "
+                      "(PS5 seller 10-30: 477 x 62 px under the hands)")
         self.assertIn("Behind the person: they cross the words from 12 to 16 s and hide about 0% of their width.",
                       moved["result"], "the box the refusal names is one that crosses them and can be read")
         self.assertTrue(hidden["refused"])
@@ -946,12 +948,43 @@ class Tools(unittest.TestCase):
         self.assertIn("It crosses a face at", title["result"])
         self.assertIn("the person stands in front of it", title["result"])
         self.assertTrue([t for t in state["titles"] if t["text"] == "Boss down"][0]["behind"])
+        self.assertEqual({t["text"]: t.get("grow") for t in state["titles"]},
+                         {"Boss down": tools.render.TITLE_GROW, "Still here": tools.render.TITLE_GROW},
+                         "behind the person, a title grows over the face it crosses: they stand in front of it")
         self.assertTrue(glow["refused"])
         self.assertIn("look must be one of: grey, outline.", glow["result"])
         self.assertIn("The person could not be cut out: Muse Glimmer could not step off the graphics card for SAM "
                       "(refused). Tell the person.", failed[-1]["result"])
         self.assertEqual(len(asked), 2, "SAM runs again only when the clip's stretch is not covered")
         self.assertEqual(self.chat.project.state()["mask"]["to"], 1, "a failed run leaves the clip as it was")
+
+    def test_a_title_behind_the_person_grows_only_while_they_leave_it_readable(self):
+        def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=None):
+            path = os.path.join(self.tmp, "person.mkv")
+            subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=320x180:r=10:d=%g"
+                            % (end - start), "-vf", "drawbox=x=0:y=0:w=160:h=180:color=white:t=fill,format=gray",
+                            "-c:v", "ffv1", path], check=True)
+            return {"path": path, "person": "main", "fps": 10, "size": [320, 180], "from": start, "to": end}
+
+        had = tools.person.cut_out
+        tools.person.cut_out = cut_out
+        try:
+            _, steps = self.run_job(
+                *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("cut_out", look="grey", why="make him stand out")],
+                [call("add_title", words="Go now", start=2, end=6, box=[344, 400, 744, 522], behind=True, why="a")],
+                [call("add_title", words="Go now", start=8, end=12, box=[364, 400, 764, 522], behind=True, why="b")],
+                "Done.")
+        finally:
+            tools.person.cut_out = had
+        near, clear = steps[-2:]
+        self.assertFalse(near["refused"], near["result"])
+        self.assertIn("1 line, 200 x 51 px", near["result"], "grown, the person would hide 39% of it")
+        self.assertIn("hide about 32% of their width", near["result"])
+        self.assertFalse(clear["refused"], clear["result"])
+        self.assertIn("1 line, 319 x 81 px", clear["result"])
+        self.assertIn("hide about 32% of their width", clear["result"], "23% of the box at its own size")
+        self.assertEqual([t.get("grow") for t in self.chat.project.state()["titles"]], [None, tools.render.TITLE_GROW])
 
     def test_in_a_talk_sam_finds_each_person_and_the_look_follows_whoever_speaks(self):
         """Tarm 10-30 on four people talking: one person kept in colour through the whole clip "มันดูตลก"."""
