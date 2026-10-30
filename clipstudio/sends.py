@@ -3,9 +3,8 @@ Options, under the API key, off until the person turns it on, kept in work/sends
 
 Off, nothing of the person's goes to Meta from Muse on this computer unless they ask for it in their own words: Muse
 Wonder watching a piece with its sound, Muse Image drawing a cover from a frame. The hearing never sends sound by
-itself, whichever Muse runs: Muse Voice Transcribe hears only with the switch on (or LCS_HEARING=meta) and the hearing
-model not on this computer. With Muse on Meta's servers the pictures already go there, so watching and the cover need
-no switch.
+itself, whichever Muse runs: Muse Voice Transcribe hears only with the switch on (or LCS_HEARING=meta). With Muse on
+Meta's servers the pictures already go there, so watching and the cover need no switch.
 """
 import json
 import os

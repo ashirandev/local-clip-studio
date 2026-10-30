@@ -2613,7 +2613,7 @@ function drawSends(d) {
     health();
   });
   sendsLine.classList.remove("bad");
-  sendsLine.textContent = room.sends ? "On: with Muse on this computer, Muse Wonder may watch pieces of up to a minute with their sound and Muse Image may draw a cover from a frame, and Muse Voice Transcribe hears when the hearing model is not here: on Meta's servers, with your key." : "Off: with Muse on this computer, nothing of yours goes to Meta unless you ask for it in your message.";
+  sendsLine.textContent = room.sends ? "On: with Muse on this computer, Muse Wonder may watch pieces of up to a minute with their sound and Muse Image may draw a cover from a frame, and Muse Voice Transcribe hears what is said: on Meta's servers, with your key." : "Off: with Muse on this computer, nothing of yours goes to Meta unless you ask for it in your message.";
 }
 
 apiForm.addEventListener("submit", async (e) => {

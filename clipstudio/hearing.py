@@ -10,9 +10,12 @@ studio does not start one.
 What was heard is kept per file and stretch in work/heard, so hearing a stretch again is instant. Each phrase has
 its own time in the recording, from the model's own frames.
 
-Without the hearing model on this computer, with the person's Meta key and the switch in Options that lets Meta's
-models hear pieces (sends.py), Muse Voice Transcribe hears instead (asr.py), on Meta's servers; LCS_HEARING=meta
-chooses it, LCS_HEARING=local keeps the one here. Without the switch no sound leaves for Meta by itself.
+With the person's Meta key and the switch in Options that lets Meta's models hear pieces (sends.py), Muse Voice
+Transcribe hears instead (asr.py), on Meta's servers, whether or not the hearing model is on this computer: on Thai
+talk it hears clearly what Omnilingual garbles (lane 5, EP 0's 17:30-18:50, 10-30: Omnilingual's lines sure 0.6 to
+0.8 and misheard, 8 caption lines in 78 s; Muse Voice Transcribe heard it cleanly for $0.006 for two minutes).
+LCS_HEARING=meta chooses it, LCS_HEARING=local keeps the one here, and so does a hearing worker the studio was pointed
+at. Without the switch no sound leaves for Meta by itself.
 
 Names: a recogniser mishears a name it never learned (Eaglet came out as "egret"). When the screen shows words at
 the time, they are given with the question, and a line may change by as much more as the names it takes from them.
@@ -91,14 +94,13 @@ def _health():
 
 
 def engine():
-    """"meta" when Muse Voice Transcribe hears: LCS_HEARING=meta, or the hearing model is not on this computer, a
-    Meta key is set and the person let Meta's models hear pieces; else "local"."""
+    """"meta" when Muse Voice Transcribe hears: LCS_HEARING=meta, or a Meta key is set and the person let Meta's
+    models hear pieces, unless the studio was pointed at a hearing worker of its own; else "local"."""
     wanted = os.environ.get("LCS_HEARING", "").strip().lower()
     if wanted in ("meta", "local"):
         return wanted
-    here = OWN_URL or URL != OWN_DEFAULT or (ears.model_file(MODELS) and
-                                             os.path.isfile(os.path.join(MODELS, "letters.json")))
-    return "meta" if not here and asr.secret() and sends.allowed() else "local"
+    pointed = OWN_URL or URL != OWN_DEFAULT
+    return "meta" if not pointed and asr.secret() and sends.allowed() else "local"
 
 
 def status():

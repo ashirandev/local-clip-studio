@@ -149,7 +149,7 @@ class Engine(unittest.TestCase):
         self.meta.close()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_without_the_model_here_meta_hears_only_with_the_switch_on_and_its_cost_is_written(self):
+    def test_meta_hears_only_with_the_switch_on_and_its_cost_is_written(self):
         self.assertEqual(hearing.engine(), "local", "until the person turns the switch on, no sound goes to Meta by itself")
         with mock.patch.object(hearing, "_health", lambda: None):
             self.assertIn("Or turn on Meta sees pieces in Options", hearing.status()["why"])
@@ -157,6 +157,15 @@ class Engine(unittest.TestCase):
         self.assertEqual(hearing.engine(), "meta")
         self.assertTrue(hearing.status()["ok"])
         self.assertEqual(hearing.status()["where"], "Muse Voice Transcribe on Meta's servers, with your own key")
+        os.makedirs(hearing.MODELS)
+        with open(os.path.join(hearing.MODELS, "letters.json"), "w") as f:
+            f.write("[]")
+        with mock.patch.object(hearing.ears, "model_file", lambda folder: os.path.join(folder, "model.int8.onnx")):
+            self.assertEqual(hearing.engine(), "meta", "the hearing model here too: on Thai talk Meta's hears clearly "
+                                                       "what it garbles (EP 0, 10-30)")
+            sends.allow(False)
+            self.assertEqual(hearing.engine(), "local")
+            sends.allow(True)
         with mock.patch.dict(os.environ, {"LCS_HEARING": "local"}):
             self.assertEqual(hearing.engine(), "local", "LCS_HEARING keeps the one here")
         with mock.patch.dict(os.environ, {"META_API_KEY": ""}):
