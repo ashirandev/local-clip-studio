@@ -25,6 +25,7 @@ import time
 from . import cutout, effects, layouts, project, recording, text
 
 PREVIEW_WIDTH = 540
+FAULT = re.compile("Failed|Invalid|Error|No such")
 FRAME_SECONDS = 60
 WORD_SECONDS = 0.8
 HIT_KINDS = ("flash", "shake", "punch", "word")
@@ -670,6 +671,12 @@ def base(rec, state, on_progress=None, on_start=None, default="clean"):
                   crf=BASE_CRF)
 
 
+def _fault(lines):
+    """The line of FFmpeg's log that says what went wrong. Its last line is only "Conversion failed!", and on 10-30 that
+    sent Muse undoing the title, the style and the captions in turn, when the blur was what failed."""
+    return next((x for x in lines if FAULT.search(x)), lines[-1])
+
+
 def export(rec, state, out_path, on_progress=None, on_start=None, default="clean", words=True, size=None,
            preset=PRESET, crf=CRF):
     """Makes the finished clip at out_path and returns out_path once the file is there: H.264 and AAC, 30 fps,
@@ -754,7 +761,7 @@ def export(rec, state, out_path, on_progress=None, on_start=None, default="clean
             raise Stopped("Stopped: the clip was not made.")
         with open(log_path, encoding="utf-8", errors="replace") as f:
             last = [x for x in f.read().strip().splitlines() if x.strip()] or ["no reason"]
-        raise NotDrawn("FFmpeg could not make the clip: %s" % last[-1])
+        raise NotDrawn("FFmpeg could not make the clip: %s" % _fault(last))
     os.replace(part, out_path)
     if on_progress:
         on_progress(length)

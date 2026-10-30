@@ -168,6 +168,34 @@ class Blur(unittest.TestCase):
         for k in (12, 33, 63):
             self.assertIsNotNone(changed(got[k], self.plain[k]), k)
 
+    def test_a_long_sum_is_grouped_so_ffmpeg_reads_it(self):
+        self.assertEqual(effects._sum(["a", "b"]), "a+b")
+        self.assertEqual(effects._sum(str(k) for k in range(effects.SUM_MOST)).count("("), 0, "a short sum stays as it is")
+        for n in (effects.SUM_MOST + 1, 130, 3000):
+            grouped = effects._sum(str(k) for k in range(n))
+            self.assertEqual(eval(grouped), sum(range(n)), n)
+            self.assertLessEqual(grouped.split(")+(")[0].count("+"), effects.SUM_MOST, n)
+
+    def test_a_face_followed_for_a_long_time_is_blurred(self):
+        """Lane 5's EP 0 talk, 10-30: 109 points of one face, and every render said only "Conversion failed!"."""
+        track = [(0.01 * k, 40 + 60 * (k % 2), 40 + 60 * (k // 2 % 2), 60, 60) for k in range(150)]
+        got = frames([effects.blur_track(track)], seconds=0.4)
+        self.assertIsNotNone(changed(got[6], self.plain[6]), "FFmpeg read the track and blurred the face")
+
+    def test_many_faces_one_after_another_share_a_blur_ffmpeg_can_read(self):
+        tracks = [[(0.2 * k, 40, 40, 60, 60), (0.2 * k + 0.05, 42, 40, 60, 60)] for k in range(130)]
+        sizes, real = [], effects._sum
+
+        def counted(terms):
+            terms = list(terms)
+            sizes.append(len(terms))
+            return real(terms)
+
+        effects._sum = counted
+        self.addCleanup(setattr, effects, "_sum", real)
+        self.assertEqual(len(effects.blur_tracks(tracks)), 1)
+        self.assertEqual(sizes.count(130), 3, "the x, the y and the times of the 130 tracks are grouped")
+
     def test_too_many_sizes_share_blurs_by_time_alone(self):
         def tracks(n):
             return [[(k, 0, 0, 10 * 1.7 ** k, 10 * 1.7 ** k), (k + 0.5, 0, 0, 10 * 1.7 ** k, 10 * 1.7 ** k)]

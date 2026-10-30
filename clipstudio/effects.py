@@ -27,6 +27,7 @@ LABEL = re.compile(r"\[(in|out|_[a-z0-9]+|f[0-9]+)\]")
 FRAME_W, FRAME_H, FPS = 1080, 1920, 30
 MOST_GAP = 0.5
 LANE_GAP = 0.1
+SUM_MOST = 50
 SAME_SIZE = 1.5
 MOST_LANES = 16
 STILL = 0.5
@@ -224,6 +225,16 @@ def _track(points, margin):
     return track, w, h
 
 
+def _sum(terms):
+    """terms added up, as FFmpeg can read them: it refuses a sum of more than about 100 terms without saying why, only
+    "Conversion failed!" (measured 10-31: 83 are read, 105 are not), so a long sum is grouped in brackets. A face
+    followed for most of a 58 s talk clip made 111, and every render of the clip failed until its blur was taken off."""
+    terms = list(terms)
+    while len(terms) > SUM_MOST:
+        terms = ["(%s)" % "+".join(terms[k:k + SUM_MOST]) for k in range(0, len(terms), SUM_MOST)]
+    return "+".join(terms)
+
+
 def _lane(tracks, w, h):
     """One fragment blurring a w x h box along each track in turn; the tracks never show at the same time."""
     spans, xs, ys = [], [], []
@@ -235,11 +246,11 @@ def _lane(tracks, w, h):
     if len(tracks) == 1:
         cx, cy = xs[0], ys[0]
     else:
-        cx = "(%s)" % "+".join("%s*%s" % (s, x) for s, x in zip(spans, xs))
-        cy = "(%s)" % "+".join("%s*%s" % (s, y) for s, y in zip(spans, ys))
+        cx = "(%s)" % _sum("%s*%s" % (s, x) for s, x in zip(spans, xs))
+        cy = "(%s)" % _sum("%s*%s" % (s, y) for s, y in zip(spans, ys))
     left = "clip(2*floor((%s-%s)/2),0,%s)" % (cx, _f(w / 2), "%s")
     top = "clip(2*floor((%s-%s)/2),0,%s)" % (cy, _f(h / 2), "%s")
-    return Fragment(_blurred(w, h, left % "iw-ow", top % "ih-oh", left % "W-w", top % "H-h", "+".join(spans)), [])
+    return Fragment(_blurred(w, h, left % "iw-ow", top % "ih-oh", left % "W-w", top % "H-h", _sum(spans)), [])
 
 
 def _along(path, k):
@@ -252,7 +263,7 @@ def _along(path, k):
         line = _f(a[k]) if abs(slope) < 1e-9 else "(%s+(t-%s)*%s)" % (_f(a[k]), _f(a[0]), _f(slope))
         terms.append("gte(t,%s)*lt(t,%s)*%s" % (_f(a[0]), _f(b[0]), line))
     terms.append("gte(t,%s)*%s" % (_f(path[-1][0]), _f(path[-1][k])))
-    return "(%s)" % "+".join(terms)
+    return "(%s)" % _sum(terms)
 
 
 def _simplify(path, within=STILL):

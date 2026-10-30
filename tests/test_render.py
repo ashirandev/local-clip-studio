@@ -510,6 +510,14 @@ class OneLine(unittest.TestCase):
         self.assertTrue(inside(over["grown"], hook["box"], slack=4), "%s inside its box" % (over["grown"],))
 
 @unittest.skipUnless(FFMPEG and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
+class Fault(unittest.TestCase):
+    def test_the_log_line_that_says_what_went_wrong_is_the_one_told(self):
+        log = ["Press [q] to stop", "[Parsed_crop_6 @ 1] Failed to configure input pad on Parsed_crop_6",
+               "[fc#0 @ 2] Error reinitializing filters!", "Conversion failed!"]
+        self.assertEqual(render._fault(log), log[1])
+        self.assertEqual(render._fault(["frame= 0", "Conversion failed!"]), "Conversion failed!", "nothing better")
+
+
 class Preview(unittest.TestCase):
     """The preview frame Muse sees is drawn by the same stages."""
 
