@@ -3577,6 +3577,31 @@ class Tools(unittest.TestCase):
                       names["result"], "game 10-30: three blurs, three renders, for the bottom of the names")
         self.assertNotIn("grown to cover", low["result"])
 
+    def test_a_clip_out_of_steps_goes_over_with_the_check_that_failed_said_on_the_page(self):
+        """Lane 5's 022940-2e20 reached step 30 on a failed check, with a rendered file and nothing handed over."""
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        chat = {"text": "@viewer_one ผมว่าดีครับ", "box": [130, 10, 60, 12], "sure": 0.95}
+        had = screen.readings, getattr(render, "export", None)
+        screen.readings = lambda rec, a, b, on_start=None: [{"at": a + 1, "lines": [chat]}, {"at": b - 1, "lines": [chat]}]
+        render.export = export
+        made = [*self.to_moment(), *self.GAME_MOMENT, [call("render_clip", why="make the file")]]
+        give = call("hand_over", title="a good one", caption="short", hashtags=["#a"], why="give it")
+        try:
+            with mock.patch.object(agent, "MAX_STEPS", len(made)):
+                _, steps = self.run_job(*made, [call("check_clip", why="check it")], [give], "Done.")
+        finally:
+            screen.readings, render.export = had
+        self.assertIn("- FAILED: No viewer's name can be read", steps[-2]["result"])
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertIn("these checks still fail on it: say so: No viewer's name can be read.", steps[-1]["result"])
+        ready = [e for e in self.chat.events if e["kind"] == "ready"]
+        self.assertEqual(len(ready), 1)
+        self.assertIn("Muse ran out of steps, so this clip was handed over with a check that failed: No viewer's name "
+                      "can be read.", [e["text"] for e in self.chat.events if e["kind"] == "note"])
+
     def test_only_the_first_moment_is_fixed_before_the_cards_and_another_when_its_clip_is_made(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "first heard", "sure": 0.95},
                                {"from": 12.0, "to": 14.0, "text": "second heard", "sure": 0.95}]

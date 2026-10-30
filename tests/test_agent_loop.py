@@ -160,6 +160,65 @@ class Loop(unittest.TestCase):
                                       "They are on the cards."))
         self.assertEqual(self.told_to_finish(), [])
 
+    TWO_LOOKS = ([call("find_recordings", why="look")], [call("find_recordings", words="sifu", why="narrow")])
+
+    def out_of_steps(self, *script, waits=False):
+        """A job of two steps at most on a chat with a finished file. Returns (the mind, the job's events)."""
+        check = tools.Tool("check_clip", "Checked", "", {}, [], lambda job, why: "checked")
+        hand = tools.Tool("hand_over", "Handed over", "", {}, [],
+                          lambda job, why: (job.emit("ready", file="a.mp4"), "handed over")[1])
+        brain = ScriptedMind(*script)
+        with mock.patch.dict(tools.TOOLS, {"check_clip": check, "hand_over": hand}), mock.patch.object(
+                agent, "MAX_STEPS", 2), mock.patch.object(self.chat, "finished", lambda: {"name": "a.mp4"}), \
+                mock.patch.object(agent, "_waits", lambda job: waits):
+            _, events = self.run_job(brain)
+        return brain, events
+
+    def offers(self, brain):
+        """The tools of each question of the job itself, by name, or None."""
+        return [o and sorted(t["function"]["name"] for t in o) for o, s in zip(brain.offered, brain.schemas) if s is None]
+
+    def test_a_rendered_clip_at_the_most_steps_still_reaches_the_person(self):
+        """Lane 5's 031052-26c7: step 30 passed the file's checks 4 of 4 and the job ended with nothing handed over."""
+        brain, events = self.out_of_steps(*self.TWO_LOOKS, [call("check_clip", why="check it")],
+                                          [call("hand_over", why="give it")], "Here it is.")
+        self.assertEqual((events[-1]["why"], events[-1]["steps"]), ("answered", 4))
+        self.assertEqual(len([e for e in events if e["kind"] == "ready"]), 1)
+        self.assertEqual(self.offers(brain)[2:], [["check_clip", "hand_over"], ["check_clip", "hand_over"], None])
+        self.assertEqual([m["content"] for m in self.chat.messages].count(agent.FINISH % agent.FINISH_STEPS), 1)
+        self.assertIn("Muse has used its 2 steps", [e["text"] for e in events if e["kind"] == "note"][0])
+
+    def test_a_job_out_of_steps_gets_three_more_and_then_stops_as_before(self):
+        brain, events = self.out_of_steps(*self.TWO_LOOKS, *[[call("check_clip", why="check %d" % k)] for k in range(3)],
+                                          "never asked")
+        self.assertEqual((events[-1]["why"], events[-1]["steps"]), ("too many steps", 5))
+        self.assertEqual(brain.script, ["never asked"])
+        self.assertIn("the most one message may take", [e["text"] for e in events if e["kind"] == "note"][-1])
+
+    def test_a_job_that_gave_a_clip_or_waits_for_a_card_gets_no_more_steps(self):
+        brain, events = self.out_of_steps([call("hand_over", why="one of them")], [call("find_recordings", why="look")],
+                                          "never asked")
+        self.assertEqual((events[-1]["why"], brain.script), ("too many steps", ["never asked"]))
+        brain, events = self.out_of_steps(*self.TWO_LOOKS, "never asked", waits=True)
+        self.assertEqual((events[-1]["why"], brain.script), ("too many steps", ["never asked"]))
+
+    def test_words_alone_do_not_end_a_job_with_a_clip_still_to_give(self):
+        _, events = self.out_of_steps(*self.TWO_LOOKS, "It is ready.", [call("hand_over", why="give it")], "Here it is.")
+        self.assertEqual(events[-1]["why"], "answered")
+        self.assertEqual(len([e for e in events if e["kind"] == "ready"]), 1)
+        self.assertEqual([(e["text"], e["final"]) for e in events if e["kind"] == "answer"],
+                         [("It is ready.", False), ("Here it is.", True)])
+        self.assertIn(agent.FINISH_CALL, [m["content"] for m in self.chat.messages if m["role"] == "user"])
+        brain, events = self.out_of_steps(*self.TWO_LOOKS, "One.", "Two.", "Three.", "never asked")
+        self.assertEqual((events[-1]["why"], events[-1]["steps"], brain.script), ("too many steps", 5, ["never asked"]))
+
+    def test_no_other_tool_runs_once_only_the_hand_over_is_left(self):
+        _, events = self.out_of_steps(*self.TWO_LOOKS, [call("find_recordings", words="more", why="again")],
+                                      [call("hand_over", why="give it")], "Here it is.")
+        steps = [e for e in events if e["kind"] == "step"]
+        self.assertEqual((steps[2]["refused"], steps[2]["result"]), (True, agent.FINISH_ONLY))
+        self.assertEqual(events[-1]["why"], "answered")
+
     def test_a_recording_is_found_by_the_day_it_was_recorded_as_a_person_says_it(self):
         day = time.mktime((2026, 10, 12, 14, 17, 28, 0, 0, -1))
         os.utime(os.path.join(self.videos, "sifu", "sifu_run.mkv"), (day, day))

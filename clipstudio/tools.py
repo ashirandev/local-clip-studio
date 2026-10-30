@@ -5291,7 +5291,7 @@ def hand_over(job, why, title, caption, hashtags, english=""):
         raise Refused("Check the finished file first, with check_clip: the person gets a clip that was checked.")
     failed = [c["name"] for c in checks if c["ok"] is False]
     rounds = sum(1 for e in job.chat.events if e["kind"] == "checked" and e.get("job") == job.n)
-    if failed and rounds < CHECK_ROUNDS:
+    if failed and rounds < CHECK_ROUNDS and not job.finishing:
         raise Refused("These checks failed on the finished file: %s. Fix them, render again and check again; after "
                       "%d rounds you may hand it over and say what still fails." % ("; ".join(failed), CHECK_ROUNDS))
     rec, state = _open(job, "hand over"), _clip_state(job)
@@ -5344,6 +5344,9 @@ def hand_over(job, why, title, caption, hashtags, english=""):
              "cover": made}
     job.emit("ready", **ready)
     job.show(ready=ready)
+    if failed and job.finishing:
+        job.emit("note", text="Muse ran out of steps, so this clip was handed over with %s: %s." % (
+            "a check that failed" if len(failed) == 1 else "checks that failed", "; ".join(failed)))
     pieces = _clip_state(job)["clip"]["pieces"]
     return ("Handed over: the person sees the finished clip%s with its title, the post text and %d hashtags, a Copy "
             "all button and a download. Tell them in one or two short lines; do not repeat the text, it is on the "
@@ -5351,7 +5354,9 @@ def hand_over(job, why, title, caption, hashtags, english=""):
             "not the ones asked for." % (" and its cover" if made else "", len(tags), round(done["length"], 2),
                                          recording.clock(min(p[0] for p in pieces)),
                                          recording.clock(max(p[1] for p in pieces)))) + (
-        " " + spelling if spelling else "")
+        " " + spelling if spelling else "") + (
+        " It went over out of steps, and these checks still fail on it: say so: %s." % "; ".join(failed)
+        if failed and job.finishing else "")
 
 
 LAYOUT_OF = {"explain": "card", "game": "card", "talk": "talk", "seller": "subject", "vlog": "card"}

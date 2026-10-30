@@ -17,7 +17,12 @@ What the loop keeps, whatever Muse writes:
   done, so at MAX_STEPS Muse is asked once more, with no tools, for its closing words (SIFU on Spark, 10-29: the
   hand-over was step 30, and the page said the studio had stopped it). STEPS_WARNED steps before the end of a job with
   nothing handed over, Muse is told once to finish with what it has: on lane 5's rounds of 10-30, four jobs reached
-  step 30 with no clip, one of them with a clip rendered.
+  step 30 with no clip, one of them with a clip rendered. A job at MAX_STEPS with a finished file and nothing handed
+  over then gets FINISH_STEPS more, with only check_clip and hand_over left, and a check that still fails goes over
+  with the clip and is said on the page: 5 of 91 runs of 10-30 and 31, 4 of them Glimmer's, ended at step 30 with their
+  file made from the clip as it was, and 2 of the 5 had just passed their checks. The steps are one for the check and
+  one for the hand-over and one for its refusal: of 89 hand-overs, 83 ran the first time, 5 after one refusal and 1
+  after two.
 - The person can steer at any time. Words typed while Muse works cancel the question in flight and go in as the
   newest message, so Muse answers them next; Stop cancels it and ends the job. Everything before the cut is still
   reused by llama-server.
@@ -49,6 +54,9 @@ AGENT_MAX_TOKENS = 4096
 SPELL_TOKENS = 8192
 MAX_STEPS = 30
 STEPS_WARNED = 6
+FINISH_STEPS = 3
+FINISH_TOOLS = ("check_clip", "hand_over")
+FINISH_SCHEMAS = [s for s in SCHEMAS if s["function"]["name"] in FINISH_TOOLS]
 GUARD_STOPS = 3
 REPLY_ROOM = 2048
 PICTURE_TOKENS = 256
@@ -77,6 +85,12 @@ LANDED = (MOVED_CUTS[:MOVED_CUTS.index("%")], LOUD_CUT[:LOUD_CUT.index("%")])
 LAST_STEPS = ("[studio] %d steps are left on this message and nothing is handed over yet. Finish with what you have "
               "now: make the clip if there is none, then render it, check it and hand it over. A rough clip the person "
               "can fix is better than none.")
+FINISH = ("[studio] No steps are left for anything else on this message, and the finished clip is not handed over yet. "
+          "You have %d more, for check_clip and hand_over only: check the file if it is not checked, then hand it over "
+          "with its title, post and hashtags. A check that still fails goes over with it, and the page says which.")
+FINISH_ONLY = "Only check_clip and hand_over are left on this message: the person gets the clip as it is now."
+FINISH_CALL = ("[studio] Words alone do not give the person the clip. Call hand_over now, or check_clip if the file is "
+               "not checked.")
 OPEN_SAID = "(opened) "
 AS_SAID = "said"
 WORDS_GONE = "Those words are not on the clip as the page showed them. Look at the clip again."
@@ -1361,6 +1375,7 @@ class Job:
         self.guesses = None
         self.steps = self.refused = self.fixed = self.guard_stops = 0
         self.handed = False
+        self.finishing = 0
         self.seen = {}
         self.last_refused = {}
         self.warned = set()
@@ -1553,14 +1568,19 @@ class Job:
                     end = "stopped"
                     break
                 if self.steps >= MAX_STEPS and not closing:
-                    if not self.handed:
+                    if self.handed:
+                        closing = True
+                    elif not self.finishing and chat.finished() and not (_waits(self) or self.gave()):
+                        self.finishing = self.steps + FINISH_STEPS
+                        chat.add({"role": "user", "content": FINISH % FINISH_STEPS})
+                        self.emit("note", text="Muse has used its %d steps, so the studio left it only the check and "
+                                               "the hand-over, to give you the clip as it is." % self.steps)
+                    elif not self.finishing or self.steps >= self.finishing:
                         end = "too many steps"
                         self.emit("note", text="Muse took %d steps on this message, the most one message may take, so "
                                                "the studio stopped it here. Say what to do next." % self.steps)
                         break
-                    closing = True
-                if self.steps >= MAX_STEPS - STEPS_WARNED and not (warned or closing or _waits(self) or any(
-                        e["kind"] == "ready" and e.get("job") == self.n for e in chat.events)):
+                if self.steps >= MAX_STEPS - STEPS_WARNED and not (warned or closing or _waits(self) or self.gave()):
                     warned = True
                     chat.add({"role": "user", "content": LAST_STEPS % (MAX_STEPS - self.steps)})
                 with chat.cond:
@@ -1570,7 +1590,8 @@ class Job:
                     chat.live = {"job": self.n, "step": self.steps + 1, "thinking": "", "text": ""}
                 self.emit("wait", step=self.steps + 1)
                 try:
-                    got = self.ask(tools=None) if closing else self.ask(self.offered())
+                    got = self.ask(tools=None) if closing else self.ask(
+                        FINISH_SCHEMAS if self.finishing else self.offered())
                     if got["tool_calls"] and self.only_talk():
                         got = self.ask(tools=None)
                 except mind.Cancelled:
@@ -1589,6 +1610,12 @@ class Job:
                 if calls:
                     got["message"]["tool_calls"] = [_sendable(call) for call in calls]
                 chat.add(got["message"])
+                if not calls and self.finishing and not self.handed:
+                    self.steps += 1
+                    self.emit("answer", final=False, text=words.unslipped(got["text"]), thinking=got["thinking"],
+                              engine=got["engine"], mind=self.brain.label)
+                    chat.add({"role": "user", "content": FINISH_CALL})
+                    continue
                 if not calls:
                     left = self.finish_plan()
                     if left and not nudged and not self.refused_last and not closing and not _waits(self):
@@ -1651,6 +1678,10 @@ class Job:
                       fault=traceback.format_exc())
         with chat.cond:
             self.close(end, started)
+
+    def gave(self):
+        """True when this job has handed a clip over."""
+        return any(e["kind"] == "ready" and e.get("job") == self.n for e in self.chat.events)
 
     def offered(self):
         """The tools Muse is offered at this step: make_countdown only in a sports match, which joins its goals with it,
@@ -1837,6 +1868,8 @@ class Job:
         try:
             if tool is None:
                 raise Refused("There is no tool named %s. The tools are: %s." % (name or "(none)", ", ".join(TOOLS)))
+            if self.finishing and name not in FINISH_TOOLS:
+                raise Refused(FINISH_ONLY)
             why, step, clean = tool.check(_arguments(raw), len(self.plan))
         except Refused as e:
             return self.refuse(shown, name, str(e))
