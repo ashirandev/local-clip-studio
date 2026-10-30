@@ -52,6 +52,30 @@ class Turns(unittest.TestCase):
         self.assertEqual(talk.windows([noisy, speaking], 10, 0.0, None)[-1]["who"], 2,
                          "a mouth area that always flickers (light, a beard) does not win over the one speaking")
 
+    def test_a_heard_line_goes_whole_to_whoever_wins_most_of_it(self):
+        """Tarm 10-30, on EP0's ghost story told by Henri while he laughed: "อองรีพูด ทำไม highlight ผมล่ะ"."""
+        laugh, talking, still = [1.0, 1.0, 8.0], [1.0, 3.0, 1.0], [1.0, 1.0, 1.0]
+        rows = [(3, laugh), (3, laugh), (2, talking), (2, talking), (2, talking), (2, talking), (None, still),
+                (0, [3.0, 3.0, 1.0]), (1, [3.0, 1.0, 1.0])]
+        wins = self.wins(rows)
+        got = talk.by_line(wins, [[0.0, 4.0]])
+        self.assertEqual([w["who"] for w in got], [2, 2, 2, 2, 2, 2, 2, 0, 1],
+                         "the line is the one telling it; a window of two together stays; after the line, its own")
+        self.assertEqual([w["who"] for w in wins][:2], [3, 3], "the windows given are not changed")
+        tie = [(3, laugh), (2, talking)]
+        self.assertEqual([w["who"] for w in talk.by_line(self.wins(tie), [[0.0, 1.0]])], [3, 2],
+                         "nobody clearly wins: as decided")
+        self.assertEqual([w["who"] for w in talk.by_line(self.wins(rows), [])], [w for w, _ in rows])
+
+    def test_a_laugh_in_the_middle_of_a_line_does_not_take_the_shot(self):
+        def laugh(rec, a, b, people):
+            n = round((b - a) * talk.MOTION_FPS)
+            return [[1.0] * 10 + [9.0] * 15 + [1.0] * (n - 25), [2.0] * 10 + [1.5] * 15 + [6.0] * (n - 25)]
+
+        said = [{"from": 0.0, "to": 6.0}]
+        shots, _ = talk.plan(None, [[0, 6]], said, persons(), read=laugh)
+        self.assertEqual([s["show"] for s in shots], [2], "person 1 laughs for 1.5 s of person 2's 6 s line")
+
     def test_a_changed_shot_cuts_into_its_neighbours_and_joins_the_same_one(self):
         shots = [{"from": 0, "to": 10.2, "show": 1}, {"from": 10.2, "to": 20, "show": 2}]
         self.assertEqual(talk.with_shot(shots, 9, 10.2, 2), [{"from": 0, "to": 9, "show": 1},

@@ -224,6 +224,31 @@ def by_voice(wins, voices):
     return out
 
 
+def by_line(wins, lines):
+    """The windows with each heard line ([from, to], the same seconds) given whole to one person: the one who wins
+    most of its windows, when they win AHEAD times as many as the next, so a listener who laughs in the middle of a
+    story does not take it from the one telling it. Measured 10-30 on EP0's ghost story, one line of 10.6 s that
+    Henri told while Tarm laughed: window by window it went to person 1, 3, 2 and 1 again (Tarm: "อองรีพูด ทำไม
+    highlight ผมล่ะ"); over the line Henri won 7 windows, the others 5 and 4. A count, not the mean movement: one big
+    laugh outscores a whole line of talking. A line nobody clearly wins is left as the windows decided it, and so is
+    a window where two talk together."""
+    out = [dict(w) for w in wins]
+    for lo, hi in lines:
+        inside = [w for w in out if lo - WINDOW / 2 <= w["from"] and w["to"] <= hi + WINDOW / 2]
+        votes = {}
+        for w in inside:
+            if w["who"]:
+                votes[w["who"]] = votes.get(w["who"], 0) + 1
+        ranked = sorted(votes.values(), reverse=True)
+        if not ranked or (len(ranked) > 1 and ranked[0] < AHEAD * ranked[1]):
+            continue
+        who = max(votes, key=votes.get)
+        for w in inside:
+            if w["who"] != 0:
+                w["who"] = who
+    return out
+
+
 def plan(rec, pieces, said, persons, read=None, voices=None):
     """The shots of a clip made of pieces ([[recording a, recording b]]) of rec, with what the hearing heard (said:
     [{"from", "to"}] in recording seconds, or None when nobody listened) and the people found: clip seconds from 0 to
@@ -231,7 +256,7 @@ def plan(rec, pieces, said, persons, read=None, voices=None):
     clip: measured over each piece, a piece where one person speaks throughout makes their speaking their rest, so a
     listener who fidgets at a third of it scores within AHEAD of them and nobody is shown speaking. Clips cut at their
     silences have such pieces. With voices (voices.speakers), who speaks is taken from them, and the mouths only find
-    the listener's reactions."""
+    the listener's reactions; without, each heard line goes to one person (by_line)."""
     read = read or motion
     wins, starts, joins, at = [], [], [], 0.0
     read_ = [read(rec, a, b, persons) for a, b in pieces]
@@ -240,7 +265,7 @@ def plan(rec, pieces, said, persons, read=None, voices=None):
     for (a, b), values in zip(pieces, read_):
         speech = None if said is None else [[p["from"], p["to"]] for p in said if p["from"] < b and a < p["to"]]
         found = windows(values, MOTION_FPS, a, speech, still)
-        for w in by_voice(found, voices) if voices else found:
+        for w in by_voice(found, voices) if voices else by_line(found, speech or []):
             wins.append(dict(w, **{"from": round(w["from"] - a + at, 3), "to": round(w["to"] - a + at, 3)}))
         starts += [round(p["from"] - a + at, 3) for p in said or [] if a <= p["from"] < b]
         at += b - a
