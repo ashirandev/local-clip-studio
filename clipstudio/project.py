@@ -116,7 +116,7 @@ class Project:
             elif e["do"] == "title":
                 titles = [t for t in titles if not _same_spot(t, e)] + [e]
             elif e["do"] == "captions":
-                captions = e if e["lines"] else None
+                captions = e if e["lines"] or e.get("drafts") else None
             elif e["do"] == "blur":
                 blurs.append(e)
             elif e["do"] == "hit":
@@ -209,18 +209,22 @@ class _Mover:
                                  if t is not None])
 
     def captions(self, captions):
-        """The caption lines with each word at its new time; a word no longer played goes, and a line goes with its
-        last word."""
+        """The caption lines and drafts with each word at its new time; a word no longer played goes, and a line goes
+        with its last word."""
         if not captions:
             return captions
-        lines = []
-        for ln in captions["lines"]:
-            words = [dict(w, **{"from": round(s[0], 3), "to": round(s[1], 3)}) for w in ln["words"]
-                     for s in [self.span(w["from"], w["to"])] if s]
-            if words:
-                lines.append(dict(ln, words=words, text="".join(w["text"] for w in words) if len(words) < len(
-                    ln["words"]) else ln["text"], **{"from": words[0]["from"], "to": words[-1]["to"]}))
-        return dict(captions, lines=lines)
+        moved = {}
+        for key in ("lines", "drafts"):
+            lines = []
+            for ln in captions.get(key) or []:
+                words = [dict(w, **{"from": round(s[0], 3), "to": round(s[1], 3)}) for w in ln["words"]
+                         for s in [self.span(w["from"], w["to"])] if s]
+                if words:
+                    lines.append(dict(ln, words=words, text="".join(w["text"] for w in words) if len(words) < len(
+                        ln["words"]) else ln["text"], **{"from": words[0]["from"], "to": words[-1]["to"]}))
+            if key in captions:
+                moved[key] = lines
+        return dict(captions, **moved)
 
 
 def signature(entries):
@@ -302,19 +306,23 @@ def _less(spans, cuts):
 
 
 def _heard(captions, mutes):
-    """The captions without the words said where the sound is muted: a line keeps its other words, and goes when
-    none are left. A word is said where its middle is."""
+    """The captions and drafts without the words said where the sound is muted: a line keeps its other words, and
+    goes when none are left. A word is said where its middle is."""
     if not captions or not mutes:
         return captions
-    lines = []
-    for ln in captions["lines"]:
-        words = [w for w in ln["words"] if not any(a <= (w["from"] + w["to"]) / 2 < b for a, b in mutes)]
-        if len(words) == len(ln["words"]):
-            lines.append(ln)
-        elif words:
-            lines.append(dict(ln, words=words, text="".join(w["text"] for w in words), **{
-                "from": words[0]["from"], "to": words[-1]["to"]}))
-    return dict(captions, lines=lines)
+    kept = {}
+    for key in ("lines", "drafts"):
+        lines = []
+        for ln in captions.get(key) or []:
+            words = [w for w in ln["words"] if not any(a <= (w["from"] + w["to"]) / 2 < b for a, b in mutes)]
+            if len(words) == len(ln["words"]):
+                lines.append(ln)
+            elif words:
+                lines.append(dict(ln, words=words, text="".join(w["text"] for w in words), **{
+                    "from": words[0]["from"], "to": words[-1]["to"]}))
+        if key in captions:
+            kept[key] = lines
+    return dict(captions, **kept)
 
 
 def from_recording(pieces, s):

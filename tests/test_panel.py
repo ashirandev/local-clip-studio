@@ -374,6 +374,36 @@ class Words(Clip):
                       steps[0]["result"])
         self.assertEqual([ln["text"] for ln in self.chat.project.state()["captions"]["lines"]][0], "this is it")
 
+    def test_a_line_the_hearing_was_not_sure_of_is_a_draft_until_the_person_keeps_or_fixes_it(self):
+        self.make([dict(p, sure=0.6) for p in SAID])
+        _, steps = self.run_job([call("add_captions", why="say it")], "Done.")
+        self.assertFalse(steps[0]["refused"], steps[0]["result"])
+        self.assertTrue(steps[0]["result"].startswith(
+            'No line was heard clearly, so no captions are drawn on the video. 2 lines the hearing was not sure of are '
+            'under the clip as drafts, not on the video, because a wrong caption is worse than none: '),
+            steps[0]["result"])
+        self.assertEqual(self.chat.project.state()["captions"]["lines"], [], "nothing is drawn")
+        self.assertIn("no captions, 2 caption drafts the person has not kept yet", self.chat.clip_line())
+        self.assertEqual([(b["kind"], b["n"], b["text"]) for b in self.chat.panel()["words"]],
+                         [("draft", 0, "this is the moment"), ("draft", 1, "watch him fall down now")])
+        self.assertIsNone(self.chat.set_words("draft", 1, "watch him fall down now", "watch him fall down now"),
+                          "Save with the words as they are keeps the draft")
+        caps = self.chat.project.state()["captions"]
+        self.assertEqual(("".join(ln["text"] for ln in caps["lines"]), {ln.get("typed") for ln in caps["lines"]}),
+                         ("watch him fall down now", {True}))
+        self.assertEqual("".join(ln["text"] for ln in caps["drafts"]), "this is the moment")
+        self.assertEqual(self.chat.told[-1], 'the person kept the caption draft at 3.3-6.3 s on the page, so it is on '
+                                             'the video now: "watch him fall down now"')
+        self.assertIsNone(self.chat.set_words("draft", 0, "this is the moment", "this is it"))
+        caps = self.chat.project.state()["captions"]
+        self.assertEqual([("".join(ln["text"] for ln in caps["lines"] if ln["phrase"] == k)) for k in (0, 1)],
+                         ["this is it", "watch him fall down now"], "the phrases in the order they are said")
+        self.assertEqual((caps["drafts"], [b["kind"] for b in self.chat.panel()["words"]]), ([], ["caption"] * 2))
+        self.assertIsNone(self.chat.set_captions("pop"))
+        caps = self.chat.project.state()["captions"]
+        self.assertEqual(("".join(ln["text"] for ln in caps["lines"]), caps.get("drafts")),
+                         ("this is itwatch him fall down now", None), "put on again, what the person kept stays")
+
     def test_translated_captions_change_at_a_tap_without_asking_muse_again(self):
         self.make(SAID)
         _, steps = self.run_job([call("add_captions", language="Thai", why="for Thai viewers")],

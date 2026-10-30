@@ -1459,7 +1459,7 @@ function drawWords(d) {
   lanes.appendChild(filmLane(d));
   const kinds = [["title", "Words on screen", "aa"], ["caption", "Captions", "cc"]];
   kinds.forEach(([kind, name, icon]) => {
-    const blocks = d.words.filter((b) => b.kind === kind);
+    const blocks = d.words.filter((b) => b.kind === kind || (kind === "caption" && b.kind === "draft"));
     if (!blocks.length) return;
     const lane = el("div", "lane " + kind);
     lane.setAttribute("role", "group");
@@ -1468,13 +1468,13 @@ function drawWords(d) {
     const row = rows(blocks);
     track.style.height = (Math.max(...row) + 1) * 30 + "px";
     blocks.forEach((b, i) => {
-      const button = el("button", "block" + (b.typed ? " typed" : ""), b.text);
+      const button = el("button", "block" + (b.typed ? " typed" : "") + (b.kind === "draft" ? " draft" : ""), b.text);
       button.type = "button";
       button.title = b.text;
       button.style.left = (100 * b.start / d.length) + "%";
       button.style.width = (100 * Math.max(0, Math.min(b.end, d.length) - b.start) / d.length) + "%";
       button.style.top = row[i] * 30 + "px";
-      button.setAttribute("aria-label", (kind === "title" ? "Words on screen" : "Caption") + " from " + b.start.toFixed(1) + " to " + b.end.toFixed(1) + " s: " + b.text + (b.typed ? ". Your own words." : ""));
+      button.setAttribute("aria-label", wordName(b) + " from " + b.start.toFixed(1) + " to " + b.end.toFixed(1) + " s: " + b.text + (b.kind === "draft" ? ". Not on the video until you keep or fix it." : b.typed ? ". Your own words." : ""));
       button.addEventListener("click", () => openWords(b));
       track.appendChild(button);
     });
@@ -1511,13 +1511,19 @@ function drawMuteMarks() {
   });
 }
 
+function wordName(b) {
+  return b.kind === "title" ? "Words on screen" : b.kind === "draft" ? "Caption draft" : "Caption";
+}
+
 function drawWordList(d) {
   wordList.replaceChildren();
   d.words.forEach((b) => {
-    const r = el("button", "word-row" + (b.typed ? " typed" : ""));
+    const r = el("button", "word-row" + (b.typed ? " typed" : "") + (b.kind === "draft" ? " draft" : ""));
     r.type = "button";
-    r.append(ico(b.kind === "title" ? "aa" : "cc", "sm"), el("span", "at", clock(b.start)), el("span", "w", b.text), ico("words", "sm"));
-    r.setAttribute("aria-label", "Change " + (b.kind === "title" ? "the words on screen" : "the caption") + " at " + b.start.toFixed(1) + " s: " + b.text);
+    r.append(ico(b.kind === "title" ? "aa" : "cc", "sm"), el("span", "at", clock(b.start)), el("span", "w", b.text));
+    if (b.kind === "draft") r.append(el("span", "tag", "Not sure"));
+    r.append(ico("words", "sm"));
+    r.setAttribute("aria-label", "Change " + (b.kind === "title" ? "the words on screen" : b.kind === "draft" ? "the caption draft, not on the video yet," : "the caption") + " at " + b.start.toFixed(1) + " s: " + b.text);
     r.addEventListener("click", () => openWords(b));
     wordList.appendChild(r);
   });
@@ -1563,7 +1569,7 @@ function openWords(b) {
   seek(b.start);
   room.editing = { kind: b.kind, n: b.n, was: b.text };
   if (sheet.hidden || room.part !== "words") openSheet("words");
-  wordLabel.textContent = (b.kind === "title" ? "Words on screen" : "Caption") + ", " + b.start.toFixed(1) + " to " + b.end.toFixed(1) + " s" + (b.typed ? " · your own words" : "");
+  wordLabel.textContent = wordName(b) + ", " + b.start.toFixed(1) + " to " + b.end.toFixed(1) + " s" + (b.kind === "draft" ? " · the hearing was not sure, so it is not on the video: Save puts it on, as it is or as you change it" : b.typed ? " · your own words" : "");
   wordText.value = b.text;
   wordNote.textContent = "";
   wordEdit.hidden = false;

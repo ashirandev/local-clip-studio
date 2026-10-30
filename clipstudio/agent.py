@@ -100,6 +100,13 @@ once: pick its kind, then plan and work. Do not ask anything first; the person c
 Judge the kind by the picture that comes with it and by the person's words, not by the file name."""
 
 
+def _placed(lines, new):
+    """The caption lines with a new phrase's lines among them by time, every phrase numbered again in that order."""
+    phrases = [[ln for ln in lines if ln["phrase"] == k] for k in sorted({ln["phrase"] for ln in lines})] + [new]
+    phrases.sort(key=lambda mine: mine[0]["from"])
+    return [dict(ln, phrase=k) for k, mine in enumerate(phrases) for ln in mine]
+
+
 class Missing(Exception):
     """What the page named is not on the clip, or not as the page showed it. The sentence says so."""
 
@@ -370,15 +377,17 @@ class Chat:
 
     def words_on(self, state):
         """The words on the clip as blocks the page places by their time: every title, and every phrase of the
-        captions (its lines joined give it back whole), "typed" when the person wrote it on the page."""
+        captions (its lines joined give it back whole), "typed" when the person wrote it on the page, and every
+        draft: a phrase the hearing was not sure of, not on the video until the person keeps or fixes it."""
         out = [{"kind": "title", "n": k, "text": t["text"], "start": t["start"], "end": t["end"]}
                for k, t in enumerate(state["titles"])]
-        lines = (state["captions"] or {}).get("lines") or []
-        for k in sorted({ln["phrase"] for ln in lines}):
-            mine = [ln for ln in lines if ln["phrase"] == k]
-            out.append({"kind": "caption", "n": k, "text": "".join(ln["text"] for ln in mine).strip(),
-                        "start": mine[0]["from"], "end": mine[-1]["to"],
-                        "typed": any(ln.get("typed") for ln in mine)})
+        for kind, key in (("caption", "lines"), ("draft", "drafts")):
+            lines = (state["captions"] or {}).get(key) or []
+            for k in sorted({ln["phrase"] for ln in lines}):
+                mine = [ln for ln in lines if ln["phrase"] == k]
+                out.append({"kind": kind, "n": k, "text": "".join(ln["text"] for ln in mine).strip(),
+                            "start": mine[0]["from"], "end": mine[-1]["to"],
+                            "typed": any(ln.get("typed") for ln in mine)})
         return sorted(out, key=lambda b: (b["start"], b["kind"]))
 
     def set_captions(self, mode):
@@ -541,8 +550,9 @@ class Chat:
         add_title, in its place and time, so its checks hold (it must fit the place and keep off faces) and it
         replaces the old one. A caption phrase is broken into lines as add_captions breaks it, over the phrase's own
         time, and marked typed: what the person typed is what they want, so the check "Captions are words that were
-        said" does not fail it, and add_captions keeps it when the captions go on again. Told to Muse before its next
-        job. Returns None, or the sentence why not; Missing when the block is not on the clip as the page showed it."""
+        said" does not fail it, and add_captions keeps it when the captions go on again. A draft, kept as it is or
+        changed, becomes such a phrase, among the captions by its time. Told to Muse before its next job. Returns
+        None, or the sentence why not; Missing when the block is not on the clip as the page showed it."""
         state = self._clip_now()
         block = next((b for b in self.words_on(state) if b["kind"] == kind and b["n"] == n), None)
         if block is None or block["text"] != was:
@@ -550,7 +560,7 @@ class Chat:
         words = " ".join(str(words).split())
         if not words:
             return "Type the words first."
-        if words == was:
+        if words == was and kind != "draft":
             return None
         if kind == "title":
             t = state["titles"][n]
@@ -562,7 +572,7 @@ class Chat:
                 return refused
         else:
             caps = state["captions"]
-            mine = [ln for ln in caps["lines"] if ln["phrase"] == n]
+            mine = [ln for ln in caps["drafts" if kind == "draft" else "lines"] if ln["phrase"] == n]
             typed = text.caption_lines([{"from": mine[0]["from"], "to": mine[-1]["to"], "text": words}],
                                        ONE_LETTERS if caps.get("one") else CAPTION_LETTERS)
             for ln in typed:
@@ -570,6 +580,12 @@ class Chat:
                 for key in ("who", "said"):
                     if key in mine[0]:
                         ln[key] = mine[0][key]
+            if kind == "draft":
+                self.edit(dict(caps, lines=_placed(caps["lines"], typed),
+                               drafts=[ln for ln in caps["drafts"] if ln["phrase"] != n]))
+                self._tell('the person %s the caption draft at %g-%g s on the page, so it is on the video now: "%s"'
+                           % ("kept" if words == was else 'changed "%s" in' % was, block["start"], block["end"], words))
+                return None
             self.edit(dict(caps, lines=[ln for ln in caps["lines"] if ln["phrase"] < n] + typed +
                            [ln for ln in caps["lines"] if ln["phrase"] > n]))
         self._tell('the person typed their own words for the %s at %g-%g s on the page: "%s" is now "%s"'
@@ -763,8 +779,12 @@ class Chat:
         st = state["style"]["name"] if state["style"] else (self.clip or {}).get("style", "clean")
         words = "; ".join('"%s" %g-%g s at the %s' % (t["text"], t["start"], t["end"], t["place"])
                           for t in state["titles"])
-        extras = [("lit captions on" if state["captions"].get("lit") else "popped captions on"
-                   if state["captions"].get("pop") else "captions on") if state["captions"] else "no captions"]
+        caps = state["captions"]
+        extras = [("lit captions on" if caps.get("lit") else "popped captions on" if caps.get("pop") else
+                   "captions on") if caps and caps["lines"] else "no captions"]
+        drafts = len({ln["phrase"] for ln in (caps or {}).get("drafts") or []})
+        if drafts:
+            extras.append("%d caption draft%s the person has not kept yet" % (drafts, "" if drafts == 1 else "s"))
         if state["blurs"]:
             extras.append("%d blur%s" % (len(state["blurs"]), "" if len(state["blurs"]) == 1 else "s"))
         if state["people"]:

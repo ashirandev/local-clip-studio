@@ -3123,18 +3123,30 @@ def add_captions(job, why, on=True, lit=False, pop=None, language=""):
         return "Captions are off."
     moments = job.chat.moments or []
     said = moments[clip["moment"] - 1].get("said") or [] if clip["moment"] <= len(moments) else []
-    phrases, unsure, heard = [], [], []
+    typed = _typed(state["captions"])
+    phrases, doubtful, heard = [], [], []
     for n, p in enumerate(said):
-        if _unsure(p):
-            unsure.append(p)
-            continue
         at = _in_clip(clip["pieces"], p, length)
-        if at:
+        if not at:
+            continue
+        if _unsure(p) and (at[0], at[1]) not in typed:
+            doubtful.append({"from": at[0], "to": at[1], "text": p["text"]})
+        else:
             phrases.append({"from": at[0], "to": at[1], "text": p["text"], "n": n})
             heard.append(p)
-    if not phrases:
+    if not phrases and not doubtful:
         raise Refused("Nothing was heard clearly in this moment, so there are no words to caption. Leave the captions "
                       "off, and say so in your answer.")
+    band = clip["layout"]["captions"]
+    if not phrases:
+        one = _talked(job.chat.clip or {}, doubtful, length)
+        entry = {"do": "captions", "lines": [], "band": [band[1], band[3]], "lit": bool(lit),
+                 "pop": bool(one and not lit if pop is None else pop),
+                 "drafts": text.caption_lines(doubtful, ONE_LETTERS if one else CAPTION_LETTERS)}
+        if one:
+            entry["one"] = True
+        job.edit(entry)
+        return "No line was heard clearly, so no captions are drawn on the video. " + _drafts_said(doubtful)
     translated, first, unnumbered = None, list(range(len(phrases))), set()
     try:
         texts, spelling = _spell(job, [p["text"] for p in phrases], heard=True)
@@ -3148,7 +3160,6 @@ def add_captions(job, why, on=True, lit=False, pop=None, language=""):
         return "No captions: the person pressed Stop."
     shown = [{"from": u["from"], "to": u["to"], "text": s} for u, s in zip(units, translated)] if translated else \
         phrases
-    typed = _typed(state["captions"])
     for piece in shown:
         piece["text"] = typed.get((piece["from"], piece["to"]), piece["text"])
     one = _talked(job.chat.clip or {}, phrases, length, bool(translated))
@@ -3168,17 +3179,17 @@ def add_captions(job, why, on=True, lit=False, pop=None, language=""):
         return "No captions: the person pressed Stop."
     if translated:
         first = [u["first"] for u in units]
-    band = clip["layout"]["captions"]
     entry = {"do": "captions", "lines": lines, "band": [band[1], band[3]], "lit": bool(lit), "pop": bool(pop)}
     if one:
         entry["one"] = True
+    if doubtful:
+        entry["drafts"] = text.caption_lines(doubtful, ONE_LETTERS if one else CAPTION_LETTERS)
     if translated:
         entry["language"] = target
     bands, voiced = clip["layout"].get("bands"), clip.get("voices")
     if bands and voiced:
         who = {(round(v["from"], 2), round(v["to"], 2)): v["who"] for v in voiced}
-        owners = [who.get((round(p["from"], 2), round(p["to"], 2))) for p in said if not _unsure(p)
-                  and _in_clip(clip["pieces"], p, length)]
+        owners = [who.get((round(p["from"], 2), round(p["to"], 2))) for p in heard]
         for line in lines:
             k = first[line["phrase"]]
             line["who"] = owners[k] if k < len(owners) else None
@@ -3215,11 +3226,8 @@ def add_captions(job, why, on=True, lit=False, pop=None, language=""):
     if any(line.get("typed") for line in lines):
         out.append("The words the person typed on the page for %d of the lines are kept as they typed them."
                    % sum(1 for line in lines if line.get("typed")))
-    if unsure:
-        out.append("Left out %d line%s the hearing was not sure of, because a wrong caption is worse than none: %s."
-                   % (len(unsure), "" if len(unsure) == 1 else "s",
-                      "; ".join("%s \"%s\"" % (recording.clock(project.from_recording(clip["pieces"], p["from"]) or 0),
-                                                p["text"]) for p in unsure[:4])))
+    if doubtful:
+        out.append(_drafts_said(doubtful))
     on_camera = _on_camera(rec, clip) if lit else None
     if on_camera:
         out.append("A person is on camera (%s). Lit words pull the eye away from a person who is talking, so the house "
@@ -3240,6 +3248,18 @@ def add_captions(job, why, on=True, lit=False, pop=None, language=""):
     first = lines[0]
     out.append(_show_frame(job, state, rec, (first["from"] + first["to"]) / 2, "The clip with captions:"))
     return "\n".join(out)
+
+
+def _drafts_said(doubtful):
+    """What Muse is told of the lines the hearing was not sure of: drafts under the clip, never drawn on the video
+    until the person keeps or fixes them there, for a wrong caption is worse than none. Tarm 10-30: a clip is made 80%
+    of the way and the person does the last 20% before posting, and a talk of four people laughing had no caption at
+    all, so they typed every line."""
+    one = len(doubtful) == 1
+    return ("%d line%s the hearing was not sure of %s under the clip as %s, not on the video, because a wrong "
+            "caption is worse than none: %s. The person keeps or fixes each draft there before posting: say so in "
+            "your answer." % (len(doubtful), "" if one else "s", "is" if one else "are", "a draft" if one else "drafts",
+                              "; ".join("%s \"%s\"" % (recording.clock(p["from"]), p["text"]) for p in doubtful[:4])))
 
 
 def _typed(captions):
@@ -4898,7 +4918,7 @@ def describe(entry):
             "".join(", %s for %s" % (_paints(c), WORD_PARTS[k]) for k, c in (entry.get("part_colours") or {}).items())
     if entry["do"] == "captions":
         return ("the lit captions" if entry.get("lit") else "the popped captions" if entry.get("pop") else
-                "the captions") if entry["lines"] else \
+                "the captions") if entry["lines"] else "the caption drafts" if entry.get("drafts") else \
             "turning the captions off"
     if entry["do"] == "blur":
         return "the blur at %g-%g s" % (entry["start"], entry["end"])

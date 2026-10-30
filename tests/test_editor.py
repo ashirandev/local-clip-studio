@@ -224,6 +224,21 @@ class Projects(unittest.TestCase):
         self.assertEqual([h["at"] for h in p.state()["hits"]], [1.0, 5.0], "a clip made from another moment does not "
                                                                          "move anything")
 
+    def test_caption_drafts_are_not_lines_and_move_and_go_quiet_with_the_clip(self):
+        lines = text.caption_lines([{"from": 0.5, "to": 2, "text": "one two"}])
+        drafts = text.caption_lines([{"from": 4, "to": 6, "text": "hello there"}])
+        p = project.Project([{"do": "clip", "moment": 1, "pieces": [[10, 20]], "layout": {"kind": "card"}},
+                             {"do": "captions", "lines": lines, "drafts": drafts, "band": [1500, 200]}])
+        self.assertEqual("".join(ln["text"] for ln in p.state()["captions"]["lines"]), "one two",
+                         "a draft is never a line, so it is never drawn")
+        p.add({"do": "clip", "moment": 1, "pieces": [[13, 21]], "layout": {"kind": "card"}, "moved": True})
+        moved = p.state()["captions"]
+        self.assertEqual(moved["lines"], [], "the cut-off words go")
+        self.assertAlmostEqual(moved["drafts"][0]["words"][0]["from"], drafts[0]["words"][0]["from"] - 3, places=3,
+                               msg="a draft stays on its second")
+        p.add({"do": "mute", "spans": [[14, 16.5]], "start": 1, "end": 3.5, "back": False})
+        self.assertEqual(p.state()["captions"]["drafts"], [], "a draft said where the sound is muted goes")
+
     def test_a_private_blur_belongs_to_its_clip_and_a_plain_one_is_kept(self):
         p = project.Project()
         p.add({"do": "clip", "moment": 1, "pieces": [[30, 50]], "layout": {"kind": "card"}})
@@ -895,8 +910,9 @@ class Tools(unittest.TestCase):
         self.assertIn("หรือว่ามันต้องเป็นไพ่", shown, "talk clip 10-28: two people in a room are heard at 0.83-0.87")
         self.assertIn("ใช่คือสิ่งที่ฉันแจกเอง", shown)
         self.assertNotIn("แ้ไพ่", shown, "odd bits left after the fix: still not sure")
-        self.assertIn('Left out 2 lines the hearing was not sure of', caps["result"],
-                      "below READ_SURE a line is left out even when it reads as a word: at 0.44 it is a guess")
+        self.assertIn('2 lines the hearing was not sure of are under the clip as drafts, not on the video',
+                      caps["result"], "below READ_SURE a line is a draft even when it reads as a word: at 0.44 it is a "
+                                      "guess")
 
     def test_a_translated_line_keeps_the_numbers_said_as_a_thai_speaker_says_them(self):
         differ = tools._numbers_differ
@@ -2329,11 +2345,14 @@ class Tools(unittest.TestCase):
         self.assertIn("0:32 this is the moment\n", looked["result"])
         caps = steps[-1]
         self.assertFalse(caps["refused"], caps["result"])
-        self.assertIn('Left out 1 line the hearing was not sure of, because a wrong caption is worse than none: 0:03 '
-                      '"bxo noqa mumble".', caps["result"])
+        self.assertIn('1 line the hearing was not sure of is under the clip as a draft, not on the video, because a '
+                      'wrong caption is worse than none: 0:03 "bxo noqa mumble". The person keeps or fixes each draft '
+                      'there before posting: say so in your answer.', caps["result"])
         shown = " ".join(line["text"] for line in self.chat.project.state()["captions"]["lines"])
         self.assertNotIn("mumble", shown)
         self.assertIn("fall", shown)
+        self.assertEqual("".join(line["text"] for line in self.chat.project.state()["captions"]["drafts"]),
+                         "bxo noqa mumble")
 
     def test_a_spot_the_person_asked_for_is_used_and_what_covers_it_is_said(self):
         self.chat.emit("person", job=None, text="Put the title at the bottom. Up top over my face is fine too, and "

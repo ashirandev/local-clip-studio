@@ -42,7 +42,8 @@ computer only.
   video can be made again
 - POST /api/captions {chat, mode}, /api/style {chat, style}, /api/colour {chat, look}: a tap beside the clip. The
   program makes the edit Muse's tool makes, at once, without asking Muse; Undo takes it back, and Muse is told
-- POST /api/words {chat, kind, n, was, words}: the person's own words for a title or a caption phrase
+- POST /api/words {chat, kind, n, was, words}: the person's own words for a title, a caption phrase or a caption
+  draft (kept as it is when the words are the same)
 - POST /api/mute {chat, start, end, back}: the clip's own sound muted from start to end s of the clip, or brought back
 - POST /api/ends {chat, start, end}: the clip starts and ends there, in seconds of the recording: change_ends, run in
   the background ({"ok": true} once it has started); a "moved" event says when the clip is made, a "not_moved" event
@@ -288,7 +289,7 @@ class Handler(BaseHTTPRequestHandler):
                     why = chat.set_mute(start, end, body.get("back") is True)
                 else:
                     why = chat.set_ends(float(start), float(end))
-            elif body.get("kind") not in ("title", "caption") or not isinstance(body.get("n"), int) or \
+            elif body.get("kind") not in ("title", "caption", "draft") or not isinstance(body.get("n"), int) or \
                     isinstance(body.get("n"), bool):
                 why = "Send which words to change: a title or a caption, and its number."
             else:

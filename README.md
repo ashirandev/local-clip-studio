@@ -383,7 +383,10 @@ Detailed steps the input, the result and the engine numbers.
   title and caption phrase sits on a line by its time. A tap runs the very tool Muse would call, with its checks, so a choice the tool would refuse is
   shown off with the tool's reason, and the page and Muse never disagree. Undo takes a tap back, and Muse is told
   before it answers next. Caption words the person types are kept as typed, also when the captions go on again, and
-  the check on captions passes them as the person's own words. When the clip has changed since its video was made,
+  the check on captions passes them as the person's own words. A line the hearing was not sure of is a draft on the
+  timeline, outlined in dashes and marked Not sure: it is not on the video until the person saves it as it is or fixed,
+  because a wrong caption is worse than none, and a talk heard unsure all through still has every line ready to check.
+  When the clip has changed since its video was made,
   Update video renders it as Muse's render does. Under Captions, As said puts them back in the words as
   said at a tap; English is a tap that asks Muse, which writes the translation.
 - **Trim, or take in more, at a tap.** Muse picks the moment; under Trim the person taps a spot on the timeline and
