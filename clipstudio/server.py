@@ -112,7 +112,7 @@ BASE = re.compile(r"^/api/base/([0-9a-f]{16}\.mp4)$")
 POSTER_AT = 1.0
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 CHANGES = ("/api/captions", "/api/style", "/api/colour", "/api/words", "/api/remake", "/api/channel",
-           "/api/channel/save", "/api/mute", "/api/ends", "/api/title/time", "/api/frame", "/api/layout")
+           "/api/channel/save", "/api/mute", "/api/ends", "/api/title/time", "/api/frame", "/api/layout", "/api/album")
 TIMES = {"/api/mute": "Send the start and the end of the part to mute, in seconds of the clip.",
          "/api/ends": "Send the new start and end of the clip, in seconds of the recording.",
          "/api/title/time": "Send the title's new start and end, in seconds of the clip."}
@@ -284,6 +284,10 @@ class Handler(BaseHTTPRequestHandler):
                 why = chat.make_again()
             elif path == "/api/layout":
                 why = chat.set_layout(str(body.get("layout") or ""))
+            elif path == "/api/album":
+                n = body.get("n")
+                why = chat.pick_clip(n) if isinstance(n, int) and not isinstance(n, bool) else \
+                    "Send which clip of the album to open: its number."
             elif path == "/api/frame":
                 x = body.get("x")
                 why = chat.set_frame(float(x)) if isinstance(x, (int, float)) and not isinstance(x, bool) and abs(x) < 1e9 else                     "Send where the frame's left edge goes, in pixels of the recording."

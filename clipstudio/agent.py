@@ -147,6 +147,7 @@ class Chat:
         self.looks, self.moments = [], None
         self.clips = self.counted = None
         self.project = project.Project()
+        self.album, self.album_at = [], 0
         self.rendered = []
         self.checks = {}
         self.told = []
@@ -182,7 +183,15 @@ class Chat:
                 if e["recording"]["path"] != path:
                     chat.looks, chat.moments, chat.project, chat.rendered = [], None, project.Project(), []
                     chat.checks = {}
+                    chat.album, chat.album_at = [], 0
                 path = e["recording"]["path"]
+            elif e["kind"] == "batch":
+                chat.hold_open_clip()
+            elif e["kind"] == "album":
+                chat.put_in_album([dict(c, project=project.Project(c["entries"], c["acts"])) for c in e["clips"]],
+                                  e["since"])
+            elif e["kind"] == "picked":
+                chat.to_album_place(e["at"], e.get("new"))
             elif e["kind"] == "edit":
                 chat.project.add(e["entry"], e.get("act"))
             elif e["kind"] == "undo":
@@ -360,7 +369,7 @@ class Chat:
                 "words": self.words_on(state), "again": bool(self.rendered) and self.finished() is None,
                 "making": self.making is not None, "channels": self.channels_now(state),
                 "sound": {"mutes": state["mutes"], "has": self.has_sound()}, "ends": self.ends(state),
-                "frame": self.framing(state), "layouts": self.layouts_now(state)}
+                "frame": self.framing(state), "layouts": self.layouts_now(state), "album": self.album_now()}
 
     def layouts_now(self, state):
         """The layouts the Layout tab offers this clip, [{"name", "label", "now", "why", "picture"}] (picture: the
@@ -948,6 +957,114 @@ class Chat:
         return next((e["cover"] for e in reversed(self.events) if e["kind"] == "cover" and e.get("file") == name),
                     None)
 
+    def hold_open_clip(self):
+        """Before make_clips: the clip open now keeps its place in the album, the album's first when there is none
+        yet, so the clips made next do not take its edits away."""
+        clip = self.project.state()["clip"]
+        if clip and not self.album:
+            self.album, self.album_at = [{"moment": clip["moment"], "title": "", "project": self.project}], 0
+        self.project = project.Project()
+
+    def put_in_album(self, made, since):
+        """The clips made in one go, each {"moment", "title", "project"}, go in the album, one from a moment the album
+        holds in that clip's place, and the first of them opens. With none, the clip open before is open again. since
+        is the event before they were made: a hand-over older than that was of the clip a place held before."""
+        for c in made:
+            place = dict({k: c[k] for k in ("moment", "title", "project")}, since=since)
+            at = next((k for k, had in enumerate(self.album) if had["moment"] == c["moment"]), None)
+            if at is None:
+                self.album.append(place)
+            else:
+                self.album[at] = place
+        if made:
+            self.album_at = next(k for k, had in enumerate(self.album) if had["moment"] == made[0]["moment"])
+        if self.album:
+            self.project = self.album[self.album_at]["project"]
+
+    def fill_album(self, made, since):
+        """put_in_album, logged so a chat read back has each clip with its own edits and the same one open. Tarm 10-30:
+        "ช่วยดูเรื่อง preview ให้มันออกมาเป็น album จะได้เลือกแก้ไขต่อได้ง่าย". make_clips kept only the first clip's edits
+        then, and the others could only be watched."""
+        with self.cond:
+            self.put_in_album(made, since)
+        self.emit("album", at=self.album_at, since=since, clips=[
+            {"moment": c["moment"], "title": c["title"], "entries": c["project"].entries, "acts": c["project"].acts}
+            for c in made], **self.opened_clip())
+
+    def to_album_place(self, at, new=None):
+        """Opens the album's place at, after adding one for the moment new. What was done to the clip left stays in its
+        place, its undo too."""
+        if new is not None:
+            self.album.append({"moment": new, "title": "", "project": project.Project()})
+        self.album_at, self.project = at, self.album[at]["project"]
+
+    def open_album_clip(self, at):
+        with self.cond:
+            self.to_album_place(at)
+        self.emit("picked", at=at, **self.opened_clip())
+
+    def album_to(self, moment):
+        """Before make_clip makes a clip from moment: with an album, that moment's clip opens, or a new place for it, so
+        the clip open now is not made over."""
+        if not self.album:
+            return
+        at = next((k for k, place in enumerate(self.album) if moment in self._moments_of(place)), None)
+        if at is None:
+            with self.cond:
+                self.to_album_place(len(self.album), moment)
+            self.emit("picked", at=self.album_at, new=moment, **self.opened_clip())
+        elif at != self.album_at:
+            self.open_album_clip(at)
+
+    def pick_clip(self, at):
+        """The person's tap on a clip of the album: it opens in the editor. Returns None, or the sentence why not."""
+        if not 0 <= at < len(self.album):
+            return "That clip is not in the album."
+        with self.cond:
+            if self.making:
+                return "The video is being made now. Open another clip when it is done."
+            if self.busy():
+                return "Muse is working on the clip now. Wait until it is done, or press Stop."
+        if at != self.album_at:
+            self.open_album_clip(at)
+            self._tell("the person opened clip %d of the album on the page, so that clip is the one open now" % (at + 1))
+        return None
+
+    def _moments_of(self, place):
+        clip = place["project"].state()["clip"]
+        return {place["moment"], clip["moment"] if clip else None}
+
+    def _ready_of(self, place):
+        """What was handed over last with the clip in this place of the album, or None."""
+        moments = self._moments_of(place)
+        return next((e for e in reversed(self.events) if e["kind"] == "ready" and e.get("moment") in moments
+                     and e["id"] > place.get("since", 0)), None)
+
+    def opened_clip(self):
+        """The clip open now, for the page: {"clip": clip_view, "file": its finished file or None, "ready": what was
+        handed over with it or None, "title": its place's title or ""}."""
+        place = self.album[self.album_at] if self.album else None
+        return {"clip": self.clip_view(), "file": self.finished(), "ready": self._ready_of(place) if place else None,
+                "title": place["title"] if place else ""}
+
+    def album_now(self):
+        """The album for the strip above the clip, or None with fewer than two clips: {"at", "clips": [{"moments",
+        "title", "length", "file", "state"}]}. A clip's file is its newest finished one; its state is "ready" when that
+        file is the clip as it is now and a hand-over was made, "changed" when it was changed since, else "unfinished"."""
+        if len(self.album) < 2:
+            return None
+        clips = []
+        for place in self.album:
+            sign = project.signature(place["project"].entries)
+            done = next((f for f in reversed(self.rendered) if f["signature"] == sign), None)
+            place["file"] = done["name"] if done else place.get("file")
+            ready = self._ready_of(place)
+            clips.append({"moments": sorted(m for m in self._moments_of(place) if m is not None),
+                          "title": (ready or {}).get("title") or place["title"],
+                          "length": place["project"].state()["length"], "file": place.get("file"),
+                          "state": "changed" if place.get("file") and not done else "ready" if ready else "unfinished"})
+        return {"at": self.album_at, "clips": clips}
+
     def clip_view(self):
         """The clip as the page draws it: its length, layout and words on screen, or None before it is made."""
         state = self.project.state()
@@ -1021,9 +1138,12 @@ class Chat:
         else:
             made = ("no finished file yet: the person sees only a preview on the page, so never say the clip is "
                     "ready")
-        return ("clip: moment %d (%s-%s, %g s), %s layout, %s style, %s, %s · %s"
-                % (clip["moment"], recording.clock(a), recording.clock(b), state["length"], clip["layout"]["kind"],
-                   st, "words on screen: " + words if words else "no words on screen", ", ".join(extras), made))
+        album = "clip %d of %d in the album (open_clip opens another), " % (
+            self.album_at + 1, len(self.album)) if len(self.album) > 1 else ""
+        return ("%sclip: moment %d (%s-%s, %g s), %s layout, %s style, %s, %s · %s"
+                % (album, clip["moment"], recording.clock(a), recording.clock(b), state["length"],
+                   clip["layout"]["kind"], st, "words on screen: " + words if words else "no words on screen",
+                   ", ".join(extras), made))
 
     def open(self, rec, job=None):
         """Opens rec as this chat's recording (one at a time) and shows it.
@@ -1033,6 +1153,7 @@ class Chat:
             if not had or had["path"] != rec["path"]:
                 self.looks, self.moments, self.project, self.rendered = [], None, project.Project(), []
                 self.checks = {}
+                self.album, self.album_at = [], 0
             self.changed += 1
         frame = recording.frame(rec)
         self.emit("opened", job=job, recording=rec, frame=frame, line=recording.describe(rec))

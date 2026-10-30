@@ -835,6 +835,21 @@ class Endpoints(Served):
                          (200, {"ok": True}))
         self.assertEqual(self.chat.project.state()["mutes"], [])
 
+    def test_a_clip_of_the_album_is_opened_with_a_post(self):
+        self.make()
+        self.assertEqual(self.ask("POST", "/api/album", {"chat": self.chat.id, "n": "1"}),
+                         (400, {"ok": False, "error": "Send which clip of the album to open: its number."}))
+        self.assertEqual(self.ask("POST", "/api/album", {"chat": self.chat.id, "n": 1}),
+                         (400, {"ok": False, "error": "That clip is not in the album."}))
+        self.assertIsNone(self.ask("GET", "/api/panel?chat=" + self.chat.id)[1]["album"])
+        other = tools.project.Project(self.chat.project.entries)
+        self.chat.fill_album([{"moment": 1, "title": "One", "project": self.chat.project},
+                              {"moment": 2, "title": "Two", "project": other}], 0)
+        self.assertEqual(self.ask("POST", "/api/album", {"chat": self.chat.id, "n": 1}), (200, {"ok": True}))
+        album = self.ask("GET", "/api/panel?chat=" + self.chat.id)[1]["album"]
+        self.assertEqual((album["at"], [c["title"] for c in album["clips"]]), (1, ["One", "Two"]))
+        self.assertEqual([c["state"] for c in album["clips"]], ["unfinished", "unfinished"], "nothing handed over yet")
+
     def test_the_clips_ends_are_moved_with_a_post_and_muse_is_told(self):
         self.make(SAID, call("add_captions", why="say it"))
         panel = "/api/panel?chat=" + self.chat.id

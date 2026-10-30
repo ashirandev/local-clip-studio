@@ -1883,6 +1883,8 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
                                                           recording.clock(m["end"])) for m in moments)))
     m = moments[moment - 1]
     a, b = m["start"], m["end"]
+    if not moved and job.n is not None and why != BATCH_WHY:
+        job.chat.album_to(moment)
     made = {"layout": layout, "crop": crop, "face": face, "product": product, "follow": follow}
     kept = {"made": made, "moved": True} if moved else {"made": made}
     try:
@@ -5041,7 +5043,8 @@ def hand_over(job, why, title, caption, hashtags, english=""):
     if mine and mine.lower() not in {t.lower() for t in tags}:
         tags.append(mine)
     made = job.chat.cover_of(done["name"])
-    ready = {"file": done["name"], "length": done["length"], "title": title, "caption": caption, "hashtags": tags,
+    ready = {"file": done["name"], "moment": state["clip"]["moment"], "length": done["length"], "title": title,
+             "caption": caption, "hashtags": tags,
              "english": english, "checks": checks, "work": job.chat.worked(job.n, job.steps),
              "cover": made}
     job.emit("ready", **ready)
@@ -5117,7 +5120,9 @@ def make_clips(job, why, clips, blur=None):
         if plain:
             raise Refused("Nothing was made. A green cloth is behind the person in moment %s: give each clip a "
                           "background, a place that suits its product, so the cloth does not show." % _numbers(plain))
-    pictures, lines, first, looked = len(job.pictures), [], None, []
+    pictures, lines, made, looked = len(job.pictures), [], [], []
+    job.chat.hold_open_clip()
+    since = job.emit("batch")["id"]
     for k, c in enumerate(clips, 1):
         if job.stopped:
             lines.append("The person pressed Stop before clip %d; it and the clips after it were not made." % k)
@@ -5128,11 +5133,11 @@ def make_clips(job, why, clips, blur=None):
         seen = [p for p in job.pictures[pictures:] if p[1].startswith(FINISHED)][-len(REVIEWED):]
         del job.pictures[pictures:]
         looked += [(path, "Clip %d: %s" % (k, caption)) for path, caption in seen]
-        if first is None and job.chat.project.entries:
-            first = list(job.chat.project.entries)
+        if job.chat.project.entries:
+            made.append({"moment": c["moment"], "title": c["title"], "project": job.chat.project})
     job.pictures += looked
-    if first:
-        job.chat.project = project.Project(first)
+    job.chat.fill_album(made, since)
+    if made:
         job.show(clip=job.chat.clip_view())
     done = sum(1 for line in lines if " handed over" in line and "not handed over" not in line)
     look = channels.in_use()
@@ -5144,9 +5149,22 @@ def make_clips(job, why, clips, blur=None):
         "Each clip's finished file comes next in %d pictures, as a viewer sees it: look at them as check_clip asks "
         "and say what you saw. When one shows something wrong, make that clip again with make_clip and fix it." %
         len(REVIEWED),
-        "The person sees a ready card for each clip handed over. The clip on the page now is the first one: change it "
-        "with your tools, and tell the person in one or two lines which clips are ready and what failed in the "
-        "others."])
+        "The person sees the clips as an album above the clip and a ready card for each one handed over. The first "
+        "clip is open: your tools change the clip that is open, and open_clip opens another. Tell the person in one or "
+        "two lines which clips are ready and what failed in the others."])
+
+
+def open_clip(job, why, clip):
+    """Opens a clip of the album, as a tap on it does: every tool changes the clip that is open, and the one left keeps
+    its edits and its undo. Tarm 10-30: "ทุกเครื่องมือ ต้องแชทได้"."""
+    album = job.chat.album
+    if not album:
+        raise Refused("There is no album: it holds the clips made in one go, and there is only the clip that is open.")
+    if not 1 <= clip <= len(album):
+        raise Refused("The album has %d clips, so clip %d is not one of them." % (len(album), clip))
+    if clip - 1 != job.chat.album_at:
+        job.chat.open_album_clip(clip - 1)
+    return "Clip %d of %d is open. %s" % (clip, len(album), job.chat.clip_line())
 
 
 def _title_where_clear(job, rec, words):
@@ -6729,6 +6747,12 @@ TOOLS = {t.name: t for t in [
                                   "every clip for its whole length, such as a stream's chat box, which stays in one "
                                   "place. A game stream must give its chat box here."}},
          ["clips"], make_clips, changes=True),
+    Tool("open_clip", "Opened a clip of the album",
+         "Open another of the clips made in one go, in the album above the clip, when the person wants to change it: "
+         "your tools change the clip that is open, and the one you leave keeps its changes.",
+         {"clip": {"type": "integer", "minimum": 1, "maximum": MOST_MOMENTS,
+                   "description": "The clip's place in the album, 1 for the first."}},
+         ["clip"], open_clip, changes=True),
     Tool("make_countdown", "Made the countdown",
          "Only when the person asked in their own words for a countdown of the best moments (a top 5, ท็อป 5, 5 อันดับ, "
          "นับถอยหลัง): one clip of %d to %d of the moments you proposed, in countdown order, the best last. The "

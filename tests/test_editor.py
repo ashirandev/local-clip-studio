@@ -2660,6 +2660,122 @@ class Tools(unittest.TestCase):
                       "the frame could not follow, so the box it was given shows the product is in the picture")
         self.assertIn("Clip 2 (moment 2, 0:40-0:50, 10 s, subject layout): not made, the person pressed Stop.", made)
 
+    def batch(self, *more):
+        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        return self.several([call("make_clips", clips=clips, why="both")], *more, "Done.")
+
+    def test_the_clips_made_in_one_go_sit_in_an_album_each_with_its_own_edits(self):
+        """Tarm 10-30: "ช่วยดูเรื่อง preview ให้มันออกมาเป็น album จะได้เลือกแก้ไขต่อได้ง่าย"."""
+        _, steps = self.batch()
+        self.assertIn("The first clip is open: your tools change the clip that is open", steps[-1]["result"])
+        album = self.chat.album_now()
+        self.assertEqual(album["at"], 0)
+        self.assertEqual([(c["title"], c["state"]) for c in album["clips"]],
+                         [("Eaglet one", "ready"), ("Eaglet two", "ready")])
+        self.assertTrue(all(c["file"].endswith(".mp4") for c in album["clips"]))
+        self.assertEqual(self.chat.project.state()["clip"]["moment"], 1)
+        self.assertIsNone(self.chat.pick_clip(1))
+        self.assertEqual(self.chat.project.state()["clip"]["moment"], 2, "clips after the first can be edited too")
+        picked = [e for e in self.chat.events if e["kind"] == "picked"][-1]
+        self.assertEqual((picked["at"], picked["ready"]["title"], picked["file"]["name"], picked["title"]),
+                         (1, "Eaglet two", album["clips"][1]["file"], "Eaglet two"))
+        self.assertEqual(picked["clip"]["moment"], 2)
+        self.assertTrue(self.chat.told[-1].startswith("the person opened clip 2 of the album"))
+        self.assertIn("clip 2 of 2 in the album", self.chat.clip_line())
+        self.run_job([call("add_title", words="Only two", start=0, end=1, place="top", why="on this clip")], "Done.")
+        self.assertEqual(self.chat.album_now()["clips"][1]["state"], "changed", "the file is older than the change")
+        self.assertIsNone(self.chat.pick_clip(0))
+        self.assertNotIn("Only two", [t["text"] for t in self.chat.project.state()["titles"]])
+        self.assertIsNone(self.chat.pick_clip(1))
+        self.assertIn("Only two", [t["text"] for t in self.chat.project.state()["titles"]], "its edit waited for it")
+        self.chat.undo()
+        self.assertNotIn("Only two", [t["text"] for t in self.chat.project.state()["titles"]], "its own undo")
+
+    def test_an_album_comes_back_with_its_clips_apart_when_the_chat_is_read_back(self):
+        """make_clips kept the first clip's entries in memory, and a chat read back piled every clip's on one."""
+        self.batch()
+        self.chat.pick_clip(1)
+        self.run_job([call("add_title", words="Only two", start=0, end=1, place="top", why="on this clip")], "Done.")
+        kept = [(p["moment"], list(p["project"].entries), list(p["project"].acts)) for p in self.chat.album]
+        back = agent.Chat.load(self.chat.id)
+        self.assertEqual([(p["moment"], p["project"].entries, p["project"].acts) for p in back.album], kept)
+        self.assertEqual(back.album_at, 1)
+        self.assertEqual(back.project.state()["clip"]["moment"], 2)
+        self.assertEqual(back.project.entries, self.chat.project.entries)
+        self.assertEqual(back.album_now()["clips"][0]["state"], "ready")
+
+    def test_muse_opens_a_clip_of_the_album_and_make_clip_goes_to_that_clips_place(self):
+        _, steps = self.batch([call("open_clip", clip=3, why="not there")], [call("open_clip", clip=2, why="that one")],
+                              [call("make_clip", moment=1, layout="card", why="fix the first")])
+        wrong, opened, remade = steps[-3:]
+        self.assertTrue(wrong["refused"])
+        self.assertIn("The album has 2 clips, so clip 3 is not one of them.", wrong["result"])
+        self.assertIn("Clip 2 of 2 is open. clip 2 of 2 in the album", opened["result"])
+        self.assertFalse(remade["refused"], remade["result"])
+        self.assertEqual((self.chat.album_at, len(self.chat.album)), (0, 2), "clip 2 is not made over")
+        self.assertEqual(self.chat.album[1]["project"].state()["clip"]["moment"], 2)
+
+    def test_a_clip_from_a_moment_not_in_the_album_gets_a_new_place_and_comes_back_with_it(self):
+        self.batch()
+        self.chat.album_to(9)
+        self.assertEqual((self.chat.album_at, len(self.chat.album)), (2, 3))
+        self.assertEqual(self.chat.album[0]["project"].state()["clip"]["moment"], 1, "the clips before stay")
+        self.assertIsNone(self.chat.project.state()["clip"])
+        back = agent.Chat.load(self.chat.id)
+        self.assertEqual((back.album_at, len(back.album), back.album[2]["moment"]), (2, 3, 9))
+
+    def test_a_second_batch_takes_its_moments_places_and_leaves_the_others_clean(self):
+        clips = [{"moment": 1, "title": "Eaglet again", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Eaglet too", "caption": "c2", "hashtags": ["#b"]}]
+        self.batch()
+        self.chat.album_to(9)
+        since = self.chat.events[-1]["id"]
+        self.run_job([call("make_clips", clips=clips, why="both again")], "Done.")
+        self.assertEqual([e for e in self.chat.events if e["kind"] == "picked" and e["id"] > since], [],
+                         "the page does not jump from clip to clip while a batch is made")
+        self.assertEqual([p["moment"] for p in self.chat.album], [1, 2, 9], "the same moments keep their places")
+        self.assertEqual(self.chat.album_at, 0)
+        self.assertEqual(self.chat.album[2]["project"].entries, [], "no edit of the batch went to another place")
+        self.assertEqual([c["title"] for c in self.chat.album_now()["clips"][:2]], ["Eaglet again", "Eaglet too"])
+        back = agent.Chat.load(self.chat.id)
+        self.assertEqual([p["project"].entries for p in back.album], [p["project"].entries for p in self.chat.album])
+
+    def test_a_clip_of_the_album_with_no_hand_over_says_so(self):
+        self.batch()
+        self.chat.album_to(9)
+        now = self.chat.album_now()["clips"][2]
+        self.assertEqual((now["state"], now["file"], now["title"]), ("unfinished", None, ""))
+
+    def test_the_clip_open_before_a_batch_keeps_its_place_and_no_clip_made_leaves_it_open(self):
+        self.several([call("make_clip", moment=1, layout="card", why="the first")], "Done.")
+        before = self.chat.project
+        self.chat.hold_open_clip()
+        self.assertEqual(self.chat.project.entries, [], "the next clip starts clean")
+        self.chat.fill_album([], 0)
+        self.assertIs(self.chat.project, before, "nothing was made, so nothing changed")
+        self.assertIsNone(self.chat.album_now(), "one clip is no album yet")
+        made = [{"moment": 2, "title": "Two", "project": tools.project.Project(before.entries)}]
+        self.chat.hold_open_clip()
+        self.chat.fill_album(made, 0)
+        self.assertEqual([p["moment"] for p in self.chat.album], [1, 2])
+        self.assertIs(self.chat.album[0]["project"], before)
+        self.assertEqual(self.chat.album_at, 1, "the first of the clips just made opens")
+
+    def test_opening_a_new_recording_empties_the_album(self):
+        self.batch()
+        self.chat.open(dict(self.chat.recording, path=self.clip + ".other", name="another.mp4"))
+        self.assertEqual(self.chat.album, [])
+        self.assertEqual(agent.Chat.load(self.chat.id).album, [], "and so does reading the chat back")
+
+    def test_the_album_waits_while_the_video_is_made_or_muse_works(self):
+        self.batch()
+        self.assertEqual(self.chat.pick_clip(5), "That clip is not in the album.")
+        self.chat.making = object()
+        self.assertIn("The video is being made now", self.chat.pick_clip(1))
+        self.chat.making = None
+        self.assertEqual(self.chat.album_at, 0)
+
     def test_a_clips_cuts_and_the_persons_own_land_in_the_quiet_and_say_where(self):
         """Tarm 10-30: "ไม่เอาตัดกลางคำ". The sound is loud from 32 to 46 s; lane 4: change_ends kept a drag where it was
         put, so it could land inside a word."""

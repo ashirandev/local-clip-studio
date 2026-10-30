@@ -376,6 +376,13 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .clip :focus-visible { outline-color: var(--st-accent); }
 .e-top { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
 .e-top h2 { flex: 1; min-width: 0; margin: 0; font-size: 14px; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.album { display: flex; gap: 8px; padding: 0 16px 8px; overflow-x: auto; scrollbar-width: thin; }
+.album[hidden] { display: none; }
+.album-clip { position: relative; flex: none; width: 64px; aspect-ratio: 9 / 16; padding: 0; border: 2px solid var(--st-edge); border-radius: 10px; overflow: hidden; background: var(--st-surface); color: var(--st-text); cursor: pointer; }
+.album-clip.on { border-color: var(--st-accent); }
+.album-clip img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.album-n { position: absolute; top: 3px; left: 3px; min-width: 18px; padding: 0 4px; border-radius: 9px; background: var(--st-bg); color: var(--st-text); font-size: 12px; font-weight: 700; line-height: 18px; text-align: center; }
+.album-state { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 0; background: var(--st-bg); color: var(--st-text); font-size: 11px; text-align: center; white-space: nowrap; }
 .stage { flex: 1; min-height: 0; display: grid; place-items: center; padding: 0 16px; }
 .frame-wrap { position: relative; height: min(52dvh, 620px); aspect-ratio: 9 / 16; max-width: 100%; }
 .frame { position: relative; display: grid; place-items: center; width: 100%; height: 100%; overflow: hidden; border-radius: 16px; background: #000000; }

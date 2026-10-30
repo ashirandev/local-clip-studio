@@ -65,9 +65,9 @@ MADE_BY = ("clipstudio", "cutting", "fonts", "stickers")
 
 
 class Project:
-    def __init__(self, entries=()):
+    def __init__(self, entries=(), acts=None):
         self.entries = [dict(e) for e in entries]
-        self.acts = [None] * len(self.entries)
+        self.acts = list(acts) if acts is not None else [None] * len(self.entries)
 
     def add(self, entry, act=None):
         """Adds entry; act names the action it is part of (one tool call, one tap), for undo."""

@@ -58,6 +58,7 @@ const wordCancel = $("wordCancel");
 const wordNote = $("wordNote");
 const againButton = $("againButton");
 const againLine = $("againLine");
+const albumBox = $("album");
 const previewLine = $("previewLine");
 const fileInput = $("file");
 const dropCover = $("dropCover");
@@ -94,7 +95,7 @@ const idle = text.placeholder;
 
 const SHEETS = { layout: ["stack", "Layout"], trim: ["cut", "Trim"], frame: ["move", "Frame"], caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
 const EDITS = ["layout", "trim", "frame", "caps", "style", "look", "sound", "words", "channel"];
-const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_ends: "cut", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", move_part: "move", mute_sound: "mute", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", show_people: "people", slow_push: "move", undo: "undo", use_channel_look: "at", watch_piece: "eye" };
+const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_ends: "cut", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", move_part: "move", mute_sound: "mute", open_clip: "film", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", show_people: "people", slow_push: "move", undo: "undo", use_channel_look: "at", watch_piece: "eye" };
 
 const room = { mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false, layout: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null, sends: false };
 
@@ -699,6 +700,7 @@ function clearClip() {
   room.steps = [];
   room.againError = false;
   room.ready = null;
+  room.clipName = "";
   room.finished = null;
   room.mute = {};
   room.pick = null;
@@ -708,6 +710,7 @@ function clearClip() {
   previewLine.hidden = true;
   clipSave.hidden = true;
   clipCost.hidden = true;
+  drawAlbum(null);
   hidePanel();
   thumb(null);
   updatePlayer();
@@ -734,7 +737,7 @@ function showClip(e) {
     room.frameX = null;
   }
   drawClipFrame();
-  clipTitle.textContent = room.ready ? room.ready.title : "Your clip";
+  clipTitle.textContent = room.ready ? room.ready.title : room.clipName || "Your clip";
   clipLine.textContent = clip.people ? "Tap a face to blur it, and tap it again to show it." : "";
   thumb("/api/clipframe?chat=" + encodeURIComponent(room.chat) + "&t=" + (clip.length / 2).toFixed(1) + "&width=120&v=" + e.id);
   updatePlayer();
@@ -828,7 +831,69 @@ function drawChecked(j, e) {
   j.flow.appendChild(box);
 }
 
+function drawAlbum(a) {
+  albumBox.hidden = !a;
+  albumBox.replaceChildren();
+  if (!a) return;
+  a.clips.forEach((c, k) => {
+    const b = el("button", "album-clip" + (k === a.at ? " on" : ""));
+    b.type = "button";
+    const words = c.state === "changed" ? "Changed" : c.state === "unfinished" ? "Not ready" : "";
+    b.setAttribute("aria-pressed", String(k === a.at));
+    b.setAttribute("aria-label", "Clip " + (k + 1) + ": " + c.title + (words ? ". " + words : ""));
+    b.title = c.title;
+    if (c.file) {
+      const img = el("img");
+      img.src = "/api/clip/" + c.file.replace(/\.mp4$/, ".jpg");
+      img.alt = "";
+      b.appendChild(img);
+    }
+    b.appendChild(el("span", "album-n", String(k + 1)));
+    if (words) b.appendChild(el("span", "album-state", words));
+    b.addEventListener("click", () => pickClip(k));
+    albumBox.appendChild(b);
+    if (k === a.at) b.scrollIntoView({ block: "nearest", inline: "nearest" });
+  });
+}
+
+async function pickClip(k) {
+  stopWatching();
+  try {
+    const d = await post("/api/album", { chat: room.chat, n: k });
+    if (!d.ok) toast(d.error || "That clip could not be opened.");
+  } catch (err) {
+    toast("The studio is not answering. Start it again with: python app.py");
+  }
+}
+
+function showPicked(e) {
+  if (!e.clip) return;
+  stopWatching();
+  room.ready = e.ready || null;
+  room.clipName = e.title || "";
+  room.finished = e.file ? e.file.name : null;
+  room.mute = {};
+  room.trim = null;
+  room.frameX = null;
+  room.againError = false;
+  showClip(e);
+  if (e.file) {
+    room.wantBase = false;
+    showFinished(e.file);
+  }
+  clipSave.hidden = !room.ready;
+  againLine.textContent = "";
+  loadPanel();
+}
+
 function openClip(e) {
+  const a = room.panel && room.panel.album;
+  const k = a ? a.clips.findIndex((c) => c.moments.includes(e.moment)) : -1;
+  if (k >= 0) {
+    pickClip(k);
+    setScreen("clip");
+    return;
+  }
   if (e.file !== room.finished || room.open.size) watch(e);
   else stopWatching();
   setScreen("clip");
@@ -1042,12 +1107,14 @@ function loadPanel() {
     if (chat !== room.chat) return;
     if (!d.ok || !d.clip) {
       room.panel = null;
+      drawAlbum(null);
       drawEye(null);
       hidePanel();
       updatePlayer();
       return;
     }
     room.panel = d;
+    drawAlbum(d.album);
     drawPanel(d);
     drawWords(d);
     drawAgain(d);
@@ -2157,6 +2224,10 @@ function on(e) {
     showClip(e);
     room.againError = false;
     loadPanel();
+    return;
+  }
+  if (e.kind === "album" || e.kind === "picked") {
+    showPicked(e);
     return;
   }
   if (e.kind === "rendered") {
