@@ -432,6 +432,14 @@
   "show": "many"
  },
  {
+  "tool": "open_clip",
+  "group": "Clips",
+  "name": "Open another clip",
+  "says": "Opens another of the clips made in one go, so you can change it. The clip you leave keeps its changes.",
+  "ask": "Open clip 3 and change its title.",
+  "show": "many"
+ },
+ {
   "tool": "open_clips",
   "group": "Clips",
   "name": "Clips from a folder",
