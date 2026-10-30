@@ -29,6 +29,9 @@ its own kind, both hold; the person's own words win over both.
   not "Demo"; "ไม่มีจุดผิดเลย", not "compile ผ่าน". Captions stay the speaker's own words, jargon included.
 - A title starts from what the viewer wants or what bothers them, in the words they would use, not from the name of
   a feature.
+- A title reads right to someone who has not watched the clip. Join two things with จน, เลย or เพราะ only when the
+  clip shows the one causing the other: "ทำกับข้าวบ้านเพื่อน ฮาจนต้องใช้หม้อ" glued a laugh to the pot in the
+  episode's own subtitle, and nothing in the clip makes one cause the other, so it reads as nonsense.
 - A number on the picture is exactly the one on the screen or the one said. When the hearing and the screen
   disagree, the screen wins. Never round, convert or guess a number.
 - Claim only what the person said or the picture shows, never more, in the title, the cover, the post and the
