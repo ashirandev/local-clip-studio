@@ -15,7 +15,9 @@ What the loop keeps, whatever Muse writes:
 - The loop ends the job, not Muse: when Muse answers in words (after one reminder of any plan steps it left open),
   when it keeps repeating a refused call, or after MAX_STEPS steps. A job whose last call handed the clip over is
   done, so at MAX_STEPS Muse is asked once more, with no tools, for its closing words (SIFU on Spark, 10-29: the
-  hand-over was step 30, and the page said the studio had stopped it).
+  hand-over was step 30, and the page said the studio had stopped it). STEPS_WARNED steps before the end of a job with
+  nothing handed over, Muse is told once to finish with what it has: on lane 5's rounds of 10-30, four jobs reached
+  step 30 with no clip, one of them with a clip rendered.
 - The person can steer at any time. Words typed while Muse works cancel the question in flight and go in as the
   newest message, so Muse answers them next; Stop cancels it and ends the job. Everything before the cut is still
   reused by llama-server.
@@ -45,6 +47,7 @@ AGENT_TEMPERATURE = 0.5
 AGENT_MAX_TOKENS = 4096
 SPELL_TOKENS = 8192
 MAX_STEPS = 30
+STEPS_WARNED = 6
 GUARD_STOPS = 3
 REPLY_ROOM = 2048
 PICTURE_TOKENS = 256
@@ -70,6 +73,9 @@ COVER_SAID = re.compile(r"(?i)\bcovers?\b|หน้าปก|ภาพปก|ป
 NO_COVER = ("[studio] Your answer speaks of the clip's cover, but no cover is made for the finished clip. Answer the "
             "person again without saying it has one; if they want one, they can tap Make the cover or ask for it.")
 LANDED = (MOVED_CUTS[:MOVED_CUTS.index("%")], LOUD_CUT[:LOUD_CUT.index("%")])
+LAST_STEPS = ("[studio] %d steps are left on this message and nothing is handed over yet. Finish with what you have "
+              "now: make the clip if there is none, then render it, check it and hand it over. A rough clip the person "
+              "can fix is better than none.")
 OPEN_SAID = "(opened) "
 AS_SAID = "said"
 WORDS_GONE = "Those words are not on the clip as the page showed them. Look at the clip again."
@@ -1254,7 +1260,7 @@ class Job:
 
     def run(self):
         chat, started, end, nudged = self.chat, time.time(), "answered", False
-        closing = covered = False
+        closing = covered = warned = False
         self.emit("job", mind=self.brain.label)
         try:
             while True:
@@ -1269,6 +1275,10 @@ class Job:
                                                "the studio stopped it here. Say what to do next." % self.steps)
                         break
                     closing = True
+                if self.steps >= MAX_STEPS - STEPS_WARNED and not (warned or closing or _waits(self) or any(
+                        e["kind"] == "ready" and e.get("job") == self.n for e in chat.events)):
+                    warned = True
+                    chat.add({"role": "user", "content": LAST_STEPS % (MAX_STEPS - self.steps)})
                 with chat.cond:
                     if self.inbox or self.stopped:
                         continue

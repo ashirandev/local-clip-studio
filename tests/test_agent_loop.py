@@ -132,6 +132,34 @@ class Loop(unittest.TestCase):
         self.assertIn("the most one message may take", [e["text"] for e in events if e["kind"] == "note"][-1])
         self.assertEqual(brain.script, ["never asked"])
 
+    def told_to_finish(self):
+        return [m["content"] for m in self.chat.messages if m["role"] == "user" and "steps are left" in str(m["content"])]
+
+    def test_muse_is_told_once_near_the_most_steps_to_finish_with_what_it_has(self):
+        """Lane 4, 10-30: four jobs of lane 5's rounds reached step 30 with no clip, one with a clip rendered."""
+        with mock.patch.object(agent, "MAX_STEPS", agent.STEPS_WARNED + 2):
+            brain = ScriptedMind(*[[call("find_recordings", words="w%d" % k, why="look")] for k in range(9)], "never")
+            _, events = self.run_job(brain)
+        self.assertEqual(events[-1]["why"], "too many steps")
+        self.assertEqual(self.told_to_finish(), [agent.LAST_STEPS % agent.STEPS_WARNED])
+        self.assertIn("make the clip if there is none", self.told_to_finish()[0])
+        at = [m["content"] for m in self.chat.messages if m["role"] == "user"].index(self.told_to_finish()[0])
+        self.assertGreater(at, 0, "it comes after the person's message, once the steps are gone")
+
+    def test_a_job_that_handed_over_or_is_waiting_for_a_card_is_not_told_to_finish(self):
+        handed = tools.Tool("hand_over", "Handed over", "", {}, [],
+                            lambda job, why: (job.emit("ready", file="a.mp4"), "handed over")[1])
+        with mock.patch.dict(tools.TOOLS, {"hand_over": handed}), mock.patch.object(agent, "MAX_STEPS", agent.STEPS_WARNED + 2):
+            brain = ScriptedMind([call("hand_over", why="give it")],
+                                 *[[call("find_recordings", words="w%d" % k, why="look")] for k in range(9)], "Done.")
+            self.run_job(brain)
+        self.assertEqual(self.told_to_finish(), [])
+        with mock.patch.object(agent, "MAX_STEPS", agent.STEPS_WARNED + 2), mock.patch.object(agent, "_waits",
+                                                                                              lambda job: True):
+            self.run_job(ScriptedMind(*[[call("find_recordings", words="x%d" % k, why="look")] for k in range(3)],
+                                      "They are on the cards."))
+        self.assertEqual(self.told_to_finish(), [])
+
     def test_a_recording_is_found_by_the_day_it_was_recorded_as_a_person_says_it(self):
         day = time.mktime((2026, 10, 12, 14, 17, 28, 0, 0, -1))
         os.utime(os.path.join(self.videos, "sifu", "sifu_run.mkv"), (day, day))
