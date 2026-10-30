@@ -15,7 +15,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, channels, faces, hearing, layouts, mind, project, recording, render, server, tools  # noqa: E402,E501
+from clipstudio import agent, channels, faces, hearing, layouts, mind, project, recording, render, server, takes, tools  # noqa: E402,E501
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_editor import found  # noqa: E402
 from test_hearing import Worker  # noqa: E402
@@ -30,7 +30,8 @@ FIXED = '{"lines": ["this is the moment", "watch him fall down now"]}'
 @unittest.skipUnless(FFMPEG and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class Clip(unittest.TestCase):
     """A clip made by a scripted Muse from a 320x180 recording, with faces given by a fake face finder: one that
-    stays low in the picture, and from 35 s to 40 s one that rises to the top."""
+    stays low in the picture, and from 35 s to 40 s one that rises to the top. Its tone plays the same through words
+    and silences, so the sound's level is left unknown (takes.heard_level), as before it was read."""
 
     @classmethod
     def setUpClass(cls):
@@ -74,11 +75,13 @@ class Clip(unittest.TestCase):
 
         faces.sample, faces.kept = sample, lambda rec, a, b, every=0.5: self.faces if self.looked else None
         render.export = export
+        self.level, takes.heard_level = takes.heard_level, lambda rec, a=0.0, b=None: None
         self.chat = agent.Chat()
         agent.CHATS[self.chat.id] = self.chat
 
     def tearDown(self):
         faces.sample, faces.kept, render.export, mind.get = self.real
+        takes.heard_level = self.level
         hearing.URL = self.url
         self.worker.close()
         recording.SMALLEST = self.smallest

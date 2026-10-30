@@ -39,6 +39,8 @@ GAP = 8
 OVERVIEW_FROM = 180
 OVERVIEW_AT = (0.1, 0.35, 0.6, 0.85)
 OVERVIEW_SIDE = 400
+OVERVIEW_SAID = ("The picture shows four moments across it, each marked with its time (%s): judge what kind of "
+                 "video it is by all four.")
 CAMERA_TAG = "com.apple.quicktime.creationdate"
 SAME_TIME = 2.0
 JOIN_SECONDS = 600
@@ -193,7 +195,9 @@ def overview(rec):
     """For a recording of OVERVIEW_FROM s or more, one picture for Muse of four moments across it, two by two, each
     marked with its time: (the jpg's path in work/montage, [their seconds]), or None. One picture from near the start
     can mislead: on 10-29 an hour-long travel vlog opened on two people in a room, Muse took it for a talk, ranked
-    its stretches by how loud they were and cut friends laughing on a bridge with nothing clear said."""
+    its stretches by how loud they were and cut friends laughing on a bridge with nothing clear said; on 10-30 an
+    episode Muse opened itself showed one man holding a snack up to a camera at 2:48, and Glimmer took it for a
+    seller in 2 of 4 chats (lane 5)."""
     if rec["seconds"] < OVERVIEW_FROM:
         return None
     times = [round(rec["seconds"] * k, 1) for k in OVERVIEW_AT]

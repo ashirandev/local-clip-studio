@@ -188,3 +188,24 @@ class Engine(unittest.TestCase):
         with mock.patch.dict(os.environ, {"LCS_HEARING": "local"}):
             local_key = hearing.key(rec, 2.0, 6.0)
         self.assertNotEqual(hearing.key(rec, 2.0, 6.0), local_key, "what each hearing heard is kept apart")
+
+    def test_the_hearing_expects_the_languages_the_person_types_in_and_keeps_them_apart(self):
+        """Lane 5, 10-30: told nothing, Muse Voice Transcribe wrote 5 of 47 lines of Thai talk in Vietnamese or
+        Chinese, on laughs and game noise, and the caption check passed them against the same hearing."""
+        sends.allow(True)
+        rec = {"path": self.path, "name": "talk.mp4"}
+        chat = agent.Chat()
+        chat.jobs += 1
+        job = agent.Job(chat, ScriptedMind(), "cut it")
+        chat.emit("person", job=None, text="cut a clip please")
+        job.hear(rec, 0.0, 6.0)
+        self.assertNotIn("languageBias", self.meta.got[-1]["request"], "Latin letters only: it finds the language")
+        chat.emit("person", job=None, text="ตัดคลิปให้หน่อย")
+        self.assertEqual(job.languages(), ("Thai", "English"))
+        job.hear(rec, 0.0, 6.0)
+        self.assertEqual(self.meta.got[-1]["request"]["languageBias"], ["Thai", "English"])
+        self.assertNotEqual(hearing.key(rec, 0.0, 6.0, job.languages()), hearing.key(rec, 0.0, 6.0))
+        with mock.patch.dict(os.environ, {"LCS_HEARING": "local"}):
+            self.assertEqual(hearing.key(rec, 0.0, 6.0, job.languages()), hearing.key(rec, 0.0, 6.0),
+                             "the hearing here is told no language")
+        self.assertEqual(agent.heard_in(["漢字", "and ไทย"]), ("Thai", "Mandarin Chinese", "English"))

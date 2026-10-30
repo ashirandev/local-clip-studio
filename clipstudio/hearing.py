@@ -15,7 +15,10 @@ Transcribe hears instead (asr.py), on Meta's servers, whether or not the hearing
 talk it hears clearly what Omnilingual garbles (lane 5, EP 0's 17:30-18:50, 10-30: Omnilingual's lines sure 0.6 to
 0.8 and misheard, 8 caption lines in 78 s; Muse Voice Transcribe heard it cleanly for $0.006 for two minutes).
 LCS_HEARING=meta chooses it, LCS_HEARING=local keeps the one here, and so does a hearing worker the studio was pointed
-at. Without the switch no sound leaves for Meta by itself.
+at. Without the switch no sound leaves for Meta by itself. It is told the languages the person types in
+(agent.heard_in), and what it heard expecting them is kept apart: told nothing, it wrote 5 of 47 lines of Thai
+talk in Vietnamese or Chinese, on laughs and game noise (lane 5, 10-30), and a caption check against the same
+hearing passed them.
 
 Names: a recogniser mishears a name it never learned (Eaglet came out as "egret"). When the screen shows words at
 the time, they are given with the question, and a line may change by as much more as the names it takes from them.
@@ -124,35 +127,36 @@ def status():
     return dict(out, ok=False, why=why)
 
 
-def key(rec, start, end):
+def key(rec, start, end, languages=()):
     st = os.stat(rec["path"])
-    who = "" if engine() == "local" else "|" + asr.MODEL
+    who = "" if engine() == "local" else "|" + asr.MODEL + "".join("|" + name for name in languages)
     return hashlib.sha1(("%d|%s|%d|%s|%.2f|%.2f%s" % (VERSION, rec["path"], st.st_size, st.st_mtime, start, end, who))
                         .encode("utf-8")).hexdigest()[:16]
 
 
-def heard(rec, start, end):
-    """What was heard and kept for this stretch, or None."""
+def heard(rec, start, end, languages=()):
+    """What was heard and kept for this stretch, expecting languages, or None."""
     try:
-        with open(os.path.join(recording.WORK, "heard", key(rec, start, end) + ".json"), encoding="utf-8") as f:
+        with open(os.path.join(recording.WORK, "heard", key(rec, start, end, languages) + ".json"),
+                  encoding="utf-8") as f:
             return [dict(p, text=spoken.filled(p["text"])) for p in json.load(f)]
     except (OSError, ValueError):
         return None
 
 
-def keep(rec, start, end, said):
+def keep(rec, start, end, said, languages=()):
     folder = os.path.join(recording.WORK, "heard")
     os.makedirs(folder, exist_ok=True)
-    target = os.path.join(folder, key(rec, start, end) + ".json")
+    target = os.path.join(folder, key(rec, start, end, languages) + ".json")
     with open(target + ".part", "w", encoding="utf-8") as f:
         json.dump(said, f, ensure_ascii=False)
     os.replace(target + ".part", target)
 
 
-def hear(rec, start, end, on_start=None, on_paid=None):
+def hear(rec, start, end, on_start=None, on_paid=None, languages=()):
     """[{from, to, text}] said between start and end, in seconds of the recording, the Thai marks put back.
     on_start(stop) hands over a function that ends the hearing at once (then Stopped is raised). Heard by Muse Voice
-    Transcribe (engine), on_paid(usd) gets what it cost."""
+    Transcribe (engine), on_paid(usd) gets what it cost, and it expects languages (asr.ask)."""
     tool = shutil.which("ffmpeg")
     if not tool:
         raise HearingError("FFmpeg is not installed, so the studio cannot hear the recording.")
@@ -180,7 +184,7 @@ def hear(rec, start, end, on_start=None, on_paid=None):
         if sound.returncode != 0 or not pcm:
             raise HearingError("ffmpeg could not read the sound of %s at %s." % (rec["name"], recording.clock(start)))
         if engine() == "meta":
-            return _hear_meta(pcm, start, stopped, on_paid)
+            return _hear_meta(pcm, start, stopped, on_paid, languages)
         u = urllib.parse.urlsplit(URL)
         conn = http.client.HTTPConnection(u.hostname, u.port, timeout=HEAR_SECONDS)
         parts["ask"] = conn.close
@@ -201,9 +205,9 @@ def hear(rec, start, end, on_start=None, on_paid=None):
              "sure": p.get("sure", 1.0)} for p in got["phrases"] if p["text"].strip()]
 
 
-def _hear_meta(pcm, start, stopped, on_paid):
+def _hear_meta(pcm, start, stopped, on_paid, languages=()):
     try:
-        said, usd = asr.hear(pcm, stopped=stopped.is_set)
+        said, usd = asr.hear(pcm, stopped=stopped.is_set, languages=languages)
     except asr.VoiceError as e:
         raise HearingError(str(e))
     if stopped.is_set():

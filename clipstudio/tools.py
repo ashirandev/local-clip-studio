@@ -250,7 +250,12 @@ def open_recording(job, why, path):
     head = "Opened: " + recording.describe(rec)
     if had and had["path"] != rec["path"]:
         head += "\nIt replaces %s, which was open before." % had["name"]
-    if picture:
+    seen = montage.overview(rec) if picture else None
+    if seen:
+        job.attach(seen[0], "Four moments across %s. %s" % (rec["name"], montage.OVERVIEW_SAID % ", ".join(
+            recording.clock(t) for t in seen[1])))
+        head += "\nA picture of four moments across it comes next, so you can see what it is."
+    elif picture:
         job.attach(picture, "A picture from %s, a tenth of the way in." % rec["name"])
         head += "\nA picture from it comes next, so you can see what it is."
     if round(rec["seconds"]) < SHORTEST:
@@ -377,13 +382,13 @@ def _clip_said(job, rec):
     """(what is said in a whole clip as heard, or None when it has no sound; why it could not be heard, or None)."""
     if not rec["sound_tracks"]:
         return None, None
-    said = hearing.heard(rec, 0.0, rec["seconds"])
+    said = hearing.heard(rec, 0.0, rec["seconds"], job.languages())
     if said is None:
         try:
             said = job.hear(rec, 0.0, rec["seconds"])
         except hearing.HearingError as e:
             return [], str(e)
-        hearing.keep(rec, 0.0, rec["seconds"], said)
+        hearing.keep(rec, 0.0, rec["seconds"], said, job.languages())
     return said, None
 
 
@@ -537,7 +542,7 @@ def arrange_clips(job, why, story, clips, left_out=None, hook="", products=None)
                                 % ((c["clip"],) + given))
             taken.setdefault(c["clip"], []).append((a, b))
             parts, cut = _pieces(clip["said"] or [], a, b, _still(rec, None, a, b, None), clip.get("claps") or [],
-                                 slates=True, of="the piece")
+                                 slates=True, of="the piece", level=takes.heard_level(rec) if clip["said"] else None)
             parts = takes.without(parts, clip["stills"])
             if not parts:
                 problems.append("Clip %d: nothing is said at %g-%g s once the takes given up and the silences are cut. "
@@ -832,7 +837,7 @@ def _montage_moment(job, rec, pieces, at, story, lines):
     said in each piece moved to the joined recording's seconds."""
     said = []
     for p, t in zip(pieces, at):
-        for s in hearing.heard(p["rec"], 0.0, p["rec"]["seconds"]) or []:
+        for s in hearing.heard(p["rec"], 0.0, p["rec"]["seconds"], job.languages()) or []:
             a, b = max(s["from"], p["from"]), min(s["to"], p["to"])
             if b > a:
                 said.append(dict(s, **{"from": round(t + a - p["from"], 2), "to": round(t + b - p["from"], 2)}))
@@ -1130,7 +1135,7 @@ def _what_is_said(job, rec, look):
     if not rec["sound_tracks"]:
         return ["The recording has no sound, so nothing is said."]
     ha, hb = round(max(0.0, a - SPILL), 2), round(min(rec["seconds"], b + SPILL), 2)
-    said = hearing.heard(rec, ha, hb)
+    said = hearing.heard(rec, ha, hb, job.languages())
     if said is None:
         started = time.time()
         try:
@@ -1138,7 +1143,7 @@ def _what_is_said(job, rec, look):
         except hearing.HearingError as e:
             return ["What is said here could not be heard: %s" % e]
         look["took"] = round(time.time() - started, 1)
-        hearing.keep(rec, ha, hb, said)
+        hearing.keep(rec, ha, hb, said, job.languages())
     look["said"], look["heard"] = said, [ha, hb]
     inside = [p for p in said if p["to"] > a and p["from"] < b]
     if not inside:
@@ -1267,9 +1272,10 @@ PRICE_REACH = 6.0
 
 DEAD_AIR = 1.0
 KEPT_AIR = 0.3
+QUIET_UNDER = 10.0
 
 
-def _pieces(said, a, b, still, claps=(), slates=False, of="the moment", edges=True):
+def _pieces(said, a, b, still, claps=(), slates=False, of="the moment", edges=True, level=None):
     """(the pieces of the recording a clip from a to b is made of, a sentence for Muse or None): the earlier take of a
     line said again is cut (takes.said_again), and so is a take given up at a clap from claps (takes.heard_claps), with
     the clap, or the clap alone when it is a slate and slates (takes.at_claps); every silence longer than DEAD_AIR is
@@ -1279,7 +1285,8 @@ def _pieces(said, a, b, still, claps=(), slates=False, of="the moment", edges=Tr
     air. still None keeps the moment whole (a game, where the action is the clip and nobody needs to speak). Measured
     on 10-27's five clips: three opened silent for 0.5 s or more and were not handed over, and one held a first take
     and an 8 s stop before the line was said again. edges False keeps the opening and the closing as they are: the
-    person put them there (change_ends)."""
+    person put them there (change_ends). level, from takes.heard_level, keeps what is heard where nothing is said
+    (_sounds): a silence is cut only where it is quiet."""
     if still is None:
         return [[a, b]], None
     said = [p for p in said if p["to"] > p["from"]]
@@ -1301,6 +1308,12 @@ def _pieces(said, a, b, still, claps=(), slates=False, of="the moment", edges=Tr
     if not edges:
         quiet = [q for q in quiet if pieces[0][0] < q[0] and q[1] < pieces[-1][1]]
     quiet = [q for q in quiet if q[1] - q[0] >= 0.05 and still(q[0], q[1])]
+    outer = pieces[0][0], pieces[-1][1]
+    sounds = _sounds(level, said, a, b) if level and words else []
+    heard = [part for q in quiet for part in _unheard(q, sounds)]
+    held = round(sum(y - x for x, y in takes.without(pieces, heard))
+                 - sum(y - x for x, y in takes.without(pieces, quiet)), 1)
+    quiet = heard
     pieces = takes.without(pieces, quiet)
     gone = round((b - a) - sum(y - x for x, y in pieces), 1)
     if gone < 0.1:
@@ -1312,8 +1325,51 @@ def _pieces(said, a, b, still, claps=(), slates=False, of="the moment", edges=Tr
     if inner > 0:
         parts.append("%d silence%s longer than %g s while nothing moved on the picture"
                      % (inner, "" if inner == 1 else "s", DEAD_AIR))
-    return pieces, "The program cut %g s out of %s: %s." % (gone, of, "; ".join(
-        parts + ["the silence at its edges, so it opens and closes %g s from a word" % KEPT_AIR]))
+    if any(q[0] <= outer[0] or q[1] >= outer[1] for q in quiet):
+        parts.append("the silence at its edges, so it opens and closes %g s from a word or a sound" % KEPT_AIR)
+    return pieces, "The program cut %g s out of %s: %s.%s" % (gone, of, "; ".join(parts), (
+        " It kept %g s where nobody speaks but the sound is as loud as the talk, a laugh, applause or a reaction: "
+        "that is part of the moment, not silence." % held) if held >= 0.1 else "")
+
+
+def _sounds(level, said, a, b):
+    """[[from, to]] of the recording from a to b where the sound is less than QUIET_UNDER dB under the talk's, each
+    with KEPT_AIR at its sides. level is (start, [dB every takes.LEVEL_STEP s]); the talk's level is the median
+    where words are heard, and a step is loud when it and the mean of the 3 steps around it both are, so a key or a
+    click in a pause stays quiet and a loud step never makes its quiet neighbour loud. A filler (pauses.filler) is
+    a pause, however loud. Lane 5, 10-30: with Muse Voice Transcribe hearing, a talk clip of a story lost the 11 s of
+    laughing after its last line, at -26 to -30 dB against the talk's -25 to -33. On every heard look of the chats,
+    the stretches between words sat either within 6 dB of the talk (a laugh, a crowd, music under an episode) or 13 dB
+    and more under it (Tarm's screen recordings 18 to 73)."""
+    start, db = level
+    step = takes.LEVEL_STEP
+    db = np.asarray(db, np.float64)
+    t = start + (np.arange(len(db)) + 0.5) * step
+    inside = (t >= a) & (t < b)
+    spoken, filled = np.zeros(len(db), bool), np.zeros(len(db), bool)
+    for p in said:
+        span = (t >= p["from"]) & (t < p["to"])
+        if pauses.filler(p["text"]):
+            filled |= span
+        else:
+            spoken |= span
+    if not (spoken & inside).any():
+        return []
+    talk = float(np.median(db[spoken & inside]))
+    mean = 10 * np.log10(np.convolve(10 ** (db / 10), np.ones(3) / 3, mode="same"))
+    loud = np.r_[False, (np.minimum(db, mean) >= talk - QUIET_UNDER) & inside & ~filled, False]
+    turns = np.flatnonzero(np.diff(loud.astype(np.int8)))
+    return [[round(float(start + i * step - KEPT_AIR), 2), round(float(start + j * step + KEPT_AIR), 2)]
+            for i, j in zip(turns[::2], turns[1::2])]
+
+
+def _unheard(q, sounds):
+    """The parts of the silence q that no sound covers: all of it when none is heard in it, else each part left long
+    enough to be one of the silences cut (DEAD_AIR less the air at its sides)."""
+    hit = [s for s in sounds if s[0] < q[1] and q[0] < s[1]]
+    if not hit:
+        return [q]
+    return [p for p in takes.without([q], hit) if p[1] - p[0] >= DEAD_AIR - 2 * KEPT_AIR]
 
 
 CLAPPED = {"again": "a take given up at the clap at %(at)s (\"%(said)s\"), said again after it",
@@ -1758,7 +1814,8 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
         raise Refused("Not made. " + unasked)
     if layout in ("talk", "speaker", "split"):
         return _make_talk(job, rec, moment, m, *_pieces(m.get("said") or [], a, b, _still(rec, "talk", a, b, None),
-                                                        takes.heard_claps(rec, a, b), edges=not m.get("ends")),
+                                                        takes.heard_claps(rec, a, b), edges=not m.get("ends"),
+                                                        level=takes.heard_level(rec, a, b)),
                           name=layout, kept=kept)
     trim = None
     try:
@@ -1777,7 +1834,7 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
         raise Refused(str(e))
     still = _still(rec, recipe, a, b, layouts.face_room(lay))
     pieces, cut = _pieces(m.get("said") or [], a, b, still, takes.heard_claps(rec, a, b) if still else [],
-                          edges=not m.get("ends"))
+                          edges=not m.get("ends"), level=takes.heard_level(rec, a, b) if still else None)
     menus = None
     if recipe == "game":
         try:

@@ -267,7 +267,7 @@ class Look(unittest.TestCase):
     def test_meta_hearing_shows_a_price_cut_short_with_its_zeros_back_too(self):
         from unittest import mock
         heard = ([{"from": 0.0, "to": 1.0, "text": "5,0บาท"}], 0.001)
-        with mock.patch.object(hearing.asr, "hear", lambda pcm, stopped=None: heard):
+        with mock.patch.object(hearing.asr, "hear", lambda pcm, stopped=None, languages=(): heard):
             said = hearing._hear_meta(b"\0\0", 30.0, threading.Event(), None)
         self.assertEqual([(p["from"], p["text"]) for p in said], [(30.0, "5,000บาท")])
 

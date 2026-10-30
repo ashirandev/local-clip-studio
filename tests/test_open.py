@@ -15,7 +15,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, mind, recording, server  # noqa: E402
+from clipstudio import agent, mind, montage, recording, server  # noqa: E402
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
@@ -184,6 +184,23 @@ class Open(unittest.TestCase):
         self.assertEqual(kinds.count("opened"), 1)
         self.assertEqual(sum(1 for m in brain.sent[-1] if isinstance(m["content"], list)), 1)
         self.assertEqual(agent.Chat.load(self.chat.id).recording["path"], self.chat.recording["path"])
+
+    def test_muse_sees_four_moments_of_a_long_recording_it_opens_itself(self):
+        """Lane 5, 10-30: Glimmer opened an episode itself, saw one man holding a snack up to a camera at 2:48, a tenth
+        of the way in, and loaded the seller recipe in 2 of 4 chats."""
+        times = [168.8, 590.8, 1012.8, 1434.8]
+        with mock.patch.object(montage, "overview", lambda rec: (
+                os.path.join(recording.WORK, "frames", recording.frame(rec)), times)):
+            brain = ScriptedMind([call("open_recording", path=self.clip, why="the person named it")], "Opened.")
+            self.chat.jobs += 1
+            job = self.chat.job = agent.Job(self.chat, brain, "open my review")
+            job.run()
+        result, shown = brain.sent[1][-2:]
+        self.assertIn("A picture of four moments across it comes next", result["content"])
+        self.assertEqual(shown["content"][0]["text"], "[studio] Four moments across my review.mp4. The picture shows "
+                         "four moments across it, each marked with its time (2:49, 9:51, 16:53, 23:55): judge what "
+                         "kind of video it is by all four.")
+        self.assertEqual(shown["content"][1]["type"], "image_url")
 
     def test_a_dropped_recording_tells_muse_with_the_words_typed(self):
         brain, real = ScriptedMind("Making it."), mind.get

@@ -75,6 +75,7 @@ WORDS_GONE = "Those words are not on the clip as the page showed them. Look at t
 SCRIPTS = (("Thai", re.compile("[฀-๿]")), ("Japanese", re.compile("[぀-ヿ]")),
            ("Korean", re.compile("[가-힯]")), ("Chinese", re.compile("[一-鿿]")),
            ("Arabic", re.compile("[؀-ۿ]")), ("Hindi", re.compile("[ऀ-ॿ]")))
+VOICE_NAMES = {"Chinese": "Mandarin Chinese"}
 SYSTEM = """You are the editor in Local Clip Studio. People bring long recordings (selling lives, game streams, travel \
 clips) and you turn them into short vertical clips ready to post as Reels on Instagram and Facebook. When you say \
 where a clip goes, name those; never name another company's app.
@@ -1039,8 +1040,7 @@ class Chat:
         seen = montage.overview(rec)
         if seen:
             picture = seen[0]
-            told += ("\nThe picture shows four moments across it, each marked with its time (%s): judge what kind of "
-                     "video it is by all four." % ", ".join(recording.clock(t) for t in seen[1]))
+            told += "\n" + montage.OVERVIEW_SAID % ", ".join(recording.clock(t) for t in seen[1])
         told += _reader(words, language)
         return self.say(told + said, mind_key, [picture] if picture else (), shown=opened + said)
 
@@ -1143,9 +1143,14 @@ class Job:
         self.working("Writing down what is said in %s-%s" % (recording.clock(start), recording.clock(end)))
         try:
             return hearing.hear(rec, start, end, on_start=self.started_work, on_paid=lambda usd: spent.add(
-                os.path.join(WORK, "spent.jsonl"), self.chat.id, self.n, asr.VOICE, {"usd": round(usd, 6)}))
+                os.path.join(WORK, "spent.jsonl"), self.chat.id, self.n, asr.VOICE, {"usd": round(usd, 6)}),
+                languages=self.languages())
         finally:
             self.done_working()
+
+    def languages(self):
+        """The languages the hearing expects in this chat (heard_in)."""
+        return heard_in([e["text"] for e in self.chat.events if e["kind"] == "person"])
 
     def find_faces(self, rec, start, end):
         """The faces in start-end for a tool: the page says so, and Stop ends it at once (faces.Stopped)."""
@@ -1788,6 +1793,15 @@ def written_in(words):
         if letters.search(words or ""):
             return "\n[studio] The person wrote this in %s: answer in %s." % (name, name)
     return ""
+
+
+def heard_in(texts):
+    """The languages Muse Voice Transcribe is told to expect, by the names it knows: each one the person typed in, by
+    its letters (SCRIPTS), and English, which games and talk mix in; () when they typed only Latin letters, so it
+    finds the language itself. Measured 10-30 on our own footage where it had written Vietnamese and Chinese over
+    Thai: 3 of 6 hearings had such a line told nothing, 0 of 6 told Thai and English."""
+    names = [VOICE_NAMES.get(name, name) for name, letters in SCRIPTS if any(letters.search(t or "") for t in texts)]
+    return tuple(names + ["English"]) if names else ()
 
 
 def _reader(words, language):

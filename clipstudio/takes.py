@@ -22,6 +22,9 @@ a clap: 0.35, 0.63, 0.71; at 34 stops with no clap, 12% reach 0.35). Of his 10 c
 5. Or the take is nothing but lines the hearing was not sure of (him talking to himself, off the script). A clap
 with nothing said in the WITHIN s before it and words within SLATE_WORDS s after it is a slate before a take, and
 only the clap goes.
+
+The same listen gives the sound's level, one value every LEVEL_STEP s (heard_level), so a pause can be told from a
+laugh: the hearing writes no words for laughter, and a stretch with no words is not always a quiet one.
 """
 import difflib
 import hashlib
@@ -61,7 +64,8 @@ CRACK_FLOOR = -50.0
 CRACK_RISE = 10.0
 CRACK_DROP = 8.0
 CRACK_BRIGHT = 0.15
-CLAPS_VERSION = 3
+CLAPS_VERSION = 4
+LEVEL_STEP = 0.1
 
 
 def _letters(text):
@@ -151,14 +155,35 @@ def claps(samples, rate=RATE):
 def heard_claps(rec, a=0.0, b=None):
     """claps() in rec from a to b (recording seconds; b None for its end), kept in WORK/claps so a stretch is listened
     to once. [] when it has no sound or ffmpeg cannot read it: then no clap is cut, as before claps were known."""
+    return _heard(rec, a, b)["claps"]
+
+
+def heard_level(rec, a=0.0, b=None):
+    """(a, [the sound's level in dB, one value every LEVEL_STEP s from a]) in rec from a to b, from the same listen as
+    heard_claps; None when it has no sound or ffmpeg cannot read it."""
+    level = _heard(rec, a, b)["level"]
+    return (a, level) if level else None
+
+
+def _levels(samples, rate=RATE):
+    """The level of samples (mono, -1 to 1, at rate) in dB, one value every LEVEL_STEP s: the mean of its energy."""
+    x = np.asarray(samples, dtype=np.float32)
+    hop = int(round(rate * LEVEL_STEP))
+    n = len(x) // hop
+    return [round(float(v), 1) for v in 10 * np.log10((x[:n * hop].reshape(n, hop) ** 2).mean(axis=1) + 1e-10)]
+
+
+def _heard(rec, a, b):
+    """{"claps": claps() from a to b in recording seconds, "level": _levels()}, kept in WORK/claps."""
     b = rec["seconds"] if b is None else b
     tool = shutil.which("ffmpeg")
+    nothing = {"claps": [], "level": []}
     if not rec.get("sound_tracks") or b <= a or not tool:
-        return []
+        return nothing
     try:
         st = os.stat(rec["path"])
     except OSError:
-        return []
+        return nothing
     key = hashlib.sha1(("%d|%s|%d|%s|%.2f|%.2f" % (CLAPS_VERSION, rec["path"], st.st_size, st.st_mtime, a, b))
                        .encode("utf-8")).hexdigest()[:16]
     target = os.path.join(recording.WORK, "claps", key + ".json")
@@ -172,11 +197,11 @@ def heard_claps(rec, a=0.0, b=None):
                               "-map", "0:a:0", "-ac", "1", "-ar", str(RATE), "-f", "s16le", "-"],
                              stdin=subprocess.DEVNULL, capture_output=True)
     except OSError:
-        return []
+        return nothing
     if got.returncode != 0 or not got.stdout:
-        return []
-    found = [[round(a + x, 2), round(a + y, 2), n] for x, y, n in
-             claps(np.frombuffer(got.stdout, dtype=np.int16).astype(np.float32) / 32768.0)]
+        return nothing
+    samples = np.frombuffer(got.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+    found = {"claps": [[round(a + x, 2), round(a + y, 2), n] for x, y, n in claps(samples)], "level": _levels(samples)}
     os.makedirs(os.path.dirname(target), exist_ok=True)
     with open(target + ".part", "w", encoding="utf-8") as f:
         json.dump(found, f)

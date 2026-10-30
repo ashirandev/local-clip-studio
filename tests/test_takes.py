@@ -140,6 +140,19 @@ class AtClaps(unittest.TestCase):
         self.assertEqual(takes.at_claps(said, [[2.2, 2.2, 0]], unsure=unsure, slates=True), [])
 
 
+class Level(unittest.TestCase):
+    def test_the_level_is_one_value_every_tenth_of_a_second(self):
+        rate = takes.RATE
+        tone = 0.5 * np.sin(np.arange(rate // 2) * 0.07)
+        level = takes._levels(np.concatenate([tone, np.zeros(rate // 2)]))
+        self.assertEqual(len(level), 10)
+        self.assertTrue(all(-10 < v < -8 for v in level[:5]), level)
+        self.assertEqual(level[5:], [-100.0] * 5)
+
+    def test_no_sound_has_no_level(self):
+        self.assertIsNone(takes.heard_level({"path": "x.mp4", "seconds": 5.0, "sound_tracks": 0}))
+
+
 class Without(unittest.TestCase):
     def test_cuts_come_out_of_the_pieces(self):
         self.assertEqual(takes.without([[0, 10], [20, 30]], [[2, 4], [8, 22], [29, 40]]),

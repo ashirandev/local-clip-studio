@@ -17,7 +17,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, channels, effects, faces, focus, hearing, layouts, mind, project, recording, render, screen, sends, talk, text, tools, words  # noqa: E402,E501
+from clipstudio import agent, channels, effects, faces, focus, hearing, layouts, mind, project, recording, render, screen, sends, takes, talk, text, tools, words  # noqa: E402,E501
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_hearing import Worker  # noqa: E402
 from test_map import make_moment  # noqa: E402
@@ -421,7 +421,9 @@ class Draw(unittest.TestCase):
 @unittest.skipUnless(FFMPEG and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class Tools(unittest.TestCase):
     """Muse's editing tools in a scripted job, on a 320x180 recording with faces given by a fake face finder: one
-    that stays low in the picture, and from 35 s to 40 s one that rises to the top."""
+    that stays low in the picture, and from 35 s to 40 s one that rises to the top. Its tone plays the same where the
+    fake hearing puts words and where it puts none, so the sound's level says nothing here and is left unknown
+    (takes.heard_level), as before it was read; test_a_sound_as_loud_as_the_talk_after_the_last_line_stays reads it."""
 
     @classmethod
     def setUpClass(cls):
@@ -454,10 +456,12 @@ class Tools(unittest.TestCase):
             return self.faces
 
         faces.sample, faces.kept = sample, lambda rec, a, b, every=0.5: self.faces if self.looked else None
+        self.level, takes.heard_level = takes.heard_level, lambda rec, a=0.0, b=None: None
         self.chat = agent.Chat()
 
     def tearDown(self):
         faces.sample, faces.kept = self.real
+        takes.heard_level = self.level
         hearing.URL = self.url
         self.worker.close()
         recording.SMALLEST = self.smallest
@@ -2574,6 +2578,17 @@ class Tools(unittest.TestCase):
                 '{"lines": ["one heard"]}', *clips_calls)
         finally:
             screen.words, screen.readings, focus.plan, render.export = had
+
+    def test_a_sound_as_loud_as_the_talk_after_the_last_line_stays(self):
+        """Lane 5, 10-30: the hearing writes no words for a laugh, and a talk clip lost the 11 s of laughing after its
+        last line. Here the line is said at 32-34 s and the sound goes on as loud to 40 s, then the room is quiet."""
+        takes.heard_level = self.level
+        make_moment(self.clip, loud=(32, 40))
+        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        _, steps = self.several([call("make_clips", clips=clips, why="both")], "Done.")
+        self.assertIn("Clip 1 (moment 1, 0:32-0:40, 8.3 s, card layout): handed over, ", steps[-1]["result"],
+                      "from 0.3 s before the line to the end of the sound, which runs to the moment's end")
 
     def test_several_clips_are_made_in_one_go_and_each_is_reported_on_its_own(self):
         clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},

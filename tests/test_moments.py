@@ -424,6 +424,27 @@ class Pieces(unittest.TestCase):
     def test_nothing_heard_keeps_the_moment(self):
         self.assertEqual(tools._pieces([], 30.0, 50.0, lambda x, y: True), ([[30.0, 50.0]], None))
 
+    def test_a_laugh_as_loud_as_the_talk_is_kept_and_a_quiet_silence_and_a_filler_are_cut(self):
+        """Lane 5, 10-30: Muse Voice Transcribe writes no words for laughter, and a talk clip of a story lost the 11 s
+        of laughing after its last line as "the silence at its edges"."""
+        said = [said_line(31.0, 33.0, "one two three"), said_line(33.5, 34.5, "เอ่อ"),
+                said_line(36.5, 38.0, "four five")]
+        db = [-60.0] * 200
+        for a, b, v in ((31.0, 33.0, -25.0), (33.5, 34.5, -26.0), (36.5, 38.0, -27.0), (38.4, 46.0, -28.0),
+                        (41.0, 41.1, -45.0)):
+            db[round((a - 30) * 10):round((b - 30) * 10)] = [v] * round((b - a) * 10)
+        quiet = tools._pieces(said, 30.0, 50.0, lambda x, y: True)[0]
+        self.assertEqual(quiet, [[30.7, 33.3], [36.2, 38.3]], "without the sound, the laugh is a silence")
+        pieces, cut = tools._pieces(said, 30.0, 50.0, lambda x, y: True, level=(30.0, db))
+        self.assertEqual(pieces, [[30.7, 33.3], [36.2, 46.3]], "the laugh stays with 0.3 s after it, a dip in it too; "
+                                                               "the filler and the quiet after the laugh go")
+        self.assertIn("1 silence longer than 1 s", cut)
+        self.assertIn("It kept 8 s where nobody speaks but the sound is as loud as the talk, a laugh", cut)
+        db[round(8.4 * 10):160] = [-38.0] * 76
+        self.assertEqual(tools._pieces(said, 30.0, 50.0, lambda x, y: True, level=(30.0, db))[0], quiet,
+                         "13 dB under the talk is quiet, as a room is")
+        self.assertEqual(tools._pieces(said, 30.0, 50.0, lambda x, y: False, level=(30.0, db))[0], [[30.0, 50.0]])
+
 
 @unittest.skipUnless(FFMPEG, "needs ffmpeg")
 class Still(unittest.TestCase):

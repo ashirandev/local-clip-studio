@@ -100,11 +100,15 @@ def _wav(pcm, rate=RATE):
     return buf.getvalue()
 
 
-def ask(pcm, rate=RATE):
+def ask(pcm, rate=RATE, languages=()):
     """[(start s, end s, text)] Muse Voice Transcribe heard in the sound pcm, by its turns; VoiceError with a
-    sentence when it could not be asked."""
+    sentence when it could not be asked. languages, by their English names, are what it should expect to hear
+    (languageBias): it steers, it does not force."""
     boundary = uuid.uuid4().hex
-    request = json.dumps({"model": MODEL, "audioEncoding": "WAV", "mode": "ENDPOINTING"})
+    asked = {"model": MODEL, "audioEncoding": "WAV", "mode": "ENDPOINTING"}
+    if languages:
+        asked["languageBias"] = list(languages)
+    request = json.dumps(asked)
     body = b"".join([
         ("--%s\r\nContent-Disposition: form-data; name=\"request\"\r\nContent-Type: application/json\r\n\r\n"
          % boundary).encode("ascii"), request.encode("utf-8"), b"\r\n",
@@ -129,9 +133,9 @@ def ask(pcm, rate=RATE):
     return turns
 
 
-def hear(pcm, rate=RATE, stopped=None):
+def hear(pcm, rate=RATE, stopped=None, languages=()):
     """[{from, to, text}] said in the sound pcm, in seconds of it, and the US dollars it cost: each piece asked,
-    AT_ONCE at a time. stopped() True leaves the pieces not yet sent unsent."""
+    AT_ONCE at a time, expecting languages (ask). stopped() True leaves the pieces not yet sent unsent."""
     if not secret():
         raise VoiceError("Muse Voice Transcribe needs your Meta API key, and none is set.")
     cut = pieces(pcm, rate)
@@ -142,7 +146,7 @@ def hear(pcm, rate=RATE, stopped=None):
             return []
         a, b = span
         return [(a + x, min(b, a + y) if y > x else b, text) for x, y, text in ask(pcm[int(a * width):int(b * width)],
-                                                                                    rate)]
+                                                                                    rate, languages)]
 
     with concurrent.futures.ThreadPoolExecutor(AT_ONCE) as pool:
         heard = [t for got in pool.map(one, cut) for t in got]
