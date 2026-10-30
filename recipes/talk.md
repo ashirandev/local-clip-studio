@@ -3,7 +3,7 @@ name: talk
 title: Podcast or interview
 chip: It's two people talking
 description: Two or more people sit and talk, as in a podcast, an interview or a talk show. Pick it when the recording is a conversation between people on camera.
-length: 45
+length: 60
 style: pop
 map: sound 1
 read: screen
@@ -21,6 +21,10 @@ joke and the laugh after it.
 - A moment starts on the question or the first words of the story, not in the middle of a sentence, and ends after
   the point lands, with the other person's reaction.
 - What is said matters more than how the picture changes.
+- A clip runs as long as its thought needs, up to 90 s: the length guessed is where to start, not where to stop.
+  When a look ends while someone is still telling the story or answering, look at the next stretch before you
+  propose, and end where they finish and the others react (Tarm 10-30, on EP 0 cut at 45 s in the middle of an
+  answer: "ตัดห้วนเกินไป มันยังไม่จบ").
 - Never the episode's opening, where the people greet the viewer and say who is who: a viewer scrolling past
   does not know them yet, and a list of names gives no reason to stay. A story with its point, a question and
   its answer, or a joke and its laugh does.
