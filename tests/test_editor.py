@@ -2507,6 +2507,14 @@ class Tools(unittest.TestCase):
         self.assertFalse(made["refused"], made["result"])
         self.assertEqual([e["title"] for e in self.chat.events if e["kind"] == "ready"], ["Jabs pack", "PDRN pack"])
 
+    def test_a_name_heard_without_its_vowels_counts_as_said_and_one_muse_made_up_still_does_not(self):
+        from unittest import mock
+        job = type("Job", (), {"n": 1, "chat": type("Chat", (), {"events": []})()})()
+        said = ["วันนี้มารีวิว iแpd ตัวใหม่ครับ", "astaxanthin ช่วยเรื่องผิว"]
+        with mock.patch.object(screen, "words", lambda rec, a, b: ["Jabs"]),                 mock.patch.object(screen, "sites", lambda rec: []):
+            names, _ = tools._unseen_names(job, {"name": "review.mp4"}, 0, 10, "iPad ASTI PDRN", said)
+        self.assertEqual(names, ["ASTI", "PDRN"], "lane 5 10-30: iPad was heard as ipd and its title refused")
+
     def test_a_tutorial_is_a_card_unless_muse_says_again_the_person_asked_for_their_face(self):
         clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"], "layout": "face"},
                  {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]

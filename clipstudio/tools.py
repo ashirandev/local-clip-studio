@@ -2133,6 +2133,7 @@ def _names_said(wrong, then):
 
 
 CAPITAL_NAME = re.compile(r"[A-Z0-9]{3,}|[A-Za-z0-9]*[a-z][A-Z][A-Za-z0-9]*")
+HEARD_LATIN = re.compile(r"[A-Za-z][A-Za-z0-9฀-๿]*")
 SHOWN_WORDS = 12
 UNSEEN_THEN = "Write each name as the screen shows it, or leave it out; if the person gave you the name, %s unchanged."
 
@@ -2153,8 +2154,18 @@ def _unseen_names(job, rec, a, b, text, said=()):
         return [], []
     known = " ".join([rec["name"]] + list(said) + [e["text"] for e in job.chat.events if e["kind"] == "person"])
     seen = {w.lower() for w in shown + screen.sites(rec) + screen.NAME.findall(known)}
+    heard = {_skeleton(w) for w in HEARD_LATIN.findall(" ".join(said))}
     return [n for n in names if not any(n.lower() == s or n.lower() in s or len(s) >= 4 and s in n.lower()
-                                        for s in seen)], shown
+                                        for s in seen) and not (len(_skeleton(n)) >= 3 and _skeleton(n) in heard)], shown
+
+
+def _skeleton(word):
+    """A Latin word as the hearing may get it wrong: lower case, any Thai letter in it left out, its vowels after the
+    first letter left out and a doubled letter once, so iPad, ipd and iแpd are all ipd (lane 5 10-30: a seller's
+    "iPad" was heard so, and its title was refused as a name nobody said), while ASTI (ast) is still not ASTAXANTHIN
+    (astxnthn)."""
+    w = re.sub(r"[^a-z0-9]", "", word.lower())
+    return re.sub(r"(.)+", r"", w[:1] + re.sub("[aeiou]", "", w[1:]))
 
 
 def _unseen_said(names, shown):
