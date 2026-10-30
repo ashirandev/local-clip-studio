@@ -44,7 +44,8 @@ folder there, about 18 GB with Muse Glimmer), then the endpoint and the key of a
 Everything else it does by itself:
 - copies the studio into the folder chosen, and keeps everything there from then on;
 - installs its own Python 3.11.9 in `python\` (nothing system-wide) and the studio's packages;
-- downloads the parts below that this computer is missing;
+- downloads the parts below that this computer is missing. With an API key typed in, it does not wait for Muse
+  Glimmer (about 15 GB): the studio opens on the API, and its **Set up** button downloads Glimmer when you want it;
 - puts **Local Clip Studio** on the desktop and opens the studio.
 
 If anything stops, run `setup.bat` again: it carries on from where it stopped. Every file it downloads is checked

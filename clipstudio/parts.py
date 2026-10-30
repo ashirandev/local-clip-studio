@@ -50,6 +50,7 @@ HEARING_FROM = os.environ.get("LCS_HEARING_FROM",
 LOCAL_URL = "http://127.0.0.1:8863/v1"
 GLIMMER_CARD_MIB = 15000
 SPARE = 1 << 30
+LATER = ("engine", "glimmer")
 CHUNK = 1 << 20
 TIMEOUT = 60
 AGENT = "local-clip-studio-setup"
@@ -211,11 +212,12 @@ def state():
             "engine": _engine["why"]}
 
 
-def set_up():
-    """Starts downloading every missing part that can be downloaded, in the background. Returns None, or a sentence
-    when it cannot start."""
+def set_up(leave=()):
+    """Starts downloading every missing part that can be downloaded, but the ones in leave, in the background. Returns
+    None, or a sentence when it cannot start."""
     gpu = card()
-    todo = sorted((p for p in parts(gpu, look=False) if not p["ok"] and p["size"]), key=lambda p: p["size"])
+    todo = sorted((p for p in parts(gpu, look=False) if not p["ok"] and p["size"] and p["key"] not in leave),
+                  key=lambda p: p["size"])
     if not todo:
         return "Everything that can be set up here is set up."
     os.makedirs(WORK, exist_ok=True)
@@ -449,18 +451,25 @@ def ask_api(read=input, read_secret=None):
 
 def main(argv=None):
     """python -m clipstudio.parts, what setup.bat runs: asks for the API endpoint and key first (so the person can walk
-    away), then downloads every part this computer is missing, with a line of progress. Exit 1 when a download
-    stopped; running it again carries on from where it stopped. --no-key skips the question."""
+    away), then downloads every part this computer is missing, with a line of progress. With a key saved, Muse
+    answers through its API from the first minute, so Glimmer and llama.cpp wait for the studio's Set up button
+    rather than keep the person from starting. Exit 1 when a download stopped; running it again carries on from where
+    it stopped. --no-key skips the question."""
     argv = sys.argv[1:] if argv is None else argv
     use_tools()
     if "--no-key" not in argv and sys.stdin and sys.stdin.isatty():
         ask_api()
     gpu = card()
+    found = parts(gpu, look=False)
+    leave = LATER if mind.saved_api()[1] else ()
     print("Graphics card: %s" % ("%s, %d GB" % (gpu["name"], round(gpu["mib"] / 1024)) if gpu else "none found"))
-    for p in parts(gpu, look=False):
-        print("  %-13s %s" % (p["label"], "ready" if p["ok"] else _size(p["size"]) + " to download" if p["size"]
-                              else "left out: " + (p["why"] or "")))
-    why = set_up()
+    for p in found:
+        print("  %-13s %s" % (p["label"], "ready" if p["ok"] else "left out: " + (p["why"] or "") if not p["size"]
+                              else _size(p["size"]) + (" later, from Set up in the studio" if p["key"] in leave
+                                                       else " to download")))
+    if any(p["key"] in leave and p["size"] for p in found):
+        print("  Muse answers through the API you saved until then; Set up puts it on this computer, free to use.")
+    why = set_up(leave)
     if why:
         print(why)
         return 0 if why.startswith("Everything") else 1

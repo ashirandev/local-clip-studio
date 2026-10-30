@@ -237,6 +237,36 @@ class Machine(unittest.TestCase):
         if parts.windows():
             self.assertEqual(got["ffmpeg"]["size"], 109282242)
 
+    def setup_run(self, keyed):
+        """What setup.bat's step downloads and says on a 16 GB card, with an API key saved or not."""
+        went = []
+
+        def run(todo, kind):
+            went.extend(p["key"] for p in todo)
+            parts._job.update(running=False, part=None, step=None, error=None)
+        said = io.StringIO()
+        with mock.patch.object(parts, "card", lambda: BIG), mock.patch.object(parts, "_set_up", run),                 mock.patch.object(parts.mind, "saved_api", lambda: ("https://api.meta.ai/v1", keyed)),                 mock.patch.object(parts.shutil, "disk_usage", lambda p: shutil._ntuple_diskusage(10 ** 12, 0, 10 ** 12)),                 mock.patch("sys.stdout", said):
+            code = parts.main(["--no-key"])
+        return code, went, said.getvalue()
+
+    def test_with_a_key_saved_setup_opens_the_studio_without_waiting_for_glimmer(self):
+        code, went, said = self.setup_run(True)
+        self.assertEqual(code, 0)
+        self.assertNotIn("glimmer", went)
+        self.assertNotIn("engine", went)
+        self.assertIn("hearing", went, "the hearing is needed from the first clip")
+        self.assertIn("Muse Glimmer  14.8 GB later, from Set up in the studio", said)
+        self.assertIn("Muse answers through the API you saved until then", said)
+        self.assertEqual({p["key"] for p in parts.parts(BIG, look=False) if p["size"]} - set(went), {"engine", "glimmer"},
+                         "the studio's Set up button still offers them")
+
+    def test_without_a_key_setup_downloads_glimmer_as_the_only_way_in(self):
+        code, went, said = self.setup_run(False)
+        self.assertEqual(code, 0)
+        self.assertIn("glimmer", went)
+        self.assertIn("engine", went)
+        self.assertNotIn("later", said)
+
     def test_glimmer_counts_as_here_only_with_its_vision_part(self):
         small = [(url, 5, digest) for url, _, digest in parts.FILES["glimmer"]]
         with mock.patch.dict(parts.FILES, {"glimmer": small}):
