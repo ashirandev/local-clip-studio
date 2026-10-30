@@ -38,6 +38,8 @@ the seller said one.
   a landscape recording, make the clip in the subject layout, then have the frame follow the product.
 - The title names the product or its one best point, in the clip's language.
 - A spec card may show one number the seller said.
+- When several clips are made in one go, name each clip's own product and, on a green cloth, its own background. The
+  program then does all of this for each clip.
 - Background: when the seller sits in front of a green cloth, put a background behind them that suits the product
   (a gaming desk for a game controller, a bathroom shelf for a balm), with its top calm for the title.
 - Look: warm, so faces look natural and a white product stays white. One slow push while the product is shown.

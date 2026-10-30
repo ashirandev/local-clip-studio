@@ -4696,12 +4696,15 @@ def check_clip(job, why):
                                                       "at those seconds" % PRODUCT_LOST) if cut else
               "SAM followed the %s, and the frame holds it whenever it is seen" % thing, "program" if lost or not cut
               else "Muse")
+    elif kind == "seller" and state["clip"]["layout"]["kind"] in ("talk", "speaker", "split"):
+        check("The product is in the frame", None, "the person asked for a layout that cuts between faces")
     elif kind == "seller":
         product = state["clip"].get("product")
         inside = bool(product) and bool(layouts.to_frame(state["clip"]["layout"], product))
-        check("The product is in the frame", inside if product else None,
+        check("The product is in the frame", inside,
               "the product box is inside the clip's picture" if inside else
-              "no product box was named, so it was not checked" if not product else
+              "no product box was named and the frame follows nothing, so nothing shows the product is in the picture: "
+              "make the clip again with its product, or call follow_product" if not product else
               "the product box is outside the clip's picture")
     else:
         check("The product is in the frame", None, "not a seller's clip")
@@ -5011,6 +5014,19 @@ def make_clips(job, why, clips, blur=None):
         raise Refused("Nothing was made. A game stream's clips show its chat box with the viewers' names: give the "
                       "chat box in blur, on your 0-1000 grid of the pictures from your looks, and every clip hides it. "
                       "Leave the face camera out of the box.")
+    if recipe == "seller":
+        wide = rec["width"] > rec["height"]
+        bare = [c["moment"] for c in clips if not c.get("product") or wide and not c.get("what")]
+        if bare:
+            raise Refused("Nothing was made. A seller's clip shows its product: give the clip of moment %s its product, "
+                          "the box around it in the picture%s." % (_numbers(bare), ", and what, the product in a few "
+                                                                   "English words, so the frame follows it" if wide
+                                                                   else ""))
+        plain = [c["moment"] for c in clips if not c.get("background") and _cloth(
+            rec, moments[c["moment"] - 1]["start"], moments[c["moment"] - 1]["end"])]
+        if plain:
+            raise Refused("Nothing was made. A green cloth is behind the person in moment %s: give each clip a "
+                          "background, a place that suits its product, so the cloth does not show." % _numbers(plain))
     pictures, lines, first, looked = len(job.pictures), [], None, []
     for k, c in enumerate(clips, 1):
         if job.stopped:
@@ -5062,16 +5078,47 @@ def _title_where_clear(job, rec, words):
     return None
 
 
+def _cloth(rec, a, b):
+    """True when a green cloth that can be told from the person is behind them from a to b in the recording."""
+    try:
+        return bool(green.find(rec["path"], a, b, (rec["width"], rec["height"]), samples=2))
+    except green.GreenError:
+        return False
+
+
+def _on_the_product(job, rec, c, notes):
+    """A seller's clip of make_clips, just made, gets what one made by hand gets: the frame follows its product when
+    the recording has room to move in (follow_product), and its background goes behind a person on a green cloth
+    (put_background). Notes what came of each; False when the person pressed Stop. Spark 10-30, 205011-1a6e: four clips
+    of Tarm's green-cloth seller came back "handed over, 4 of 4 checks" with a face filling the frame, the product out
+    of the picture, the raw cloth and no place for the title."""
+    clip = _clip_state(job)["clip"]
+    if c.get("what") and clip["layout"]["kind"] == "subject" and rec["width"] > rec["height"]:
+        said = follow_product(job, BATCH_WHY, c["what"])
+        if said.startswith("Not followed"):
+            return False
+        notes.append(said.splitlines()[0].rstrip("."))
+    a, b = min(p[0] for p in clip["pieces"]), max(p[1] for p in clip["pieces"])
+    if c.get("background") and _cloth(rec, a, b):
+        said = put_background(job, BATCH_WHY, c["background"])
+        notes.append(next((line for line in said.splitlines() if line.startswith("No background")),
+                          "the background is %s" % " ".join(c["background"].split())).rstrip("."))
+    elif c.get("background"):
+        notes.append("no green cloth is behind the person, so the background was left out")
+    return True
+
+
 def _one_clip(job, rec, k, c, layout, blur, opened=None):
     """One clip of make_clips, from its moment to the hand-over: the sentence reporting on it. Its words are
-    proofread together first, so the title on the clip is spelled as the post text is. Each box in blur is
+    proofread together first, so the title on the clip is spelled as the post text is. A seller's clip is framed on
+    its product first (_on_the_product). Each box in blur is
     blurred for the whole clip. When the only check that fails is the silent opening, the moment is moved to its
     first sound (_open_on_sound) and the clip is made once more; opened is the seconds it moved. Seen 10-27 on a 4-hour game stream: six clips were made without the chat box blurred,
     none passed the check for viewers' names, and Muse ran out of room fixing the first one by hand."""
     n, head = c["moment"], "Clip %d (moment %d)" % (k, c["moment"])
     try:
         _spell(job, [c["title"], c.get("words") or "", c["caption"]] + list(c["hashtags"]))
-        made = make_clip(job, BATCH_WHY, n, layout)
+        made = make_clip(job, BATCH_WHY, n, layout, product=c.get("product"))
         if made.startswith("Not made"):
             return "%s: not made, the person pressed Stop." % head
         state = _clip_state(job)
@@ -5082,6 +5129,8 @@ def _one_clip(job, rec, k, c, layout, blur, opened=None):
         if opened:
             notes.append("it opened on silence, so the program started it %g s later, %g s before its first sound"
                          % (opened, OPEN_AIR))
+        if (job.chat.clip or {}).get("recipe") == "seller" and not _on_the_product(job, rec, c, notes):
+            return "%s: not made, the person pressed Stop." % head
         for box in blur:
             try:
                 blur_box(job, BATCH_WHY, box)
@@ -6552,13 +6601,26 @@ TOOLS = {t.name: t for t in [
          "than one clip or for every good moment. For each, the program makes the clip in the recipe's layout (or the "
          "one you give), hides what is private, puts the captions and your title on, renders it, checks it and hands "
          "it over; then it reports on each clip, handed over or why not. Give each clip its title and post text as at "
-         "hand-over. Names must be spelled as the screen shows them.",
+         "hand-over. Names must be spelled as the screen shows them. A seller's clips each need their product, and "
+         "their background on a green cloth: the program then follows the product and puts the background on.",
          {"clips": {"type": "array", "minItems": 2, "maxItems": MOST_MOMENTS, "items": {
              "type": "object", "required": ["moment", "title", "caption", "hashtags"], "properties": {
                  "moment": {"type": "integer", "minimum": 1, "maximum": MOST_MOMENTS,
                             "description": "The moment's number, as you proposed it."},
                  "layout": {"type": "string", "enum": list(layouts.KINDS) + ["talk", "speaker", "split"],
                             "description": "Leave it out for the recipe's layout."},
+                 "product": {"type": "array", "minItems": 4, "maxItems": 4, "items": {
+                     "type": "number", "minimum": 0, "maximum": 1000},
+                             "description": "A seller's clip must give this: [x1, y1, x2, y2] on your 0-1000 grid "
+                                            "around this clip's product in the picture."},
+                 "what": {"type": "string", "minLength": 3, "maxLength": 80,
+                          "description": "A seller's clip from a landscape recording must give this: the product as it "
+                                         "looks in the picture, in a few English words SAM can find, no brand. The "
+                                         "frame follows it."},
+                 "background": {"type": "string", "minLength": 3, "maxLength": 300,
+                                "description": "A seller's clip with a green cloth behind the person must give this: "
+                                               "the place behind them in English, suited to this clip's product. No "
+                                               "people, no brand, no writing. The same words again cost nothing."},
                  "title": {"type": "string", "maxLength": 100,
                            "description": "The post's title, in the clip's language; also the words on the clip "
                                           "unless you give words."},

@@ -2579,6 +2579,87 @@ class Tools(unittest.TestCase):
         finally:
             screen.words, screen.readings, focus.plan, render.export = had
 
+    def test_each_clip_of_a_seller_batch_follows_its_product_with_its_background_behind_the_person(self):
+        """Lane 5, 10-30, Spark's 205011-1a6e: four clips of Tarm's green-cloth seller came back "handed over, 4 of 4
+        checks" with a face filling the frame, the product out of the picture, the raw cloth and no title."""
+        from unittest import mock
+        from test_cutout import make_mask
+        asked = []
+
+        def cut_out(rec, a, b, on_start=None, on_progress=None, what=None):
+            asked.append(what)
+            return {"path": make_mask(self.tmp, "thing_%d.mkv" % len(asked), b - a, a, "lt(abs(X-280),20)",
+                                      size=(320, 180)), "person": None, "fps": 10, "size": [320, 180], "from": a,
+                    "to": b}
+
+        for p in self.green_cloth():
+            p.start()
+            self.addCleanup(p.stop)
+        bare = [{"moment": 1, "title": "Eaglet pad", "caption": "a pad", "hashtags": ["#pad"]},
+                {"moment": 2, "title": "Eaglet balm", "caption": "a balm", "hashtags": ["#balm"]}]
+        box = {"product": [600, 200, 900, 800]}
+        named = [dict(bare[0], what="white game controller", **box), dict(bare[1], what="yellow balm jar", **box)]
+        dressed = [dict(c, background="a calm shop shelf") for c in named]
+        with mock.patch.object(tools.person, "cut_out", cut_out):
+            _, steps = self.several([call("make_clips", clips=bare, why="no product")],
+                                    [call("make_clips", clips=[dict(bare[0], **box), named[1]], why="no words")],
+                                    [call("make_clips", clips=[named[0], dict(bare[1], what="a jar")], why="no box")],
+                                    [call("make_clips", clips=named, why="no background")],
+                                    [call("make_clips", clips=dressed, why="all of it")], "Done.", recipe="seller")
+        nothing, half, unboxed, plain, made = steps[-5:]
+        self.assertTrue(nothing["refused"])
+        self.assertIn("Nothing was made. A seller's clip shows its product: give the clip of moment 1 and 2 its "
+                      "product, the box around it in the picture, and what, the product in a few English words",
+                      nothing["result"])
+        self.assertTrue(half["refused"])
+        self.assertIn("give the clip of moment 1 its product", half["result"])
+        self.assertTrue(unboxed["refused"])
+        self.assertIn("give the clip of moment 2 its product", unboxed["result"])
+        self.assertTrue(plain["refused"])
+        self.assertIn("A green cloth is behind the person in moment 1 and 2: give each clip a background",
+                      plain["result"])
+        self.assertFalse(made["refused"], made["result"])
+        self.assertEqual(asked, ["white game controller", "yellow balm jar"], "one pass for each clip's own product")
+        self.assertEqual(len(self.cut), 2, "the cloth is cut once for each clip")
+        self.assertIn("handed over, 5 of 5 checks passed; SAM 3.1 followed the white game controller through the clip: "
+                      "it is in 100% of the pictures; the background is a calm shop shelf", made["result"])
+        self.assertIn("SAM 3.1 followed the yellow balm jar through the clip", made["result"])
+        self.assertIn("Made 2 clips, 2 handed over", made["result"])
+        with open(os.path.join(agent.WORK, "spent.jsonl"), encoding="utf-8") as f:
+            paid = [json.loads(line) for line in f if '"image"' in line]
+        self.assertEqual(len(paid), 1, "the same words are drawn once for all the clips")
+        state = self.chat.project.state()
+        self.assertEqual(state["clip"]["layout"]["thing"]["what"], "white game controller", "the first clip is shown")
+        self.assertEqual(state["backdrop"]["about"], "a calm shop shelf")
+
+    def test_a_seller_batch_says_what_it_could_not_do_and_stops_when_the_person_stops_it(self):
+        from unittest import mock
+        from test_cutout import make_mask
+
+        def cut_out(rec, a, b, on_start=None, on_progress=None, what=None):
+            if what == "a stopped thing":
+                raise tools.person.Stopped()
+            if what == "a broken thing":
+                raise tools.person.PersonError("SAM is not set up.")
+            return {"path": make_mask(self.tmp, "kept.mkv", b - a, a, size=(320, 180)), "person": None, "fps": 10,
+                    "size": [320, 180], "from": a, "to": b}
+
+        def clip(n, what):
+            return {"moment": n, "title": "Eaglet pad", "caption": "a pad", "hashtags": ["#pad"], "what": what,
+                    "product": [200, 200, 800, 800], "background": "a calm shop shelf"}
+
+        broken = [clip(1, "a broken thing"), clip(2, "a stopped thing")]
+        with mock.patch.object(tools.person, "cut_out", cut_out), mock.patch.object(tools.green, "find",
+                                                                                     return_value=None):
+            _, steps = self.several([call("make_clips", clips=broken, why="both")], "Done.", recipe="seller")
+        made = steps[-1]["result"]
+        self.assertIn("The a broken thing could not be followed: SAM is not set up. Tell the person, or leave the "
+                      "frame where it is", made)
+        self.assertIn("no green cloth is behind the person, so the background was left out", made)
+        self.assertIn(": handed over, 5 of 5 checks passed; The a broken thing", made,
+                      "the frame could not follow, so the box it was given shows the product is in the picture")
+        self.assertIn("Clip 2 (moment 2, 0:40-0:50, 10 s, subject layout): not made, the person pressed Stop.", made)
+
     def test_a_sound_as_loud_as_the_talk_after_the_last_line_stays(self):
         """Lane 5, 10-30: the hearing writes no words for a laugh, and a talk clip lost the 11 s of laughing after its
         last line. Here the line is said at 32-34 s and the sound goes on as loud to 40 s, then the room is quiet."""
@@ -2760,12 +2841,15 @@ class Tools(unittest.TestCase):
         self.assertIsNone(self.chat.project.state()["channel"], "the drawn name came off this clip")
 
     def test_a_name_in_capitals_the_screen_does_not_show_stops_the_clips_once_whatever_the_recipe(self):
-        clips = [{"moment": 1, "title": "ASTI pack", "caption": "ASTI c", "hashtags": ["#ASTI", "#SineySociety"]},
-                 {"moment": 2, "title": "PDRN pack", "caption": "c", "hashtags": ["#b"]}]
+        from unittest import mock
+        pack = {"product": [200, 200, 800, 800], "what": "white pack"}
+        clips = [dict(pack, moment=1, title="ASTI pack", caption="ASTI c", hashtags=["#ASTI", "#SineySociety"]),
+                 dict(pack, moment=2, title="PDRN pack", caption="c", hashtags=["#b"])]
         fixed = dict(clips[0], title="Jabs pack", caption="Jabs c", hashtags=["#Jabs"])
-        _, steps = self.several([call("make_clips", clips=clips, why="both")],
-                                [call("make_clips", clips=[fixed, clips[1]], why="as the pack says")], "Done.",
-                                recipe="seller", shown=["Jabs", "PDRN", "ASTAXANTHIN"])
+        with mock.patch.object(tools.person, "cut_out", side_effect=tools.person.PersonError("SAM is not set up.")):
+            _, steps = self.several([call("make_clips", clips=clips, why="both")],
+                                    [call("make_clips", clips=[fixed, clips[1]], why="as the pack says")], "Done.",
+                                    recipe="seller", shown=["Jabs", "PDRN", "ASTAXANTHIN"])
         asked, made = steps[-2], steps[-1]
         self.assertTrue(asked["refused"])
         self.assertEqual(asked["result"], 'Nothing was made. Clip of moment 1: "ASTI", "SineySociety" are not on the '
@@ -3400,7 +3484,7 @@ class Tools(unittest.TestCase):
                 [call("look_at_piece", start="0:30", end="0:50", why="the top stretch")],
                 [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the size"}])],
                 '{"lines": ["七十五平方米"]}',
-                [call("make_clip", moment=1, layout="subject", why="the product")],
+                [call("make_clip", moment=1, layout="subject", product=[300, 760, 700, 960], why="the product")],
                 [call("add_title", words="75 m²", start=0, end=4, place="middle", why="the size")],
                 [call("decide_people", keep=[1], why="it is the seller")],
                 [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
@@ -3408,13 +3492,65 @@ class Tools(unittest.TestCase):
                 "Done.")
         finally:
             render.export = had
-        made, checked, handed = steps[-6], steps[-2], steps[-1]
-        self.assertIn("This is a seller clip and no product box was named, so nothing keeps words off the product.",
-                      made["result"])
+        checked, handed = steps[-2], steps[-1]
         self.assertFalse(checked["refused"], checked["result"])
         self.assertIn("- for you to check: Numbers on screen were said (the clip is said in Chinese, and the studio "
                       "reads number words only in Thai and English", checked["result"])
         self.assertFalse(handed["refused"], handed["result"])
+
+    def seller_finished(self, *made):
+        """A seller's recording to a moment, then the given calls with the render faked to a loud file."""
+        self.worker.phrases = [{"from": 2, "to": 4.5, "text": "a fine pad", "sure": 0.99}]
+
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        script = self.to_moment()
+        try:
+            return self.run_job(script[0], [call("load_recipe", type="seller", why="a seller")], *script[1:],
+                                '{"lines": ["a fine pad"]}', *made)
+        finally:
+            render.export = had
+
+    def test_a_seller_clip_with_no_product_named_fails_the_check_until_one_is(self):
+        """Lane 5, 10-30: "handed over" must mean the product is seen. The check used to skip a clip with no box."""
+        made = ([call("decide_people", keep=[1], why="it is the seller")], [call("render_clip", why="make the file")],
+                [call("check_clip", why="check it")])
+        _, steps = self.seller_finished(
+            [call("make_clip", moment=1, layout="subject", why="the product")], *made,
+            [call("hand_over", title="A pad", caption="a fine pad", hashtags=["#pad"], why="post")],
+            [call("make_clip", moment=1, layout="subject", product=[200, 200, 800, 800], why="the product")], *made,
+            "Done.")
+        first, checked, refused, again, passed = steps[-9], steps[-6], steps[-5], steps[-4], steps[-1]
+        self.assertIn("This is a seller clip and no product box was named, so nothing keeps words off the product.",
+                      first["result"])
+        self.assertIn("- FAILED: The product is in the frame (no product box was named and the frame follows nothing",
+                      checked["result"])
+        self.assertTrue(refused["refused"])
+        self.assertIn("These checks failed on the finished file: The product is in the frame.", refused["result"])
+        self.assertFalse(again["refused"], again["result"])
+        self.assertIn("- passed: The product is in the frame (the product box is inside the clip's picture)",
+                      passed["result"])
+
+    def test_a_seller_clip_in_a_layout_that_cuts_between_faces_is_not_failed_for_its_product(self):
+        """The person asked for it, and a layout that cuts between faces takes no product box."""
+        from unittest import mock
+        self.seller_finished([call("make_clip", moment=1, layout="subject", why="the product")],
+                             [call("decide_people", keep=[1], why="it is the seller")],
+                             [call("render_clip", why="make the file")], "Done.")
+        real = tools._clip_state
+
+        def split(job):
+            state = real(job)
+            return dict(state, clip=dict(state["clip"], layout=dict(state["clip"]["layout"], kind="split")))
+
+        with mock.patch.object(tools, "_clip_state", split):
+            said = tools.check_clip(self.chat.job, "the person asked for it")
+        self.assertIn("- not needed: The product is in the frame (the person asked for a layout that cuts between "
+                      "faces)", said)
 
     def test_numbers_said_in_words_the_studio_cannot_read_are_left_to_muse_not_failed(self):
         self.chat.clip = {"recipe": "seller", "language": "Chinese"}
