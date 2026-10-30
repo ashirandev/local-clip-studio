@@ -1345,7 +1345,7 @@ def propose_moments(job, why, moments):
         picked.append({"n": i, "look": look["n"], "start": round(a, 2), "end": round(b, 2), "reason": m["reason"],
                        "snapped": snapped,
                        "frame": shown["frame"], "t": shown["t"]})
-    if _reads_screen(job):
+    if _reads_screen(job) or (job.chat.clip or {}).get("recipe") == "game":
         for p in picked:
             screen.ahead(rec, p["start"], p["end"])
     started = time.time()
@@ -1685,6 +1685,12 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     still = _still(rec, recipe, a, b, layouts.face_room(lay))
     pieces, cut = _pieces(m.get("said") or [], a, b, still, takes.heard_claps(rec, a, b) if still else [],
                           edges=not m.get("ends"))
+    menus = None
+    if recipe == "game":
+        try:
+            pieces, menus = _menus_cut(job, rec, pieces, a, b)
+        except screen.Stopped:
+            return "Not made: the person pressed Stop."
     following = ground = ""
     if lay["kind"] == "card" and follow and not crop and not trim and _reads_screen(job):
         lay, following = _follow(rec, lay, pieces, [a, b])
@@ -1714,6 +1720,8 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
         lines.append(channel)
     if cut:
         lines.append(cut)
+    if menus:
+        lines.append(menus)
     if following:
         lines.append(following)
     if ground:
@@ -1962,6 +1970,46 @@ def _menu_start(job, rec, a):
             "the menu is the point, make it again and it is made." % (recording.clock(a), ", ".join(shown),
                                                                      recording.clock(max(0, a - LOOK_BACK)),
                                                                      recording.clock(a)))
+
+
+# A game clip shows the game's menu (a death screen, its skill tree) for countdown.DEATH_SHOWN s, the death landing,
+# and goes on where play starts again: the best moment of beat 1 (10-29) held SIFU's death and skill screens in 5 of
+# its 12 pictures. A menu shown for less than that and MENU_CUT_LEAST more is left whole.
+MENU_CUT_LEAST = 0.5
+
+
+def _menus_cut(job, rec, pieces, a, b):
+    """(pieces without the game's menu after its first countdown.DEATH_SHOWN s, the sentence for Muse or None) for a
+    game clip from a to b. The menu shows while MENU_LINES or more of its words are read surely, from the first reading
+    that shows them to the next that does not, or to b: one word is a hint play keeps on the screen (Continue). A menu
+    the clip opens on is _menu_start's. Stop raises screen.Stopped."""
+    job.working("Reading the screen from %s to %s for the game's menu" % (recording.clock(a), recording.clock(b)))
+    try:
+        looks = screen.readings(rec, a, b, on_start=job.started_work)
+    except screen.ScreenError:
+        return pieces, None
+    finally:
+        job.done_working()
+    shown, start = [], None
+    for r in looks:
+        full = len({screen._menu_word(line["text"]) for line in r["lines"]
+                    if line["sure"] >= screen.SURE} - {None}) >= MENU_LINES
+        if full and start is None:
+            start = r["at"]
+        elif not full and start is not None:
+            shown.append([start, r["at"]])
+            start = None
+    if start is not None:
+        shown.append([start, b])
+    shown = [[x, y] for x, y in shown if a < x and y - x - countdown.DEATH_SHOWN >= MENU_CUT_LEAST]
+    if not shown:
+        return pieces, None
+    kept = takes.without(pieces, [[x + countdown.DEATH_SHOWN, y] for x, y in shown])
+    gone = round(sum(y - x for x, y in pieces) - sum(y - x for x, y in kept), 1)
+    return kept, ("The program cut %g s of the game's menu out of the clip: %s. The clip shows the first %g s of "
+                  "each, the death landing, and goes on where play starts again." % (
+                      gone, "; ".join("the menu at %s for %g s" % (recording.clock(x), round(y - x, 1))
+                                      for x, y in shown), countdown.DEATH_SHOWN))
 
 
 def _labels_copied(job, rec, state, texts, what):

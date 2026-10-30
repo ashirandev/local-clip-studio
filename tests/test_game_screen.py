@@ -46,10 +46,27 @@ class GameScreen(unittest.TestCase):
 
         self.screen = mock.patch.object(screen, "_pictures", pictures)
         self.screen.start()
+        self.looks, self.stretches, self.ahead = [(t, PLAY) for t in range(0, 20, 2)], [], []
+
+        def readings(rec, a, b, on_start=None):
+            if os.path.basename(rec["path"]) != os.path.basename(self.clip):
+                return []
+            self.stretches.append((a, b))
+            return [{"at": round(a + t, 2), "lines": [dict(line) for line in lines]} for t, lines in self.looks]
+
+        self.reader = mock.patch.object(screen, "readings", readings)
+        self.reader.start()
+        self.early = mock.patch.object(screen, "ahead", lambda rec, a, b: self.ahead.append((a, b)))
+        self.early.start()
 
     def tearDown(self):
+        self.early.stop()
+        self.reader.stop()
         self.screen.stop()
         test_editor.Tools.tearDown(self)
+
+    def pieces(self):
+        return self.chat.project.state()["clip"]["pieces"]
 
     def game(self, *calls):
         script = self.to_moment()
@@ -58,6 +75,7 @@ class GameScreen(unittest.TestCase):
 
     def test_a_game_clip_that_opens_on_the_games_menu_is_refused_once(self):
         self.shown = MENU
+        self.looks = [(0, MENU), (2, MENU), (5, PLAY), (9, PLAY)]
         _, steps = self.game([call("make_clip", moment=1, layout="card", why="the death")],
                              [call("make_clip", moment=1, layout="card", why="the menu is the joke")])
         refused, made = steps[-2:]
@@ -67,17 +85,43 @@ class GameScreen(unittest.TestCase):
                       "0:00-0:30", refused["result"])
         self.assertEqual(self.read[0], [30.0, 31.0, 32.0], "the clip's first two seconds")
         self.assertFalse(made["refused"], made["result"])
+        self.assertNotIn("menu out of the clip", made["result"], "the menu it opens on was asked for")
 
     def test_play_with_one_hint_on_screen_is_made(self):
         _, steps = self.game([call("make_clip", moment=1, layout="card", why="the fight")])
         self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertEqual(self.pieces(), [[30.0, 50.0]], "a hint left on the screen in play is not the menu")
+        self.assertEqual(self.ahead, [(30.0, 50.0)], "a game's moments are read while Muse goes on")
+
+    def test_the_games_menu_inside_the_clip_shows_for_its_first_seconds_and_play_goes_on(self):
+        self.looks = [(0, PLAY), (2, PLAY), (4, MENU), (7, MENU), (10, MENU), (12, PLAY), (15, PLAY), (19, PLAY)]
+        _, steps = self.game([call("make_clip", moment=1, layout="card", why="the death")])
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertEqual(self.pieces(), [[30.0, 35.5], [42.0, 50.0]])
+        self.assertIn("The program cut 6.5 s of the game's menu out of the clip: the menu at 0:34 for 8 s. The clip "
+                      "shows the first 1.5 s of each, the death landing, and goes on where play starts again.",
+                      steps[-1]["result"])
+
+    def test_a_menu_still_shown_at_the_moments_end_is_cut_to_the_end(self):
+        self.looks = [(0, PLAY), (5, PLAY), (10, MENU), (16, MENU)]
+        _, steps = self.game([call("make_clip", moment=1, layout="card", why="the death")])
+        self.assertEqual(self.pieces(), [[30.0, 41.5]])
+        self.assertIn("the menu at 0:40 for 10 s", steps[-1]["result"])
+
+    def test_a_menu_shown_for_a_moment_is_left_whole(self):
+        self.looks = [(0, PLAY), (4, MENU), (5.5, PLAY), (8, PLAY)]
+        _, steps = self.game([call("make_clip", moment=1, layout="card", why="the fight")])
+        self.assertEqual(self.pieces(), [[30.0, 50.0]])
+        self.assertNotIn("menu out of the clip", steps[-1]["result"])
 
     def test_a_clip_that_is_not_a_game_does_not_read_its_start(self):
         self.shown = MENU
+        self.looks = [(t, MENU) for t in range(0, 20, 2)]
         _, steps = self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
                                 "Done.")
         self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
         self.assertEqual(self.read, [])
+        self.assertEqual((self.stretches, self.pieces()), ([], [[30.0, 50.0]]), "nor looks for the game's menu")
 
     def test_a_title_and_a_post_that_copy_the_screens_labels_are_refused_once_each(self):
         had = getattr(render, "export", None)

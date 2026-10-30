@@ -1822,7 +1822,7 @@ class Tools(unittest.TestCase):
         ahead = []
         had, screen.ahead = screen.ahead, lambda rec, a, b: ahead.append((a, b))
         try:
-            for kind in ("explain", "game"):
+            for kind in ("explain", "game", "seller"):
                 self.run_job([call("open_recording", path=self.clip, why="open it")],
                              [call("load_recipe", type=kind, why="the kind")],
                              [call("look_at_piece", start="0:30", end="0:50", why="the top stretch")],
@@ -1831,7 +1831,8 @@ class Tools(unittest.TestCase):
                 ahead.append(kind)
         finally:
             screen.ahead = had
-        self.assertEqual(ahead, [(30.0, 50.0), "explain", "game"])
+        self.assertEqual(ahead, [(30.0, 50.0), "explain", (30.0, 50.0), "game", "seller"],
+                         "a game's moments are read too, for the game's menu")
 
     def test_the_words_on_the_screen_fix_names_and_a_name_written_another_way_is_pointed_out(self):
         names = []
@@ -2199,8 +2200,8 @@ class Tools(unittest.TestCase):
         asked = []
         had, screen.readings = screen.readings, lambda rec, a, b, on_start=None: asked.append((a, b)) or []
         try:
-            _, steps = self.run_job(*self.to_moment(), [call("load_recipe", type="game", why="a stream")],
-                                    [call("make_clip", moment=1, layout="card", why="the game")], "Done.")
+            _, steps = self.run_job(*self.to_moment(), [call("load_recipe", type="seller", why="a product")],
+                                    [call("make_clip", moment=1, layout="card", why="the product")], "Done.")
         finally:
             screen.readings = had
         self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
