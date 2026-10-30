@@ -2,7 +2,7 @@
 name: game
 title: Game stream
 chip: It's a game stream
-description: Someone plays a game on screen, usually with a face camera and a voice over the game sound. Pick it for streams and gameplay recordings.
+description: Someone plays a game on screen, usually with a face camera and a voice over the game sound. Pick it for streams, lives (ไลฟ์) and gameplay recordings of a game.
 length: 30
 style: pop
 map: sound 1, screen 1

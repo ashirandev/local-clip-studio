@@ -2,7 +2,7 @@
 name: seller
 title: Product review or selling live
 chip: It's a product review
-description: A person shows a product and talks about it, as in a review, an unboxing or a selling live. Pick it when the recording is about something people can buy.
+description: A person shows a product and talks about it, as in a review, an unboxing or a selling live. Pick it when the recording is about something people can buy. A live (ไลฟ์) of someone playing a game is a game stream, not this.
 length: 30
 style: clean
 map: screen 1
