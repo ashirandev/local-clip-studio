@@ -572,6 +572,15 @@ class Tools(unittest.TestCase):
         self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
         self.assertIn("clear of every face", steps[-1]["result"], "at its own size it covers none")
         self.assertNotIn("grow", self.chat.project.state()["titles"][-1], "grown, it would cover the face under it")
+        said = text.caption_lines([{"from": 12.0, "to": 15.0, "text": "ซื้อถูกขายแพงได้กำไรครับ"}], 14)
+        self.chat.project.add({"do": "captions", "lines": said, "band": [layouts.CAPTIONS[1], layouts.CAPTIONS[3]],
+                               "one": True, "lit": False, "pop": False})
+        with mock.patch.object(tools, "_face_times", faces_at([])):
+            _, steps = self.run_job(
+                [call("add_title", words="Boss down", start=12, end=17, place="top", why="later")], "Done.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertEqual(self.chat.project.state()["titles"][-1].get("grow"), render.TITLE_GROW,
+                         "over one-line captions too: which step came first does not decide how big it is")
 
     def test_a_refusal_offers_a_clear_part_that_holds_the_title_longer_than_the_place_is_clear_across(self):
         """The green seller 10-30: the frame followed the product and the head came into the top place at times, the

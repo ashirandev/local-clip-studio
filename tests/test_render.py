@@ -497,6 +497,17 @@ class OneLine(unittest.TestCase):
         long = dict(hook, text="ขยับนิดเดียวก็เล็งยิงได้เลยไม่ต้องใช้ปุ่มอนาล็อกอีกต่อไป", grow=render.TITLE_GROW)
         found = changed(drawn(state(title=[long]), 1.0), drawn(state(), 1.0))
         self.assertTrue(inside(found, hook["box"], slack=4), "words that outgrow the box shrink into it: %s" % (found,))
+        lines = text.caption_lines([{"from": 0.0, "to": 3.0, "text": "ซื้อถูกขายแพงได้กำไรครับ"}], 14)
+        talked = [{"lines": lines, "band": [layouts.CAPTIONS[1], layouts.CAPTIONS[3]], "one": True, "lit": False,
+                   "pop": False}]
+        over = {}
+        for name, grow in (("as_captions", None), ("grown", render.TITLE_GROW)):
+            over[name] = changed(drawn(state(title=[dict(hook, grow=grow) if grow else hook], captions=talked), 1.0),
+                                 drawn(state(captions=talked), 1.0))
+        tall = {name: box[3] - box[1] for name, box in over.items()}
+        self.assertGreater(tall["grown"], tall["as_captions"] * 1.08,
+                           "the explainer replay 10-30: its grow was lost once one-line captions went on: %s" % tall)
+        self.assertTrue(inside(over["grown"], hook["box"], slack=4), "%s inside its box" % (over["grown"],))
 
 @unittest.skipUnless(FFMPEG and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class Preview(unittest.TestCase):

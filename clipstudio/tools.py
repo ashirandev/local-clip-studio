@@ -1568,10 +1568,8 @@ GROWS = (render.TITLE_GROW, 1.4, 1.2)
 
 def _grown(state, default, words, band, times, every, a, b):
     """(grow, its Measure, the box it draws in) for a title that covers no face at its own size in band from a to b:
-    the first of GROWS at which band still holds it and it still covers no face, or (1, None, None) when none does,
-    the person chose a size, or captions shown one line at a time size the title (render._title_style)."""
-    if (state.get("captions") or {}).get("one"):
-        return 1, None, None
+    the first of GROWS at which band still holds it and it still covers no face, or (1, None, None) when none does or
+    the person chose a size. Over captions shown one line at a time render draws it in their letters as tall."""
     own = render.style_of(state, default, "title").sizes[0]
     for grow in GROWS:
         st = render.grown_style(state, default, grow)
