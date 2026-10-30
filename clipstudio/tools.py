@@ -1394,6 +1394,9 @@ def propose_moments(job, why, moments, then="make"):
                          _heard_said(look, p["start"], p["end"]))
     except hearing.Stopped:
         return "Not proposed: the person pressed Stop."
+    unclear = _unclear(job, picked[0], looks) if then == "make" else None
+    if unclear:
+        raise Refused(unclear)
     fixing = round(time.time() - started, 1)
     renamed = []
     if _reads_screen(job):
@@ -3160,6 +3163,33 @@ def _muted_now(mutes):
 
 def _caption_words(state):
     return sum(len(ln["words"]) for ln in (state["captions"] or {}).get("lines") or [])
+
+
+WORDS_ARE_THE_CLIP = ("talk", "explain")
+
+
+def _unclear(job, first, looks):
+    """The sentence refusing to go on with moment 1 when the clip's words are its captions (WORDS_ARE_THE_CLIP) and
+    the hearing was sure of none of its lines, with where the looks hold lines it was sure of; None otherwise, and from
+    the second time in a job, so a recording heard badly all through still gets its clip. Glimmer, EP 0 10-30: the
+    talk recipe ranks by loudness, the loudest stretches were four people laughing over each other, every line was
+    not sure, and the clip went out with no captions."""
+    if (job.chat.clip or {}).get("recipe") not in WORDS_ARE_THE_CLIP or "unclear" in job.warned:
+        return None
+    if not first["said"] or any(not _unsure(s) for s in first["said"]):
+        return None
+    job.warned.add("unclear")
+    clear = ["look %d at %s" % (look["n"], ", ".join(recording.clock(p["from"]) for p in sure[:4]))
+             for look in looks for sure in [[p for p in look.get("said") or [] if not _unsure(p)]] if sure]
+    return ("The hearing was sure of none of the %d line%s said in moment 1 (%s-%s): people talking over each other "
+            "or laughing. In this kind of clip the words are the clip, and a line the hearing was not sure of is not "
+            "captioned, so this one would go out with no words. %s If the person asked for this stretch, propose it "
+            "again and it goes on." % (
+                len(first["said"]), "" if len(first["said"]) == 1 else "s", recording.clock(first["start"]),
+                recording.clock(first["end"]),
+                "Propose a stretch where one person speaks at a time; lines were heard clearly in %s." % "; ".join(clear)
+                if clear else "None of your looks has a line heard clearly either: look at other stretches of the map "
+                "first, such as a quieter one where one person speaks at a time."))
 
 
 UNSURE = 0.88

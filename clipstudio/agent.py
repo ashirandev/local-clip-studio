@@ -964,6 +964,7 @@ class Job:
         self.handed = False
         self.seen = {}
         self.last_refused = {}
+        self.warned = set()
         self.refused_last = False
         self.shown_live = 0.0
         self.stop_work = self.act = None

@@ -2917,6 +2917,30 @@ class Tools(unittest.TestCase):
         self.assertEqual("".join(line["text"] for line in self.chat.project.state()["captions"]["drafts"]),
                          "bxo noqa mumble")
 
+    def test_a_talk_moment_the_hearing_was_sure_of_no_line_in_is_refused_once_with_where_the_clear_lines_are(self):
+        self.worker.phrases = [{"from": 1.0, "to": 4.0, "text": "bxo noqa mumble", "sure": 0.5},
+                               {"from": 4.5, "to": 8.0, "text": "haha qrx all at once", "sure": 0.55},
+                               {"from": 14.0, "to": 17.0, "text": "this is the moment", "sure": 0.95}]
+        self.chat.clip = {"recipe": "talk", "title": "Podcast", "length_s": 30, "style": "clean", "language": "",
+                          "brief": "", "subtitles": None}
+        loud = [call("propose_moments", why="the laugh", moments=[{"look": 1, "reason": "they laugh", "start": "0:30",
+                                                                    "end": "0:40"}])]
+        fixed = '{"lines": ["bxo noqa mumble", "haha qrx all at once"]}'
+        _, steps = self.run_job(*self.to_moment()[:2], loud, fixed, loud, fixed, "Done.")
+        tried = [s for s in steps if s["tool"] == "propose_moments"]
+        self.assertTrue(tried[0]["refused"], tried[0]["result"])
+        self.assertIn("The hearing was sure of none of the 2 lines said in moment 1 (0:30-0:40)", tried[0]["result"])
+        self.assertIn("lines were heard clearly in look 1 at 0:44.", tried[0]["result"])
+        self.assertFalse(tried[1]["refused"], "the second time it goes on: " + tried[1]["result"])
+        fresh = types.SimpleNamespace(chat=self.chat, warned=set())
+        mumbled = {"said": [{"from": 31.0, "to": 34.0, "text": "x", "sure": 0.1}], "start": 30.0, "end": 40.0}
+        self.assertIsNotNone(tools._unclear(fresh, mumbled, self.chat.looks), "a new job is refused once again")
+        fresh.warned.clear()
+        clear = dict(mumbled, said=mumbled["said"] + [{"from": 35.0, "to": 37.0, "text": "y", "sure": 0.95}])
+        self.assertIsNone(tools._unclear(fresh, clear, self.chat.looks), "one line heard clearly is enough")
+        self.chat.clip["recipe"] = "game"
+        self.assertIsNone(tools._unclear(fresh, mumbled, self.chat.looks), "in a game the play is the clip, not words")
+
     def test_a_long_line_unsure_only_for_a_word_no_dictionary_has_keeps_its_other_lines_on_the_video(self):
         self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")], "Done.")
         start = self.chat.project.state()["clip"]["pieces"][0][0]
