@@ -19,6 +19,7 @@ AGE = {"text": "Age32", "box": [111, 68, 113, 33], "sure": 1.0}
 MENU = [{"text": "DEATH", "box": [97, 522, 113, 33], "sure": 0.98}, {"text": "GiveUp", "box": [275, 527, 76, 27],
                                                                      "sure": 0.99},
         {"text": "UNLOCK", "box": [1406, 795, 100, 27], "sure": 0.99}, AGE]
+RISE = {"text": "RISE", "box": [1406, 840, 80, 27], "sure": 0.99}
 PLAY = [AGE, {"text": "SIFU", "box": [800, 40, 120, 40], "sure": 0.99},
         {"text": "Continue", "box": [900, 900, 100, 30], "sure": 0.99}]
 
@@ -101,6 +102,20 @@ class GameScreen(unittest.TestCase):
         self.assertIn("The program cut 6.5 s of the game's menu out of the clip: the menu at 0:34 for 8 s. The clip "
                       "shows the first 1.5 s of each, the death landing, and goes on where play starts again.",
                       steps[-1]["result"])
+
+    def test_the_screens_after_the_menu_that_still_show_its_own_words_are_cut_with_it(self):
+        self.looks = [(0, PLAY), (2, PLAY), (4, MENU + [RISE]), (7, MENU + [RISE]), (9, [AGE, RISE]), (11, [AGE, RISE]),
+                      (12, PLAY), (15, PLAY), (19, PLAY)]
+        _, steps = self.game([call("make_clip", moment=1, layout="card", why="the death")])
+        self.assertEqual(self.pieces(), [[30.0, 35.5], [42.0, 50.0]],
+                         "10-30: Sifu's RISE alone for 3 s after the menu, while the age goes up, kept as play")
+        self.assertIn("the menu at 0:34 for 8 s", steps[-1]["result"])
+
+    def test_a_menu_word_left_on_the_screen_cuts_at_most_menu_tail_seconds_more(self):
+        self.looks = [(0, PLAY), (2, PLAY), (4, MENU + [RISE]), (7, MENU + [RISE])] + [
+            (t, [AGE, RISE]) for t in range(9, 17)] + [(17, PLAY), (19, PLAY)]
+        _, steps = self.game([call("make_clip", moment=1, layout="card", why="the death")])
+        self.assertEqual(self.pieces(), [[30.0, 35.5], [43.0, 50.0]], "the menu's whole stretch and %g s" % tools.MENU_TAIL)
 
     def test_a_menu_still_shown_at_the_moments_end_is_cut_to_the_end(self):
         self.looks = [(0, PLAY), (5, PLAY), (10, MENU), (16, MENU)]

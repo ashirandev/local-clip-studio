@@ -2034,14 +2034,15 @@ def _menus_cut(job, rec, pieces, a, b):
         return pieces, None
     finally:
         job.done_working()
-    shown, start = [], None
-    for r in looks:
-        full = len({screen._menu_word(line["text"]) for line in r["lines"]
-                    if line["sure"] >= screen.SURE} - {None}) >= MENU_LINES
-        if full and start is None:
-            start = r["at"]
-        elif not full and start is not None:
-            shown.append([start, r["at"]])
+    shown, start, words = [], None, set()
+    for k, r in enumerate(looks):
+        now = _menu_words(r)
+        if len(now) >= MENU_LINES:
+            if start is None:
+                start, words = r["at"], set()
+            words |= now
+        elif start is not None:
+            shown.append([start, _menu_end(looks[k:], words, b)])
             start = None
     if start is not None:
         shown.append([start, b])
@@ -2054,6 +2055,25 @@ def _menus_cut(job, rec, pieces, a, b):
                   "each, the death landing, and goes on where play starts again." % (
                       gone, "; ".join("the menu at %s for %g s" % (recording.clock(x), round(y - x, 1))
                                       for x, y in shown), countdown.DEATH_SHOWN))
+
+
+def _menu_words(reading):
+    return {screen._menu_word(line["text"]) for line in reading["lines"] if line["sure"] >= screen.SURE} - {None}
+
+
+def _menu_end(rest, words, b):
+    """Where play comes back after a menu: from the first of the readings rest, the first that no longer shows the menu
+    whole, the first reading with none of the menu's own words, at most MENU_TAIL s on. Sifu's RISE stays alone for 3 s
+    while the age goes up and the picture fades in (10-30: beat 1's menus at 35:40 and 36:01, and lane 5's game clip,
+    where those seconds were 3 of 18 s that were not play); a word the menu never showed, such as Continue, a hint play
+    keeps on the screen, does not hold it."""
+    y = rest[0]["at"]
+    for r in rest:
+        if r["at"] >= y + MENU_TAIL:
+            return y + MENU_TAIL
+        if not _menu_words(r) & words:
+            return r["at"]
+    return min(b, y + MENU_TAIL)
 
 
 def _labels_copied(job, rec, state, texts, what):
@@ -2184,6 +2204,7 @@ def _told_once(job, kind):
 
 WATCHED_RECIPES = ("game",)
 MENU_LINES = 2
+MENU_TAIL = 4
 LOOK_BACK = 30
 
 
