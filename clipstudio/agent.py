@@ -65,6 +65,13 @@ PICTURE_TOKENS = 256
 ROOM_TRIES = 4
 ROOM_FULL = 0.85
 ROOM_AFTER = 0.7
+# Once no picture is left, long old results are cut, down to RESULT_HEAD characters: 10-31 130454-90c1 filled Glimmer's 49,152
+# tokens at step 25 with its reel joined and no picture left, 58,000 of its 63,000 characters tool results, two recipes among
+# them. The studio keeps what they said (the looks, the moments), and each tool gives it again. The newest RESULT_KEPT
+# messages stay whole, and the newest recipe, which the job still follows. English runs about CHARS_TOKEN characters a token
+# and Thai fewer, so the count errs on cutting enough.
+LONG_RESULT, RESULT_HEAD, RESULT_KEPT, CHARS_TOKEN = 1500, 200, 12, 4
+RECIPE_SAID = "Recipe loaded:"
 ROOMS = {}
 TAKEN_OUT = ("(A picture was here. It was taken out to make room in Muse's memory: the tool that showed it shows it "
              "again.)")
@@ -92,6 +99,8 @@ FINISH = ("[studio] No steps are left for anything else on this message, and the
           "hashtags. A check that still fails goes over with it, and the page says which.")
 FINISH_ONLY = "Only %s are left on this message: the person gets the clip as it is now."
 FINISH_CALL = "[studio] Words alone do not give the person the clip. Call the next of %s now."
+CUT_OUT = (" (The rest of this result was cut to make room in Muse's memory: the studio still has it, and the tool that gave "
+           "it gives it again.)")
 OPEN_SAID = "(opened) "
 AS_SAID = "said"
 WORDS_GONE = "Those words are not on the clip as the page showed them. Look at the clip again."
@@ -1754,15 +1763,15 @@ class Job:
         Pictures come out down to ROOM_AFTER of the memory, not just enough to fit, and once a Muse's memory is known
         (ROOMS, from its refusal), before a question when the last one came over ROOM_FULL of it: Glimmer reads the
         conversation again from the first picture taken out, so taking just enough made it read it again on every
-        turn near the edge, and 10-30 it died 10 s into such a reading (router log, 0xC0000409)."""
+        turn near the edge, and 10-30 it died 10 s into such a reading (router log, 0xC0000409). What pictures do not
+        free comes from long old results (cut_results)."""
         room = ROOMS.get(self.brain.label)
         if room and self.chat.held + REPLY_ROOM > room * ROOM_FULL:
             with self.chat.cond:
-                took = make_room(self.chat.messages, self.chat.held + REPLY_ROOM - int(room * ROOM_AFTER))
-            if took:
-                self.emit("note", text="%s's memory was nearly full, so the studio took out the %d oldest picture%s "
-                                       "it had already looked at before asking." % (
-                                           self.brain.label, took, "" if took == 1 else "s"))
+                took, cut = free_room(self.chat.messages, self.chat.held + REPLY_ROOM - int(room * ROOM_AFTER))
+            if took or cut:
+                self.emit("note", text="%s's memory was nearly full, so the studio took out %s before asking." % (
+                    self.brain.label, _taken(took, cut)))
         tries = 0
         while True:
             try:
@@ -1778,17 +1787,16 @@ class Job:
                 with self.chat.cond:
                     if self.stopped:
                         raise mind.Cancelled()
-                    took = (make_room(self.chat.messages, e.asked + REPLY_ROOM - int(e.room * ROOM_AFTER))
-                            if tries <= ROOM_TRIES else 0)
-                    if not took:
+                    took, cut = (free_room(self.chat.messages, e.asked + REPLY_ROOM - int(e.room * ROOM_AFTER))
+                                 if tries <= ROOM_TRIES else (0, 0))
+                    if not (took or cut):
                         raise mind.MindError(
-                            "%s's memory is full: this chat holds more than it can read at once (%d tokens), and no "
-                            "picture is left to take out. Start a new chat for the next clip." % (self.brain.label,
-                                                                                                 e.room))
+                            "%s's memory is full: this chat holds more than it can read at once (%d tokens), and "
+                            "nothing is left to take out. Start a new chat for the next clip." % (self.brain.label,
+                                                                                                  e.room))
                     self.asking = mind.Asking()
-                self.emit("note", text="%s's memory was nearly full, so the studio took out the %d oldest picture%s "
-                                       "it had already looked at, and asked again." % (
-                                           self.brain.label, took, "" if took == 1 else "s"))
+                self.emit("note", text="%s's memory was nearly full, so the studio took out %s, and asked again." % (
+                    self.brain.label, _taken(took, cut)))
 
     def close(self, end, started):
         """Ends the job (the caller holds the lock). Words typed too late to be answered still go into the chat."""
@@ -2118,6 +2126,36 @@ def make_room(messages, need):
         if took * PICTURE_TOKENS >= need:
             break
     return took
+
+
+def cut_results(messages, need):
+    """Cuts long tool results to their first RESULT_HEAD characters, oldest first, until about need tokens are free, and
+    returns how many it cut; each ends in CUT_OUT. The newest RESULT_KEPT messages stay whole, and so does the newest
+    recipe: the job still follows it, while a recipe replaced by another is only memory."""
+    recipe = next((m for m in reversed(messages) if m.get("role") == "tool" and str(m.get("content")).startswith(RECIPE_SAID)),
+                  None)
+    freed = cut = 0
+    for m in messages[:-RESULT_KEPT]:
+        c = m.get("content")
+        if freed >= need:
+            break
+        if m.get("role") == "tool" and isinstance(c, str) and len(c) >= LONG_RESULT and m is not recipe:
+            m["content"] = c[:RESULT_HEAD] + CUT_OUT
+            freed += (len(c) - RESULT_HEAD - len(CUT_OUT)) / CHARS_TOKEN
+            cut += 1
+    return cut
+
+
+def free_room(messages, need):
+    """(pictures taken out, results cut) for about need tokens: pictures first, as Muse has looked at them, then results."""
+    took = make_room(messages, need)
+    return took, cut_results(messages, need - took * PICTURE_TOKENS) if need > took * PICTURE_TOKENS else 0
+
+
+def _taken(took, cut):
+    """What free_room took, for the page."""
+    said = ["the %d oldest picture%s it had already looked at" % (took, "" if took == 1 else "s")] if took else []
+    return " and ".join(said + (["the rest of %d long old result%s" % (cut, "" if cut == 1 else "s")] if cut else []))
 
 
 def _sendable(call):

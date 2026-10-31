@@ -343,13 +343,71 @@ class Loop(unittest.TestCase):
         self.assertEqual(sum(p["type"] == "image_url" for p in old), 24,
                          "over 70% but under 85% nothing more comes out: one reading again, not one a question")
 
+    def long_results(self, *lengths):
+        """The chat's messages: a recipe then tool results of lengths, each with a call before it, then short ones."""
+        self.chat.messages += [{"role": "tool", "tool_call_id": "r", "content": agent.RECIPE_SAID + " x" * 1000}]
+        self.chat.messages += [{"role": "tool", "tool_call_id": str(n), "content": "y" * n} for n in lengths]
+        self.chat.messages += [{"role": "tool", "tool_call_id": "s%d" % k, "content": "short"} for k in range(agent.RESULT_KEPT)]
+
+    def test_long_old_results_are_cut_oldest_first_and_the_newest_stay_whole(self):
+        self.long_results(8000, 4000, 1000)
+        self.chat.messages[-1]["content"] = "z" * 9000
+        self.assertEqual(agent.cut_results(self.chat.messages, 1000), 1, "4,000 tokens out of the oldest are enough")
+        tools_said = [m["content"] for m in self.chat.messages if m["role"] == "tool"]
+        self.assertEqual(tools_said[1], "y" * agent.RESULT_HEAD + agent.CUT_OUT)
+        self.assertEqual(tools_said[2], "y" * 4000)
+        self.assertEqual(agent.cut_results(self.chat.messages, 100000), 1, "the next long one, and no more")
+        tools_said = [m["content"] for m in self.chat.messages if m["role"] == "tool"]
+        self.assertEqual(tools_said[3], "y" * 1000, "a short result stays")
+        self.assertTrue(tools_said[0].startswith(agent.RECIPE_SAID), "the recipe the job follows stays")
+        self.assertEqual(tools_said[-1], "z" * 9000, "the newest messages stay")
+
+    def test_a_recipe_replaced_by_another_is_only_memory(self):
+        self.long_results(10)
+        self.chat.messages += [{"role": "tool", "tool_call_id": "new", "content": agent.RECIPE_SAID + " new" * 1000}]
+        self.chat.messages += [{"role": "tool", "tool_call_id": "t%d" % k, "content": "short"} for k in range(agent.RESULT_KEPT)]
+        self.assertEqual(agent.cut_results(self.chat.messages, 100000), 1)
+        self.assertTrue(next(m for m in self.chat.messages if m.get("tool_call_id") == "r")["content"].endswith(agent.CUT_OUT))
+        self.assertFalse(next(m for m in self.chat.messages if m.get("tool_call_id") == "new")["content"].endswith(agent.CUT_OUT))
+
+    def test_a_full_memory_with_no_picture_left_cuts_old_results_and_the_job_goes_on(self):
+        """Lane 5's 130454-90c1: its reel joined, step 25, and "no picture is left to take out": no clip for the person."""
+        self.long_results(8000, 8000)
+
+        def full(asking):
+            raise mind.TooLong("full", 32800, 32768)
+
+        brain = ScriptedMind(full, "Done.")
+        _, events = self.run_job(brain)
+        self.assertEqual(events[-1]["why"], "answered")
+        notes = [e["text"] for e in events if e["kind"] == "note"]
+        self.assertIn("took out the rest of 2 long old results, and asked again", notes[0])
+        self.assertEqual(sum(str(m.get("content")).endswith(agent.CUT_OUT) for m in brain.sent[-1]), 2)
+
+    def test_pictures_come_out_before_any_result_is_cut(self):
+        self.long_results(8000)
+        picture = {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AA=="}}
+        self.chat.messages[1:1] = [{"role": "user", "content": [picture] * 20}, {"role": "user", "content": [picture]}]
+        self.assertEqual(agent.free_room(self.chat.messages, 100), (1, 0))
+        self.assertEqual(agent.free_room(self.chat.messages, 20 * agent.PICTURE_TOKENS), (19, 1), "what pictures leave")
+
+    def test_a_memory_nearly_full_with_no_picture_left_cuts_results_before_the_question(self):
+        self.long_results(8000, 8000)
+        agent.ROOMS["scripted"] = 32768
+        self.addCleanup(agent.ROOMS.clear)
+        self.chat.held = 30000
+        brain = ScriptedMind("Done.")
+        _, events = self.run_job(brain)
+        self.assertIn("took out the rest of 2 long old results before asking",
+                      [e["text"] for e in events if e["kind"] == "note"][0])
+
     def test_a_full_memory_with_no_picture_to_take_out_ends_the_job_saying_so(self):
         def full(asking):
             raise mind.TooLong("full", 32800, 32768)
 
         job, events = self.run_job(ScriptedMind(full))
         self.assertEqual(events[-1]["why"], "mind")
-        self.assertIn("no picture is left to take out", [e["text"] for e in events if e["kind"] == "note"][-1])
+        self.assertIn("nothing is left to take out", [e["text"] for e in events if e["kind"] == "note"][-1])
 
     def test_the_conversation_only_grows_at_its_end(self):
         brain = ScriptedMind([call("set_plan", steps=["find it"], why="plan")],
