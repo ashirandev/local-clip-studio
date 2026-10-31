@@ -34,10 +34,10 @@ After the clip, the viewer has felt the moment: what led up to it, the peak, and
 
 - Layout: the game as a card across the middle, the face camera in a circle above it, the title on top.
 - The title says what happens, in the clip's language, without giving the ending away and without the screen's
-  labels: "ตาย AGE 35 ตอนต่อสู้หลายคน" tells the ending and copies the screen; "โดนรุมทีเดียวหลายคน จะรอดไหม" makes
-  the viewer watch.
+  labels: "GAME OVER ด่าน 3 ตอนสู้บอส" tells the ending and copies the screen; "บอสตัวนี้ยากกว่าที่คิด ผ่านได้ไหม"
+  makes the viewer watch.
 - The post text tells what happens and how the streamer took it, in words a viewer would use: not the screen's
-  labels and numbers ("AGE 22", "DEATH") copied out.
+  labels and numbers ("LEVEL 12", "GAME OVER") copied out.
 - Hashtags: the game's name when it is on the screen or said (#Sifu), then what a player of that game searches
   for (the kind of game, the boss, the place or the kind of moment, in the words players use), then the channel's
   own. Never a tag any game clip could carry, such as #เกม, #สตรีม, #ตลก, #เกมเมอร์ or #ไลฟ์: it tells the apps

@@ -55,7 +55,7 @@ MOST_CHANGED = 0.2
 GROWS = 2
 
 
-SLIPS = {"\u0e37": "\u0e4c", "\u0e49": "\u0e48\u0e31"}
+SLIPS = {"\u0e37": "\u0e4c", "\u0e49": "\u0e48\u0e31", "\u0e25": "\u0e23"}
 SLIP_ROUNDS = 4
 MET = 100
 UNMARKED = re.compile("(\u0e40[\u0e01-\u0e2e]{1,2}\u0e2d\u0e23)(?![\u0e01-\u0e2e\u0e30-\u0e3a\u0e47-\u0e4e\ufffd])")
@@ -85,7 +85,10 @@ def unslipped(text):
     words, and adding a missing ์ put it in the wrong place, so neither is done. The word a swap makes must be one the
     Thai National Corpus has met MET times, or one of CREATOR_WORDS: อีกคร้ง (ครั้ง with its ั dropped) became คร่ง,
     which the corpus never met, and then ครัง, met 6 times; the right fixes make ที่, ช่วง, ใส่, ตัว (12,059 to
-    818,364). A bit no single swap mends stays as written. A ์ dropped from a last syllable is put back first (marked)."""
+    818,364). A bit no single swap mends stays as written. A ์ dropped from a last syllable is put back first (marked).
+    A ล written for ร goes back the same way: hearing wrote อย่าลุมดิ and Glimmer's titles took โดนลุม from it, in 4 of
+    its Sifu titles, and its own check kept it. On 1,168 texts Muse wrote, ล to ร changed 12, all right (10-31); ร to ล
+    made คลิปโต of คริปโต and ปลากฎ of ปรากฎ, so a ร is left alone."""
     text = marked(text)
     for _ in range(SLIP_ROUNDS):
         bits = odd_thai(text)

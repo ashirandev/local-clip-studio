@@ -18,6 +18,7 @@ SLIPPED = {
     "ใส้สติ๊กเกอรืหัวระเบิดเพื่อเน้นความตลกที่จังหวะตาย": "ใส่สติ๊กเกอร์หัวระเบิดเพื่อเน้นความตลกที่จังหวะตาย",
     "ดูภาพและคำพูดในช้วงที่เสียงดังสุด": "ดูภาพและคำพูดในช่วงที่เสียงดังสุด",
     "ยืนยันความยาวและเอฟเฟกตื": "ยืนยันความยาวและเอฟเฟกต์",
+    "โดนลุมจนมองไม่เห็นศัตรู จะรอดไหม": "โดนรุมจนมองไม่เห็นศัตรู จะรอดไหม",
 }
 UNMARKED = {
     "Akihabara ถนนเกมและป๊อปคัลเจอร": "Akihabara ถนนเกมและป๊อปคัลเจอร์",
@@ -37,6 +38,10 @@ class Slips(unittest.TestCase):
     def test_what_is_right_or_not_one_swap_away_stays_as_written(self):
         for text in ("ตัดคลิปเกมให้หน่อย", "Render it again.", "ไตเติลสั้นๆ กับแฮชแท็ก",
                      "ใส่สติกเกอรหัวระเบิด", "ตรวจสอคคลิป", "พร้อมทิ้ตเติลเพื่อโพสต์", "ลองค้นหาอีกคร้ง"):
+            self.assertEqual(words.unslipped(text), text)
+
+    def test_a_ror_stays_a_ror(self):
+        for text in ("ข่าวหุ้น คริปโต น้ำมัน", "ตอนผลลัพธ์ปรากฎ ตรวจสอบผล", "ลองเล่นเกมนี้แล้วชอบ"):
             self.assertEqual(words.unslipped(text), text)
 
     def test_a_dropped_mark_is_put_back_where_the_word_ends(self):
