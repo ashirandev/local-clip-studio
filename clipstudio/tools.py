@@ -5925,6 +5925,10 @@ def hand_over(job, why, title, caption, hashtags, english=""):
         raise Refused("These checks failed on the finished file: %s. Fix them, render again and check again; after "
                       "%d rounds you may hand it over and say what still fails." % ("; ".join(failed), CHECK_ROUNDS))
     rec, state = _open(job, "hand over"), _clip_state(job)
+    # Glimmer read past NO_TITLE in render_clip's answer twice (021005-389c, 050402-c12f on 11-01); a refusal it obeys.
+    if (job.chat.clip or {}).get("recipe") and not state["titles"] and why != BATCH_WHY and not job.finishing \
+            and not _told_once(job, "no_title"):
+        raise Refused("Not handed over." + NO_TITLE + " If they did, hand over again unchanged.")
     where = [m.group(0) for m in PLACES.finditer(" ".join([title, caption, english or ""] + list(hashtags)))]
     if where:
         raise Refused("The post names %s, a place on this computer: viewers must never see where the files are kept. "

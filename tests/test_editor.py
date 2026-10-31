@@ -1870,6 +1870,49 @@ class Tools(unittest.TestCase):
         first, _ = self.handed_twice("game")
         self.assertFalse(first["refused"], first["result"])
 
+    def test_a_clip_with_no_title_is_sent_back_once(self):
+        """021005-389c and 050402-c12f on 11-01: Glimmer read past the sentence in render_clip's answer and handed over."""
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            script = self.to_moment()
+            _, steps = self.run_job(script[0], [call("load_recipe", type="game", why="a game")], *script[1:],
+                                    [call("make_clip", moment=1, layout="subject", why="the action")],
+                                    [call("no_chat_box", why="none shows")], [call("decide_people", keep=[1], why="him")],
+                                    [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
+                                    [call("hand_over", title="Boss down", caption="c", hashtags=["#a"], why="post")],
+                                    [call("hand_over", title="Boss down", caption="c", hashtags=["#a"], why="none asked")],
+                                    "Done.")
+        finally:
+            render.export = had
+        first, second = steps[-2:]
+        self.assertTrue(first["refused"], first["result"])
+        self.assertIn(tools.NO_TITLE, first["result"])
+        self.assertFalse(second["refused"], second["result"])
+
+    def test_no_title_is_not_asked_of_a_clip_with_no_recipe_a_batch_or_a_job_out_of_steps(self):
+        from unittest import mock
+
+        def handed(recipe="game", why="post", finishing=False, titles=()):
+            job = types.SimpleNamespace(finishing=finishing, n=1, chat=types.SimpleNamespace(
+                clip={"recipe": recipe} if recipe else None, finished=lambda: {"name": "a.mp4"}, checks={"a.mp4": []},
+                events=[]))
+            with mock.patch.object(tools, "_open", return_value={}), \
+                    mock.patch.object(tools, "_clip_state", return_value={"titles": list(titles)}), \
+                    mock.patch.object(tools, "_told_once", return_value=False), \
+                    mock.patch.object(tools, "_other_apps", side_effect=tools.Refused("past it")), \
+                    self.assertRaises(tools.Refused) as said:
+                tools.hand_over(job, why, "t", "c", ["#a"])
+            return str(said.exception)
+
+        self.assertIn(tools.NO_TITLE, handed())
+        for kept in ({"recipe": None}, {"why": tools.BATCH_WHY}, {"finishing": True}, {"titles": [{"text": "x"}]}):
+            self.assertEqual(handed(**kept), "past it", kept)
+
     def test_a_title_handed_over_is_checked_too(self):
         """A title that never went on the clip reaches the post and the cover here, unread by add_title."""
         def export(rec, state, out, on_progress=None, on_start=None, *, default):
@@ -4512,6 +4555,7 @@ class Tools(unittest.TestCase):
                 *self.to_moment(), [call("load_recipe", type="game", why="a stream")],
                 [call("make_clip", moment=1, layout="subject", why="the action")],
                 [call("decide_people", keep=[1], why="it is him")],
+                [call("add_title", words="Boss down", start=0, end=4, place="top", why="the hook")],
                 [call("render_clip", why="make the file")],
                 [call("hand_over", title="t", caption="c", hashtags=["#a"], why="unchecked")],
                 [call("check_clip", why="check it")],
