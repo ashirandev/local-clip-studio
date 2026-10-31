@@ -33,7 +33,7 @@ import urllib.request
 
 from . import mind, recording
 
-VERSION = 1
+VERSION = 2
 FPS = 10
 MOST_SECONDS = 120
 WORKER = os.path.join(recording.ROOT, "cutting", "cut.py")
@@ -120,7 +120,8 @@ def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=
     "to"}, person being the face box the person was picked by (None: the person with the most pixels). face is
     [x, y, w, h] in the recording's pixels (the layout's face camera), so when SAM finds several people the one
     holding it is kept. With people, the face boxes of a talk's people in their order, the mask has "each" too: the
-    path of each one's own mask, or None for one SAM did not find. With what, SAM finds that instead of a person,
+    path of each one's own mask, or None for one SAM did not find; and "everyone": the path of the mask of all the
+    people SAM followed, a face or not. With what, SAM finds that instead of a person,
     such as "white game controller" (the product a seller holds), and keeps the one with the most pixels over the
     stretch when there are several. on_progress(done, of) as SAM follows them;
     on_start(stop) hands over a function that ends the work at once (then Stopped is raised). PersonError with a
@@ -136,7 +137,10 @@ def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=
             "to": end}
 
     def given():
-        return dict(made, each=_each(folder, name, people)) if people else made
+        if not people:
+            return made
+        everyone = os.path.join(folder, name + ".each", "everyone.mkv")
+        return dict(made, each=_each(folder, name, people), everyone=everyone if os.path.isfile(everyone) else None)
 
     if os.path.isfile(path):
         return given()

@@ -6092,7 +6092,9 @@ def cut_out(job, why, look=None, start=None, end=None):
         said.append("SAM 3.1 found %s through the clip, %s to %s of the recording, %d pictures a second."
                     % ("%d of the %d people" % (found, len(people)) if people else "the person",
                        recording.clock(a), recording.clock(b), mask["fps"]))
-    speaking = any((state["mask"] or {}).get("each") or [])
+    says = CUTOUT_LOOK_SAYS
+    if any((state["mask"] or {}).get("each") or []):
+        says = CUTOUT_EVERYONE_SAYS if state["mask"].get("everyone") and not clip.get("voices") else CUTOUT_SPEAKER_SAYS
     if look:
         s = 0.0 if start is None else length + start if start < 0 else start
         e = length if end is None else length + end if end < 0 else min(end, length)
@@ -6103,7 +6105,7 @@ def cut_out(job, why, look=None, start=None, end=None):
         job.edit({"do": "cutout", "look": look, "start": s, "end": e})
         said.append("The %s look is on from %g to %g s of the %g s clip%s: %s." % (
             look, s, e, length, "" if e >= length - 0.05 else ", so the clip's last %g s are without it"
-            % round(length - e, 2), (CUTOUT_SPEAKER_SAYS if speaking else CUTOUT_LOOK_SAYS)[look]))
+            % round(length - e, 2), says[look]))
     said.append(_person_said(state, render.style_of(state, job.chat.clip["style"] if job.chat.clip else "clean")))
     return "\n".join(said)
 
@@ -6113,6 +6115,11 @@ CUTOUT_LOOK_SAYS = {"grey": "the footage around the person is black and white, a
 CUTOUT_SPEAKER_SAYS = {"grey": "the footage is black and white around whoever speaks, who keeps their colour while "
                                "they speak",
                        "outline": "a white edge goes around whoever speaks, while they speak"}
+CUTOUT_EVERYONE_SAYS = {"grey": "only the room is black and white and everyone keeps their colour, as their voices do "
+                                "not tell who speaks and colour on one person could land on the wrong one; say so if "
+                                "the person asked for the speaker alone",
+                        "outline": "a white edge goes around everyone, as their voices do not tell who speaks; say so "
+                                   "if the person asked for the speaker alone"}
 BEHIND_SHARE = 0.05
 HIDDEN_MOST = 1 / 3.0
 PERSON_STEP = 5
@@ -7017,8 +7024,9 @@ TOOLS = {t.name: t for t in [
          "a cut-out look, or when a title behind the person makes a product or talk clip stand out.",
          {"look": {"type": "string", "enum": list(render.CUTOUT_LOOKS),
                    "description": "grey: the footage around the person goes black and white, and the person keeps "
-                                  "their colour. outline: a white edge around the person. Leave it out to only find "
-                                  "the person, for a title behind them."},
+                                  "their colour. outline: a white edge around the person. In a talk both follow "
+                                  "whoever speaks when their voices tell who that is, and else take in everyone. "
+                                  "Leave it out to only find the person, for a title behind them."},
           "start": {"type": "number", "description": "When the look starts, in seconds of the clip; a negative "
                                                      "number counts back from the clip's end, so -5 is its last 5 "
                                                      "seconds. Leave it out for the start."},

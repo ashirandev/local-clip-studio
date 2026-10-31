@@ -1075,6 +1075,10 @@ class Tools(unittest.TestCase):
         self.assertIn("The person was already found for this clip, so SAM did not run again.", outline["result"])
         self.assertIn("a white edge goes around whoever speaks, while they speak", outline["result"])
         self.assertIn("SAM 3.1 found 1 of the 2 people", again[-1]["result"])
+        whole = {k: v for k, v in state["mask"].items() if k != "do"}
+        self.chat.edit(dict(whole, do="mask", everyone=whole["path"]))
+        _, told = self.run_job([call("cut_out", look="grey", why="everyone in the talk")], "Done.")
+        self.assertIn("only the room is black and white and everyone keeps their colour", told[-1]["result"])
 
     def test_a_line_that_leaves_out_a_number_is_asked_once_with_the_number_then_stands_and_is_named(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "นะครับสามก่อนเข้าไปดู"},

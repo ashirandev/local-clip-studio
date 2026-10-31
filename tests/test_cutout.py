@@ -146,6 +146,36 @@ class FrameMask(unittest.TestCase):
         self.assertEqual(cutout.speaking_mask(dict(mask, each=[None, None]), [[0, 3]], layout, 3.0),
                          cutout.frame_mask(mask, [[0, 3]], layout, 3.0))
 
+    def test_voices_that_are_not_told_apart_leave_everyone_in_colour(self):
+        """Tarm 10-31, EP0: the colour stayed on the man in glasses while another spoke."""
+        from clipstudio import talk
+        persons = [{"n": 1, "box": [120, 120, 80, 80]}, {"n": 2, "box": [440, 120, 80, 80]}]
+        shots = [{"from": 0, "to": 1.5, "show": 1}, {"from": 1.5, "to": 3.0, "show": 2}]
+        layout = talk.make((640, 360), persons, shots)
+        one = make_mask(self.tmp, "one.mkv", 3.0, 0, expr="lt(hypot(X-160,Y-200),60)")
+        everyone = make_mask(self.tmp, "all.mkv", 3.0, 0, expr="1")
+        mask = dict(self.mask, path=one, each=[one, one], everyone=everyone, **{"from": 0.0, "to": 3.0})
+        made = cutout.speaking_mask(mask, [[0, 3]], layout, 3.0)
+        self.assertEqual(made, cutout.frame_mask(dict(mask, path=everyone), [[0, 3]], layout, 3.0))
+        told = cutout.speaking_mask(mask, [[0, 3]], layout, 3.0, told_apart=True)
+        self.assertNotEqual(told, made, "voices told apart still follow who speaks")
+        self.assertEqual(cutout.speaking_mask(dict(mask, everyone=None), [[0, 3]], layout, 3.0), told,
+                         "a mask made before keeps its look")
+
+    def test_the_render_goes_by_the_clips_voices(self):
+        from unittest import mock
+        from clipstudio import render
+        state = {"cutouts": [{"look": "grey", "start": 0.0, "end": 1.0}], "titles": [], "hits": [], "mask": {"path": "p"},
+                 "clip": {"pieces": [[0, 1]], "layout": {}, "voices": None}, "length": 1.0, "pushes": [],
+                 "captions": None, "channel": None}
+        with mock.patch.object(render.cutout, "frame_mask", return_value="m"), \
+                mock.patch.object(render.cutout, "speaking_mask", return_value="s") as speaking:
+            render._cut_out(state, "clean")
+            self.assertIs(speaking.call_args.kwargs["told_apart"], False)
+            state["clip"]["voices"] = [{"from": 0, "to": 1, "who": 1}]
+            render._cut_out(state, "clean")
+            self.assertIs(speaking.call_args.kwargs["told_apart"], True)
+
     def test_a_slow_push_pushes_the_mask_with_the_picture(self):
         import numpy as np
         layout = layouts.make("subject", (640, 360))

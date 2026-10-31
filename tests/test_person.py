@@ -65,6 +65,8 @@ for k in range(1, len(job.get("people") or []) + 1):
     each[str(k)] = None if str(k) in os.environ.get("LCS_FAKE_LOST", "").split(",") else k
     if each[str(k)] is not None:
         white(os.path.join(job["each"], "%d.mkv" % k))
+if job.get("each"):
+    white(os.path.join(job["each"], "everyone.mkv"))
 note("worker end")
 say(ok=True, frames=n, people=[{"id": 0, "sure": 0.97}], kept=0, each=each, seconds={})
 '''
@@ -221,12 +223,14 @@ class CutOut(unittest.TestCase):
         self.assertEqual(self.said(), ["unload", "worker start", "worker end", "load"], "one SAM run for everyone")
         self.assertTrue(os.path.isfile(made["each"][0]))
         self.assertEqual(made["each"][1:], [None], "SAM found nobody at person 2's face")
+        self.assertTrue(os.path.isfile(made["everyone"]), "and everyone it followed stands in one mask of their own")
         self.assertEqual(cutout._checked(dict(made, path=made["each"][0]), [64, 36])[1:], (10.0, 2.0, 5.0))
         open(self.events, "w").close()
         self.assertEqual(person.cut_out(self.rec, 2, 5, people=people), made, "given back at once")
         self.assertEqual(self.said(), [])
         alone = person.cut_out(self.rec, 2, 5)
         self.assertNotIn("each", alone)
+        self.assertNotIn("everyone", alone)
         self.assertNotEqual(alone["path"], made["path"], "a mask without each person's own is another mask")
         self.assertEqual([n for n in self.masks() if "part" in n or "pictures" in n], [], "nothing half made is left")
         with self.assertRaisesRegex(ValueError, r"^people \[\] is not a list of face boxes"):
@@ -417,6 +421,18 @@ class Worker(unittest.TestCase):
         self.assertIs(lost[7], b, "a crumb the first id left behind gives way to the person")
         self.assertTrue(all(m is not None for m in lost), "three ids of one person leave no picture empty")
 
+    def test_everyone_sam_followed_stands_in_one_mask(self):
+        import numpy as np
+        cut = worker_module()
+        a, b = np.zeros((4, 16), bool), np.zeros((4, 16), bool)
+        a[1, :4], b[2, 8:] = True, True
+        pa, pb = np.packbits(a, axis=-1), np.packbits(b, axis=-1)
+        got = cut.everyone({0: [pa, pa, None, None], 3: [pb, None, pb, None]})
+        np.testing.assert_array_equal(np.unpackbits(got[0], axis=-1)[:, :16], a | b, "both in the picture they share")
+        np.testing.assert_array_equal(got[1], pa)
+        np.testing.assert_array_equal(got[2], pb)
+        self.assertIsNone(got[3], "a picture with nobody in it stays empty")
+
     def test_the_worker_writes_the_person_joined_up(self):
         import types
 
@@ -447,6 +463,13 @@ class Worker(unittest.TestCase):
                            "frames": folder, "out": "o"})
         self.assertEqual(got["kept"], 2)
         self.assertTrue(all(m is not None for m in write.call_args[0][0]), "no picture is left without the person")
+        for f in os.listdir(folder):
+            os.remove(os.path.join(folder, f))
+        with mock.patch.object(cut.subprocess, "run", pictures), mock.patch.object(cut, "load", lambda w: Sam()),                 mock.patch.object(cut, "write") as write, mock.patch.object(cut, "say"):
+            cut.cut({"recording": "r", "from": 0, "to": 1, "fps": 3, "size": [64, 36], "face": None, "weights": "w",
+                     "frames": folder, "out": "o", "people": [[0, 5, 10, 25]], "each": "people"})
+        self.assertIn(os.path.join("people", "everyone.mkv"), [c[0][1] for c in write.call_args_list],
+                      "a talk's run writes everyone it followed")
 
     def test_pictures_are_at_most_1920_on_the_long_side_and_even(self):
         cut = worker_module()

@@ -21,7 +21,8 @@ SAM is asked for "person" on the first picture, follows everyone it finds there 
 person kept is the one whose mask holds the middle of the face box in the most pictures (a stream's face camera),
 or with no face box the one with the most pixels over the stretch. With people, each of them gets their own mask
 too, n.mkv in each for the n-th face, picked the same way from the same following, so a talk's speaker can keep
-their colour while the others do not (Tarm 10-30); a face nobody holds gets none. The pictures go in at most LONGEST
+their colour while the others do not (Tarm 10-30); a face nobody holds gets none. everyone.mkv in each holds all of
+the people SAM followed, a face or not, for a talk whose speakers cannot be told. The pictures go in at most LONGEST
 pixels on the long side, since SAM works at 1008 anyway (measured 10-28: the whole 1920x1080 frame and a 640 px crop round the
 face camera gave the same mask, IoU .988, at the same 0.23 s a picture). The mask goes back on the recording's own
 pixel grid, frame k at recording second from + k / fps, 255 the person, with a soft edge of about a pixel.
@@ -96,6 +97,16 @@ def joined(masks, kept):
                 if n not in have or pixels(masks[i][n]) > pixels(out[n]):
                     out[n] = masks[i][n]
             have |= seen
+    return out
+
+
+def everyone(masks):
+    """[the masks of everyone SAM followed in each picture together, packed, or None where nobody is seen]."""
+    out = [None] * max(len(frames) for frames in masks.values())
+    for frames in masks.values():
+        for n, m in enumerate(frames):
+            if m is not None:
+                out[n] = m if out[n] is None else out[n] | m
     return out
 
 
@@ -215,6 +226,8 @@ def cut(job):
     for k, i in each.items():
         if i is not None:
             write(masks[i], os.path.join(job["each"], "%s.mkv" % k), job["size"], (pw, ph), job["fps"])
+    if job.get("each"):
+        write(everyone(masks), os.path.join(job["each"], "everyone.mkv"), job["size"], (pw, ph), job["fps"])
     seconds["writing"] = round(time.perf_counter() - t, 1)
     return {"ok": True, "frames": n, "people": people, "kept": kept, "each": each, "seconds": seconds}
 

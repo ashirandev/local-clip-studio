@@ -84,13 +84,18 @@ def frame_mask(mask, pieces, layout, length, pushes=()):
     return _make(cmd, graph, length, target)
 
 
-def speaking_mask(mask, pieces, layout, length, pushes=()):
+def speaking_mask(mask, pieces, layout, length, pushes=(), told_apart=False):
     """The path of the mask of whoever speaks, on the clip as frame_mask() lays one person's (made once in
     work/masks): each person's own mask (mask["each"], from cut_out on a talk) white only while they speak
     (talk.speaking, from the layout's shots), all of them together, so the grey look keeps the speaker's colour and
     everyone's when they talk together. Tarm 10-30 on four people talking: one person kept in colour through the
-    whole clip "มันดูตลก". frame_mask()'s one person when the mask has no one's own or the layout no shots."""
+    whole clip "มันดูตลก". frame_mask()'s one person when the mask has no one's own or the layout no shots.
+    Only with told_apart, the clip's people told apart by their voices. Mouths alone get it wrong, and colour on the
+    wrong person shows: Tarm 10-31 on four men in EP0, it stayed on the man in glasses while another spoke. So without
+    it, everyone SAM followed keeps their colour (mask["everyone"]) and only the room turns."""
     from . import talk
+    if mask.get("everyone") and not told_apart:
+        return frame_mask(dict(mask, path=mask["everyone"]), pieces, layout, length, pushes)
     each = mask.get("each") or []
     if layout["kind"] != "talk" or not layout.get("shots") or not any(each):
         return frame_mask(mask, pieces, layout, length, pushes)
