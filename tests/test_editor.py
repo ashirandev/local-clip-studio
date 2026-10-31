@@ -2416,11 +2416,41 @@ class Tools(unittest.TestCase):
                          [call("make_clip", moment=1, layout="subject", product=[100, 300, 250, 600], why="the product")],
                          [call("follow_product", what="white game controller", why="the product leads")], "Done.")
         state = self.chat.project.state()
-        times, _ = tools._face_times(state, self.chat.recording)
+        with mock.patch.object(tools.focus, "thing_boxes", return_value=[]):
+            times, _ = tools._face_times(state, self.chat.recording)
         boxes = [b for _, found in times for b in found]
         self.assertTrue(boxes)
         for x, y, w, h in boxes:
             self.assertAlmostEqual(x + w / 2.0, 540, delta=2, msg="in the middle of the frame, though Muse's box was far left")
+
+    def test_a_title_keeps_off_the_product_where_sam_saw_it_at_that_second(self):
+        """005549-f1e8 on 11-01: 2 of 5 seller clips had no title, as one box stood for a phone that moved."""
+        from unittest import mock
+        from test_cutout import make_mask
+
+        def cut_out(rec, a, b, on_start=None, on_progress=None, what=None):
+            return {"path": make_mask(self.tmp, "followed.mkv", b - a, a, "lt(abs(X-280),20)", size=(320, 180)),
+                    "person": None, "fps": 10, "size": [320, 180], "from": a, "to": b}
+
+        script = self.to_moment()
+        with mock.patch.object(tools.person, "cut_out", cut_out):
+            self.run_job(script[0], [call("load_recipe", type="seller", why="a seller")], *script[1:],
+                         [call("make_clip", moment=1, layout="subject", product=[100, 300, 250, 600], why="the product")],
+                         [call("follow_product", what="white game controller", why="the product leads")], "Done.")
+        state = self.chat.project.state()
+        whole = next(p for p in state["clip"]["layout"]["parts"] if p["name"] == "whole")
+        x = whole["src"][0]
+        small, big = [x + 10, 20, 30, 40], [x, 0, whole["src"][2], 180]
+        with mock.patch.object(tools.focus, "thing_boxes", return_value=[(1.0, small), (3.0, big), (5.0, small)]):
+            times, _ = tools._face_times(state, self.chat.recording)
+
+        def at(t):
+            return [b for when, found in times if when == t for b in found]
+
+        self.assertEqual(len({tuple(b) for b in at(1.0)}), 1)
+        self.assertAlmostEqual(at(1.0)[0][1], 20 * 1920 / 180.0, delta=2, msg="where SAM saw it, not where Muse's box is")
+        self.assertEqual(at(3.0), [], "a product filling the frame cannot be kept off")
+        self.assertEqual(at(10.0), [], "SAM did not see it then")
 
     def test_moving_the_ends_keeps_the_frame_on_the_product_it_followed(self):
         """Glimmer's green seller 10-30: after change_ends the frame went back to the face and no title fit."""

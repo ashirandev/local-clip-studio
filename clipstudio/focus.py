@@ -469,6 +469,8 @@ THING_KEEP = 0.85
 THING_LEAD = 0.3
 THING_INSIDE = 0.8
 THING_CUT_LEAST = 0.5
+BOXES_KEPT = 8
+_BOXES = {}
 
 
 def held(box, size, aspect):
@@ -560,6 +562,24 @@ def _thing_pictures(mask, pieces, size):
                 out.append((offset + t - a, f >= 128))
         offset += b - a
     return out, sw / float(w)
+
+
+def thing_boxes(mask, pieces, size):
+    """[(clip second, [x, y, w, h] of the recording)] for each of the mask's pictures where SAM sees the thing, made once:
+    the words keep off where it is at that second."""
+    key = json.dumps([mask["path"], mask["from"], mask["fps"], pieces, list(size)])
+    if key not in _BOXES:
+        pictures, k = _thing_pictures(mask, pieces, size)
+        out = []
+        for t, f in pictures:
+            rows, cols = np.flatnonzero(f.any(axis=1)), np.flatnonzero(f.any(axis=0))
+            if len(rows):
+                out.append((t, [round(float(v) / k, 1) for v in (cols[0], rows[0], cols[-1] + 1 - cols[0],
+                                                                 rows[-1] + 1 - rows[0])]))
+        if len(_BOXES) >= BOXES_KEPT:
+            _BOXES.clear()
+        _BOXES[key] = out
+    return _BOXES[key]
 
 
 def cut_off(mask, pieces, size, shown):

@@ -327,6 +327,20 @@ class Thing(unittest.TestCase):
         self.assertEqual([s["x"] for s in self.plan("if(lt(T,2),520,if(lt(T,4),610,if(lt(T,6),-1000,100)))",
                                                     rest=None)["shots"]], [418, 0], "with no person, it holds")
 
+    def test_where_the_thing_is_at_each_second_is_read_once(self):
+        from test_cutout import make_mask
+        path = make_mask(self.tmp, "boxes.mkv", 8, 0, "lt(abs(X-if(lt(T,4),100,500)),30)*lt(abs(Y-180),40)")
+        mask = {"path": path, "fps": 30, "from": 0, "to": 8}
+        seen = focus.thing_boxes(mask, [[2, 6]], (640, 360))
+        self.assertAlmostEqual(seen[0][0], 0.0, delta=0.05, msg="seconds of the clip, which starts 2 s in")
+        at = dict(seen)
+        early, late = at[min(at, key=lambda t: abs(t - 1))], at[min(at, key=lambda t: abs(t - 3))]
+        for box, want in ((early, [70, 140, 60, 80]), (late, [470, 140, 60, 80])):
+            for got, value in zip(box, want):
+                self.assertAlmostEqual(got, value, delta=8)
+        os.remove(path)
+        self.assertEqual(focus.thing_boxes(mask, [[2, 6]], (640, 360)), seen, "the file is not read again")
+
     def test_a_product_not_there_at_first_starts_on_the_person_and_one_never_there_is_no_plan(self):
         plan = self.plan("if(lt(T,2),-1000,100)")
         self.assertEqual([s["x"] for s in plan["shots"]], [220, 0])

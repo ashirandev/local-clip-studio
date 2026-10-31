@@ -2045,6 +2045,10 @@ def _vlog_trim(job, rec, a, b):
                   % (_grid(part, rec), int(round(share * 100)), rec["width"] / float(part[2])))
 
 
+PRODUCT_NEAR = 0.5
+PRODUCT_FILLS = 0.5
+
+
 def _found_faces(rec, pieces, span=None):
     """[(a, b, the faces found from a to b, or None when nobody looked)]: the faces found over span, the moment the
     clip was made from, as one stretch; or over each piece, for a clip kept from before clips were cut into pieces.
@@ -2056,11 +2060,16 @@ def _found_faces(rec, pieces, span=None):
 
 def _face_times(state, rec):
     """[(clip second, [boxes in the frame to keep words off])] for every picture the face finder took of the clip,
-    and the seconds between two pictures. The product Muse named is in every picture: where its box is, or, on a frame
-    that follows it, in the frame's middle. As the box at every place that frame goes it filled both places for words,
-    and 2 of 4 clips of Tarm's seller kept a title for under 2 s (10-31)."""
+    and the seconds between two pictures. The product Muse named is in every picture, where its box is. On a frame that
+    follows it, it is where SAM saw it at that second, and nowhere where SAM did not; with no pictures from SAM, in the
+    frame's middle. As the box at every place that frame goes it filled both places for words, and 2 of 4 clips of
+    Tarm's seller kept a title for under 2 s (10-31); as one box in the frame's middle, held in hands that move, it
+    filled them too, and 2 of 5 clips of the seller had no title and no price (11-01, 005549-f1e8: top clear 0 s, now 9.5
+    and 6.5 s). A product over PRODUCT_FILLS of the frame cannot be kept off, as that iPad at 78%: the title goes on it."""
     clip, out, every = state["clip"], [], faces.EVERY
     lay = clip["layout"]
+    seen = focus.thing_boxes(lay["thing"], clip["pieces"], (rec["width"], rec["height"])) if lay.get("thing") and \
+        clip.get("product") else []
 
     def on_frame(at, box):
         return layouts.to_frame(lay, box, at)
@@ -2070,6 +2079,10 @@ def _face_times(state, rec):
             return []
         if not lay.get("thing"):
             return layouts.to_frame(lay, clip["product"])
+        if seen:
+            t, box = min(seen, key=lambda s: abs(s[0] - at))
+            return [b for b in on_frame(at, box) if b[2] * b[3] < PRODUCT_FILLS * layouts.W * layouts.H] \
+                if abs(t - at) <= PRODUCT_NEAR else []
         whole = next(p for p in layouts.parts_at(lay, at) if p["name"] == "whole")
         x, y, w, h = clip["product"]
         return on_frame(at, [whole["src"][0] + (whole["src"][2] - w) / 2.0, y, w, h])
