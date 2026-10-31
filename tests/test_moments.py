@@ -645,6 +645,42 @@ class Finer(unittest.TestCase):
         self.assertEqual(tools._finer_edges(self.job, self.rec, look, 205.6, 230.0), [])
         self.assertTrue(look["said"][0]["finer"], "it is not looked at again")
 
+    def past(self, line, heard=(190.0, 212.0), seconds=300.0, cut=(208.0,)):
+        self.HEARD = {205.6: "ข้อแนะนำ", 208.0: "จบประโยคนี้"}
+        self.cut = list(cut)
+        look = dict(self.look({"from": 201.0, "to": 203.0, "text": "a"}, line), end=206.0, heard=list(heard))
+        return look, tools._finer_edges(self.job, dict(self.rec, seconds=seconds), look, 201.0, 211.0)
+
+    def test_a_looks_last_line_stopped_by_the_edge_of_the_hearing_is_heard_on_to_finish_its_thought(self):
+        """Lane 5's showcase: the look's last piece ended at 1:25.62 on a thought that ended at 1:28."""
+        look, said = self.past(self.LONG)
+        self.assertEqual(self.asked, [(205.6, 208.0), (208.0, 216.0)])
+        self.assertEqual(said, ["The moment's end at 3:31.00:\n  3:25.60-3:28.00 ข้อแนะนำ\n  3:28.00-3:36.00 จบประโยคนี้"])
+        self.assertEqual(look["heard"], [190.0, 216.0], "a moment may end out there and is not refused")
+        self.assertEqual(tools._snapped(look, 201.0, 216.0)[:2], (201.0, 216.0), "an end out there stands")
+        self.assertEqual(look["said"][-1]["to"], 216.0)
+
+    def test_the_hearing_stops_at_the_end_of_the_recording(self):
+        look, _ = self.past(self.LONG, seconds=213.5)
+        self.assertEqual(self.asked[-1], (208.0, 213.5))
+        self.assertEqual(look["heard"][1], 213.5)
+
+    def test_a_line_that_ended_before_the_edge_or_is_not_the_last_is_not_heard_past_its_end(self):
+        look, _ = self.past(self.LONG, heard=(190.0, 214.0))
+        self.assertEqual(self.asked[-1], (208.0, 212.0), "the speaker stopped: nothing was cut off")
+        self.assertEqual(look["heard"], [190.0, 214.0])
+        self.asked.clear()
+        self.kept.clear()
+        look = dict(self.look(self.LONG, {"from": 212.0, "to": 213.0, "text": "b"}), end=206.0, heard=[190.0, 212.0])
+        tools._finer_edges(self.job, self.rec, look, 201.0, 211.0)
+        self.assertEqual(self.asked[-1], (208.0, 212.0), "another line follows it")
+        self.assertEqual(look["heard"], [190.0, 212.0])
+
+    def test_a_line_that_stays_one_piece_does_not_widen_what_was_heard(self):
+        look, said = self.past(self.LONG, cut=())
+        self.assertEqual(said, [])
+        self.assertEqual(look["heard"], [190.0, 212.0])
+
     def test_a_line_that_stays_one_piece_stays_as_it_was_heard(self):
         self.HEARD = {205.6: "นะครับ"}
         look = self.look(self.LINE)

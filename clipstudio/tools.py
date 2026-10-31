@@ -1315,6 +1315,7 @@ ASK_OVER = 3.0
 ONLY_CLOSES = re.compile("^(?:นะครับ|นะคะ|ครับผม|ครับ|ค่ะ|คะ|นะ)$")
 CLOSES_FIRST = re.compile("^\\s*(?:นะครับ|นะคะ|ครับผม|ครับ|ค่ะ|คะ|นะ)\\s+\\S")
 FINER_OVER = 6.0
+FINER_PAST, AT_THE_EDGE = 4.0, 0.5
 FINER_KINDS = ("explain", "seller", "talk")
 FINER = ("Nothing was proposed yet. A heard line is a stretch of sound, not a sentence, and these lines at the edges of "
          "your moments were one stretch each, so the program heard them again piece by piece, each with when it begins "
@@ -1342,10 +1343,16 @@ def _kept_or_heard(job, rec, a, b):
 
 def _finer(job, rec, look, line):
     """Cuts line of look["said"] at its dips (takes.dips) and hears each piece, and the pieces take its place: they
-    are returned, or [] when it stays as it is, with no dips in it. line is tried once, so asking cannot go on."""
+    are returned, or [] when it stays as it is, with no dips in it. line is tried once, so asking cannot go on. The
+    last line of a look that runs into the edge of what was heard stopped because the hearing did, so it is heard
+    FINER_PAST s on, and the look has heard that far: a moment may end there. Lane 5's showcase, 10-31: the last piece
+    ended on "แต่ว่าถ้าบ้านไหนไม่ได้ชื้นนะครับ" at 1:25.62, and the sentence ended at 1:28."""
     line["finer"] = True
-    cuts = takes.dips(rec, line["from"], line["to"])
-    edges = [line["from"]] + cuts + [line["to"]]
+    reach, end = look.get("heard"), line["to"]
+    if reach and line is look["said"][-1] and reach[1] - end < AT_THE_EDGE:
+        end = round(min(rec["seconds"], reach[1] + FINER_PAST), 2)
+    cuts = takes.dips(rec, line["from"], end)
+    edges = [line["from"]] + cuts + [end]
     pieces = []
     for a, b in zip(edges, edges[1:]) if cuts else ():
         heard = _kept_or_heard(job, rec, a, b)
@@ -1356,6 +1363,8 @@ def _finer(job, rec, look, line):
         return []
     at = look["said"].index(line)
     look["said"][at:at + 1] = pieces
+    if reach:
+        reach[1] = max(reach[1], end)
     return pieces
 
 
