@@ -1848,7 +1848,7 @@ class Job:
         and decide_people before it while anyone is undecided, as the render refuses them."""
         if self.chat.finished():
             return FINISH_TOOLS
-        return (("decide_people",) if _undecided(self.chat.project.state()) else ()) + ("render_clip",) + FINISH_TOOLS
+        return (("decide_people",) if _undecided(self.chat.project.state(), self) else ()) + ("render_clip",) + FINISH_TOOLS
 
     def offered(self):
         """The tools Muse is offered at this step: only finish_tools on a job out of steps; make_countdown only in a

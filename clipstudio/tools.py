@@ -4595,9 +4595,12 @@ def _people_lines(job, people, rec):
     return lines
 
 
-def _undecided(state):
-    """The people seen in two pictures or more that nobody has decided about yet."""
-    return [p["n"] for p in state["people"] if p["blur"] is None and p["seen"] > 1]
+def _undecided(state, job=None):
+    """The people seen in two pictures or more that nobody has decided about yet; with a job of Muse's, when the person
+    asked for faces to be blurred, everyone: seen once is half a second, and a rider so told was on screen for 0.9 s of a
+    montage, plainly, because Muse named 4 of 11 and render let the rest go by (11-01, 061212-faed)."""
+    everyone = job is not None and job.n is not None and _blur_asked(job)
+    return [p["n"] for p in state["people"] if p["blur"] is None and (everyone or p["seen"] > 1)]
 
 
 # 10-31 050337-bff5: Glimmer blurred all four people on a talk's sofa, the one telling the story too.
@@ -4671,7 +4674,7 @@ def decide_people(job, why, blur=None, keep=None, others=None, person_said=None)
         lines.append("Kept as they are: %d people." % len(keep))
     elif keep:
         lines.append("Kept as they are: person %s." % _numbers(keep))
-    left = _undecided(state)
+    left = _undecided(state, job)
     lines.append(("Still to decide before you render: %s." % _people_named(left)) if left else
                  "Every person seen in two pictures or more is decided.")
     if blur:
@@ -5494,7 +5497,7 @@ def _no_burst(job, state):
 def render_clip(job, why):
     rec = _open(job, "render")
     state = _clip_state(job)
-    left = _undecided(state)
+    left = _undecided(state, None if why == BATCH_WHY else job)
     if left:
         raise Refused("Decide about %s first, with decide_people: blur or keep. Nothing undecided is rendered."
                       % _people_named(left))

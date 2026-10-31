@@ -481,6 +481,30 @@ class Arrange(unittest.TestCase):
         self.assertEqual(first["result"], tools.BLUR_ASKED % "เบลอหน้าคน")
         self.assertFalse(second["refused"], second["result"])
 
+    def test_a_face_seen_once_waits_for_a_decision_when_the_person_asked_for_a_blur(self):
+        """061212-faed on 11-01: Muse named 4 of 11, and a rider on screen for 0.9 s went by as seen once."""
+        def job(n, said):
+            return types.SimpleNamespace(n=n, chat=types.SimpleNamespace(
+                events=[{"kind": "person", "text": said}], finished=lambda: {"name": "a.mp4", "length": 5},
+                project=types.SimpleNamespace(state=lambda: state)))
+
+        once, twice = {"n": 2, "blur": None, "seen": 1}, {"n": 3, "blur": None, "seen": 3}
+        state = {"people": [{"n": 1, "blur": True, "seen": 4}, once, twice]}
+        asked = "เบลอหน้าคนอื่น"
+        self.assertEqual(tools._undecided(state), [3])
+        self.assertEqual(tools._undecided(state, job(1, "ทำคลิปให้หน่อย")), [3])
+        self.assertEqual(tools._undecided(state, job(1, asked)), [2, 3])
+        self.assertEqual(tools._undecided(state, job(None, asked)), [3], "the person's own tap")
+        state["people"] = [once]
+        with mock.patch.object(tools, "_open", return_value={}), mock.patch.object(tools, "_clip_state", return_value=state):
+            with self.assertRaises(tools.Refused) as said:
+                tools.render_clip(job(1, asked), "go")
+            self.assertIn("Decide about person 2 first", str(said.exception))
+            self.assertIn("already made", tools.render_clip(job(1, asked), tools.BATCH_WHY), "a batch is left alone")
+        out = job(1, asked)
+        out.chat.finished = lambda: None
+        self.assertIn("decide_people", agent.Job.finish_tools(out), "a job out of steps can still decide, as the render asks it")
+
     def test_what_counts_as_an_ask_to_blur_faces(self):
         def asked(*said):
             return tools._blur_asked(types.SimpleNamespace(chat=types.SimpleNamespace(
