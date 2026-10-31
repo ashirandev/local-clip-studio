@@ -11,6 +11,10 @@ found the yelp at a hit (shake), the death from behind (thump), the laugh at the
 The stretch is cut small (WATCH_HEIGHT pixels, WATCH_FPS frames a second, mono sound), at most LONGEST seconds, and
 kept in work/watch by recording and times, so the same stretch is cut once. It goes to Meta with the person's own key,
 the same key as Muse Spark: nothing is sent without one.
+
+A recording can write its own words on the picture: at 18:18 of EP0 the channel's "โดน" stands at the bottom, Wonder
+saw it and asked for that word 3 of 3, so the clip showed it twice. With ASK's clause, 0 of 3 and the same other
+effects (10-31, 18:00-18:52).
 """
 import base64
 import hashlib
@@ -46,8 +50,8 @@ ASK = ("This is %(length)d seconds of %(name)s, with its sound. Watch it and lis
        "silent joke, a sudden action. Leave out what is only said. For each give the second in this video, what "
        "happens in one line in %(language)s, and the one effect that would land there: flash (a white flash), shake "
        "(the picture shakes), punch (a quick zoom in), word (a big word pops in: give the word, short, in the "
-       "language spoken), a sound (%(sounds)s), flurry (stickers flying), or none. At most %(most)d moments, the "
-       "strongest first; none at all when nothing happens.")
+       "language spoken, never a word the picture already shows at that moment), a sound (%(sounds)s), flurry "
+       "(stickers flying), or none. At most %(most)d moments, the strongest first; none at all when nothing happens.")
 
 
 class WatchError(Exception):

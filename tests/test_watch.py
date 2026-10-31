@@ -63,6 +63,7 @@ class Watch(unittest.TestCase):
         self.assertIs(schema, watch.SCHEMA)
         parts = messages[0]["content"]
         self.assertIn("This is 20 seconds of stream.mp4, with its sound.", parts[0]["text"])
+        self.assertIn("never a word the picture already shows", parts[0]["text"], "on EP0 the clip showed it twice")
         video = parts[1]["video_url"]["url"]
         self.assertTrue(video.startswith("data:video/mp4;base64,"))
         self.assertEqual(base64.b64decode(video.split(",", 1)[1])[4:8], b"ftyp", "a real mp4 is sent")
