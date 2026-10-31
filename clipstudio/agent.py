@@ -45,7 +45,7 @@ import traceback
 
 from . import (asr, channels, chatname, countdown, faces, hearing, layer, layouts, maps, mind, montage, needs, previews,
                project, recording, render, spent, text, words)
-from .tools import (CAPTION_LETTERS, LONGEST, LOUD_CUT, MOVED_CUTS, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST,
+from .tools import (CAPTION_LETTERS, SCRIPTS, LONGEST, LOUD_CUT, MOVED_CUTS, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST,
                     STYLES, TOOLS, UNASKED, ALBUM_PARTS, ALBUM_TOOLS, Refused, _changed_clips, _circle_box, _spoken, _subtitles,
                     _undecided, _waits, album_entries, channel_entries, channel_unfit, describe, faces_at,
                     features, look_of, look_said)
@@ -104,9 +104,6 @@ CUT_OUT = (" (The rest of this result was cut to make room in Muse's memory: the
 OPEN_SAID = "(opened) "
 AS_SAID = "said"
 WORDS_GONE = "Those words are not on the clip as the page showed them. Look at the clip again."
-SCRIPTS = (("Thai", re.compile("[฀-๿]")), ("Japanese", re.compile("[぀-ヿ]")),
-           ("Korean", re.compile("[가-힯]")), ("Chinese", re.compile("[一-鿿]")),
-           ("Arabic", re.compile("[؀-ۿ]")), ("Hindi", re.compile("[ऀ-ॿ]")))
 VOICE_NAMES = {"Chinese": "Mandarin Chinese"}
 SYSTEM = """You are the editor in Local Clip Studio. People bring long recordings (selling lives, game streams, travel \
 clips) and you turn them into short vertical clips ready to post as Reels on Instagram and Facebook. When you say \

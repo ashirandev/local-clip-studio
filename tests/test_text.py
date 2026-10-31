@@ -157,6 +157,23 @@ class Fonts(unittest.TestCase):
                                                 r"\{part: font\} with the parts title, caption, big"):
             text.look(fonts={"logo": "Kanit"})
 
+    def test_chinese_and_japanese_break_between_letters_and_count_as_wide_as_they_stand(self):
+        """They leave no spaces, so a sentence was one piece too wide for its line, and Tarm asked about Chinese users."""
+        said = "这个产品真的很好用，我每天都在用。"
+        self.assertEqual("".join(said[a:b] for a, b in text._atoms(said)), said, "the pieces joined are the words")
+        pieces = [said[a:b] for a, b in text._atoms(said)]
+        self.assertGreater(len(pieces), 10)
+        self.assertNotIn("，", pieces, "a comma stays with the letter before it")
+        self.assertEqual(text._letters("这个"), 4)
+        self.assertEqual(text._letters("ab"), 2)
+        lines = text.caption_lines([{"from": 0, "to": 4, "text": said}], 16)
+        self.assertGreater(len(lines), 1)
+        self.assertTrue(all(text._letters(line["text"]) <= 16 for line in lines), [line["text"] for line in lines])
+        self.assertEqual("".join(line["text"] for line in lines), said)
+        wide = text.measure("この商品は本当に便利ですから皆さんもぜひ使ってみてください", text.STYLES["clean"], "title", 950)
+        self.assertGreater(len(wide.lines), 1)
+        self.assertLessEqual(wide.w, 950)
+
     def test_a_size_means_how_tall_the_letters_stand_in_any_font(self):
         def stands(st, kind=2):
             path, index = st.file

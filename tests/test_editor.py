@@ -1197,7 +1197,7 @@ class Tools(unittest.TestCase):
             [call("add_captions", language="English", why="again")], '{"lines": ["Easy."]}',
             '{"lines": ["Easy to set up.", "Really cheap."]}',
             [call("add_captions", language="Japanese", why="for Japan")],
-            "Done.")
+            '{"lines": ["設定は簡単です。", "とても安いです。"]}', "Done.")
         left, again, japanese = steps[-3:]
         self.assertFalse(left["refused"], left["result"])
         self.assertRegex(left["result"], r"^Captions on: \d+ lines of what was said")
@@ -1206,9 +1206,9 @@ class Tools(unittest.TestCase):
         self.assertRegex(again["result"], r"^Captions on: 2 lines in English, translated from the 2 sentences said in "
                                           r"Thai")
         self.assertEqual([line["text"] for line in self.chat.project.state()["captions"]["lines"]],
-                         ["Easy to set up.", "Really cheap."], "a gap of 1 s ends a sentence")
-        self.assertTrue(japanese["refused"])
-        self.assertIn("The studio writes captions in English or Thai, the languages its fonts draw", japanese["result"])
+                         ["設定は簡単です。", "とても安いです。"], "a gap of 1 s ends a sentence")
+        self.assertFalse(japanese["refused"], japanese["result"])
+        self.assertRegex(japanese["result"], r"^Captions on: \d+ lines in Japanese, translated from the 2 sentences said")
 
     def test_a_line_heard_unsure_that_the_fix_made_read_right_is_a_caption(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "หรือว่ามันต้องเป็นไพ่", "sure": 0.85},
@@ -1265,7 +1265,7 @@ class Tools(unittest.TestCase):
             [call("add_title", words="Easy setup", start=0, end=3, place="top", why="the hook")],
             [call("add_captions", language="ไทย", why="back to Thai")],
             [call("add_title", words="ราคาถูก", start=3, end=6, place="middle", why="Thai again")],
-            [call("load_recipe", type="talk", subtitles="Klingon", why="the kind")],
+            [call("load_recipe", type="talk", subtitles="en-US 2", why="not the name of a language")],
             "Done.")
         recipe, english, thai_, klingon = steps[1], steps[-6], steps[-3], steps[-1]
         self.assertFalse(steps[-2]["refused"], steps[-2]["result"])
@@ -2181,7 +2181,15 @@ class Tools(unittest.TestCase):
         job.chat.events.append({"kind": "person", "text": "Haz un vídeo corto de esta grabación"})
         self.assertIsNone(tools._asked_in(job), "Spanish is not English: its captions stay as said")
         job.chat.events.append({"kind": "person", "text": "短いクリップを作って"})
-        self.assertIsNone(tools._asked_in(job))
+        self.assertEqual(tools._asked_in(job), "Japanese")
+        job.chat.events.append({"kind": "person", "text": "做一个短视频"})
+        self.assertEqual(tools._asked_in(job), "Chinese")
+        job.chat.events.append({"kind": "person", "text": "اصنع مقطعا قصيرا"})
+        self.assertEqual(tools._asked_in(job), "Arabic")
+        self.assertEqual(tools._subtitles("spanish"), "Spanish", "any language Muse can write")
+        self.assertEqual(tools._subtitles("ภาษาอังกฤษ"), "English")
+        with self.assertRaisesRegex(tools.Refused, "is not the name of a language"):
+            tools._subtitles("en-US 2")
 
     def test_a_thai_clip_for_a_person_who_asked_in_english_gets_english_captions_unasked(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "ตั้งค่าเครื่องง่ายมาก"},

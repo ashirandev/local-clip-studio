@@ -3619,6 +3619,10 @@ KEYS_SCHEMA = {"type": "object", "properties": {"keys": {"type": "array", "items
 ENGLISH_WORDS = {"the", "this", "that", "from", "with", "make", "please", "for", "and", "of", "to", "my", "it", "is",
                  "again", "add", "use", "show", "give", "can", "you"}
 SUBTITLES = {"English": ("english", "en", "eng", "อังกฤษ", "ภาษาอังกฤษ"), "Thai": ("thai", "th", "ไทย", "ภาษาไทย")}
+# The languages told by their letters alone; Japanese before Chinese, as its kana say Japanese and its kanji do not.
+SCRIPTS = (("Thai", re.compile("[฀-๿]")), ("Japanese", re.compile("[぀-ヿ]")),
+           ("Korean", re.compile("[가-힯]")), ("Chinese", re.compile("[一-鿿]")),
+           ("Arabic", re.compile("[؀-ۿ]")), ("Hindi", re.compile("[ऀ-ॿ]")))
 SENTENCE_GAP = 0.7
 SENTENCE_SHORT = 1.5
 SENTENCE_LONG = 5.0
@@ -3932,15 +3936,18 @@ def _in_clip(pieces, p, length):
 
 
 def _subtitles(name):
-    """The language named for the captions, as SUBTITLES writes it, or None when none is named."""
+    """The language named for the captions, as SUBTITLES writes it or else as it was named, or None when none is. Any
+    language Muse can write goes: libass draws letters the clip's font lacks from the computer's own fonts (10-31:
+    Chinese, Korean, Arabic joined from right to left, Hindi, Russian, Vietnamese, Greek, on Windows)."""
     named = " ".join((name or "").lower().split())
     if not named:
         return None
     for language, names in SUBTITLES.items():
         if named in names:
             return language
-    raise Refused("The studio writes captions in %s, the languages its fonts draw; %s is not one of them. Tell the "
-                  "person so." % (" or ".join(SUBTITLES), name))
+    if not re.fullmatch(r"[^\W\d_]+( [^\W\d_]+)*", named):
+        raise Refused("%r is not the name of a language. Give one, such as Spanish." % name)
+    return " ".join(name.split()).title()
 
 
 def _asked_in(job):
@@ -3951,15 +3958,15 @@ def _asked_in(job):
     English takes one of its own small words, and with none the captions stay as they were said."""
     said = [PLACES.sub(" ", e["text"]) for e in job.chat.events if e["kind"] == "person"]
     words = said[-1] if said else ""
-    if re.search("[ก-๛]", words):
-        return "Thai"
-    return "English" if ENGLISH_WORDS & set(re.findall(r"[a-z']+", words.lower())) else None
+    return next((name for name, letters in SCRIPTS if letters.search(words)), None) or (
+        "English" if ENGLISH_WORDS & set(re.findall(r"[a-z']+", words.lower())) else None)
 
 
 def _spoken(job, texts):
-    """The language the texts are said in: Thai when they are written in Thai letters, else the recipe's guess."""
-    if any(re.search("[ก-๛]", t) for t in texts):
-        return "Thai"
+    """The language the texts are said in: the one their letters say, else the recipe's guess."""
+    found = next((name for name, letters in SCRIPTS if any(letters.search(t) for t in texts)), None)
+    if found:
+        return found
     named = " ".join(((job.chat.clip or {}).get("language") or "").split())
     return next((k for k, v in SUBTITLES.items() if named.lower() in v), named or "English")
 
@@ -7210,10 +7217,11 @@ TOOLS = {t.name: t for t in [
                                  "for words that pop or appear as they are said, false when they ask for plain "
                                  "lines. Not with lit."},
           "language": {"type": "string", "maxLength": 40,
-                       "description": "The language to write the captions in, such as English, when the person wants "
-                                      "subtitles in another language than the one spoken: the program has each "
-                                      "sentence translated and keeps its numbers. Leave it out to keep what the "
-                                      "recipe was told."},
+                       "description": "The language to write the captions in, any language, such as English or "
+                                      "Spanish, when the person wants subtitles in another language than the one "
+                                      "spoken, or wrote to you in another language than the one spoken: the program "
+                                      "has each sentence translated and keeps its numbers. Leave it out to keep what "
+                                      "the recipe was told."},
           "hidden": {"type": "boolean",
                      "description": "true hides every caption and keeps it, the lines the person typed too, as the eye "
                                     "on the clip does; false shows them again as they were. Use it when the person "

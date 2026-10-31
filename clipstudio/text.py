@@ -52,6 +52,9 @@ KINDS = ("title", "caption", "big")
 PARTICLES = ("ครับ", "ค่ะ", "คะ", "นะ", "จ้ะ", "จ้า", "เลย")
 PARTICLE_ROOM = 2
 THAI = re.compile("[\u0e00-\u0e7f]")
+# Chinese and Japanese leave no spaces, so a line may break between any two letters, and each stands twice as wide as a
+# Thai or Latin one.
+UNSPACED = re.compile("[\u3040-\u30ff\u4e00-\u9fff]")
 DRAWN = 32
 RENDER_SECONDS = 60
 MOST_CANVAS = 8192
@@ -59,7 +62,7 @@ FRAME_ROWS = 4096
 PAIR_GAP = 1.0
 # A line never starts with a closer: the repeat mark and the shortening mark go with the word before them (EP 0's
 # captions, 10-30, opened a line on the repeat mark).
-OPENERS, CLOSERS = "([{\"'“‘", ")]}\"'”’,.!?%:;…ๆฯ"
+OPENERS, CLOSERS = "([{\"'“‘「『（", ")]}\"'”’,.!?%:;…ๆฯ，。！？、；：）」』"
 
 Style = collections.namedtuple("Style", "name fontname file colour key edge box edge_ratio shadow_ratio sizes note "
                                         "scale size shade glow", defaults=(1.0, 3, None, None))
@@ -777,6 +780,8 @@ def _tokens(text):
     if THAI.search(text):
         from pythainlp.tokenize import word_tokenize
         return word_tokenize(text, engine="newmm", keep_whitespace=True)
+    if UNSPACED.search(text):
+        return re.findall(r"\s+|[\u3040-\u30ff\u4e00-\u9fff]|[^\s\u3040-\u30ff\u4e00-\u9fff]+", text)
     return re.findall(r"\s+|[^\s]+", text)
 
 
@@ -805,7 +810,8 @@ def _atoms(text):
         glue = (split or piece.isspace() or a in locked or piece.strip() in PARTICLES or piece[0] in CLOSERS
                 or unicodedata.category(piece[0]).startswith("M") or before.isspace()
                 or (before and before[-1] in OPENERS)
-                or (not before[-1].isspace() and not THAI.search(before[-1] + piece[0])))
+                or (not before[-1].isspace() and not THAI.search(before[-1] + piece[0])
+                    and not UNSPACED.search(before[-1] + piece[0])))
         if glue:
             atoms[-1][1] = b
         else:
@@ -1059,8 +1065,9 @@ def _pop(lead):
 # ---- captions ----------------------------------------------------------------------------------------------------
 
 def _letters(s):
-    """How many letters s shows: marks above or below a letter, and spaces at either end, do not count."""
-    return sum(1 for c in s.strip() if not unicodedata.category(c).startswith("M"))
+    """How many letters s shows: marks above or below a letter, and spaces at either end, do not count, and a Chinese
+    or Japanese letter counts as two, as wide as it stands."""
+    return sum(2 if UNSPACED.match(c) else 1 for c in s.strip() if not unicodedata.category(c).startswith("M"))
 
 
 def _phrase(k, phrase):
