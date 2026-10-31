@@ -17,12 +17,15 @@ What the loop keeps, whatever Muse writes:
   done, so at MAX_STEPS Muse is asked once more, with no tools, for its closing words (SIFU on Spark, 10-29: the
   hand-over was step 30, and the page said the studio had stopped it). STEPS_WARNED steps before the end of a job with
   nothing handed over, Muse is told once to finish with what it has: on lane 5's rounds of 10-30, four jobs reached
-  step 30 with no clip, one of them with a clip rendered. A job at MAX_STEPS with a finished file and nothing handed
-  over then gets FINISH_STEPS more, with only check_clip and hand_over left, and a check that still fails goes over
-  with the clip and is said on the page: 5 of 91 runs of 10-30 and 31, 4 of them Glimmer's, ended at step 30 with their
-  file made from the clip as it was, and 2 of the 5 had just passed their checks. The steps are one for the check and
-  one for the hand-over and one for its refusal: of 89 hand-overs, 83 ran the first time, 5 after one refusal and 1
-  after two.
+  step 30 with no clip, one of them with a clip rendered. A job at MAX_STEPS with a clip the person has not got then
+  gets FINISH_STEPS more, with only what it takes to give it: check_clip and hand_over, and render_clip while no file
+  is made from the clip as it is, after decide_people if anyone is undecided, as nothing undecided is rendered. A check
+  that still fails goes over with the clip and is said on the page. 5 of 91 runs of 10-30 and 31, 4 of them Glimmer's,
+  ended at step 30 with their file made from the clip as it was, and 2 of the 5 had just passed their checks; 3 of 21
+  Glimmer runs of 10-31 ended there with no such file, a clip never rendered, one changed after its render and one
+  made again after it (lane 5). A clip already handed over as it is gives no more steps. The steps are for the render,
+  the check, the hand-over and one refusal: of 122 hand-overs, 118 came within 4 steps of their render, most with the
+  cover in them, and no cover is made on these steps.
 - The person can steer at any time. Words typed while Muse works cancel the question in flight and go in as the
   newest message, so Muse answers them next; Stop cancels it and ends the job. Everything before the cut is still
   reused by llama-server.
@@ -54,9 +57,8 @@ AGENT_MAX_TOKENS = 4096
 SPELL_TOKENS = 8192
 MAX_STEPS = 30
 STEPS_WARNED = 6
-FINISH_STEPS = 3
+FINISH_STEPS = 4
 FINISH_TOOLS = ("check_clip", "hand_over")
-FINISH_SCHEMAS = [s for s in SCHEMAS if s["function"]["name"] in FINISH_TOOLS]
 GUARD_STOPS = 3
 REPLY_ROOM = 2048
 PICTURE_TOKENS = 256
@@ -85,12 +87,11 @@ LANDED = (MOVED_CUTS[:MOVED_CUTS.index("%")], LOUD_CUT[:LOUD_CUT.index("%")])
 LAST_STEPS = ("[studio] %d steps are left on this message and nothing is handed over yet. Finish with what you have "
               "now: make the clip if there is none, then render it, check it and hand it over. A rough clip the person "
               "can fix is better than none.")
-FINISH = ("[studio] No steps are left for anything else on this message, and the finished clip is not handed over yet. "
-          "You have %d more, for check_clip and hand_over only: check the file if it is not checked, then hand it over "
-          "with its title, post and hashtags. A check that still fails goes over with it, and the page says which.")
-FINISH_ONLY = "Only check_clip and hand_over are left on this message: the person gets the clip as it is now."
-FINISH_CALL = ("[studio] Words alone do not give the person the clip. Call hand_over now, or check_clip if the file is "
-               "not checked.")
+FINISH = ("[studio] No steps are left for anything else on this message, and the clip is not handed over yet. You have "
+          "%d more, for %s only, in that order, leaving out what is done. Hand the clip over with its title, post and "
+          "hashtags. A check that still fails goes over with it, and the page says which.")
+FINISH_ONLY = "Only %s are left on this message: the person gets the clip as it is now."
+FINISH_CALL = "[studio] Words alone do not give the person the clip. Call the next of %s now."
 OPEN_SAID = "(opened) "
 AS_SAID = "said"
 WORDS_GONE = "Those words are not on the clip as the page showed them. Look at the clip again."
@@ -1570,11 +1571,14 @@ class Job:
                 if self.steps >= MAX_STEPS and not closing:
                     if self.handed:
                         closing = True
-                    elif not self.finishing and chat.finished() and not (_waits(self) or self.gave()):
+                    elif not self.finishing and self.to_give() and not (_waits(self) or self.gave()):
+                        left = self.finish_tools()
                         self.finishing = self.steps + FINISH_STEPS
-                        chat.add({"role": "user", "content": FINISH % FINISH_STEPS})
-                        self.emit("note", text="Muse has used its %d steps, so the studio left it only the check and "
-                                               "the hand-over, to give you the clip as it is." % self.steps)
+                        chat.add({"role": "user", "content": FINISH % (FINISH_STEPS, ", ".join(left))})
+                        self.emit("note", text="Muse has used its %d steps, so the studio left it only %s and the "
+                                               "hand-over, to give you the clip as it is." % (
+                                                   self.steps, "the check" if left == FINISH_TOOLS
+                                                   else "the render, the check"))
                     elif not self.finishing or self.steps >= self.finishing:
                         end = "too many steps"
                         self.emit("note", text="Muse took %d steps on this message, the most one message may take, so "
@@ -1590,8 +1594,7 @@ class Job:
                     chat.live = {"job": self.n, "step": self.steps + 1, "thinking": "", "text": ""}
                 self.emit("wait", step=self.steps + 1)
                 try:
-                    got = self.ask(tools=None) if closing else self.ask(
-                        FINISH_SCHEMAS if self.finishing else self.offered())
+                    got = self.ask(tools=None) if closing else self.ask(self.offered())
                     if got["tool_calls"] and self.only_talk():
                         got = self.ask(tools=None)
                 except mind.Cancelled:
@@ -1614,7 +1617,7 @@ class Job:
                     self.steps += 1
                     self.emit("answer", final=False, text=words.unslipped(got["text"]), thinking=got["thinking"],
                               engine=got["engine"], mind=self.brain.label)
-                    chat.add({"role": "user", "content": FINISH_CALL})
+                    chat.add({"role": "user", "content": FINISH_CALL % ", ".join(self.finish_tools())})
                     continue
                 if not calls:
                     left = self.finish_plan()
@@ -1683,9 +1686,26 @@ class Job:
         """True when this job has handed a clip over."""
         return any(e["kind"] == "ready" and e.get("job") == self.n for e in self.chat.events)
 
+    def to_give(self):
+        """True when there is a clip and the person has not got it as it is now."""
+        done = self.chat.finished()
+        if done:
+            return not any(e["kind"] == "ready" and e.get("file") == done["name"] for e in self.chat.events)
+        return bool(self.chat.project.state()["clip"])
+
+    def finish_tools(self):
+        """What a job out of steps may still call, in order: render_clip while no file is made from the clip as it is,
+        and decide_people before it while anyone is undecided, as the render refuses them."""
+        if self.chat.finished():
+            return FINISH_TOOLS
+        return (("decide_people",) if _undecided(self.chat.project.state()) else ()) + ("render_clip",) + FINISH_TOOLS
+
     def offered(self):
-        """The tools Muse is offered at this step: make_countdown only in a sports match, which joins its goals with it,
-        or once a person asked for a countdown (UNASKED)."""
+        """The tools Muse is offered at this step: only finish_tools on a job out of steps; make_countdown only in a
+        sports match, which joins its goals with it, or once a person asked for a countdown (UNASKED)."""
+        if self.finishing:
+            left = self.finish_tools()
+            return [s for s in SCHEMAS if s["function"]["name"] in left]
         said = [e["text"] for e in self.chat.events if e["kind"] == "person"]
         match = (self.chat.clip or {}).get("recipe") == "sport"
         tools = SCHEMAS if match or countdown.asked(said) is not None else UNASKED
@@ -1868,8 +1888,8 @@ class Job:
         try:
             if tool is None:
                 raise Refused("There is no tool named %s. The tools are: %s." % (name or "(none)", ", ".join(TOOLS)))
-            if self.finishing and name not in FINISH_TOOLS:
-                raise Refused(FINISH_ONLY)
+            if self.finishing and name not in self.finish_tools():
+                raise Refused(FINISH_ONLY % ", ".join(self.finish_tools()))
             why, step, clean = tool.check(_arguments(raw), len(self.plan))
         except Refused as e:
             return self.refuse(shown, name, str(e))

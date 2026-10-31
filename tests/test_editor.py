@@ -2809,11 +2809,12 @@ class Tools(unittest.TestCase):
 
     def test_the_album_tools_are_offered_only_with_an_album_so_a_first_draft_is_asked_as_before(self):
         names = lambda schemas: [s["function"]["name"] for s in schemas]
-        none = agent.Job.offered(types.SimpleNamespace(chat=types.SimpleNamespace(events=[], album=[], clip=None)))
+        job = lambda album: types.SimpleNamespace(finishing=0, chat=types.SimpleNamespace(events=[], album=album, clip=None))
+        none = agent.Job.offered(job([]))
         later = list(tools.ALBUM_TOOLS) + ["no_chat_box"]
         self.assertEqual(names(none), [n for n in names(tools.UNASKED) if n not in later])
         self.assertEqual(sorted(set(names(tools.UNASKED)) - set(names(none))), sorted(later))
-        some = agent.Job.offered(types.SimpleNamespace(chat=types.SimpleNamespace(events=[], album=[{}], clip=None)))
+        some = agent.Job.offered(job([{}]))
         self.assertEqual(names(some), [n for n in names(tools.UNASKED) if n != "no_chat_box"])
         self.assertIn("open_clip", names(none), "as it was")
 
@@ -3548,8 +3549,8 @@ class Tools(unittest.TestCase):
 
     def test_no_chat_box_is_for_a_game_after_its_moments_and_is_forgotten_with_the_recording(self):
         offered = lambda recipe, moments: "no_chat_box" in [s["function"]["name"] for s in agent.Job.offered(
-            types.SimpleNamespace(chat=types.SimpleNamespace(events=[], album=[], clip={"recipe": recipe},
-                                                             moments=moments)))]
+            types.SimpleNamespace(finishing=0, chat=types.SimpleNamespace(events=[], album=[], moments=moments,
+                                                                          clip={"recipe": recipe})))]
         self.assertTrue(offered("game", [{}]))
         self.assertFalse(offered("game", None), "a tool in every request moved Glimmer's moment")
         self.assertFalse(offered("vlog", [{}]))
@@ -3598,6 +3599,27 @@ class Tools(unittest.TestCase):
         self.assertIn("The box reached into 1 line with a viewer's name, so it was grown to cover it whole.",
                       names["result"], "game 10-30: three blurs, three renders, for the bottom of the names")
         self.assertNotIn("grown to cover", low["result"])
+
+    def test_a_clip_never_rendered_is_rendered_and_handed_over_out_of_steps(self):
+        """Lane 5's 051633-f8a0: effects up to step 30 on a clip that was never rendered, and no file for the person."""
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        made = [*self.to_moment(), *self.GAME_MOMENT]
+        try:
+            with mock.patch.object(agent, "MAX_STEPS", len(made)):
+                _, steps = self.run_job(*made, [call("render_clip", why="make the file")],
+                                        [call("check_clip", why="check it")],
+                                        [call("hand_over", title="a good one", caption="short", hashtags=["#a"],
+                                              why="give it")], "Done.")
+        finally:
+            render.export = had
+        self.assertEqual([s["tool"] for s in steps[-3:]], ["render_clip", "check_clip", "hand_over"])
+        self.assertEqual([s["refused"] for s in steps[-3:]], [False, False, False], steps[-1]["result"])
+        self.assertEqual(len([e for e in self.chat.events if e["kind"] == "ready"]), 1)
 
     def test_a_clip_out_of_steps_goes_over_with_the_check_that_failed_said_on_the_page(self):
         """Lane 5's 022940-2e20 reached step 30 on a failed check, with a rendered file and nothing handed over."""

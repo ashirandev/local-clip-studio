@@ -162,15 +162,25 @@ class Loop(unittest.TestCase):
 
     TWO_LOOKS = ([call("find_recordings", why="look")], [call("find_recordings", words="sifu", why="narrow")])
 
-    def out_of_steps(self, *script, waits=False):
-        """A job of two steps at most on a chat with a finished file. Returns (the mind, the job's events)."""
+    def out_of_steps(self, *script, waits=False, made=True, clip=True, people=(), handed="a.mp4"):
+        """A job of two steps at most on a chat with a finished file, or made False on a clip with no file as it is, or
+        clip False too on no clip, with people undecided in it; hand_over gives the file handed. Returns (the mind, the
+        job's events)."""
+        files, people = [{"name": "a.mp4"}] if made else [], [{"n": n, "blur": None, "seen": 3} for n in people]
         check = tools.Tool("check_clip", "Checked", "", {}, [], lambda job, why: "checked")
         hand = tools.Tool("hand_over", "Handed over", "", {}, [],
-                          lambda job, why: (job.emit("ready", file="a.mp4"), "handed over")[1])
+                          lambda job, why: (job.emit("ready", file=handed), "handed over")[1])
+        render = tools.Tool("render_clip", "Rendered", "", {}, [],
+                            lambda job, why: (files.append({"name": "a.mp4"}), "rendered")[1])
+        decide = tools.Tool("decide_people", "Decided", "", {}, [], lambda job, why: (people.clear(), "decided")[1])
+        state = self.chat.project.state
         brain = ScriptedMind(*script)
-        with mock.patch.dict(tools.TOOLS, {"check_clip": check, "hand_over": hand}), mock.patch.object(
-                agent, "MAX_STEPS", 2), mock.patch.object(self.chat, "finished", lambda: {"name": "a.mp4"}), \
-                mock.patch.object(agent, "_waits", lambda job: waits):
+        with mock.patch.dict(tools.TOOLS, {"check_clip": check, "hand_over": hand, "render_clip": render,
+                                           "decide_people": decide}), mock.patch.object(
+                agent, "MAX_STEPS", 2), mock.patch.object(self.chat, "finished", lambda: files[-1] if files else None), \
+                mock.patch.object(agent, "_waits", lambda job: waits), mock.patch.object(
+                    self.chat, "clip_line", lambda: "a clip"), mock.patch.object(
+                    self.chat.project, "state", lambda: dict(state(), clip=clip and {"moment": 1}, people=people)):
             _, events = self.run_job(brain)
         return brain, events
 
@@ -185,20 +195,59 @@ class Loop(unittest.TestCase):
         self.assertEqual((events[-1]["why"], events[-1]["steps"]), ("answered", 4))
         self.assertEqual(len([e for e in events if e["kind"] == "ready"]), 1)
         self.assertEqual(self.offers(brain)[2:], [["check_clip", "hand_over"], ["check_clip", "hand_over"], None])
-        self.assertEqual([m["content"] for m in self.chat.messages].count(agent.FINISH % agent.FINISH_STEPS), 1)
-        self.assertIn("Muse has used its 2 steps", [e["text"] for e in events if e["kind"] == "note"][0])
+        said = agent.FINISH % (agent.FINISH_STEPS, "check_clip, hand_over")
+        self.assertEqual([m["content"] for m in self.chat.messages].count(said), 1)
+        self.assertIn("Muse has used its 2 steps, so the studio left it only the check and the hand-over",
+                      [e["text"] for e in events if e["kind"] == "note"][0])
 
-    def test_a_job_out_of_steps_gets_three_more_and_then_stops_as_before(self):
-        brain, events = self.out_of_steps(*self.TWO_LOOKS, *[[call("check_clip", why="check %d" % k)] for k in range(3)],
-                                          "never asked")
-        self.assertEqual((events[-1]["why"], events[-1]["steps"]), ("too many steps", 5))
+    def test_a_clip_with_no_file_as_it_is_is_rendered_and_reaches_the_person(self):
+        """Lane 5's 051633-f8a0, 053131-51de, 060327-ece9: 3 of 21 Glimmer runs lost at step 30 with a clip made and no
+        file as it was. One was never rendered, one lost a title at step 30, one was made again at step 27."""
+        brain, events = self.out_of_steps(*self.TWO_LOOKS, [call("render_clip", why="make it")],
+                                          [call("check_clip", why="check it")], [call("hand_over", why="give it")],
+                                          "Here it is.", made=False)
+        self.assertEqual((events[-1]["why"], events[-1]["steps"]), ("answered", 5))
+        self.assertEqual(len([e for e in events if e["kind"] == "ready"]), 1)
+        self.assertEqual(self.offers(brain)[2:], [["check_clip", "hand_over", "render_clip"], ["check_clip", "hand_over"],
+                                                  ["check_clip", "hand_over"], None])
+        said = agent.FINISH % (agent.FINISH_STEPS, "render_clip, check_clip, hand_over")
+        self.assertEqual([m["content"] for m in self.chat.messages].count(said), 1)
+        self.assertIn("left it only the render, the check and the hand-over",
+                      [e["text"] for e in events if e["kind"] == "note"][0])
+
+    def test_a_late_clip_with_people_undecided_can_still_be_decided_and_rendered(self):
+        """Nothing undecided is rendered, and a clip made again late has people nobody decided about yet."""
+        brain, events = self.out_of_steps(*self.TWO_LOOKS, [call("decide_people", why="decide")],
+                                          [call("render_clip", why="make it")], [call("check_clip", why="check it")],
+                                          [call("hand_over", why="give it")], "Here it is.", made=False, people=[1])
+        self.assertEqual((events[-1]["why"], events[-1]["steps"]), ("answered", 6))
+        self.assertEqual(len([e for e in events if e["kind"] == "ready"]), 1)
+        offers = self.offers(brain)
+        self.assertEqual(offers[2], ["check_clip", "decide_people", "hand_over", "render_clip"])
+        self.assertEqual(offers[3], ["check_clip", "hand_over", "render_clip"], "the decision is made")
+
+    def test_a_job_with_no_clip_gets_no_more_steps(self):
+        brain, events = self.out_of_steps(*self.TWO_LOOKS, "never asked", made=False, clip=False)
+        self.assertEqual((events[-1]["why"], events[-1]["steps"], brain.script), ("too many steps", 2, ["never asked"]))
+
+    def test_a_later_message_out_of_steps_does_not_hand_the_same_clip_over_again(self):
+        self.out_of_steps(*self.TWO_LOOKS, [call("hand_over", why="give it")], "Here it is.")
+        brain, events = self.out_of_steps(*self.TWO_LOOKS, "never asked")
+        self.assertEqual((events[-1]["why"], brain.script), ("too many steps", ["never asked"]))
+
+    def test_a_job_out_of_steps_gets_four_more_and_then_stops_as_before(self):
+        brain, events = self.out_of_steps(*self.TWO_LOOKS, *[[call("find_recordings", words=w, why="again")]
+                                                             for w in "abcd"], "never asked")
+        self.assertEqual((events[-1]["why"], events[-1]["steps"]), ("too many steps", 6))
         self.assertEqual(brain.script, ["never asked"])
         self.assertIn("the most one message may take", [e["text"] for e in events if e["kind"] == "note"][-1])
 
-    def test_a_job_that_gave_a_clip_or_waits_for_a_card_gets_no_more_steps(self):
+    def test_a_job_that_gave_a_clip_gets_no_more_steps_for_a_later_one(self):
         brain, events = self.out_of_steps([call("hand_over", why="one of them")], [call("find_recordings", why="look")],
-                                          "never asked")
+                                          "never asked", handed="the one before.mp4")
         self.assertEqual((events[-1]["why"], brain.script), ("too many steps", ["never asked"]))
+
+    def test_a_job_waiting_on_a_card_gets_no_more_steps(self):
         brain, events = self.out_of_steps(*self.TWO_LOOKS, "never asked", waits=True)
         self.assertEqual((events[-1]["why"], brain.script), ("too many steps", ["never asked"]))
 
@@ -208,16 +257,27 @@ class Loop(unittest.TestCase):
         self.assertEqual(len([e for e in events if e["kind"] == "ready"]), 1)
         self.assertEqual([(e["text"], e["final"]) for e in events if e["kind"] == "answer"],
                          [("It is ready.", False), ("Here it is.", True)])
-        self.assertIn(agent.FINISH_CALL, [m["content"] for m in self.chat.messages if m["role"] == "user"])
-        brain, events = self.out_of_steps(*self.TWO_LOOKS, "One.", "Two.", "Three.", "never asked")
-        self.assertEqual((events[-1]["why"], events[-1]["steps"], brain.script), ("too many steps", 5, ["never asked"]))
+        self.assertIn(agent.FINISH_CALL % "check_clip, hand_over",
+                      [m["content"] for m in self.chat.messages if m["role"] == "user"])
+        brain, events = self.out_of_steps(*self.TWO_LOOKS, "One.", "Two.", "Three.", "Four.", "never asked", made=False)
+        self.assertEqual((events[-1]["why"], events[-1]["steps"], brain.script), ("too many steps", 6, ["never asked"]))
+        self.assertIn(agent.FINISH_CALL % "render_clip, check_clip, hand_over",
+                      [m["content"] for m in self.chat.messages if m["role"] == "user"])
 
     def test_no_other_tool_runs_once_only_the_hand_over_is_left(self):
         _, events = self.out_of_steps(*self.TWO_LOOKS, [call("find_recordings", words="more", why="again")],
                                       [call("hand_over", why="give it")], "Here it is.")
         steps = [e for e in events if e["kind"] == "step"]
-        self.assertEqual((steps[2]["refused"], steps[2]["result"]), (True, agent.FINISH_ONLY))
+        self.assertEqual((steps[2]["refused"], steps[2]["result"]), (True, agent.FINISH_ONLY % "check_clip, hand_over"))
         self.assertEqual(events[-1]["why"], "answered")
+
+    def test_the_refusal_names_the_render_while_it_is_left(self):
+        _, events = self.out_of_steps(*self.TWO_LOOKS, [call("find_recordings", words="more", why="again")],
+                                      [call("render_clip", why="make it")], [call("check_clip", why="check it")],
+                                      [call("hand_over", why="give it")], "Here it is.", made=False)
+        steps = [e for e in events if e["kind"] == "step"]
+        self.assertEqual(steps[2]["result"], agent.FINISH_ONLY % "render_clip, check_clip, hand_over")
+        self.assertEqual((events[-1]["why"], events[-1]["steps"]), ("answered", 6))
 
     def test_a_recording_is_found_by_the_day_it_was_recorded_as_a_person_says_it(self):
         day = time.mktime((2026, 10, 12, 14, 17, 28, 0, 0, -1))
