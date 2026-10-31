@@ -3514,6 +3514,13 @@ def _asked(job, person_said):
     return True
 
 
+# Glimmer's own word รีสไตน์ reached a Sifu title on 11-01, and its spelling check, asked to keep every word, kept it. Of
+# 100 titles that night the dictionary flagged 11: 5 wrong, 6 right (จอย, โกล, now in the dictionary), so Muse may send
+# a word it means again.
+ODD_TITLE = ("Not put on: no dictionary has %s in this title, and a viewer reads the title first. If it is a slip or a word "
+             "you made up, write a word they know. If it is a name or a word people use, send the same title again.")
+
+
 def add_title(job, why, words, start, end, place=None, key=None, box=None, person_said=None, behind=False):
     asked = _asked(job, person_said)
     rec = _open(job, "put words on")
@@ -3541,6 +3548,9 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
                                  _said(job, state))
     if names and not _told_once(job, "unseen"):
         raise Refused("%s. %s" % (_unseen_said(names, shown), UNSEEN_THEN % "put the title on again"))
+    odd = _odd_thai(words) if job.n is not None and not asked else []
+    if odd and not _told_once(job, "odd_title"):
+        raise Refused(ODD_TITLE % ", ".join('"%s"' % bit for bit in odd))
     length, lay = state["length"], state["clip"]["layout"]
     if not 0 <= start < length:
         raise Refused("start %g s is outside the clip, which is %g s long: use a start from 0 to %g, in seconds of "

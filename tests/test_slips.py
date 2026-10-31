@@ -40,6 +40,10 @@ class Slips(unittest.TestCase):
                      "ใส่สติกเกอรหัวระเบิด", "ตรวจสอคคลิป", "พร้อมทิ้ตเติลเพื่อโพสต์", "ลองค้นหาอีกคร้ง"):
             self.assertEqual(words.unslipped(text), text)
 
+    def test_loanwords_tonights_titles_use_are_words(self):
+        self.assertEqual(words.odd_thai("จอยเกมขาว ราคา 3,000 บาท"), [])
+        self.assertEqual(words.odd_thai("โกล 0-2 ที่ 32:26 นาที"), [])
+
     def test_a_ror_stays_a_ror(self):
         for text in ("ข่าวหุ้น คริปโต น้ำมัน", "ตอนผลลัพธ์ปรากฎ ตรวจสอบผล", "ลองเล่นเกมนี้แล้วชอบ"):
             self.assertEqual(words.unslipped(text), text)

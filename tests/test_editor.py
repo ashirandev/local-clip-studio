@@ -737,6 +737,22 @@ class Tools(unittest.TestCase):
         self.assertIn("There are 1 moments, so moment 2 is not one of them: 1. 0:30-0:50.", results[3])
         self.assertTrue(all(s["refused"] for s in steps[-4:]))
 
+    def test_a_word_no_dictionary_has_sends_a_title_back_once_and_the_person_may_type_what_they_like(self):
+        said = "ตายแล้วรีสไตน์ภายในวินาที"
+        _, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="card", why="the game")],
+            [call("add_title", words=said, start=1, end=3, place="top", why="the hook")],
+            '{"texts": ["%s"]}' % said,
+            [call("add_title", words=said, start=1, end=3, place="top", why="the game's own word")],
+            "Done.")
+        first, second = steps[-2:]
+        self.assertTrue(first["refused"])
+        self.assertIn('no dictionary has "รีสไต"', first["result"])
+        self.assertFalse(second["refused"], second["result"])
+        self.assertEqual([t["text"] for t in self.chat.project.state()["titles"]], [said])
+        self.assertIsNone(self.chat.set_words("title", 0, said, "รีสไตน์อีกรอบ"), "what the person types is theirs")
+        self.assertEqual([t["text"] for t in self.chat.project.state()["titles"]], ["รีสไตน์อีกรอบ"])
+
     def test_undo_by_muse_and_by_the_person_and_the_chat_opens_again_with_the_clip(self):
         brain, steps = self.run_job(
             *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],

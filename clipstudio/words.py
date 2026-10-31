@@ -44,7 +44,7 @@ def plain(text):
 THAI = re.compile("[\u0e01-\u0e5b]")
 CREATOR_WORDS = {"ไตเติล", "แคปชัน", "แคปชั่น", "แฮชแท็ก", "คอมโบ", "รีล", "รีลส์", "ช็อต", "ทรานซิชัน", "แอป", "เทส",
                  "บอท", "บอต", "เกต", "คอปปี้", "คอมมิชชัน", "บูลีน", "สวีต", "มิลลิวินาที", "เรนเดอร์",
-                 "สติกเกอร์", "สติ๊กเกอร์", "เอฟเฟกต์", "เอฟเฟ็กต์", "สตรีมเมอร์"}
+                 "สติกเกอร์", "สติ๊กเกอร์", "เอฟเฟกต์", "เอฟเฟ็กต์", "สตรีมเมอร์", "จอย", "โกล", "คัลเจอร์"}
 _WORDS = []
 SPELL_ASK = ("Fix only the spelling in each of these Thai texts: tone marks, vowels and letters that are wrong. Keep "
              "every word, every number, every hashtag and the meaning; do not reword or add anything. Give back the "
