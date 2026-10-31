@@ -1794,20 +1794,22 @@ def _read_across(job, rec):
 # the picture is a replay with no board, so it worked the score out. As each attack starts the board shows: asked cold, it
 # read the board right 7 of 8 times at those seconds, and 4 of 4 from 30 s after the last goal.
 # Glimmer's sport held 4, 3 and 2 of 4 goals across runs (11-01): 30 s after its own last goal the board agreed with it.
-BOARD_SIDE, BOARD_AFTER, BOARD_END = 1024, (30.0, 45.0), 20.0
+# 20 and 30 s from the end of that match are a replay with no board, so there are three near the end.
+BOARD_SIDE, BOARD_AFTER, BOARD_END = 1024, (30.0, 45.0), (60.0, 40.0, 20.0)
 READ_BOARD = ("Nothing was joined yet. The pictures that come next show the match as each piece's attack starts and after the "
               "last goal. Read the score on the board in each picture yourself: the change from one piece's picture to the "
               "next is that piece's goal, and it tells which side scored. A picture with no board tells nothing. Write each "
-              "piece's words with the score the board shows after its goal, then call make_countdown again. The last picture "
-              "is near the end of the recording: if its score is more than your last piece's, a goal is missing, so look for "
-              "it and propose it first.")
+              "piece's words with the score the board shows after its goal, then call make_countdown again. The last pictures "
+              "are near the end of the recording: if their score is more than your last piece's, a goal is missing, so look "
+              "for it and propose it first.")
 
 
 def _read_the_board(job, rec, spans):
     """READ_BOARD, with pictures of the match at the start of each of spans, after the last and near the end of the recording,
     at most ACROSS_PICTURES."""
     last = spans[-1][1]
-    after = [t for t in [last + wait for wait in BOARD_AFTER] + [rec["seconds"] - BOARD_END] if last < t < rec["seconds"]]
+    after = [last + wait for wait in BOARD_AFTER] + [rec["seconds"] - wait for wait in BOARD_END]
+    after = [t for t in after if last < t < rec["seconds"]]
     for t in ([a for a, _ in spans] + sorted(set(after)))[-ACROSS_PICTURES:]:
         frame = recording.frame(rec, at=t, side=BOARD_SIDE)
         if frame:

@@ -402,12 +402,13 @@ class MakeCountdown(unittest.TestCase):
             self.assertEqual(tools._read_the_board(job, {"seconds": 2000.0}, spans), tools.READ_BOARD)
         times = [c.kwargs["at"] for c in frame.call_args_list]
         self.assertEqual(len(times), tools.ACROSS_PICTURES)
-        self.assertEqual(times[:2], [500.0, 600.0], "the earliest attacks go first")
-        self.assertEqual(times[-3:], [940.0, 955.0, 1980.0], "the last near the end of the recording")
+        self.assertEqual(times[:2], [700.0, 800.0], "the earliest attacks go first")
+        self.assertEqual(times[-5:], [940.0, 955.0, 1940.0, 1960.0, 1980.0], "the last three near the end of the recording")
         self.assertEqual(job.attach.call_count, tools.ACROSS_PICTURES)
 
     def test_the_last_board_picture_is_inside_the_recording_and_after_the_last_goal(self):
-        for seconds, want in ((930.0, [910.0]), (900.0, []), (950.0, [930.0, 945.0]), (970.0, [930.0, 945.0, 950.0])):
+        for seconds, want in ((930.0, [910.0]), (900.0, []), (950.0, [910.0, 930.0, 945.0]), (970.0, [910.0, 930.0, 945.0, 950.0]),
+                              (1000.0, [930.0, 940.0, 945.0, 960.0, 980.0])):
             with mock.patch.object(recording, "frame", return_value="f.jpg") as frame:
                 tools._read_the_board(mock.Mock(), {"seconds": seconds}, [[880.0, 900.0]])
             self.assertEqual([c.kwargs["at"] for c in frame.call_args_list], [880.0] + want, seconds)
