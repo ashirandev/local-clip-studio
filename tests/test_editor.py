@@ -3270,6 +3270,21 @@ class Tools(unittest.TestCase):
                         told["result"])
         self.assertTrue(again["result"].startswith("Proposed 1 moment"), again["result"])
 
+    def test_a_moment_far_under_its_length_is_told_of_a_rise_in_the_sound_past_its_end(self):
+        """Lane 4 10-31: 082708-6b99 and 092124-25d8 stopped before the laugh at 26:20 and moved their starts."""
+        tools.EDGE_RECIPES, tools.SHORT_RECIPES = self.edge_recipes, self.short_recipes
+        job = mock.Mock()
+
+        def told(loudest):
+            job.chat.clip, job.chat.events = {"recipe": "vlog", "length_s": 60}, []
+            return tools._seen_past(job, "why", {"seconds": 60.0}, 1, {}, {"n": 1, "start": 0.0, "end": 60.0,
+                                                                          "loudest": loudest}, 10.0, 30.0)
+
+        self.assertIn("The sound rises most at 0:34, after this end: if that is a laugh", told(34.0))
+        self.assertTrue(told(34.0).startswith("Not proposed yet: moment 1 runs 20 s of the 60 s"))
+        for loudest in (33.0, 20.0, None):
+            self.assertNotIn("rises most", told(loudest), "3 s on is the end's own, and inside it is the moment's")
+
     def test_only_a_talk_or_a_vlog_far_under_its_length_is_told_and_once_a_look_is_done_it_still_is(self):
         tools.EDGE_RECIPES, tools.SHORT_RECIPES = self.edge_recipes, self.short_recipes
         job = mock.Mock()

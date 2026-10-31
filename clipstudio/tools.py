@@ -1655,6 +1655,11 @@ FAR_SHORT = 0.6
 FAR_SHORT_SAID = ("Not proposed yet: moment %d runs %g s of the %g s this clip can hold. A stranger needs how it starts and "
                   "how it ends: move the start back to where the story begins and the end on to where it pays off, looking "
                   "first if you have not seen them. If it is whole as it is, propose it again and it stands.")
+# Past this many seconds after the end, the look's loudest second is named too. Lane 4 10-31 on 6c861e0: vlog asked 26:14
+# and 26:05 with "The sound rises most at 26:20" already printed, was told to move the end on, and moved the start. Of the
+# 6 far-short steps it names the rise on those 2 only. A rise is not always a laugh, so Muse is told, and answers.
+RISE_PAST = 3.0
+RISE_SAID = " The sound rises most at %s, after this end: if that is a laugh or the answer to what was said, end after it."
 
 
 def _seen_past(job, why, rec, i, m, look, a, b):
@@ -1666,7 +1671,9 @@ def _seen_past(job, why, rec, i, m, look, a, b):
     if clip.get("recipe") not in EDGE_RECIPES:
         return None
     if clip["recipe"] in SHORT_RECIPES and b - a < FAR_SHORT * clip["length_s"] and not _told_once(job, "far_short"):
-        return FAR_SHORT_SAID % (i, round(b - a), clip["length_s"])
+        rise = look.get("loudest")
+        return FAR_SHORT_SAID % (i, round(b - a), clip["length_s"]) + (
+            RISE_SAID % recording.clock(rise) if rise is not None and rise - b > RISE_PAST else "")
     if look.get("seen_past"):
         return None
     before = (b - a < GAME_SHORT * clip["length_s"] and not _told_once(job, "seen_back")) if game else (
