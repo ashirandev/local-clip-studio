@@ -102,6 +102,8 @@ FINISH = ("[studio] No steps are left for anything else on this message, and the
           "%d more, for %s only, in that order, leaving out what is done. Hand the clip over with its title, post and "
           "hashtags. A check that still fails goes over with it, and the page says which.")
 FINISH_ONLY = "Only %s are left on this message: the person gets the clip as it is now."
+STOPPED_SAY = ("[studio] This message has used all its steps. Tell the person in one or two short lines which clips they have, "
+               "which they do not yet, and why.")
 FINISH_CALL = "[studio] Words alone do not give the person the clip. Call the next of %s now."
 CUT_OUT = (" (The rest of this result was cut to make room in Muse's memory: the studio still has it, and the tool that gave "
            "it gives it again.)")
@@ -1717,7 +1719,8 @@ class Job:
                 if self.steps >= MAX_STEPS and not closing:
                     if self.handed:
                         closing = True
-                    elif not self.finishing and self.to_give() and not (_waits(self) or self.gave()):
+                    elif not self.finishing and self.to_give() and not (
+                            _waits(self) or self.gave() and len(chat.album) < 2):
                         left = self.finish_tools()
                         self.finishing = self.steps + FINISH_STEPS
                         chat.add({"role": "user", "content": FINISH % (FINISH_STEPS, ", ".join(left))})
@@ -1729,7 +1732,10 @@ class Job:
                         end = "too many steps"
                         self.emit("note", text="Muse took %d steps on this message, the most one message may take, so "
                                                "the studio stopped it here. Say what to do next." % self.steps)
-                        break
+                        if not self.gave():
+                            break
+                        closing = True
+                        chat.add({"role": "user", "content": STOPPED_SAY})
                 if self.steps >= MAX_STEPS - STEPS_WARNED and not (warned or closing or _waits(self) or self.gave()):
                     warned = True
                     chat.add({"role": "user", "content": LAST_STEPS % (MAX_STEPS - self.steps)})

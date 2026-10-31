@@ -5142,6 +5142,17 @@ def _sam_goes(job):
                                                            job.n, person.SAM, {"usd": round(usd, 6)})}
 
 
+SAM_FOUND_NONE = "SAM found no "
+AFTER_THE_NOUN = re.compile(r"\s+(?:with|in|on|and|of|for|from|near|inside)\s+")
+
+
+def _thing_noun(what):
+    """The thing itself in Muse's words, for SAM's second try: Muse called the blue Redmi a "black smartphone" and a tablet
+    a "tablet with dog case", and SAM found neither, so 2 of 5 clips lost their frame and their title (11-01, 024201-3215);
+    "blue smartphone" had followed it in 71% of the pictures on 005549-f1e8."""
+    return AFTER_THE_NOUN.split(what, maxsplit=1)[0].split()[-1]
+
+
 def follow_product(job, why, what):
     """SAM 3.1 finds what (the product, in English words) through the clip (person.cut_out with what as its prompt),
     and the vertical frame moves with it (focus.thing), so a product held out to the side stays in the picture. Tarm
@@ -5158,26 +5169,32 @@ def follow_product(job, why, what):
         raise Refused("The recording is already as tall as the frame, so the frame shows it whole and has nowhere to "
                       "move: frame the product with crop when you make the clip.")
     a, b = min(p[0] for p in clip["pieces"]), max(p[1] for p in clip["pieces"])
+    face, plan = lay.get("face"), None
     said = " ".join(what.split())
-    job.working("SAM 3.1 is finding the %s: starting" % said)
-    try:
-        found = person.cut_out(rec, a, b, on_start=job.started_work, what=said,
-                               on_progress=lambda done, of: job.working(
-                                   "SAM 3.1 is following the %s: picture %d of %d" % (said, done, of)),
-                               **_sam_goes(job))
-    except ValueError as e:
-        raise Refused(str(e))
-    except person.Stopped:
-        return "Not followed: the person pressed Stop."
-    except person.NotSetUp:
-        return _hold_product(job, rec, state, said)
-    except person.PersonError as e:
-        return "The %s could not be followed: %s Tell the person, or leave the frame where it is." % (said, e)
-    finally:
-        job.done_working()
-    face = lay.get("face")
-    plan = focus.thing(found, clip["pieces"], (rec["width"], rec["height"]), layouts.W / float(layouts.H),
-                       face[0] + face[2] / 2.0 if face else None)
+    names = list(dict.fromkeys([said, _thing_noun(said)]))
+    for said in names:
+        job.working("SAM 3.1 is finding the %s: starting" % said)
+        try:
+            found = person.cut_out(rec, a, b, on_start=job.started_work, what=said,
+                                   on_progress=lambda done, of: job.working(
+                                       "SAM 3.1 is following the %s: picture %d of %d" % (said, done, of)),
+                                   **_sam_goes(job))
+        except ValueError as e:
+            raise Refused(str(e))
+        except person.Stopped:
+            return "Not followed: the person pressed Stop."
+        except person.NotSetUp:
+            return _hold_product(job, rec, state, said)
+        except person.PersonError as e:
+            if said != names[-1] and str(e).startswith(SAM_FOUND_NONE):
+                continue
+            return "The %s could not be followed: %s Tell the person, or leave the frame where it is." % (said, e)
+        finally:
+            job.done_working()
+        plan = focus.thing(found, clip["pieces"], (rec["width"], rec["height"]), layouts.W / float(layouts.H),
+                           face[0] + face[2] / 2.0 if face else None)
+        if plan:
+            break
     if not plan:
         return ("SAM 3.1 did not see the %s anywhere in the clip, so the frame stays where it is. Name it as it looks "
                 "in the picture, such as \"white game controller\"." % said)

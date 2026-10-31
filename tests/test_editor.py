@@ -2533,6 +2533,51 @@ class Tools(unittest.TestCase):
         for x, y, w, h in boxes:
             self.assertAlmostEqual(x + w / 2.0, 540, delta=2, msg="in the middle of the frame, though Muse's box was far left")
 
+    def test_sam_tries_the_things_own_noun_when_muses_words_find_nothing(self):
+        """024201-3215 on 11-01: "black smartphone" for a blue Redmi; 2 of 5 clips lost their frame and their title."""
+        from unittest import mock
+        from test_cutout import make_mask
+        asked = []
+
+        def cut_out(rec, a, b, on_start=None, on_progress=None, what=None):
+            asked.append(what)
+            if len(asked) == 1:
+                raise tools.person.PersonError("SAM found no %s in the stretch." % what)
+            return {"path": make_mask(self.tmp, "noun.mkv", b - a, a, "lt(abs(X-280),20)", size=(320, 180)),
+                    "person": None, "fps": 10, "size": [320, 180], "from": a, "to": b}
+
+        script = self.to_moment()
+        with mock.patch.object(tools.person, "cut_out", cut_out):
+            _, steps = self.run_job(script[0], [call("load_recipe", type="seller", why="a seller")], *script[1:],
+                                    [call("make_clip", moment=1, layout="subject", product=[100, 300, 250, 600], why="it")],
+                                    [call("follow_product", what="black smartphone", why="the product leads")], "Done.")
+        self.assertEqual(asked, ["black smartphone", "smartphone"])
+        self.assertIn("SAM 3.1 followed the smartphone through the clip", steps[-1]["result"])
+        self.assertEqual(self.chat.project.state()["clip"]["layout"]["thing"]["what"], "smartphone")
+
+    def test_a_sam_that_broke_is_not_asked_again_and_a_one_word_thing_has_no_second_try(self):
+        from unittest import mock
+        asked = []
+
+        def cut_out(rec, a, b, on_start=None, on_progress=None, what=None):
+            asked.append(what)
+            raise tools.person.PersonError("SAM stopped." if what == "black phone" else "SAM found no %s in the stretch." % what)
+
+        script = self.to_moment()
+        with mock.patch.object(tools.person, "cut_out", cut_out):
+            _, steps = self.run_job(script[0], [call("load_recipe", type="seller", why="a seller")], *script[1:],
+                                    [call("make_clip", moment=1, layout="subject", product=[100, 300, 250, 600], why="it")],
+                                    [call("follow_product", what="black phone", why="the product leads")],
+                                    [call("follow_product", what="phone", why="again")], "Done.")
+        self.assertEqual(asked, ["black phone", "phone"])
+        self.assertIn("could not be followed: SAM stopped.", steps[-2]["result"])
+        self.assertIn("could not be followed: SAM found no phone", steps[-1]["result"])
+
+    def test_the_things_own_noun_comes_before_what_it_is_with(self):
+        for what, noun in (("black smartphone", "smartphone"), ("tablet with dog case", "tablet"), ("phone", "phone"),
+                           ("white game controller", "controller"), ("jar of yellow balm", "jar")):
+            self.assertEqual(tools._thing_noun(what), noun)
+
     def test_a_title_keeps_off_the_product_where_sam_saw_it_at_that_second(self):
         """005549-f1e8 on 11-01: 2 of 5 seller clips had no title, as one box stood for a phone that moved."""
         from unittest import mock

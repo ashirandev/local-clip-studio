@@ -244,8 +244,20 @@ class Loop(unittest.TestCase):
 
     def test_a_job_that_gave_a_clip_gets_no_more_steps_for_a_later_one(self):
         brain, events = self.out_of_steps([call("hand_over", why="one of them")], [call("find_recordings", why="look")],
-                                          "never asked", handed="the one before.mp4")
-        self.assertEqual((events[-1]["why"], brain.script), ("too many steps", ["never asked"]))
+                                          "One is ready, the other is not.", handed="the one before.mp4")
+        self.assertEqual((events[-1]["why"], brain.script), ("too many steps", []))
+        self.assertEqual([(e["text"], e["final"]) for e in events if e["kind"] == "answer"],
+                         [("One is ready, the other is not.", True)], "024201-3215: the job just stopped, with no word")
+        self.assertIn(agent.STOPPED_SAY, [m["content"] for m in self.chat.messages if m["role"] == "user"])
+        self.assertIsNone(brain.offered[-1], "words, no tools")
+
+    def test_an_album_with_a_clip_to_give_finishes_that_clip_though_it_gave_others(self):
+        """024201-3215: 4 of 5 clips were handed over, and the iPad, made at step 40, was left out."""
+        self.chat.album = [{"moment": k, "title": "", "project": self.chat.project} for k in (1, 2)]
+        _, events = self.out_of_steps([call("hand_over", why="one of them")], [call("find_recordings", why="look")],
+                                      [call("hand_over", why="the last")], "All here.", handed="the one before.mp4")
+        self.assertEqual(events[-1]["why"], "answered")
+        self.assertEqual(len([e for e in events if e["kind"] == "ready"]), 2)
 
     def test_a_job_waiting_on_a_card_gets_no_more_steps(self):
         brain, events = self.out_of_steps(*self.TWO_LOOKS, "never asked", waits=True)
