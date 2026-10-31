@@ -25,6 +25,10 @@ class Spoken(unittest.TestCase):
         self.assertEqual(spoken.english("twelve fifteen"), {12.0, 15.0})
         self.assertEqual(spoken.english("I have a cat and a point"), set())
 
+    def test_a_letter_the_hearing_wrote_twice_does_not_break_a_thai_number(self):
+        self.assertIn(750.0, spoken.values("ดูดได้สูงสุดวันละเจ็ดร้อยหห้าสิบมิลลิลิตร"), "054318-527c on 11-01")
+        self.assertIn(750.0, spoken.values("เจ็ดร้อยห้าสิบ"))
+
     def test_digits_are_read_in_any_script(self):
         self.assertEqual(spoken.values("๗๕ บาท"), {75.0})
         self.assertEqual(spoken.values("٧٥"), {75.0})

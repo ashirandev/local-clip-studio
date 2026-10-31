@@ -2421,7 +2421,7 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     at = min(max(0.0, peak if peak is not None else state["length"] / 2), state["length"] - 0.1)
     lines.append(_show_frame(job, state, rec, at, "The clip at %g s (moment %d, %s layout):" % (
         round(at, 2), moment, lay["kind"])))
-    if people and recipe in EVENT_RECIPES:
+    if people and recipe in EVENT_RECIPES and not _blur_asked(job):
         state = job.edit({"do": "people", "blur": [], "keep": [p["n"] for p in people]})
         lines.append(KEPT_AT_AN_EVENT % len(people))
     else:
@@ -3570,6 +3570,9 @@ def _asked(job, person_said):
 # a word it means again.
 ODD_TITLE = ("%s: no dictionary has %s in this title, and a viewer reads the title first. If it is a slip or a word "
              "you made up, write a word they know. If it is a name or a word people use, send the same title again.")
+# Glimmer proofreading Glimmer mended the title and left หน้ฝน and ใช้งานง่ย in the post (11-01, 054318-527c).
+ODD_POST = ("Not handed over: no dictionary has %s in the post text, and a person who presses Copy all posts it as it is. Mend "
+            "the slips. A name or a word people use can stay: send the same text again.")
 
 
 def add_title(job, why, words, start, end, place=None, key=None, box=None, person_said=None, behind=False):
@@ -4613,6 +4616,23 @@ BLUR_SLIPS = ("With a moving camera a face can slip out from under its blur betw
               "tell them to check it before they post.")
 
 
+BLUR_SAID = re.compile(r"(?<!ไม่ต้อง)(?<!ไม่)(?<!อย่า)เบลอ\S{0,6}(?:หน้า(?!จอ)|คน)|"
+                       r"(?<!not )(?<!n't )(?<!no )\bblur\b[^.!?\n]{0,40}\b(?:faces?|people|others?|strangers?)\b", re.I)
+BLUR_ASKED = ("Not decided: the person asked for this in the chat: \"%s\". Blur the people they meant, by number. Send this "
+              "again unchanged only if they have since said to keep everyone.")
+
+
+def _blur_asked(job):
+    """The person's own words in this chat asking for faces to be blurred, or None. Reads their messages, not the screen.
+    054756-9aba (11-01): the ask said เบลอหน้าคนอื่นในคลิป, Spark Open kept all 9 for the feel of the trip, and the answer did
+    not say so; at a trip every face starts kept, so no decision was even asked for."""
+    for e in reversed(job.chat.events):
+        said = BLUR_SAID.search(e["text"]) if e["kind"] == "person" else None
+        if said:
+            return said.group(0)
+    return None
+
+
 def decide_people(job, why, blur=None, keep=None, others=None, person_said=None):
     rec = _open(job, "blur")
     state = _clip_state(job)
@@ -4631,6 +4651,9 @@ def decide_people(job, why, blur=None, keep=None, others=None, person_said=None)
     unknown = [n for n in blur + keep if n not in people]
     if unknown:
         raise Refused("There is no person %s; the clip's people are %s." % (_numbers(unknown), _numbers(people)))
+    asked = None if blur or job.n is None or why == BATCH_WHY else _blur_asked(job)
+    if asked and not _told_once(job, "blur_asked"):
+        raise Refused(BLUR_ASKED % asked)
     recipe = (job.chat.clip or {}).get("recipe")
     crowd = len(blur) == len(people) >= BLUR_MANY and recipe != "seller"
     # Sent again unasked, Glimmer's blur of 5 of a talk's 6 faces once went through (11-01, 021005-389c): it needs their words.
@@ -5956,8 +5979,8 @@ def hand_over(job, why, title, caption, hashtags, english=""):
         said = _said(job, _clip_state(job))
         wrong = _not_said(" ".join([title, caption, english or ""]), said)
         if wrong and not _numbers_unread(job, said):
-            raise Refused("The post text has numbers that were not said: %s. Use only numbers the seller said."
-                          % ", ".join(wrong))
+            raise Refused("The post text has numbers that were not said: %s. Use only numbers the seller said; one "
+                          "that was not said comes out, it is not written in words instead." % ", ".join(wrong))
     caption, more = _without_tags(caption)
     english, also = _without_tags(english)
     tags = list(dict.fromkeys(t for t in (_tag(w) for w in list(hashtags) + more + also) if t))
@@ -5973,6 +5996,9 @@ def hand_over(job, why, title, caption, hashtags, english=""):
     odd = [] if why == BATCH_WHY or job.n is None or job.finishing else _odd_thai(title) or _split_up(written, title)
     if odd and not _told_once(job, "odd_post"):
         raise Refused(ODD_TITLE % ("Not handed over", ", ".join('"%s"' % bit for bit in odd)))
+    odd = [] if why == BATCH_WHY or job.n is None or job.finishing else _odd_thai(caption)
+    if odd and not _told_once(job, "odd_caption"):
+        raise Refused(ODD_POST % ", ".join('"%s"' % bit for bit in odd))
     tags = list(dict.fromkeys(t for t in (_tag(w) for w in tags) if t))
     if not tags:
         raise Refused("Give at least one hashtag, such as #gaming.")

@@ -91,10 +91,14 @@ def _english_run(run):
     return float(total + current + sum(d / 10 ** (k + 1) for k, d in enumerate(places)))
 
 
+DOUBLED = re.compile(r"([\u0e01-\u0e2e])\1")
+
+
 def values(text):
     """Every number said in text: digits in any script, and Thai and English number words; a number the hearing cut
-    short counts both ways (cut_short)."""
-    return digits(text) | cut_short(text) | thai.values(text or "") | english(text)
+    short counts both ways (cut_short). No Thai number word has a letter twice in a row, so one the hearing wrote twice
+    is read once: เจ็ดร้อยหห้าสิบ was read as 700 and 50, and hand_over refused the seller's own 750 (11-01, 054318-527c)."""
+    return digits(text) | cut_short(text) | thai.values(DOUBLED.sub(r"\1", text or "")) | english(text)
 
 
 SCALE_AFTER = re.compile(r"\s*(?:สิบ|ร้อย|พัน|หมื่น|แสน|ล้าน)")

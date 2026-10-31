@@ -1913,6 +1913,30 @@ class Tools(unittest.TestCase):
         for kept in ({"recipe": None}, {"why": tools.BATCH_WHY}, {"finishing": True}, {"titles": [{"text": "x"}]}):
             self.assertEqual(handed(**kept), "past it", kept)
 
+    def test_slips_in_the_post_text_are_sent_back_once(self):
+        """054318-527c on 11-01: the title was mended and the caption went out with หน้ฝน and ใช้งานง่ย."""
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        title, caption = "ตายแล้วฟื้นภายในวินาที", "ใช้งานง่ย"
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            _, steps = self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                                    [call("decide_people", keep=[1], why="him")], [call("render_clip", why="make the file")],
+                                    [call("check_clip", why="check it")],
+                                    [call("hand_over", title=title, caption=caption, hashtags=["#a"], why="post")],
+                                    '{"texts": ["%s", "%s", "#a"]}' % (title, caption),
+                                    [call("hand_over", title=title, caption=caption, hashtags=["#a"], why="a word people use")],
+                                    '{"texts": ["%s", "%s", "#a"]}' % (title, caption), "Done.")
+        finally:
+            render.export = had
+        first, second = steps[-2:]
+        self.assertTrue(first["refused"], first["result"])
+        self.assertEqual(first["result"], tools.ODD_POST % '"ใช้งานง่ย"')
+        self.assertFalse(second["refused"], second["result"])
+
     def test_a_title_handed_over_is_checked_too(self):
         """A title that never went on the clip reaches the post and the cover here, unread by add_title."""
         def export(rec, state, out, on_progress=None, on_start=None, *, default):

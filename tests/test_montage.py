@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -453,6 +454,44 @@ class Arrange(unittest.TestCase):
         self.assertFalse(steps[3]["refused"], steps[3]["result"])
         self.assertEqual([t["text"] for t in self.chat.project.state()["titles"]], ["สถานีแรก", "Lunch", "The end"])
 
+
+    def test_an_ask_to_blur_faces_is_not_passed_over(self):
+        """054756-9aba on 11-01: the ask said เบลอหน้าคนอื่นในคลิป, and all 9 faces stayed."""
+        def people(rec, pieces, face, span=None, job=None):
+            return [{"n": 1, "seen": 4, "of": 10, "from": 0.5, "to": 2.0, "box": [10, 10, 40, 40], "crop": None,
+                     "points": [[0.5 * k, 10 + 2 * k, 10, 40, 40] for k in range(1, 5)]}]
+
+        self.chat.emit("person", job=None, text="ทำคลิปทริปนี้ เบลอหน้าคนอื่นในคลิปด้วย")
+        had = tools._people
+        tools._people = people
+        try:
+            steps = self.run_job(*self.opened(), [call(
+                "arrange_clips", story="the day", why="in order", left_out=[],
+                clips=[{"clip": 2, "start": 0.5, "end": 2.5, "words": "We arrive", "why": "where we are"},
+                       {"clip": 1, "start": 1.0, "end": 2.0, "why": "what we did first"},
+                       {"clip": 3, "start": 0.0, "end": 1.9, "words": "The end", "why": "the last thing seen"}])],
+                [call("decide_people", others="keep", why="the feel of the trip")],
+                [call("decide_people", others="keep", why="they said so later")], "Done.")
+        finally:
+            tools._people = had
+        arranged, first, second = steps[-3:]
+        self.assertNotIn("all kept as they are", arranged["result"])
+        self.assertIn("Decide about each", arranged["result"])
+        self.assertTrue(first["refused"], first["result"])
+        self.assertEqual(first["result"], tools.BLUR_ASKED % "เบลอหน้าคน")
+        self.assertFalse(second["refused"], second["result"])
+
+    def test_what_counts_as_an_ask_to_blur_faces(self):
+        def asked(*said):
+            return tools._blur_asked(types.SimpleNamespace(chat=types.SimpleNamespace(
+                events=[{"kind": "step", "text": "เบลอหน้า"}] + [{"kind": "person", "text": s} for s in said])))
+
+        for said in ("เบลอหน้าคนอื่นในคลิป", "เบลอทุกคนยกเว้นผม", "blur the other people", "Blur their faces please"):
+            self.assertTrue(asked(said), said)
+        for said in ("ไม่ต้องเบลอหน้าใคร", "อย่าเบลอหน้า", "เบลอหน้าจอตรงนี้", "เบลอป้ายทะเบียน", "don't blur the faces",
+                     "do not blur anyone's face", "ทำคลิปสั้นให้หน่อย"):
+            self.assertIsNone(asked(said), said)
+        self.assertTrue(asked("เบลอหน้าคนอื่น", "ทำปกด้วย"), "said earlier in the chat")
 
     def test_at_an_event_every_face_is_kept_and_one_is_blurred_by_its_number(self):
         def people(rec, pieces, face, span=None, job=None):
