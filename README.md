@@ -482,7 +482,7 @@ Each piece is listed with its licence. The Status column says whether this build
 | [Kanit](https://fonts.google.com/specimen/Kanit) (Google Fonts), in `fonts/` with its licence | Thai and Latin text on the clip, when chosen | nothing: files in this repo | SIL Open Font License 1.1 | used |
 | [Pattaya](https://fonts.google.com/specimen/Pattaya) (Google Fonts), in `fonts/` with its licence | the glow look's script letters | nothing: files in this repo | SIL Open Font License 1.1 | used |
 | [Taviraj](https://fonts.google.com/specimen/Taviraj) (Google Fonts), in `fonts/` with its licence | the classic look's italic letters | nothing: files in this repo | SIL Open Font License 1.1 | used |
-| [Fluent Emoji 3D](https://github.com/microsoft/fluentui-emoji) (Microsoft), 60 of them in `stickers/` with `stickers/LICENSE-Fluent-Emoji.txt` | the studio's stickers | nothing: files in this repo | MIT | used |
+| [Fluent Emoji 3D](https://github.com/microsoft/fluentui-emoji) (Microsoft), 61 of them in `stickers/` with `stickers/LICENSE-Fluent-Emoji.txt` | the studio's stickers | nothing: files in this repo | MIT | used |
 
 Model weights are downloaded when they are first needed. None of them are committed here.
 

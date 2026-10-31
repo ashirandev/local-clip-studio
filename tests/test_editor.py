@@ -2068,6 +2068,66 @@ class Tools(unittest.TestCase):
         self.assertIn("Only the subject layout's frame can follow the product", steps[-1]["result"])
         self.assertEqual(asked, ["white game controller", "a missing thing", "a broken thing"])
 
+    def test_a_line_never_breaks_between_two_short_thai_pieces(self):
+        """PS5 pad 10-31: "จอย PS5 มีไจ / โร เล็งปืนได้"."""
+        from clipstudio import text as writing
+        pieces = [w[a:b].strip() for w in ["จอย PS5 มีไจโร เล็งปืนได้"] for a, b in writing._atoms(w)]
+        self.assertNotIn("โร", pieces)
+        self.assertTrue(any("ไจโร" in p for p in pieces), pieces)
+        joined = "".join("เครื่องกรองเฮปาใหม่"[a:b] for a, b in writing._atoms("เครื่องกรองเฮปาใหม่"))
+        self.assertEqual(joined, "เครื่องกรองเฮปาใหม่", "the pieces joined are the words exactly")
+
+    def test_a_sellers_title_stays_in_front(self):
+        """PS5 pad 10-31: behind him it stood behind his hands and the pad for 15 s."""
+        script = self.to_moment()
+        _, steps = self.run_job(
+            script[0], [call("load_recipe", type="seller", why="a seller")], *script[1:],
+            [call("make_clip", moment=1, layout="subject", why="the product")],
+            [call("add_title", words="Big win", start=0, end=5, place="top", behind=True, why="behind")], "Done.")
+        self.assertTrue(steps[-1]["refused"])
+        self.assertIn("A seller's title stays in front", steps[-1]["result"])
+
+    def test_a_flurry_keeps_off_the_title(self):
+        """Vlog 10-31, 201717-f1d9: the laugh's flurry went in the top place and stood over the title held there."""
+        _, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("add_title", words="Big win", start=0, end=15, place="top", why="the hook")],
+            [call("add_flurry", stickers=["coin"], at=5, place="top", why="over it")],
+            [call("add_flurry", stickers=["coin"], at=5, place="middle", why="clear of it")],
+            [call("add_flurry", stickers=["coin"], at=16, place="top", why="after it")], "Done.")
+        over, clear, after = steps[-3:]
+        self.assertTrue(over["refused"])
+        self.assertIn('The flurry would cover the title "Big win" (x ', over["result"])
+        self.assertIn("Clear of it at 5 s: middle", over["result"])
+        self.assertFalse(clear["refused"], clear["result"])
+        self.assertFalse(after["refused"], after["result"])
+
+    def test_captions_are_translated_when_the_speaker_speaks_another_language_than_the_person(self):
+        """Tarm 10-31: a person asking in Thai over an English recording gets Thai captions without asking for them."""
+        job = types.SimpleNamespace(chat=types.SimpleNamespace(events=[
+            {"kind": "person", "text": "ทำคลิปจาก F:\\OBS\\talk.mkv ให้หน่อย"}]))
+        self.assertEqual(tools._asked_in(job), "Thai")
+        job.chat.events.append({"kind": "person", "text": "Make the cover again."})
+        self.assertEqual(tools._asked_in(job), "English", "the person's last words")
+        job.chat.events.append({"kind": "person", "text": "F:\\OBS\\talk.mkv"})
+        self.assertIsNone(tools._asked_in(job), "a path says nothing of the language")
+        job.chat.events[:] = []
+        self.assertIsNone(tools._asked_in(job))
+
+    def test_a_thai_clip_for_a_person_who_asked_in_english_gets_english_captions_unasked(self):
+        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "ตั้งค่าเครื่องง่ายมาก"},
+                               {"from": 5.0, "to": 8.0, "text": "ราคา 990 บาท"}]
+        self.chat.emit("person", job=None, text="Make a clip from this")
+        _, steps = self.run_job(
+            *self.to_moment()[:2],
+            [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the setup"}])],
+            '{"lines": ["ตั้งค่าเครื่องง่ายมาก", "ราคา <N1> บาท"]}',
+            [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("add_captions", why="the words")], '{"lines": ["Setting it up is so easy.", "It costs 990 baht."]}',
+            "Done.")
+        self.assertRegex(steps[-1]["result"], r"^Captions on: \d+ lines in English, translated from the 2 sentences "
+                                              r"said in Thai")
+
     def test_a_piece_goes_to_metas_sam_only_with_a_key_and_the_switch_or_muse_on_metas_servers(self):
         from unittest import mock
         job = types.SimpleNamespace(chat=self.chat, n=1)
@@ -2435,7 +2495,7 @@ class Tools(unittest.TestCase):
     def test_muse_is_offered_every_studio_sticker(self):
         offered = tools.TOOLS["add_sticker"].params["sticker"]["enum"]
         self.assertEqual(offered, [s["name"] for s in effects.stickers()])
-        self.assertEqual(len(offered), 60)
+        self.assertEqual(len(offered), 61)
 
     def test_the_clip_knows_when_someone_speaks_in_clip_seconds(self):
         said = {"said": [{"from": 29, "to": 31}, {"from": 39, "to": 46}, {"from": 60, "to": 61}]}

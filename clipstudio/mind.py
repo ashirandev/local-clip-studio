@@ -409,6 +409,9 @@ class Mind:
         Asking to be able to cancel; a cancelled question raises Cancelled. A JSON schema makes the answer's words
         JSON of that shape. Anything else that goes wrong raises MindError with a sentence.
 
+        A hosted Muse gets no temperature: Meta's guide says Spark is tuned at its default and to leave it unset, and
+        on seller, review and explain 10-31 leaving it unset handed over as much as 0.5 did (6 clips of 6).
+
         message is the answer as it goes back into the conversation: the words and the tool calls, without the
         thinking. llama-server reuses everything before it; from this message on it reads again (a few hundred
         tokens), because the thinking it wrote is not sent back.
@@ -424,8 +427,9 @@ class Mind:
                 msgs.insert(0, {"role": "system", "content": self.reasoning_line})
         if self.pictures is not None:
             msgs = newest_pictures(msgs, self.pictures)
-        body = {"messages": msgs, "temperature": temperature, "stream": True,
-                "stream_options": {"include_usage": True}}
+        body = {"messages": msgs, "stream": True, "stream_options": {"include_usage": True}}
+        if not self.key_env:
+            body["temperature"] = temperature
         if self.model_id:
             body["model"] = self.model_id
         if tools:

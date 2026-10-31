@@ -99,6 +99,19 @@ class Stream(unittest.TestCase):
         self.assertEqual((got["engine"]["read_new"], got["engine"]["reused"], got["engine"]["write_per_s"]),
                          (14, 1088, 52.3))
 
+    def test_a_hosted_muse_gets_no_temperature_and_one_here_does(self):
+        """Meta's guide: Spark is tuned at its default, leave it unset."""
+        url = "http://127.0.0.1:%d/v1" % self.server.server_port
+        os.environ["LCS_TEST_META"] = "a key"
+        self.addCleanup(os.environ.pop, "LCS_TEST_META", None)
+        Fake.asked = []
+        mind.Mind("spark", "Muse Spark", url, model="m", key_env="LCS_TEST_META").ask(
+            [{"role": "user", "content": "hi"}], temperature=0.5)
+        self.assertNotIn("temperature", Fake.asked[-1])
+        mind.Mind("local", "Muse Glimmer", url, model="muse-glimmer").ask(
+            [{"role": "user", "content": "hi"}], temperature=0.5)
+        self.assertEqual(Fake.asked[-1]["temperature"], 0.5)
+
     def test_the_local_mind_names_its_model_so_a_router_server_can_route_it(self):
         url = "http://127.0.0.1:%d/v1" % self.server.server_port
         local = mind.Mind("local", "Muse Glimmer", url, model="muse-glimmer")

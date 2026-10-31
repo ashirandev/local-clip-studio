@@ -3397,6 +3397,9 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
     asked = _asked(job, person_said)
     rec = _open(job, "put words on")
     state = _clip_state(job)
+    if behind and not asked and (job.chat.clip or {}).get("recipe") == "seller":
+        raise Refused("A seller's title stays in front: behind the person it stands behind the hands and the product, "
+                      "and nobody can read it. Put it on without behind.")
     if behind and not state["mask"]:
         raise Refused("A title goes behind the person once the person is found: call cut_out first, then put the title "
                       "on again with behind true.")
@@ -3871,6 +3874,15 @@ def _subtitles(name):
                   "person so." % (" or ".join(SUBTITLES), name))
 
 
+def _asked_in(job):
+    """The language of the person's last words, when the studio writes captions in it, else None: a clip whose speaker
+    speaks another language gets its captions translated with nobody asking (Tarm 10-31, "โอเค ลองเลยนะ"). A path in
+    the words says nothing of it."""
+    said = [PLACES.sub(" ", e["text"]) for e in job.chat.events if e["kind"] == "person"]
+    words = said[-1] if said else ""
+    return "Thai" if re.search("[ก-๛]", words) else "English" if re.search("[A-Za-z]{2}", words) else None
+
+
 def _spoken(job, texts):
     """The language the texts are said in: Thai when they are written in Thai letters, else the recipe's guess."""
     if any(re.search("[ก-๛]", t) for t in texts):
@@ -4100,7 +4112,8 @@ def add_captions(job, why, on=True, lit=False, pop=None, language="", hidden=Non
         raise Refused(CAPTIONS_OFF % _captions_off())
     if lit and pop:
         raise Refused("Captions are lit or popped, not both: a popped word already moves as it is said. Choose one.")
-    target = _subtitles(language or (job.chat.clip or {}).get("subtitles") or (state["captions"] or {}).get("language"))
+    target = _subtitles(language or (job.chat.clip or {}).get("subtitles") or (state["captions"] or {}).get(
+        "language")) or _asked_in(job)
     clip, length = state["clip"], state["length"]
     if not on:
         if not state["captions"]:
@@ -4659,6 +4672,19 @@ def _over_titles(state, default, drawn, a, b):
     return out
 
 
+def _title_in_the_way(what, state, default, under, at, length, drawn):
+    """Refused for a sticker or a flurry that would cover the titles under: where they are, and the layout's places
+    that are clear at that time (drawn(place) is where it would stand there)."""
+    clear = [name for name, spot in state["clip"]["layout"]["places"].items()
+             if not _over_titles(state, default, drawn(spot), at, at + length)]
+    raise Refused("The %s would cover the title %s: words on the clip are never covered. %s, or a time the title is not "
+                  "shown." % (what, "; ".join('"%s" (%s, from %g to %g s)' % (
+                      t["text"], ", ".join(layouts.on_grid(box[i], box[i] + box[i + 2], "xy"[i], inward=False)
+                                           for i in (0, 1)), t["start"], t["end"]) for t, box in under),
+                      "Clear of it at %g s: %s" % (at, ", ".join(clear)) if clear else
+                      "No place is clear of it at %g s: give a box away from it" % at))
+
+
 def add_sticker(job, why, sticker, at, length=STICKER_LENGTH, place=None, box=None, person_said=None):
     asked = _asked(job, person_said)
     rec = _open(job, "put a sticker on")
@@ -4685,14 +4711,7 @@ def add_sticker(job, why, sticker, at, length=STICKER_LENGTH, place=None, box=No
     default = job.chat.clip["style"] if job.chat.clip else "clean"
     under = _over_titles(state, default, drawn, at, at + length)
     if under and not asked:
-        clear = [name for name, spot in state["clip"]["layout"]["places"].items()
-                 if not _over_titles(state, default, _sticker_drawn(png, spot), at, at + length)]
-        raise Refused("The sticker would cover the title %s: words on the clip are never covered. %s, or a time the "
-                      "title is not shown." % ("; ".join('"%s" (%s, from %g to %g s)' % (
-                          t["text"], ", ".join(layouts.on_grid(box[i], box[i] + box[i + 2], "xy"[i], inward=False)
-                                               for i in (0, 1)), t["start"], t["end"]) for t, box in under),
-                          "Clear of it at %g s: %s" % (at, ", ".join(clear)) if clear else
-                          "No place is clear of it at %g s: give a box away from it" % at))
+        _title_in_the_way("sticker", state, default, under, at, length, lambda spot: _sticker_drawn(png, spot))
     notes = _phone(drawn, state["clip"]["layout"], state, asked)
     if under:
         notes.append("It covers the title %s, where the person asked for it; tell the person." % ", ".join(
@@ -5006,6 +5025,10 @@ def add_flurry(job, why, stickers, at, move="burst", count=8, length=None, place
                       % (at, round(clip_length - at, 2), effects.FLURRY_LENGTHS[0]))
     band, where = _spot("box", state, place, box)
     size = _flurry_size(pngs, band, move, count, length)
+    default = job.chat.clip["style"] if job.chat.clip else "clean"
+    under = _over_titles(state, default, band, at, at + length)
+    if under and not asked:
+        _title_in_the_way("flurry", state, default, under, at, length, lambda spot: spot)
     notes = _phone(band, state["clip"]["layout"], state, asked)
     more, hit = _off_faces(state, rec, band, at, at + length, asked, "flurry")
     replaced = [f for f in state["flurries"] if project._same_box(f, {"box": band, "at": at, "length": length},
@@ -7054,7 +7077,7 @@ TOOLS = {t.name: t for t in [
          "so a title can go behind them (add_title with behind true) and the clip can take a cut-out look. It takes "
          "about a minute: Muse steps off the graphics card while SAM works, and comes back after. The person is "
          "found once; calling it again only changes the look. Use it when the person asks for words behind them or "
-         "a cut-out look, or when a title behind the person makes a product or talk clip stand out.",
+         "a cut-out look, or when a title behind the person makes a talk clip stand out.",
          {"look": {"type": "string", "enum": list(render.CUTOUT_LOOKS),
                    "description": "grey: the footage around the person goes black and white, and the person keeps "
                                   "their colour. outline: a white edge around the person. In a talk both follow "

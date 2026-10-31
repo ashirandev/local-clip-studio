@@ -22,6 +22,8 @@ the seller said one.
 - In a selling live with many products, each product gets its own clip.
 - A clip ends after the seller says the price. A seller often says it right after the product's best point, so when
   a stretch ends on what the product does, look a little past its end for the price before you propose it.
+- A clip never stops in the middle of something being shown. When the seller's hands are still at it at the end
+  (pulling a filter out, opening a lid), go on until it is done, or end on the sentence before it began.
 
 ## Rules
 

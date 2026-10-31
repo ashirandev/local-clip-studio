@@ -767,6 +767,12 @@ def _filter_value(path):
 
 # ---- wrapping ----------------------------------------------------------------------------------------------------
 
+# Two Thai pieces this short side by side are most often a word the dictionary does not have, cut in two: ไจโร into ไจ
+# and โร, เฮปา into เฮ and ปา, and both halves are words of its own, so it cannot tell (PS5 pad 10-31, a title broke
+# as "มีไจ / โร"). A line never breaks between them.
+SPLIT_WORD = 2
+
+
 def _tokens(text):
     if THAI.search(text):
         from pythainlp.tokenize import word_tokenize
@@ -786,14 +792,17 @@ def _atoms(text):
     locked = set()
     for m in thai.NUMBER.finditer(text):
         locked.update(range(m.start() + 1, m.end()))
-    atoms = []
+    atoms, last = [], ""
     for a, b in tokens:
         piece = text[a:b]
         if not atoms:
             atoms.append([a, b])
+            last = piece
             continue
         before = text[atoms[-1][0]:atoms[-1][1]]
-        glue = (piece.isspace() or a in locked or piece.strip() in PARTICLES or piece[0] in CLOSERS
+        split = len(last) <= SPLIT_WORD and len(piece) <= SPLIT_WORD and THAI.search(last) and THAI.search(piece)
+        last = piece
+        glue = (split or piece.isspace() or a in locked or piece.strip() in PARTICLES or piece[0] in CLOSERS
                 or unicodedata.category(piece[0]).startswith("M") or before.isspace()
                 or (before and before[-1] in OPENERS)
                 or (not before[-1].isspace() and not THAI.search(before[-1] + piece[0])))

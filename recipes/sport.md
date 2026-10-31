@@ -49,8 +49,10 @@ in and the celebration, and knows what it did to the score.
 - The title says how the match went, in the clip's language: "นำ 2-0 แต่โดนพลิกแพ้ 2-3" gives a reason to watch;
   "ไฮไลท์นัดนี้" gives none.
 - Look: vivid.
-- Sounds and effects: none over the crowd and the commentator at the goal, they are the sound of the moment. At most
-  one effect, on the ball going in, never over the ball while it is in play.
+- Sounds and effects: none over the crowd and the commentator at the goal, they are the sound of the moment.
+- Every goal gets the same mark at the same beat, as the ball goes in: a burst of soccer_ball stickers flying out,
+  on all of them, even where what you watched suggests something else for one of them. Nothing more on a goal, and
+  nothing over the ball while it is in play.
 
 ## Checked at the end
 
