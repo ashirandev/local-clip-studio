@@ -4925,21 +4925,28 @@ def _over_titles(state, default, drawn, a, b):
     return out
 
 
-EFFECT_BOXES = ((300, 700, 700, 880), (300, 420, 700, 600), (60, 620, 400, 780), (600, 620, 940, 780),
+# The first is the strip between a card's title and its picture, where a burst covers neither.
+EFFECT_BOXES = ((120, 235, 880, 400), (300, 700, 700, 880), (300, 420, 700, 600), (60, 620, 400, 780), (600, 620, 940, 780),
                 (340, 230, 660, 440), (60, 230, 380, 440), (620, 230, 940, 440))
 
 
 def _clear_box(state, rec, default, at, length, drawn):
-    """The highest of EFFECT_BOXES clear of titles, faces and what a phone covers from at, for a refusal to name, or None:
-    told only to give a box, Glimmer tried a card's one place 7 times and no goal of sport 032940-bc6c got its burst (11-01).
-    Highest first, as a card's picture starts below them."""
+    """The first of EFFECT_BOXES clear of titles, faces and what a phone covers from at, for a refusal to name, or None:
+    told only to give a box, Glimmer tried a card's one place 7 times and no goal of sport 032940-bc6c got its burst (11-01)."""
     times, every = _face_times(state, rec)
-    for box in sorted(EFFECT_BOXES, key=lambda b: b[1]):
+    for box in EFFECT_BOXES:
         spot = drawn(_frame_box("box", box))
         if not (_over_titles(state, default, spot, at, at + length) or _covered(spot, times, every, at, at + length)
                 or _covers([round(v) for v in spot], state["clip"]["layout"], state)):
             return box
     return None
+
+
+def _clear_box_said(refused, state, rec, default, at, length, drawn):
+    """The refusal's sentence and the box clear at that second: on one goal of sport 033344-78ec Spark Open went from the
+    title to the buttons to a face, 7 tries, and left that goal with no burst (11-01)."""
+    box = _clear_box(state, rec, default, at, length, drawn)
+    return "%s%s" % (refused, "\nClear of all that at %g s: the box %s." % (at, _on_grid(box)) if box else "")
 
 
 def _title_in_the_way(what, state, rec, default, under, at, length, drawn):
@@ -4984,11 +4991,14 @@ def add_sticker(job, why, sticker, at, length=STICKER_LENGTH, place=None, box=No
     under = _over_titles(state, default, drawn, at, at + length)
     if under and not asked:
         _title_in_the_way("sticker", state, rec, default, under, at, length, lambda spot: _sticker_drawn(png, spot))
-    notes = _phone(drawn, state["clip"]["layout"], state, asked)
+    try:
+        notes = _phone(drawn, state["clip"]["layout"], state, asked)
+        more, hit = _off_faces(state, rec, drawn, at, at + length, asked, "sticker")
+    except Refused as e:
+        raise Refused(_clear_box_said(e, state, rec, default, at, length, lambda spot: _sticker_drawn(png, spot)))
     if under:
         notes.append("It covers the title %s, where the person asked for it; tell the person." % ", ".join(
             '"%s"' % t["text"] for t, _ in under))
-    more, hit = _off_faces(state, rec, drawn, at, at + length, asked, "sticker")
     replaced = [k for k in state["stickers"] if project._same_box(k, {"box": band, "at": at, "length": length},
                                                                   "at", "length")]
     state = job.edit({"do": "sticker", "png": png, "at": round(at, 2), "length": length, "box": band,
@@ -5323,8 +5333,11 @@ def add_flurry(job, why, stickers, at, move="burst", count=8, length=None, place
     under = _over_titles(state, default, band, at, at + length)
     if under and not asked:
         _title_in_the_way("flurry", state, rec, default, under, at, length, lambda spot: spot)
-    notes = _phone(band, state["clip"]["layout"], state, asked)
-    more, hit = _off_faces(state, rec, band, at, at + length, asked, "flurry")
+    try:
+        notes = _phone(band, state["clip"]["layout"], state, asked)
+        more, hit = _off_faces(state, rec, band, at, at + length, asked, "flurry")
+    except Refused as e:
+        raise Refused(_clear_box_said(e, state, rec, default, at, length, lambda spot: spot))
     replaced = [f for f in state["flurries"] if project._same_box(f, {"box": band, "at": at, "length": length},
                                                                   "at", "length")]
     state = job.edit({"do": "flurry", "names": list(stickers), "pngs": pngs, "at": round(at, 2), "length": length,
@@ -5405,6 +5418,15 @@ MOST_TAGS = 5
 # Glimmer gave EP 0's talk no title (11-01, 021005-389c): every recipe has one.
 NO_TITLE = (" No title is on the clip, and a viewer scrolling past reads the title first: put one on with add_title and render "
             "again, unless the person asked for none.")
+# Spark Open marked 1 of 4 goals (11-01, 033344-78ec) and Glimmer none (032940-bc6c): the recipe marks every goal alike.
+NO_BURST = " No burst yet on %s, and every goal gets the same mark: put each on as its ball goes in and render again."
+
+
+def _no_burst(job, state):
+    """NO_BURST for the goals of a match's clip, one title each, with no flurry while their title is shown; or nothing."""
+    bare = [t for t in state["titles"] if not any(f["at"] < t["end"] and f["at"] + f["length"] > t["start"]
+                                                  for f in state["flurries"])]
+    return NO_BURST % ", ".join('"%s"' % t["text"] for t in bare) if bare and (job.chat.clip or {}).get("recipe") == "sport" else ""
 
 
 def render_clip(job, why):
@@ -5437,7 +5459,7 @@ def render_clip(job, why):
     job.show(rendered=made)
     return ("Rendered the finished clip in %s: %g s, 1080x1920, %.1f MB. The person can play it on the page now. Hand "
             "it over next." % (recording.clock(made["seconds"]), made["length"], made["size"] / 1e6)) + (
-        NO_TITLE if (job.chat.clip or {}).get("recipe") and not state["titles"] and why != BATCH_WHY else "")
+        NO_TITLE if (job.chat.clip or {}).get("recipe") and not state["titles"] and why != BATCH_WHY else _no_burst(job, state))
 
 
 REEL_LONGEST = 90

@@ -2,7 +2,7 @@
 name: vlog
 title: Vlog or edited episode
 chip: It's a vlog or an edited episode
-description: A video someone already edited, such as a travel vlog or an episode of a channel: it cuts between scenes and places, often with its own subtitles, titles or logo in the picture. Pick it when the pictures across the recording show different places or scenes, not one camera on people sitting and talking.
+description: A video someone already edited, such as a travel vlog or an episode of a channel: it cuts between scenes and places, often with its own subtitles, titles or logo in the picture. Pick it when the pictures across the recording show different places or scenes, or people doing something together and talking among themselves, not one camera on people sitting and talking.
 length: 40
 style: clean
 map: sound 1, screen 1

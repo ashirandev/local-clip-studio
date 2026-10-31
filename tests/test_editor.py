@@ -1803,6 +1803,27 @@ class Tools(unittest.TestCase):
         self.assertIn(tools.NO_TITLE, bare["result"])
         self.assertNotIn(tools.NO_TITLE, titled["result"])
 
+    def test_render_says_which_goals_have_no_burst(self):
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            script = self.to_moment()
+            _, steps = self.run_job(script[0], [call("load_recipe", type="sport", why="a match")], *script[1:],
+                                    [call("make_clip", moment=1, layout="card", why="the goal")],
+                                    [call("no_chat_box", why="none shows")], [call("decide_people", keep=[1], why="him")],
+                                    [call("add_title", words="Goal", start=0, end=10, place="top", why="the hook")],
+                                    [call("render_clip", why="make the file")],
+                                    [call("add_flurry", stickers=["coin"], at=5, box=[120, 235, 880, 400], why="the goal")],
+                                    [call("render_clip", why="again")], "Done.")
+        finally:
+            render.export = had
+        self.assertIn(tools.NO_BURST % '"Goal"', steps[-3]["result"])
+        self.assertNotIn("No burst yet", steps[-1]["result"])
+
     def test_a_title_handed_over_is_checked_too(self):
         """A title that never went on the clip reaches the post and the cover here, unread by add_title."""
         def export(rec, state, out, on_progress=None, on_start=None, *, default):
@@ -2343,7 +2364,7 @@ class Tools(unittest.TestCase):
             asked.append(what)
             if what == "a broken thing":
                 raise tools.person.PersonError("SAM is not set up.")
-            where = "-1000" if what == "a missing thing" else "280"
+            where = "-1000" if what in ("a missing thing", "thing") else "280"
             return {"path": make_mask(self.tmp, "thing_%d.mkv" % len(asked), b - a, a, "lt(abs(X-%s),20)" % where,
                                       size=(320, 180)), "person": None, "fps": 10, "size": [320, 180], "from": a,
                     "to": b}
@@ -2364,7 +2385,7 @@ class Tools(unittest.TestCase):
                           followed["result"])
             self.assertIn("The frame holds one place", followed["result"])
             self.assertIn("comes next as a picture", followed["result"])
-            self.assertIn("SAM 3.1 did not see the a missing thing anywhere in the clip, so the frame stays where it is.",
+            self.assertIn("SAM 3.1 did not see the thing anywhere in the clip, so the frame stays where it is.",
                           missing["result"])
             self.assertIn("The a broken thing could not be followed: SAM is not set up.", broken["result"])
             whole = self.chat.project.state()["clip"]["layout"]["parts"][0]
@@ -2377,7 +2398,7 @@ class Tools(unittest.TestCase):
                                     [call("follow_product", what="white game controller", why="on a card")], "Done.")
         self.assertTrue(steps[-1]["refused"])
         self.assertIn("Only the subject layout's frame can follow the product", steps[-1]["result"])
-        self.assertEqual(asked, ["white game controller", "a missing thing", "a broken thing"])
+        self.assertEqual(asked, ["white game controller", "a missing thing", "thing", "a broken thing"])
 
     def test_a_line_never_breaks_between_two_short_thai_pieces(self):
         """PS5 pad 10-31: "จอย PS5 มีไจ / โร เล็งปืนได้"."""
@@ -2419,10 +2440,10 @@ class Tools(unittest.TestCase):
             *self.to_moment(), [call("make_clip", moment=1, layout="card", why="the play")],
             [call("add_title", words="Big win", start=0, end=15, place="top", why="the hook")],
             [call("add_flurry", stickers=["coin"], at=5, place="top", why="over it")],
-            [call("add_flurry", stickers=["coin"], at=5, box=[340, 230, 660, 440], why="the box it named")], "Done.")
+            [call("add_flurry", stickers=["coin"], at=5, box=[120, 235, 880, 400], why="the box it named")], "Done.")
         over, named = steps[-2:]
         self.assertTrue(over["refused"])
-        self.assertIn("No place is clear of it at 5 s: give the box [340, 230, 660, 440], or a time the title is not shown.",
+        self.assertIn("No place is clear of it at 5 s: give the box [120, 235, 880, 400], or a time the title is not shown.",
                       over["result"])
         self.assertFalse(named["refused"], named["result"])
 
@@ -2436,12 +2457,40 @@ class Tools(unittest.TestCase):
                     mock.patch.object(tools.render, "title_boxes", return_value=list(titles)):
                 return tools._clear_box(dict(state, captions=list(captions)), None, "clean", 5, 2, lambda spot: spot)
 
-        self.assertEqual(named(), (340, 230, 660, 440))
-        self.assertEqual(named(titles=[({"start": 0, "end": 30, "text": "x"}, high)]), (60, 230, 380, 440))
-        self.assertEqual(named(titles=[({"start": 8, "end": 30, "text": "x"}, high)]), (340, 230, 660, 440), "shown later")
-        self.assertEqual(named(found=[[400, 600, 100, 100]]), (620, 230, 940, 440))
-        self.assertEqual(named(captions=["a line"]), (300, 420, 700, 600))
+        strip, under = tools.EFFECT_BOXES[0], (300, 420, 700, 600)
+        self.assertEqual(named(), strip)
+        self.assertEqual(named(titles=[({"start": 0, "end": 30, "text": "x"}, high)]), under)
+        self.assertEqual(named(titles=[({"start": 8, "end": 30, "text": "x"}, high)]), strip, "shown later")
+        self.assertEqual(named(found=[high]), under)
+        self.assertEqual(named(captions=["a line"]), under)
         self.assertIsNone(named(found=[[0, 0, 1080, 1920]]))
+
+    def test_a_refusal_for_a_phone_or_a_face_names_a_clear_box_too(self):
+        """Sport 033344-78ec on 11-01: 7 tries on one goal, from the title to the buttons to a face, and it got no burst."""
+        from unittest import mock
+        script = self.to_moment()
+        with mock.patch.object(tools, "_face_times", return_value=([(5, [[400, 900, 300, 300]])], 1)):
+            _, steps = self.run_job(
+                *script, [call("make_clip", moment=1, layout="card", why="the play")],
+                [call("add_flurry", stickers=["coin"], at=5, box=[100, 300, 900, 700], why="the buttons")],
+                [call("add_flurry", stickers=["coin"], at=5, box=[300, 420, 700, 600], why="a face")],
+                [call("add_sticker", sticker="star", at=5, box=[850, 620, 940, 700], why="the buttons")],
+                [call("add_sticker", sticker="star", at=5, box=[300, 420, 700, 600], why="a face")], "Done.")
+        said = "Clear of all that at 5 s: the box [120, 235, 880, 400]."
+        for step, why in zip(steps[-4:], ("On a phone", "would cover a face", "On a phone", "would cover a face")):
+            self.assertTrue(step["refused"], step["result"])
+            self.assertIn(why, step["result"])
+            self.assertIn(said, step["result"])
+
+    def test_a_match_is_told_which_goals_have_no_burst(self):
+        """033344-78ec and 032940-bc6c on 11-01: 1 of 4 goals marked, and none."""
+        job = types.SimpleNamespace(chat=types.SimpleNamespace(clip={"recipe": "sport"}))
+        first, second = {"text": "0-1", "start": 0, "end": 20}, {"text": "0-2", "start": 20, "end": 40}
+        state = {"titles": [first, second], "flurries": [{"at": 7, "length": 1.4}]}
+        self.assertEqual(tools._no_burst(job, state), tools.NO_BURST % '"0-2"')
+        self.assertEqual(tools._no_burst(job, dict(state, flurries=[])), tools.NO_BURST % '"0-1", "0-2"')
+        self.assertEqual(tools._no_burst(job, dict(state, flurries=[{"at": 7, "length": 1.4}, {"at": 25, "length": 1.4}])), "")
+        self.assertEqual(tools._no_burst(types.SimpleNamespace(chat=types.SimpleNamespace(clip={"recipe": "game"})), state), "")
 
     def test_captions_are_translated_when_the_speaker_speaks_another_language_than_the_person(self):
         """Tarm 10-31: a person asking in Thai over an English recording gets Thai captions without asking for them."""

@@ -2,7 +2,7 @@
 name: explain
 title: Tutorial or screen explainer
 chip: It's someone explaining
-description: A person explains or shows how to do something: a tutorial, a software demo, a lesson or a walkthrough of a screen, often with a face camera in a corner. Pick it when the recording teaches or shows how something works.
+description: A person teaches the viewer something: a tutorial, a software demo, a lesson or a walkthrough of a screen, often with a face camera in a corner. Pick it when they speak to the viewer to teach how it is done. People doing something together and talking among themselves are not this, even when something gets made.
 length: 45
 style: clean
 map: sound 1, screen 1
