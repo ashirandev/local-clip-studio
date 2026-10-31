@@ -505,6 +505,26 @@ class Arrange(unittest.TestCase):
         out.chat.finished = lambda: None
         self.assertIn("decide_people", agent.Job.finish_tools(out), "a job out of steps can still decide, as the render asks it")
 
+    def test_everyone_may_be_blurred_when_the_person_asked_and_the_clip_is_not_a_talk(self):
+        """062425-7bbc on 11-01: blur all was refused, and Muse kept one face to fill the clip, the one the person meant."""
+        people = [{"n": n, "blur": None, "seen": 2, "from": 0.0, "to": 1.0} for n in (1, 2, 3)]
+
+        def decided(recipe, said):
+            job = types.SimpleNamespace(n=1, asked=False, edit=lambda entry: {"people": people}, chat=types.SimpleNamespace(
+                clip={"recipe": recipe}, events=[{"kind": "person", "text": said}]))
+            with mock.patch.object(tools, "_open", return_value={}), \
+                    mock.patch.object(tools, "_clip_state", return_value={"people": people}), \
+                    mock.patch.object(tools, "_show_frame", return_value="shown"):
+                tools.decide_people(job, "go", blur=[1, 2, 3])
+
+        decided("montage", "เบลอหน้าคนอื่น")
+        with self.assertRaises(tools.Refused) as said:
+            decided("montage", "ทำคลิปให้หน่อย")
+        self.assertEqual(str(said.exception), tools.ALL_BLUR)
+        with self.assertRaises(tools.Refused) as said:
+            decided("talk", "เบลอหน้าคนอื่น")
+        self.assertEqual(str(said.exception), tools.TALK_BLUR, "a talk is its people: their exact words are asked for")
+
     def test_what_counts_as_an_ask_to_blur_faces(self):
         def asked(*said):
             return tools._blur_asked(types.SimpleNamespace(chat=types.SimpleNamespace(

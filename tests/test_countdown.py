@@ -390,9 +390,10 @@ class MakeCountdown(unittest.TestCase):
         self.assertEqual(first["result"], tools.READ_BOARD)
         self.assertFalse(made["refused"], made["result"])
         times = [at for at, side in seen if side == tools.BOARD_SIDE]
-        self.assertEqual(len(times), 2, "this recording has nothing 30 s after the last goal")
+        self.assertEqual(len(times), 3, "this recording has nothing 30 s after the last goal, so its end comes next")
         self.assertAlmostEqual(times[0], 6, delta=1.5)
         self.assertAlmostEqual(times[1], 22, delta=1.5)
+        self.assertGreater(times[2], 37)
 
     def test_the_board_pictures_end_after_the_last_goal_and_are_at_most_eight(self):
         job = mock.Mock()
@@ -401,9 +402,15 @@ class MakeCountdown(unittest.TestCase):
             self.assertEqual(tools._read_the_board(job, {"seconds": 2000.0}, spans), tools.READ_BOARD)
         times = [c.kwargs["at"] for c in frame.call_args_list]
         self.assertEqual(len(times), tools.ACROSS_PICTURES)
-        self.assertEqual(times[:2], [400.0, 500.0], "the earliest attacks go first")
-        self.assertEqual(times[-2:], [940.0, 955.0])
+        self.assertEqual(times[:2], [500.0, 600.0], "the earliest attacks go first")
+        self.assertEqual(times[-3:], [940.0, 955.0, 1980.0], "the last near the end of the recording")
         self.assertEqual(job.attach.call_count, tools.ACROSS_PICTURES)
+
+    def test_the_last_board_picture_is_inside_the_recording_and_after_the_last_goal(self):
+        for seconds, want in ((930.0, [910.0]), (900.0, []), (950.0, [930.0, 945.0]), (970.0, [930.0, 945.0, 950.0])):
+            with mock.patch.object(recording, "frame", return_value="f.jpg") as frame:
+                tools._read_the_board(mock.Mock(), {"seconds": seconds}, [[880.0, 900.0]])
+            self.assertEqual([c.kwargs["at"] for c in frame.call_args_list], [880.0] + want, seconds)
 
     def test_a_picture_is_as_wide_as_asked(self):
         small, big = (recording.frame(recording.probe(self.clip), at=1.0, side=side) for side in (540, 1024))
