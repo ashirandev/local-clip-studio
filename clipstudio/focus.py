@@ -463,6 +463,7 @@ THING_PERSIST = 0.5
 THING_HOLD = 1.0
 THING_SMOOTH = 0.5
 THING_LOST = 1.5
+THING_FAINT = 0.25
 THING_STEP = 0.15
 THING_KEEP = 0.85
 THING_LEAD = 0.3
@@ -490,7 +491,9 @@ def thing(mask, pieces, size, aspect, rest=None):
     the side and does not shake with the hand that holds it; a move under THING_STEP of its width is not made. Since
     the clip is planned whole, a move starts THING_LEAD s before the thing began to leave, so the pan meets it. Where
     the thing is not seen the window holds, and once it has been gone THING_LOST s (put down, out of the picture) the
-    window goes to rest, the x the person is at, so the clip shows them rather than an empty place. Measured 10-30 by
+    window goes to rest, the x the person is at, so the clip shows them rather than an empty place. Under THING_FAINT of
+    its usual size it counts as not seen: Meta's SAM keeps a sliver of a product at the edge of a hand, and the window
+    stayed on an empty stand for 5 s and on half a face for 4 (10-31). Measured 10-30 by
     cut_off on two stretches of Tarm's controller, 28 s and 31 s: moved by its middle alone, the window cut it for
     4.3 s of the first, 5 stretches over half a second (a controller as wide as the window, its middle never near
     the side, 15-25% of it off the window for 2.5 s; and 0.5 s behind each quick swing); keeping THING_KEEP inside
@@ -502,9 +505,11 @@ def thing(mask, pieces, size, aspect, rest=None):
         return None
     pictures, k = _thing_pictures(mask, pieces, size)
     seen, offset = [], sum(b - a for a, b in pieces)
+    sizes = [float(f.sum()) for _, f in pictures if f.sum()]
+    faint = THING_FAINT * statistics.median(sizes) if sizes else 0
     for t, f in pictures:
         cols = f.sum(axis=0)
-        seen.append((t, float((cols * np.arange(f.shape[1])).sum() / cols.sum()) / k if cols.sum() else None, cols))
+        seen.append((t, float((cols * np.arange(f.shape[1])).sum() / cols.sum()) / k if cols.sum() > faint else None, cols))
     found = [(t, c) for t, c, _ in seen if c is not None]
     if not found:
         return None

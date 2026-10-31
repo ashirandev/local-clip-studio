@@ -3616,6 +3616,8 @@ KEYS_ASK = ("These are the caption lines of a short clip, in order. For each lin
             "written in the line, or \"\" when no word stands out. Give back one key for each line, in order.\n\n%s")
 KEYS_SCHEMA = {"type": "object", "properties": {"keys": {"type": "array", "items": {"type": "string"}}},
                "required": ["keys"], "additionalProperties": False}
+ENGLISH_WORDS = {"the", "this", "that", "from", "with", "make", "please", "for", "and", "of", "to", "my", "it", "is",
+                 "again", "add", "use", "show", "give", "can", "you"}
 SUBTITLES = {"English": ("english", "en", "eng", "อังกฤษ", "ภาษาอังกฤษ"), "Thai": ("thai", "th", "ไทย", "ภาษาไทย")}
 SENTENCE_GAP = 0.7
 SENTENCE_SHORT = 1.5
@@ -3942,12 +3944,16 @@ def _subtitles(name):
 
 
 def _asked_in(job):
-    """The language of the person's last words, when the studio writes captions in it, else None: a clip whose speaker
-    speaks another language gets its captions translated with nobody asking (Tarm 10-31, "โอเค ลองเลยนะ"). A path in
-    the words says nothing of it."""
+    """The language of the person's last words, when the studio writes captions in it and the words leave no doubt,
+    else None: a clip whose speaker speaks another language gets its captions translated with nobody asking (Tarm
+    10-31, "โอเค ลองเลยนะ"). A path in the words says nothing of it. Latin letters alone do not say English: a person
+    writing Spanish over a Spanish video would get English captions (Tarm: "ถ้า user ใช้ภาษาอื่นจะมีปัญหาปะ"), so
+    English takes one of its own small words, and with none the captions stay as they were said."""
     said = [PLACES.sub(" ", e["text"]) for e in job.chat.events if e["kind"] == "person"]
     words = said[-1] if said else ""
-    return "Thai" if re.search("[ก-๛]", words) else "English" if re.search("[A-Za-z]{2}", words) else None
+    if re.search("[ก-๛]", words):
+        return "Thai"
+    return "English" if ENGLISH_WORDS & set(re.findall(r"[a-z']+", words.lower())) else None
 
 
 def _spoken(job, texts):

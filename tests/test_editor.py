@@ -2178,6 +2178,10 @@ class Tools(unittest.TestCase):
         self.assertIsNone(tools._asked_in(job), "a path says nothing of the language")
         job.chat.events[:] = []
         self.assertIsNone(tools._asked_in(job))
+        job.chat.events.append({"kind": "person", "text": "Haz un vídeo corto de esta grabación"})
+        self.assertIsNone(tools._asked_in(job), "Spanish is not English: its captions stay as said")
+        job.chat.events.append({"kind": "person", "text": "短いクリップを作って"})
+        self.assertIsNone(tools._asked_in(job))
 
     def test_a_thai_clip_for_a_person_who_asked_in_english_gets_english_captions_unasked(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "ตั้งค่าเครื่องง่ายมาก"},

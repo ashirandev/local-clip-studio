@@ -335,6 +335,15 @@ class Thing(unittest.TestCase):
         self.assertIsNone(focus.thing({"path": "never read", "fps": 30, "from": 0, "to": 8}, [[0, 8]], (360, 640),
                                       9 / 16.0), "a vertical recording has nowhere to move")
 
+    def test_a_sliver_of_the_product_does_not_hold_the_frame_on_an_empty_place(self):
+        """Meta's SAM kept a sliver at the edge of a hand: the frame stayed on an empty stand for 5 s (10-31)."""
+        from test_cutout import make_mask
+        path = make_mask(self.tmp, "sliver.mkv", 8, 0, "if(lt(T,4),lt(abs(X-520),30)*lt(abs(Y-180),40),"
+                                                       "lt(abs(X-520),3)*lt(abs(Y-180),4))")
+        plan = focus.thing({"path": path, "fps": 30, "from": 0, "to": 8}, [[0, 8]], (640, 360), 9 / 16.0, 320)
+        self.assertEqual([s["x"] for s in plan["shots"]], [418, 220], "back to the person")
+        self.assertAlmostEqual(plan["shots"][1]["from"], 4.0, delta=0.1, msg="from where it faded, THING_LOST s later")
+
     def test_a_product_as_wide_as_the_frame_is_kept_whole_though_its_middle_never_nears_the_side(self):
         """Tarm's controller, 10-30: as wide as the window, its middle inside, 15-25% of it off the window for 2.5 s.
         Here 180 px wide in the 202 px window, its middle moving from 200 to 240, still inside the middle 60%."""

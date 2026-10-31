@@ -28,10 +28,13 @@ import numpy as np
 
 from . import picture, recording, render
 
+# "Keep its top third calm and plain" drew a flat panel with a hard line across the picture (222 between two rows where
+# a room's edge gives about 20): the seller's pad 10-31, 1 of 6 drawings, and none of 6 with this ask.
 ASK = ("The background behind a person in a short vertical video, seen from where the camera stands: %s. An empty "
        "place with nobody in it, photo-like, softly out of focus as a place is behind a person filmed up close, in "
-       "soft even light. Keep its top third calm and plain, such as a wall, so a title can be read on it. No people, "
-       "hands, writing, letters, numbers, logos or watermarks anywhere in it.")
+       "soft even light. One continuous photograph from top to bottom: the room goes on upward with its own wall or "
+       "ceiling, with no band, panel, border or line across it, and little detail in its upper part. No people, hands, "
+       "writing, letters, numbers, logos or watermarks anywhere in it.")
 SIZE = "1080x1920"
 WIDTH, HEIGHT = 1080, 1920
 SAMPLES = 6

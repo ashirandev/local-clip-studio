@@ -21,6 +21,8 @@ After the clip, the viewer has learned one thing they can use: one tip, one step
 - Rank the stretches by how much the screen changes while the person talks: a result appearing, a page changing, a
   before and after.
 - Skip waiting: loading, typing a long text, silence while a program thinks.
+- On money, trading or investing, take a stretch that teaches what something is or what to prepare, never one that
+  tells the viewer how much to invest, how to split their money, or what to buy.
 
 ## Rules
 
