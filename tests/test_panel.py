@@ -737,7 +737,7 @@ class ShotFrames(Clip):
         lay = laid_as_talk(self.chat)
         one = lay["parts"][0]["src"]
         self.assertIsNone(self.chat.set_shot(4.0, 8.0, 1, float(one[0]), float(one[1])))
-        self.assertEqual([p[0] for p in self.places()], [1, 1, 1])
+        self.assertEqual([p[0] for p in self.places()], [1], "the same person at the same place is one shot")
         self.assertIsNone(self.chat.set_shot(4.0, 8.0, 0))
         self.assertEqual(self.places()[1], (0, None, None))
         self.assertIn("it shows everyone", self.chat.told[-1])
@@ -753,8 +753,35 @@ class ShotFrames(Clip):
         self.make()
         self.assertIn("Only a clip in the talk layout has shots", self.chat.set_shot(0.0, 4.0, 1, 0.0, 0.0))
         laid_as_talk(self.chat)
-        self.assertIn("too short to see", self.chat.set_shot(4.0, 4.01, 1))
+        self.assertIn("A shot of 5-5.01 s is too short to see", self.chat.set_shot(5.0, 5.01, 1))
+        self.assertIn("A shot of 0-0.2 s is too short to see", self.chat.set_shot(0.2, 4.0, 2), "the one it leaves")
+        self.assertIn("must come after start", self.chat.set_shot(8.0, 4.0, 1))
         self.assertIn("show 3 is not one of the people", self.chat.set_shot(4.0, 8.0, 3, 0.0, 0.0))
+
+    def test_the_cut_between_two_shots_moves_and_each_keeps_its_place(self):
+        self.make()
+        lay = laid_as_talk(self.chat)
+        one, two = (p["src"] for p in lay["parts"])
+        self.assertEqual(self.chat.panel()["frame"]["least"], talk.SHORTEST_TURN / 2)
+        self.assertIsNone(self.chat.set_shot(3.9, 4.0, 2, float(two[0]), float(two[1])), "a tenth of a second is no shot")
+        self.assertEqual([(s["from"], s["to"], s["moved"]) for s in self.chat.panel()["frame"]["shots"]][:2],
+                         [(0.0, 3.9, False), (3.9, 8.0, False)])
+        self.assertIsNone(self.chat.set_shot(3.9, 8.0, 2, 10.0, 4.0))
+        self.assertIsNone(self.chat.set_shot(8.0, 9.0, 2, 10.0, 4.0))
+        shots = self.chat.panel()["frame"]["shots"]
+        self.assertEqual([(s["from"], s["to"], s["x"], s["moved"]) for s in shots],
+                         [(0.0, 3.9, one[0], False), (3.9, 9.0, 10, True), (9.0, shots[2]["to"], one[0], False)])
+        self.assertIsNone(self.chat.set_shot(3.9, 9.0, 2, float(two[0]), float(two[1])))
+        self.assertFalse(self.chat.panel()["frame"]["shots"][1]["moved"], "back at their own place")
+
+    def test_a_short_shot_elsewhere_stops_nothing(self):
+        self.make()
+        lay = laid_as_talk(self.chat)
+        shots = [dict(s) for s in lay["shots"]]
+        shots[1:2] = [{"from": 4.0, "to": 6.0, "show": 2}, {"from": 6.0, "to": 6.3, "show": 1},
+                      {"from": 6.3, "to": 8.0, "show": 2}]
+        self.chat.edit({"do": "layout", "part": "shots", "box": None, "layout": dict(lay, shots=shots)})
+        self.assertIsNone(self.chat.set_shot(9.0, 10.0, 2, 10.0, 4.0), "the program's own quick cut is left to stand")
 
     def test_a_clip_that_is_not_a_talk_still_has_one_frame(self):
         self.make()

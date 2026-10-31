@@ -119,6 +119,13 @@ class Turns(unittest.TestCase):
                                                                   {"from": 6, "to": 10, "show": 1, "crop": [5, 6]},
                                                                   {"from": 10, "to": 20, "show": 2}])
         self.assertEqual(talk.with_shot(shots, 12, 14, 1, [7, 8])[2], {"from": 12, "to": 14, "show": 1, "crop": [7, 8]})
+        self.assertEqual(talk.with_shot(shots, 10, 12, 1)[0], {"from": 0, "to": 12, "show": 1, "crop": [5, 6]},
+                         "a shot made longer from its end keeps its place too")
+        self.assertEqual(talk.with_shot(shots, 4, 6, 1, False)[1], {"from": 4, "to": 6, "show": 1},
+                         "the person's own place again")
+        far = [{"from": 0, "to": 5, "show": 1, "crop": [5, 6]}, {"from": 5, "to": 10, "show": 2},
+               {"from": 10, "to": 15, "show": 1}]
+        self.assertEqual(talk.with_shot(far, 12, 13, 1), far, "a shot further off gives this one nothing")
         placed = [{"from": 0, "to": 5, "show": 1, "crop": [5, 6]}, {"from": 5, "to": 9, "show": 1}]
         self.assertEqual(talk.without_everyone(placed), placed, "two places of one person stay two shots")
 
@@ -287,6 +294,9 @@ class Talk(unittest.TestCase):
         self.assertEqual(talk.crop_at(lay, 2, [500, 500]), [round(640 - w / 2), round(360 - h / 2)])
         self.assertEqual(talk.crop_at(lay, 2, [0, 0]), [0, 0])
         self.assertEqual(talk.crop_at(lay, 2, [1000, 1000]), [1280 - w, 720 - h])
+        x, y = lay["parts"][1]["src"][:2]
+        self.assertIs(talk.crop_at(lay, 2, [1000 * (x + w / 2) / 1280, 1000 * (y + h / 2) / 720]), False,
+                      "their own place is no place of its own")
 
     def test_a_shot_given_a_place_stays_over_the_recording_when_the_ends_move(self):
         three = persons() + [{"n": 3, "box": [600, 200, 160, 160]}]

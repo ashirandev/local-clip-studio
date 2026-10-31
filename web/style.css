@@ -465,6 +465,10 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .frame-pick.held { cursor: grabbing; }
 .frame-tag { position: absolute; transform: translate(-50%, -100%); min-width: 22px; padding: 2px 6px; border-radius: 999px; background: var(--sh-accent); color: var(--sh-on-accent); font-size: 12px; font-weight: 700; text-align: center; pointer-events: none; }
 .frame-people { margin-top: 12px; }
+.lane.shots .block { padding: 0 2px; background: #BFE3C8; text-align: center; }
+.lane.shots .block.on { z-index: 1; outline: 2px solid #FFFFFF; outline-offset: 1px; }
+.shot-cut { position: absolute; top: 0; bottom: 0; z-index: 2; width: 12px; margin-left: -6px; cursor: ew-resize; touch-action: none; }
+.shot-cut::after { content: ""; position: absolute; top: 2px; bottom: 2px; left: 5px; width: 2px; border-radius: 1px; background: #0E1420; }
 .ico.flip { transform: scaleX(-1); }
 .playhead { position: absolute; top: -4px; bottom: 0; width: 2px; margin-left: -1px; border-radius: 1px; background: #FFFFFF; pointer-events: none; }
 .playhead::before { content: ""; position: absolute; top: -4px; left: -5px; width: 12px; height: 12px; border-radius: 50%; background: #FFFFFF; }

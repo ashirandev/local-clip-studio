@@ -731,12 +731,13 @@ class Chat:
                 "why": None}
 
     def shot_frames(self, lay):
-        """The shots of a talk clip for the Frame tab: {"shots": [{"from", "to", "show", "x", "y"}] with x and y the left
-        top of the shot's frame in the recording's pixels (None in a shot of everyone), "people": [{"n", "x", "y": their
-        own place, "at": a point just above their head}], "size": the recording's [w, h], "width" and "height": the
-        frame's, "together": True when a shot may show everyone, "why": None}."""
+        """The shots of a talk clip for the Frame tab and the timeline: {"shots": [{"from", "to", "show", "x", "y",
+        "moved"}] with x and y the left top of the shot's frame in the recording's pixels (None in a shot of everyone)
+        and moved True when it is not their own place, "people": [{"n", "x", "y": their own place, "at": a point just
+        above their head}], "size": the recording's [w, h], "width" and "height": the frame's, "together": True when a
+        shot may show everyone, "least": the shortest shot in seconds, "why": None}."""
         parts = {p["name"]: p for p in lay["parts"]}
-        shots = [dict(s, x=None, y=None) for s in lay["shots"]]
+        shots = [dict(s, x=None, y=None, moved=bool(s.get("crop"))) for s in lay["shots"]]
         for s in shots:
             if s["show"]:
                 s["x"], s["y"] = talk.crop_of(parts, s)[:2]
@@ -745,7 +746,7 @@ class Chat:
         src = parts["person 1"]["src"]
         return {"shots": [{k: v for k, v in s.items() if k != "crop"} for s in shots], "people": people,
                 "size": list(lay["size"]), "width": src[2], "height": src[3], "together": not lay.get("seats"),
-                "why": None}
+                "least": talk.SHORTEST_TURN / 2, "why": None}
 
     def set_shot(self, start, end, show, x=None, y=None):
         """The person's shot of a talk clip, from the Frame tab: change_shot's own edit, as set_mute, showing person

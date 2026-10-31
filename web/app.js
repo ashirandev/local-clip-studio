@@ -1668,6 +1668,78 @@ function pickShown(c) {
   drawFrame();
 }
 
+function tapShot(s) {
+  if (sheet.hidden || room.part !== "frame") openSheet("frame");
+  pickShot(s);
+}
+
+function cutDrag(e, node) {
+  const f = room.panel.frame;
+  const k = Number(node.dataset.n);
+  const a = f.shots[k - 1];
+  const b = f.shots[k];
+  const box = node.parentNode.getBoundingClientRect();
+  const length = room.panel.length;
+  const x0 = e.clientX;
+  let t = b.from;
+  const move = (ev) => {
+    if (Math.abs(ev.clientX - x0) > 3) room.dragged = true;
+    if (!room.dragged) return;
+    t = Math.round(Math.max(a.from + f.least, Math.min(b.to - f.least, b.from + ((ev.clientX - x0) / box.width) * length)) * 10) / 10;
+    node.style.left = (100 * t) / length + "%";
+    seek(t);
+  };
+  const up = async () => {
+    const dragged = room.dragged;
+    setTimeout(() => (room.dragged = false), 0);
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", up);
+    if (!dragged) {
+      tapShot(b);
+      return;
+    }
+    if (t === b.from) return;
+    const s = t > b.from ? a : b;
+    const body = { chat: room.chat, start: Math.min(t, b.from), end: Math.max(t, b.from), show: s.show };
+    if (s.show) Object.assign(body, { x: s.x, y: s.y });
+    try {
+      const d = await post("/api/shot", body);
+      if (!d.ok) clipLine.textContent = d.error || "The shot could not be moved.";
+    } catch (err) {
+      clipLine.textContent = "The studio is not answering. Start it again with: python app.py";
+    }
+    loadPanel();
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+  window.addEventListener("pointercancel", up);
+}
+
+function shotLane(d) {
+  const lane = el("div", "lane shots");
+  lane.setAttribute("role", "group");
+  lane.setAttribute("aria-label", "Shots");
+  const track = el("div", "track");
+  d.frame.shots.forEach((s, k) => {
+    const b = el("button", "block" + (s.moved ? " typed" : ""), s.show ? String(s.show) : "All");
+    b.type = "button";
+    b.style.left = (100 * s.from) / d.length + "%";
+    b.style.width = (100 * (s.to - s.from)) / d.length + "%";
+    b.setAttribute("aria-label", "Shot from " + s.from.toFixed(1) + " to " + s.to.toFixed(1) + " s: " + (s.show ? "person " + s.show : "everyone") + (s.moved ? ", its frame where you put it" : "") + ". Tap to change it.");
+    b.addEventListener("click", () => tapShot(s));
+    track.appendChild(b);
+    if (k) {
+      const cut = el("i", "shot-cut");
+      cut.dataset.n = k;
+      cut.style.left = (100 * s.from) / d.length + "%";
+      track.appendChild(cut);
+    }
+  });
+  lane.append(ico("move", "sm lane-ico"), track);
+  return lane;
+}
+
 function drawShotRow(f, s) {
   const shots = JSON.stringify(f.shots);
   if (room.shotRow !== shots) {
@@ -1686,6 +1758,7 @@ function drawShotRow(f, s) {
     shotRow.scrollLeft = left;
   }
   [...shotRow.children].forEach((b, k) => b.setAttribute("aria-pressed", String(f.shots[k] === s)));
+  lanes.querySelectorAll(".lane.shots .block").forEach((b, k) => b.classList.toggle("on", f.shots[k] === s));
   const picked = shotRow.children[f.shots.indexOf(s)];
   if (picked && room.shotSeen !== s.from) {
     room.shotSeen = s.from;
@@ -2110,6 +2183,7 @@ function filmLane(d) {
 function drawWords(d) {
   lanes.textContent = "";
   lanes.appendChild(filmLane(d));
+  if (d.frame && d.frame.shots) lanes.appendChild(shotLane(d));
   const kinds = [["title", "Words on screen", "aa"], ["caption", "Captions", "cc"]];
   kinds.forEach(([kind, name, icon]) => {
     const blocks = d.words.filter((b) => b.kind === kind || (kind === "caption" && b.kind === "draft"));
@@ -2208,6 +2282,12 @@ function seek(t) {
 $("timeline").addEventListener("pointerdown", (e) => {
   room.dragged = false;
   if (!room.panel) return;
+  const cut = e.target.closest(".shot-cut");
+  if (cut) {
+    e.preventDefault();
+    cutDrag(e, cut);
+    return;
+  }
   const grip = e.target.closest(".grip");
   if (grip) {
     e.preventDefault();

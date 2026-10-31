@@ -3277,9 +3277,8 @@ def change_shot(job, why, start, end, show, centre=None):
     end = min(end, length)
     if not 0 <= start < length:
         raise Refused("start %g s is outside the clip, which is %g s long: use seconds of the clip." % (start, length))
-    if end - start < talk.SHORTEST_TURN / 2:
-        raise Refused("A shot of %g-%g s is too short to see; give it at least %g s." % (start, end,
-                                                                                       talk.SHORTEST_TURN / 2))
+    if end <= start:
+        raise Refused("end %g s must come after start %g s." % (end, start))
     if not 0 <= show <= count:
         raise Refused("show %d is not one of the people: use 1 to %d (numbered from the left), or 0 for everyone."
                       % (show, count))
@@ -3291,6 +3290,10 @@ def change_shot(job, why, start, end, show, centre=None):
                       "show one person.")
     crop = talk.crop_at(lay, show, centre) if centre is not None else None
     shots = talk.with_shot(lay["shots"], round(start, 2), round(end, 2), show, crop)
+    short = next((s for s in shots if s["to"] - s["from"] < talk.SHORTEST_TURN / 2 and s not in lay["shots"]), None)
+    if short:
+        raise Refused("A shot of %g-%g s is too short to see; give it at least %g s."
+                      % (short["from"], short["to"], talk.SHORTEST_TURN / 2))
     new = talk.make(tuple(lay["size"]), lay["people"], shots, bool(lay.get("seats")))
     state = job.edit({"do": "layout", "part": "shots", "box": None, "layout": new})
     lines = ["%s from %g to %g s. Shots now: %s." % ("Everyone is shown" if show == 0 else "Person %d is shown" % show,

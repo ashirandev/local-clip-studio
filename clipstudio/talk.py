@@ -507,16 +507,17 @@ def speaking(shots_, count):
 
 def with_shot(shots_, start, end, show, crop=None):
     """The shots with show from start to end (clip seconds), cutting into the ones it overlaps; neighbours that show
-    the same at the same place are joined. crop is where the shot's frame sits ([x, y] in the recording's pixels, the
-    person's part's own place when the shot has none); left out, the shot keeps the place a shot of that person had
-    there. Tarm 11-01: "เก็บกรอบการ crop ในแต่ละซีนเอาไว้แล้วให้ยูเซอร์ขยับเองได้ด้วย"."""
+    the same at the same place are joined. crop is where the shot's frame sits ([x, y] in the recording's pixels, or
+    False for the person's part's own place); left out, the shot keeps the place a shot of that person it overlaps or
+    touches had. Tarm 11-01: "เก็บกรอบการ crop ในแต่ละซีนเอาไว้แล้วให้ยูเซอร์ขยับเองได้ด้วย"."""
+    if crop is None:
+        crop = next((s["crop"] for s in shots_ if s["show"] == show and s.get("crop") and s["from"] <= end
+                     and s["to"] >= start), None)
     out = []
     for s in shots_:
         if s["to"] <= start or s["from"] >= end:
             out.append(dict(s))
             continue
-        if s["show"] == show:
-            crop = crop or s.get("crop")
         if s["from"] < start:
             out.append(dict(s, to=start))
         if s["to"] > end:
@@ -541,10 +542,12 @@ def crop_of(parts, shot):
 
 def crop_at(layout, show, centre):
     """Where a shot of person show sits around centre ([x, y] on a 0-1000 grid of the recording): [x, y] in the
-    recording's pixels, kept on the picture. Every shot of a clip keeps one size: a crop's size is set once per run."""
+    recording's pixels, kept on the picture, or False when that is the person's own place, so such a shot joins its
+    neighbours. Every shot of a clip keeps one size: a crop's size is set once per run."""
     src = next(p["src"] for p in layout["parts"] if p["name"] == "person %d" % show)
-    return [int(round(min(max(0.0, centre[k] * size / 1000.0 - src[2 + k] / 2.0), size - src[2 + k])))
+    crop = [int(round(min(max(0.0, centre[k] * size / 1000.0 - src[2 + k] / 2.0), size - src[2 + k])))
             for k, size in enumerate(layout["size"])]
+    return False if crop == [round(v) for v in src[:2]] else crop
 
 
 def crops_kept(before, pieces_before, after, pieces_after):
