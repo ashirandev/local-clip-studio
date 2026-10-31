@@ -753,6 +753,21 @@ class Tools(unittest.TestCase):
         self.assertIsNone(self.chat.set_words("title", 0, said, "รีสไตน์อีกรอบ"), "what the person types is theirs")
         self.assertEqual([t["text"] for t in self.chat.project.state()["titles"]], ["รีสไตน์อีกรอบ"])
 
+    def test_a_title_the_proofread_made_into_two_short_words_still_goes_back_once(self):
+        """015633-a2c5 on 11-01: Glimmer's อายุขึ้อน for อายุขึ้น, made อายุขี้อน, stayed on screen for 59 s."""
+        wrote, proofread, meant = "ตายซ้ำๆ อายุขึ้อนโดนยิง", "ตายซ้ำๆ อายุขี้อนโดนยิง", "ตายซ้ำๆ อายุขึ้นโดนยิง"
+        _, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="card", why="the game")],
+            [call("add_title", words=wrote, start=1, end=3, place="top", why="the hook")],
+            '{"texts": ["%s"]}' % proofread,
+            [call("add_title", words=meant, start=1, end=3, place="top", why="the word I meant")],
+            "Done.")
+        first, second = steps[-2:]
+        self.assertTrue(first["refused"], first["result"])
+        self.assertIn('no dictionary has "', first["result"])
+        self.assertFalse(second["refused"], second["result"])
+        self.assertEqual([t["text"] for t in self.chat.project.state()["titles"]], [meant])
+
     def test_undo_by_muse_and_by_the_person_and_the_chat_opens_again_with_the_clip(self):
         brain, steps = self.run_job(
             *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],

@@ -3554,6 +3554,7 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
     copied = None if asked else _labels_copied(job, rec, state, [words], "The title")
     if copied:
         raise Refused("Not put on. " + copied)
+    written = words
     try:
         (words,), spelling = _spell(job, [words])
     except hearing.Stopped:
@@ -3563,7 +3564,8 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
                                  _said(job, state))
     if names and not _told_once(job, "unseen"):
         raise Refused("%s. %s" % (_unseen_said(names, shown), UNSEEN_THEN % "put the title on again"))
-    odd = _odd_thai(words) if job.n is not None and not asked else []
+    # As Muse wrote it: the proofread made Glimmer's ขึ้อน into ขี้อน (11-01, 015633-a2c5), two words, so nothing was odd after it.
+    odd = _odd_thai(written) if job.n is not None and not asked else []
     if odd and not _told_once(job, "odd_title"):
         raise Refused(ODD_TITLE % ", ".join('"%s"' % bit for bit in odd))
     length, lay = state["length"], state["clip"]["layout"]
