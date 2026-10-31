@@ -3074,8 +3074,9 @@ def _make_talk(job, rec, moment, m, pieces, cut, name="talk", kept=None):
     persons = talk.people(found)
     if len(persons) < 2:
         raise Refused("The %s layout follows two or more people talking, and the program found %d sitting still in "
-                      "the moment's %d pictures. Choose the face or the subject layout." % (name, len(persons),
-                                                                                         len(found["samples"])))
+                      "the moment's %d pictures. Choose the face or the subject layout. If the people move about, "
+                      "as in a video someone edited, this is not a talk: load the vlog recipe, which keeps the whole "
+                      "picture." % (name, len(persons), len(found["samples"])))
     if name == "split" and len(persons) != 2:
         raise Refused("The split layout shows two people, one above the other, and the program found %d. Choose the "
                       "speaker or the talk layout." % len(persons))

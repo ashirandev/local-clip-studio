@@ -81,27 +81,28 @@ def people(found):
 
 
 def with_heads(persons, heads):
-    """persons with the heads Muse counted ([x, y, w, h] in the recording's pixels): each person takes the nearest head
-    as where their number goes ("head"), and a head nobody takes is someone the face finder missed, turned away or cut
-    off, who joins the people, no bigger than the biggest face so the shots stay as close. Numbered from the left again,
-    at most MOST_PEOPLE."""
+    """persons with the heads Muse counted ([{"box", "looks"}], boxes in the recording's pixels): each person takes the
+    nearest head as where their number goes ("head") and for Muse's words on them ("looks"), and a head nobody takes is
+    someone the face finder missed, turned away or cut off, who joins the people, no bigger than the biggest face so the
+    shots stay as close. Numbered from the left again, at most MOST_PEOPLE."""
     def apart(box, head):
         (ax, ay), (bx, by) = faces._centre(box), faces._centre(head)
         return math.hypot(ax - bx, ay - by)
 
     out = [dict(p) for p in persons]
     placed, taken = set(), set()
-    for _, i, k in sorted((apart(p["box"], h), i, k) for i, p in enumerate(persons) for k, h in enumerate(heads)):
+    for _, i, k in sorted((apart(p["box"], h["box"]), i, k) for i, p in enumerate(persons) for k, h in enumerate(heads)):
         if i not in placed and k not in taken:
-            out[i]["head"] = heads[k]
+            out[i].update(head=heads[k]["box"], looks=heads[k]["looks"])
             placed.add(i)
             taken.add(k)
     biggest = max(max(p["box"][2:]) for p in persons)
-    for k, (x, y, w, h) in enumerate(heads):
+    for k, head in enumerate(heads):
         if k not in taken and len(out) < MOST_PEOPLE:
+            x, y, w, h = head["box"]
             bw, bh = min(w, biggest), min(h, biggest)
-            out.append({"box": [x + (w - bw) / 2, y + (h - bh) / 2, bw, bh], "head": heads[k], "seen": 0,
-                        "of": persons[0]["of"]})
+            out.append({"box": [x + (w - bw) / 2, y + (h - bh) / 2, bw, bh], "head": head["box"], "looks": head["looks"],
+                        "seen": 0, "of": persons[0]["of"]})
     return [dict(p, n=i) for i, p in enumerate(sorted(out, key=lambda p: p["box"][0]), 1)]
 
 

@@ -28,7 +28,8 @@ Numbers from the faces found are not enough: on EP0 the man turned away had no f
 turn to person 1 (Tarm: "ถ่ายเน้นที่ Donut เยอะมาก"). Tarm's idea, 10-31: show Muse a picture and let it say who is there.
 Muse Spark counts the heads in one picture (HEADS_ASK, $0.006): 4 people on 9 asks of 9 across 3 frames, the same order
 each time, each box on or near the head, though up to 15% off, so good for a number and for a shot this wide, and a face
-found stays the better box (talk.with_heads).
+found stays the better box (talk.with_heads). Its few words on each person go in Wonder's question: with the numbers alone
+Wonder gave EP0's turns to men 1 and 3, with Spark's words to men 4 and 2, as Tarm's ear has them (10-31, 2 of 2).
 """
 import base64
 import json
@@ -62,7 +63,7 @@ MOST_TURNS = 6
 NUMBERED_LONGEST = 960
 WHO_SURE = 0.5
 WHO_TOKENS = 600
-WHO_ASK = ("%d people in this video have a yellow number near their head. Someone else may be there with no number. One "
+WHO_ASK = ("%d people in this video have a yellow number near their head%s. Someone else may be there with no number. One "
            "person does most of the talking in this stretch. Watch and listen: whose mouth moves with the words, whose "
            "hands and face go with them. Someone who only laughs or nods is not talking. Which number is talking? Give "
            "the number, or 0 when it is someone with no number; how sure you are from 0 to 1; and one short line on what "
@@ -302,23 +303,26 @@ def heads_question(path):
 
 
 def heads_answer(text, rec):
-    """The heads in Muse's answer, [x, y, w, h] in pixels of the recording from the left, or None when it cannot be
-    read. A box with no size or off the picture is left out."""
+    """The heads in Muse's answer from the left, [{"box": [x, y, w, h] in pixels of the recording, "looks": its words}],
+    or None when it cannot be read. A box with no size or off the picture is left out."""
     try:
-        boxes = [(float(a), float(b), float(c), float(d)) for a, b, c, d in (p["head"] for p in json.loads(text)["people"])]
+        said = [((float(a), float(b), float(c), float(d)), str(p.get("looks") or "")) for p, (a, b, c, d) in
+                ((p, p["head"]) for p in json.loads(text)["people"])]
     except (ValueError, KeyError, TypeError):
         return None
     w, h = rec["width"] / 1000.0, rec["height"] / 1000.0
-    return sorted([round(a * w, 1), round(b * h, 1), round((c - a) * w, 1), round((d - b) * h, 1)]
-                  for a, b, c, d in boxes if 0 <= a < c <= 1000 and 0 <= b < d <= 1000)
+    return sorted(({"box": [round(a * w, 1), round(b * h, 1), round((c - a) * w, 1), round((d - b) * h, 1)], "looks": looks}
+                   for (a, b, c, d), looks in said if 0 <= a < c <= 1000 and 0 <= b < d <= 1000),
+                  key=lambda head: head["box"])
 
 
 def who_question(path, persons):
     """The message that asks Muse Wonder who talks in the video at path."""
     with open(path, "rb") as f:
         video = "data:video/mp4;base64," + base64.b64encode(f.read()).decode("ascii")
-    return [{"role": "user", "content": [{"type": "text", "text": WHO_ASK % len(persons)},
-                                         {"type": "video_url", "video_url": {"url": video}}]}]
+    told = "; ".join("%d, %s" % (p["n"], p["looks"]) if p.get("looks") else str(p["n"]) for p in persons)
+    ask = WHO_ASK % (len(persons), ": " + told if any(p.get("looks") for p in persons) else "")
+    return [{"role": "user", "content": [{"type": "text", "text": ask}, {"type": "video_url", "video_url": {"url": video}}]}]
 
 
 def who_answer(text, persons):

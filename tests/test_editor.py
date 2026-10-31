@@ -1155,7 +1155,7 @@ class Tools(unittest.TestCase):
         self.assertEqual(len(spark.sent), 1, "the clip made again asks nobody again")
         self.assertIn("image_url", json.dumps(spark.sent[0]))
         self.assertEqual(len(wonder.sent), 2)
-        self.assertIn("3 people in this video have a yellow number", json.dumps(wonder.sent[0]))
+        self.assertIn("near their head: 1, left; 2, middle; 3, turned away on the right.", json.dumps(wonder.sent[0]))
         clip = self.chat.project.state()["clip"]
         self.assertEqual([v["who"] for v in clip["voices"]], [3, 1])
         self.assertEqual(clip["layout"]["shots"][0]["show"], 3, "the zoom goes to him")
@@ -2637,6 +2637,7 @@ class Tools(unittest.TestCase):
         brain, steps = self.run_job([call("make_clip", moment=1, layout="talk", why="one person")], "Done.")
         self.assertTrue(steps[-1]["refused"])
         self.assertIn("found 1 sitting still", steps[-1]["result"])
+        self.assertIn("load the vlog recipe", steps[-1]["result"], "Glimmer took EP 22's cooking for a talk (10-31)")
 
     def test_a_split_talk_clip_shows_both_people_and_hides_a_viewers_handle(self):
         self.faces = found([(30 + i * 0.5, [[60, 40, 40, 40], [220, 40, 40, 40]]) for i in range(40)], size=(320, 180))

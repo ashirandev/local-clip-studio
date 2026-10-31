@@ -62,17 +62,19 @@ class NamedTurns(unittest.TestCase):
         people = [{"n": 1, "box": [280, 400, 160, 260], "seen": 40, "of": 50},
                   {"n": 2, "box": [820, 330, 120, 150], "seen": 40, "of": 50},
                   {"n": 3, "box": [1170, 316, 116, 145], "seen": 40, "of": 50}]
-        heads = [[60, 336, 440, 344], [810, 330, 210, 215], [1140, 330, 230, 226], [1244, 440, 300, 270]]
+        boxes = [[60, 336, 440, 344], [810, 330, 210, 215], [1140, 330, 230, 226], [1244, 440, 300, 270]]
+        heads = [{"box": box, "looks": "man %d" % n} for n, box in enumerate(boxes, 1)]
         out = talk.with_heads(people, heads)
         self.assertEqual([p["n"] for p in out], [1, 2, 3, 4])
         self.assertEqual([p["box"] for p in out[:3]], [p["box"] for p in people], "a face found is the better box for a shot")
-        self.assertEqual([p["head"] for p in out], heads, "every number goes on a head")
+        self.assertEqual([p["head"] for p in out], boxes, "every number goes on a head")
+        self.assertEqual([p["looks"] for p in out], ["man 1", "man 2", "man 3", "man 4"])
         self.assertEqual(out[3]["box"], [1264.0, 445.0, 260, 260], "the shots stay as close")
         fewer = talk.with_heads(people, heads[:2])
         self.assertEqual(len(fewer), 3, "a face found stays when the count misses it")
         self.assertIsNone(fewer[2].get("head"))
-        self.assertEqual(len(talk.with_heads(people, heads + [[1700, 300, 100, 100]])), talk.MOST_PEOPLE)
-        left = talk.with_heads(people, [[10, 300, 100, 100]] + heads[:3])
+        self.assertEqual(len(talk.with_heads(people, heads + [{"box": [1700, 300, 100, 100], "looks": ""}])), talk.MOST_PEOPLE)
+        left = talk.with_heads(people, [{"box": [10, 300, 100, 100], "looks": "new"}] + heads[:3])
         self.assertEqual([p["n"] for p in left], [1, 2, 3, 4], "numbered from the left again")
         self.assertEqual(left[0]["head"], [10, 300, 100, 100])
         self.assertEqual(left[0]["seen"], 0)
@@ -81,10 +83,27 @@ class NamedTurns(unittest.TestCase):
         rec = {"width": 1920, "height": 1080}
         said = {"people": [{"head": [500, 100, 600, 300], "looks": "b"}, {"head": [0, 0, 100, 200], "looks": "a"},
                            {"head": [700, 300, 650, 100], "looks": "no size"}, {"head": [900, 0, 1100, 200], "looks": "off"}]}
-        self.assertEqual(voices.heads_answer(json.dumps(said), rec), [[0.0, 0.0, 192.0, 216.0], [960.0, 108.0, 192.0, 216.0]])
+        self.assertEqual(voices.heads_answer(json.dumps(said), rec), [{"box": [0.0, 0.0, 192.0, 216.0], "looks": "a"},
+                                                                      {"box": [960.0, 108.0, 192.0, 216.0], "looks": "b"}])
         self.assertIsNone(voices.heads_answer("no", rec))
         self.assertIsNone(voices.heads_answer('{"people": [{"head": [1, 2]}]}', rec))
         self.assertIn("Count a person turned away", voices.HEADS_ASK)
+
+    def test_wonder_is_told_who_each_number_is_in_spark_s_words_when_it_has_them(self):
+        """With the numbers alone Wonder gave EP0's turns to men 1 and 3; Tarm's ear has them as 4 and 2 (10-31)."""
+        folder = tempfile.mkdtemp()
+        try:
+            path = os.path.join(folder, "a.mp4")
+            with open(path, "wb") as f:
+                f.write(b"video")
+            told = voices.who_question(path, [{"n": 1, "looks": "black shirt, far left"}, {"n": 2},
+                                              {"n": 3, "looks": "glasses"}])[0]["content"][0]["text"]
+            self.assertIn("3 people in this video have a yellow number near their head: 1, black shirt, far left; 2; 3, "
+                          "glasses. Someone else", told)
+            bare = voices.who_question(path, [{"n": 1}, {"n": 2}])[0]["content"][0]["text"]
+            self.assertIn("2 people in this video have a yellow number near their head. Someone else", bare)
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
 
     def test_a_number_sits_on_the_head_muse_saw(self):
         """Tag 1 floated in mid-air: 0.45 of a face box above a face looking sideways, off the middle of his head."""
