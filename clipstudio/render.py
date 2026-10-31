@@ -37,6 +37,7 @@ BASES, BASE_SIZE, BASE_PRESET, BASE_CRF = 1, (540, 960), "veryfast", 24
 EXPORT_SECONDS = 600
 MUSIC_LEVEL, MUSIC_LEVELS, MUSIC_DUCK = -6, (-30, 0), -12
 MUSIC_IN, MUSIC_OUT = 0.3, 1.5
+VOICE_OUT = 0.25
 # a muted stretch's edges ease over MUTE_FADE s, in frames of MUTE_FRAME samples (5 ms): at FFmpeg's own 1024 the
 # level stepped from 91% to 20% in one frame (measured 10-28 on a tone)
 MUTE_FADE, MUTE_FRAME = 0.03, 240
@@ -595,6 +596,13 @@ def _music_part(music, length):
     return "atrim=start=%.3f:duration=%.3f,asetpts=PTS-STARTPTS" % (music["from"], length)
 
 
+def _voice_out(length):
+    """The filter that eases the clip's sound out over its last VOICE_OUT s, so a last cut with nothing quiet near it is
+    no hard stop: on EP 0 at 18:54 four people talk over each other, and the next pause is 14 s on (11-01, 014436-02be)."""
+    fade = min(VOICE_OUT, length / 3)
+    return ",afade=t=out:st=%.3f:d=%s" % (length - fade, fade)
+
+
 def _mix(state, voice, length, music_input, music_measured, out):
     """Graph text to [out]: the clip's sound ([voice], or silence when the recording has none) with the sounds added
     and the music under it. The music plays music["level"] dB under the voice's -14 LUFS, and music["duck"] dB lower
@@ -713,7 +721,8 @@ def export(rec, state, out_path, on_progress=None, on_start=None, default="clean
     joined = "%sconcat=n=%d:v=1:a=%d[cat]%s;[cat]fps=%d[src]" % (
         streams, count, 1 if sound else 0, "[catsnd]" if sound else "", FPS)
     if sound:
-        joined += ";[catsnd]aresample=%d%s%s[%s]" % (RATE, muted, _level(measured), "voice" if added else "snd")
+        joined += ";[catsnd]aresample=%d%s%s%s[%s]" % (RATE, muted, _level(measured), _voice_out(length),
+                                                       "voice" if added else "snd")
     if added:
         # the limiter, so a sound landing on a loud word never goes over PEAK
         joined += ";%s;[mix]volume=%.2fdB,alimiter=limit=%.4f:level=0:latency=1[snd]" % (

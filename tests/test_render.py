@@ -872,6 +872,13 @@ class Export(unittest.TestCase):
         loud = float(re.findall(r"I:\s+(-?[\d.]+) LUFS", meter)[-1])
         self.assertLess(abs(loud - render.LUFS), 1, "the sound is at %s LUFS" % loud)
 
+    @unittest.skipUnless(HAS_NUMPY, "needs numpy")
+    def test_the_sound_eases_out_at_the_end_and_only_there(self):
+        sound = samples(self.out)
+        steady = power(sound, 2.0, 2.5)
+        self.assertLess(abs(steady - power(sound, 2.6, 2.7)), 2, "the tone holds until the last quarter second")
+        self.assertGreater(steady - power(sound, 2.95, 2.98), 12, "and is nearly gone at the end")
+
     def test_the_index_is_at_the_front_so_it_plays_while_it_downloads(self):
         with open(self.out, "rb") as f:
             head = f.read()
