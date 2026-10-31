@@ -1770,6 +1770,55 @@ def _read_across(job, rec):
             % (ACROSS_PICTURES, clock(gap)))
 
 
+# A seller shows one product after another, and a batch holds only what Muse's looks saw. Lane 5 10-31, 153416-7e05, 5 products
+# in 2:20: three looks of 30 s from the map missed the balm, and the Redmi and the Samsung went into one clip, graded 6.
+PRODUCT_RECIPES = ("seller",)
+ALL_SEEN_LONGEST, UNSEEN_LEAST, OPENING_ROOM = 600.0, 8.0, 3.0
+NOT_SEEN = ("Not proposed yet: a seller shows one product after another, and your looks had not seen %s of this recording, so "
+            "the program looked there for you.\n%s\nPropose again, a moment for each product you have seen, from these looks "
+            "too. If they show no other product, propose again and it stands.")
+NEXT_PRODUCT = re.compile(r"สินค้าชิ้น(?:ที่|ต่อไป|สุดท้าย)|ชิ้นต่อไป|ชิ้นสุดท้าย|ต่อไปเป็น|next (?:product|item)|last (?:product|item)", re.I)
+ONE_PRODUCT = ("Not proposed yet: a clip holds one product, and %s. Start the moment at that line or end it before that line, "
+               "and give the other product its own moment. If it is still the same product, propose again and it stands.")
+
+
+def _not_looked(looks, seconds):
+    """The stretches [(from, to)] of a recording of seconds, UNSEEN_LEAST s or more, that no look saw."""
+    gaps, at = [], 0.0
+    for a, b in sorted((s["start"], s["end"]) for s in looks):
+        if a - at >= UNSEEN_LEAST:
+            gaps.append((at, a))
+        at = max(at, b)
+    return gaps + ([(at, seconds)] if seconds - at >= UNSEEN_LEAST else [])
+
+
+def _all_seen(job, why, rec, moments):
+    """What Muse sees of a seller's recording that no look has shown, when it proposes several moments, else None. Once a
+    job, and not on a long live, where looking at everything is no answer."""
+    if (job.chat.clip or {}).get("recipe") not in PRODUCT_RECIPES or len(moments) < 2 or rec["seconds"] > ALL_SEEN_LONGEST:
+        return None
+    gaps = _not_looked(job.chat.looks, rec["seconds"])
+    if not gaps or _told_once(job, "all_seen"):
+        return None
+    clock = recording.clock
+    seen = [look_at_piece(job, why, clock(a), clock(b)) for a, b in gaps]
+    return NOT_SEEN % (" and ".join("%s-%s" % (clock(a), clock(b)) for a, b in gaps), "\n".join(seen))
+
+
+def _two_products(job, looks, picked):
+    """Each of a seller's moments with another product's opening inside it, past its first OPENING_ROOM s, as sentences."""
+    if (job.chat.clip or {}).get("recipe") not in PRODUCT_RECIPES:
+        return []
+    clock, out = recording.clock, []
+    for p in picked:
+        line = next((s for s in looks[p["look"] - 1].get("said") or [] if p["start"] + OPENING_ROOM < s["from"] < p["end"]
+                     and NEXT_PRODUCT.search(s["text"])), None)
+        if line:
+            out.append('moment %d (%s-%s) has another product\'s opening at %s: "%s"' % (
+                p["n"], clock(p["start"]), clock(p["end"]), clock(line["from"]), line["text"]))
+    return out
+
+
 NO_RECIPE = ("Not proposed yet: no recipe is loaded. Your load_recipe came before the recording was open, so it was not "
              "done. Call load_recipe now for what you saw, then propose these moments again.")
 
@@ -1841,6 +1890,12 @@ def propose_moments(job, why, moments, then="make"):
         picked.append({"n": i, "look": look["n"], "start": round(a, 2), "end": round(b, 2), "reason": m["reason"],
                        "snapped": snapped,
                        "frame": shown["frame"], "t": shown["t"]})
+    unseen = _all_seen(job, why, rec, moments)
+    if unseen:
+        return unseen
+    two = _two_products(job, looks, picked)
+    if two and not _told_once(job, "two_products"):
+        raise Refused(ONE_PRODUCT % "; ".join(two))
     if finer:
         raise Refused(FINER % "\n".join(finer))
     if _reads_screen(job) or (job.chat.clip or {}).get("recipe") == "game":
@@ -4729,6 +4784,17 @@ def add_picture(job, why, about, at, length=PICTURE_LENGTH):
 # The examples in put_background's description. Glimmer gave the first word for word for an iPad seller twice
 # (10-30, 155100-78b2 and 165330-f308): a gaming desk behind a tablet sold in a kitchen.
 BACKDROP_EXAMPLES = ("a tidy gaming desk with soft blue light", "a bright kitchen counter")
+EXAMPLE_PLACE = ("\"%s\" is the example in this tool's description, written for no clip in particular. Describe a place that "
+                 "suits what this clip sells or is about, from what you saw in it. If the person asked for these very words, "
+                 "put it on again with them.")
+
+
+def _example_place(job, about):
+    """True once a job when about is the tool's own example: 153416-7e05 copied it, and a batch found out after 12 minutes."""
+    if " ".join(about.lower().split()).strip(" .") not in BACKDROP_EXAMPLES or "backdrop example" in job.warned:
+        return False
+    job.warned.add("backdrop example")
+    return True
 
 
 def put_background(job, why, about):
@@ -4742,11 +4808,8 @@ def put_background(job, why, about):
     front of a green cloth: "ตัดผ้าเขียวออก แล้วใส่พื้นหลังให้เหมาะสมด้วยโมเดลของเมต้า"."""
     rec = _open(job, "put a background behind")
     state = _clip_state(job)
-    if " ".join(about.lower().split()).strip(" .") in BACKDROP_EXAMPLES and "backdrop example" not in job.warned:
-        job.warned.add("backdrop example")
-        raise Refused("\"%s\" is the example in this tool's description, written for no clip in particular. Describe a "
-                      "place that suits what this clip sells or is about, from what you saw in it. If the person asked "
-                      "for these very words, put it on again with them." % about.strip())
+    if _example_place(job, about):
+        raise Refused(EXAMPLE_PLACE % about.strip())
     clip = state["clip"]
     a, b = min(p[0] for p in clip["pieces"]), max(p[1] for p in clip["pieces"])
     held = state["mask"]
@@ -5535,6 +5598,9 @@ def make_clips(job, why, clips, blur=None):
         if plain:
             raise Refused("Nothing was made. A green cloth is behind the person in moment %s: give each clip a "
                           "background, a place that suits its product, so the cloth does not show." % _numbers(plain))
+        copied = next((c["background"] for c in clips if _example_place(job, c.get("background") or "")), None)
+        if copied:
+            raise Refused("Nothing was made. " + EXAMPLE_PLACE % copied.strip())
     pictures, lines, made, looked = len(job.pictures), [], [], []
     job.chat.hold_open_clip()
     since = job.emit("batch")["id"]

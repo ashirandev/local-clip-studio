@@ -443,6 +443,9 @@ class Tools(unittest.TestCase):
         self.short_recipes = tools.SHORT_RECIPES
         self.addCleanup(setattr, tools, "SHORT_RECIPES", self.short_recipes)
         tools.SHORT_RECIPES = ()
+        self.product_recipes = tools.PRODUCT_RECIPES
+        self.addCleanup(setattr, tools, "PRODUCT_RECIPES", self.product_recipes)
+        tools.PRODUCT_RECIPES = ()
         self.tmp = tempfile.mkdtemp()
         self.videos = os.path.join(self.tmp, "videos")
         os.makedirs(self.videos)
@@ -2756,6 +2759,92 @@ class Tools(unittest.TestCase):
         state = self.chat.project.state()
         self.assertEqual(state["clip"]["layout"]["thing"]["what"], "white game controller", "the first clip is shown")
         self.assertEqual(state["backdrop"]["about"], "a calm shop shelf")
+
+    def test_an_example_background_is_refused_before_a_batch_does_any_work(self):
+        """153416-7e05: 12 minutes of SAM and rendering, then "not handed over" for the tool's own example."""
+        from unittest import mock
+        asked = []
+
+        def cut_out(rec, a, b, **k):
+            asked.append(a)
+            raise tools.person.PersonError("not this far")
+
+        for p in self.green_cloth():
+            p.start()
+            self.addCleanup(p.stop)
+        copied = [{"moment": 1, "title": "Eaglet pad", "caption": "a pad", "hashtags": ["#pad"], "product": [600, 200, 900, 800],
+                   "what": "white game controller", "background": "A tidy gaming desk with soft blue light."}]
+        with mock.patch.object(tools.person, "cut_out", cut_out):
+            _, steps = self.several([call("make_clips", clips=copied + [dict(copied[0], moment=2)], why="two")], "Done.", recipe="seller")
+        self.assertTrue(steps[-1]["refused"], steps[-1]["result"])
+        self.assertTrue(steps[-1]["result"].startswith("Nothing was made. \"A tidy gaming desk with soft blue light.\" is the example"),
+                        steps[-1]["result"])
+        self.assertEqual(asked, [], "no work was done first")
+
+    def test_a_seller_batch_is_shown_what_no_look_saw_once_and_the_second_answer_stands(self):
+        """153416-7e05: 3 looks of 30 s of 2:20 missed the balm."""
+        tools.PRODUCT_RECIPES = self.product_recipes
+        two = [call("propose_moments", why="two", moments=[{"look": 1, "start": "0:05", "end": "0:25", "reason": "one"},
+                                                           {"look": 2, "start": "0:30", "end": "0:50", "reason": "two"}])]
+        _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="seller", why="a seller")],
+                                [call("look_at_piece", start="0:05", end="0:25", why="the first")],
+                                [call("look_at_piece", start="0:30", end="0:50", why="the second")], two, two, "Done.")
+        told, again = steps[-2:]
+        self.assertFalse(told["refused"], told["result"])
+        self.assertTrue(told["result"].startswith("Not proposed yet: a seller shows one product after another, and your looks had "
+                                                  "not seen 0:50-1:00 of this recording"), told["result"])
+        self.assertIn("Look 3: 0:50-", told["result"], "the program looked there")
+        self.assertTrue(again["result"].startswith("Proposed 2 moments"), again["result"])
+
+    def test_one_moment_or_a_look_at_everything_is_not_sent_to_see_more(self):
+        tools.PRODUCT_RECIPES = self.product_recipes
+        job = mock.Mock()
+        job.chat.clip, job.chat.events, job.chat.looks = {"recipe": "seller"}, [], [{"start": 0.0, "end": 20.0}]
+        self.assertIsNone(tools._all_seen(job, "why", {"seconds": 120.0}, [{}]), "one clip asked for")
+        self.assertIsNone(tools._all_seen(job, "why", {"seconds": 900.0}, [{}, {}]), "a long live")
+        job.chat.clip = {"recipe": "talk"}
+        self.assertIsNone(tools._all_seen(job, "why", {"seconds": 120.0}, [{}, {}]), "not a seller")
+
+    def test_what_no_look_saw_is_told_once_a_job_even_when_a_stretch_stays_unseen(self):
+        tools.PRODUCT_RECIPES = self.product_recipes
+        job = mock.Mock()
+        job.chat.clip, job.chat.looks, job.chat.events = {"recipe": "seller"}, [{"start": 0.0, "end": 20.0}], []
+        job.emit = lambda kind: job.chat.events.append({"kind": kind, "job": job.n})
+        with mock.patch.object(tools, "look_at_piece", lambda *a: "looked"):
+            self.assertIn("looked", tools._all_seen(job, "why", {"seconds": 120.0}, [{}, {}]))
+            self.assertIsNone(tools._all_seen(job, "why", {"seconds": 120.0}, [{}, {}]), "the second answer stands")
+
+    def test_a_proposed_moment_with_another_products_opening_is_sent_back_once(self):
+        """153416-7e05: the Redmi and the Samsung in one clip, graded 6."""
+        tools.PRODUCT_RECIPES = self.product_recipes
+        self.worker.phrases = [{"from": 8.0, "to": 10.0, "text": "ต่อไปเป็นโทรศัพท์ซัมซุง", "sure": 0.95}]
+        one = [call("propose_moments", why="the phones", moments=[{"look": 1, "start": "0:30", "end": "0:50", "reason": "phones"}])]
+        with mock.patch.object(tools, "_fixed_said", lambda job, rec, look, a, b, said=None: [dict(
+                p, heard=p["text"], kept="", named=[]) for p in look.get("said") or []]):
+            _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="seller", why="a seller")],
+                                    self.to_moment()[1], one, one, "Done.")
+        told, again = steps[-2:]
+        self.assertTrue(told["refused"], told["result"])
+        self.assertTrue(told["result"].startswith("Not proposed yet: a clip holds one product, and moment 1 (0:30-0:50) has another "
+                                                  "product's opening at 0:38"), told["result"])
+        self.assertTrue(again["result"].startswith("Proposed 1 moment"), again["result"])
+
+    def test_the_stretches_no_look_saw_are_found_whatever_order_the_looks_came_in(self):
+        looks = [{"start": 106.0, "end": 136.0}, {"start": 9.0, "end": 39.0}, {"start": 66.0, "end": 96.0}, {"start": 20.0, "end": 30.0}]
+        self.assertEqual(tools._not_looked(looks, 140.0), [(0.0, 9.0), (39.0, 66.0), (96.0, 106.0)], "4 s at the end is no product")
+        self.assertEqual(tools._not_looked(looks, 150.0)[-1], (136.0, 150.0))
+
+    def test_a_moment_with_another_products_opening_in_it_is_told_once(self):
+        tools.PRODUCT_RECIPES = self.product_recipes
+        job = mock.Mock()
+        job.chat.clip = {"recipe": "seller"}
+        said = [{"from": 64.0, "to": 67.0, "text": "สินค้าชิ้นที่สามคือโทรศัพท์"}, {"from": 79.0, "to": 80.0, "text": "ต่อไปเป็นโทรศัพท์ซัมซุง"}]
+        looks = [{"said": said}]
+        two = tools._two_products(job, looks, [{"n": 2, "look": 1, "start": 64.0, "end": 96.0}])
+        self.assertEqual(two, ['moment 2 (1:04-1:36) has another product\'s opening at 1:19: "ต่อไปเป็นโทรศัพท์ซัมซุง"'])
+        self.assertEqual(tools._two_products(job, looks, [{"n": 1, "look": 1, "start": 64.0, "end": 78.0}]), [], "ends before it")
+        job.chat.clip = {"recipe": "talk"}
+        self.assertEqual(tools._two_products(job, looks, [{"n": 2, "look": 1, "start": 64.0, "end": 96.0}]), [])
 
     def test_a_seller_batch_says_what_it_could_not_do_and_stops_when_the_person_stops_it(self):
         from unittest import mock
