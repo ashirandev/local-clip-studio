@@ -4253,7 +4253,7 @@ def add_captions(job, why, on=True, lit=False, pop=None, language="", hidden=Non
     phrases, doubtful, heard = [], [], []
     for n, p in enumerate(said):
         at = _in_clip(clip["pieces"], p, length)
-        if not at or _stray(p, said):
+        if not at or (_stray(p, said) and not _unsure(p)):
             continue
         if _unsure(p) and (at[0], at[1]) not in typed:
             for a, b, line, odd in _by_line(p, at):
