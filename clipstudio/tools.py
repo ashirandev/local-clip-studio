@@ -6876,7 +6876,7 @@ def load_recipe(job, why, type, length_s=None, style=None, language="", brief=""
     if recipe is None:
         raise Refused("There is no recipe for %s yet. The recipes are: %s. Do not use a recipe made for another "
                       "kind of video: tell the person a clip of this kind is not ready yet, and what the studio can "
-                      "make now." % (type, _recipe_list()))
+                      "make now." % (type, _recipe_names()))
     if not (job.chat.recording or job.chat.clips):
         job.emit("recipe_blind")
         raise Refused(BLIND)
@@ -7005,6 +7005,10 @@ def chips(clip):
     out += [{"label": LOOK_LABELS.get(s, s.capitalize()), "say": "(tapped) Use the %s style." % s, "look": s,
              "now": s == clip["style"]} for s in STYLES]
     return out
+
+
+def _recipe_names():
+    return ", ".join("%s (%s)" % (r["name"], r["title"]) for r in RECIPES.values())
 
 
 def _recipe_list():
