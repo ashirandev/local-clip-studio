@@ -121,6 +121,17 @@ class Hears(unittest.TestCase):
         self.assertEqual([(p["from"], p["to"]) for p in said], [(0.1, 8.2), (8.4, 16.5)],
                          "a second piece's turns start where it starts")
 
+    def test_the_turns_of_a_stretch_are_one_request_each_with_its_voice(self):
+        """Labels hold only inside one transcription, so the whole stretch goes as one."""
+        found, usd = asr.turns(sound((40, True)))
+        self.assertEqual(len(self.meta.got), 1)
+        self.assertEqual(self.meta.got[0]["request"]["mode"], "DIARIZATION")
+        self.assertEqual(found, [], "a turn with no speaker says nothing of who")
+        self.assertAlmostEqual(usd, 40 / 3600 * 0.18, places=6)
+        answer = {"turns": [{"startMs": 100, "endMs": 2100, "speaker": "A", "transcript": "x"}]}
+        with mock.patch.object(asr, "_answer", lambda *a: answer):
+            self.assertEqual(asr.turns(sound((3, True)))[0], [(0.1, 2.1, "A")])
+
     def test_a_broken_byte_in_the_answer_costs_only_that_byte(self):
         """Lane 4 10-31: "byte 0xad at position 831" lost the hearing of a whole look, 8 of 261 looks, and EP 22's joke."""
         self.meta.stray = b"\xad"

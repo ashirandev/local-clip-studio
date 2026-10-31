@@ -16,6 +16,13 @@ Which voice is which face: Muse is shown frames from inside each voice's longest
 over their head, and asked who is speaking in each; a voice goes to the person named in most of its pictures, and
 the two voices must go to two people. Measured on the Q&A with 4 pictures a voice and no numbers drawn: 6 of 8
 pictures right, and both voices right by the vote.
+
+Three or more people, or two whose voices are too alike, need more than pitch. Muse Voice Transcribe's DIARIZATION
+gives the turns (turns_of), and Muse Wonder names each one from a small video of it with its sound, each person's number
+near their head (numbered, WHO_ASK). Mouths could not do it: on EP0's four men the label of the same voice went to
+person 2, 1 and 3 in three runs (10-31), while Wonder gave the same man on all 6 turns, 18 of 18 answers, and Tarm's ear
+agreed with all 6 ("EP0 ถูกต้อง!"). Each turn is named by itself, as one label took in up to three men. About $0.05 a
+turn, so on the switch in Options only, kept in work/voices, and at most MOST_TURNS a clip.
 """
 import base64
 import json
@@ -43,6 +50,19 @@ ASK = ("These pictures are from a video of %d people talking, each person's numb
        "one number per picture, in order.")
 SCHEMA = {"type": "object", "properties": {"speaking": {"type": "array", "items": {"type": "integer"}}},
           "required": ["speaking"], "additionalProperties": False}
+TURN_LEAST = 1.0
+TURN_SENT = 20.0
+MOST_TURNS = 8
+NUMBERED_LONGEST = 960
+WHO_SURE = 0.5
+WHO_TOKENS = 600
+WHO_ASK = ("%d people in this video have a yellow number near their head. Someone else may be there with no number. One "
+           "person does most of the talking in this stretch. Watch and listen: whose mouth moves with the words, whose "
+           "hands and face go with them. Someone who only laughs or nods is not talking. Which number is talking? Give "
+           "the number, or 0 when it is someone with no number; how sure you are from 0 to 1; and one short line on what "
+           "you saw.")
+WHO_SCHEMA = {"type": "object", "properties": {"who": {"type": "integer"}, "sure": {"type": "number"},
+                                               "why": {"type": "string"}}, "required": ["who", "sure", "why"]}
 
 
 class VoiceError(Exception):
@@ -199,6 +219,82 @@ def match(ask, rec, voiced, persons):
     if out["low"] == out["high"]:
         raise VoiceError("Muse named the same person for both voices.")
     return out
+
+
+def turns_of(found, start):
+    """The turns to name, [{"from", "to"}] in seconds of the recording and in order: found ([(start s, end s, speaker)]
+    in seconds of the stretch from start) with one speaker's neighbours joined, those under TURN_LEAST s left out,
+    the MOST_TURNS longest."""
+    joined = []
+    for a, b, label in sorted(found):
+        if joined and joined[-1][2] == label:
+            joined[-1][1] = b
+        else:
+            joined.append([a, b, label])
+    long_ = [t for t in joined if t[1] - t[0] >= TURN_LEAST]
+    kept = sorted(sorted(long_, key=lambda t: t[0] - t[1])[:MOST_TURNS])
+    return [{"from": round(start + a, 2), "to": round(start + b, 2)} for a, b, _ in kept]
+
+
+def numbers(rec, persons, size, path):
+    """A picture of size (w, h) with each person's number near their head, the rest see-through, at path."""
+    w, h = size
+    k = w / float(rec["width"])
+    img = np.zeros((h, w, 4), np.uint8)
+    for p in persons:
+        x, y, bw, bh = [v * k for v in p["box"]]
+        cx, top = int(x + bw / 2), int(max(22, y - 0.45 * bh))
+        cv2.circle(img, (cx, top), 20, (16, 16, 16, 230), -1)
+        cv2.putText(img, str(p["n"]), (cx - 10, top + 11), cv2.FONT_HERSHEY_SIMPLEX, 0.95, (0, 230, 255, 255), 2, cv2.LINE_AA)
+    ok, data = cv2.imencode(".png", img)
+    if not ok:
+        raise VoiceError("The numbers could not be drawn.")
+    data.tofile(path)
+
+
+def numbered(rec, a, b, persons, name):
+    """A small video of a to b with its sound and each person's number near their head: its path in work/voices, made
+    once. VoiceError with a sentence when it cannot be made."""
+    folder = os.path.join(recording.WORK, "voices")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, name + ".mp4")
+    if os.path.isfile(path):
+        return path
+    k = NUMBERED_LONGEST / float(max(rec["width"], rec["height"]))
+    size = (int(rec["width"] * k / 2) * 2, int(rec["height"] * k / 2) * 2)
+    tags = os.path.join(folder, name + ".png")
+    numbers(rec, persons, size, tags)
+    part = path + ".part.mp4"
+    try:
+        subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y", "-ss", "%.3f" % a, "-t", "%.3f" % (b - a),
+                        "-i", rec["path"], "-i", tags, "-filter_complex", "[0:v]scale=%d:%d[v];[v][1:v]overlay=0:0" % size,
+                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                        "-b:a", "96k", part], capture_output=True, check=True, timeout=120)
+        os.replace(part, path)
+    except (subprocess.SubprocessError, OSError) as e:
+        raise VoiceError("FFmpeg could not make the video that shows who speaks (%s)." % e)
+    finally:
+        if os.path.isfile(part):
+            os.remove(part)
+    return path
+
+
+def who_question(path, persons):
+    """The message that asks Muse Wonder who talks in the video at path."""
+    with open(path, "rb") as f:
+        video = "data:video/mp4;base64," + base64.b64encode(f.read()).decode("ascii")
+    return [{"role": "user", "content": [{"type": "text", "text": WHO_ASK % len(persons)},
+                                         {"type": "video_url", "video_url": {"url": video}}]}]
+
+
+def who_answer(text, persons):
+    """The person Muse Wonder named in its answer, or None when it named nobody here or was not sure."""
+    try:
+        got = json.loads(text)
+        who, sure = got["who"], float(got["sure"])
+    except (ValueError, KeyError, TypeError):
+        return None
+    return who if who in {p["n"] for p in persons} and sure >= WHO_SURE else None
 
 
 def speakers(heard, cut, people):

@@ -8,6 +8,7 @@ input. Every tool also gets two fields from the loop:
 Input is checked here, not trusted: the hosted API does not promise that arguments match the schema. Wrong input is
 refused with a sentence that says what to send instead, so Muse can fix it and call again.
 """
+import hashlib
 import json
 import math
 import os
@@ -3122,9 +3123,65 @@ def _make_talk(job, rec, moment, m, pieces, cut, name="talk", kept=None):
 
 
 def _voices(job, rec, m, persons):
-    """(who says each of the moment's lines, [{"from", "to", "who"}] in seconds of the recording, or None; a sentence
-    for Muse). Two people only: their voices are told apart by how high they are, and Muse matches each voice to a
-    face from pictures. Stop raises hearing.Stopped."""
+    """(who says each turn, [{"from", "to", "who"}] in seconds of the recording, or None; a sentence for Muse): two
+    people by how high they are, and otherwise, with the switch on, each turn named by Muse Wonder. Stop raises
+    hearing.Stopped."""
+    spoken, line = _two_voices(job, rec, m, persons)
+    return (spoken, line) if spoken or not _wonder_names() else _named_voices(job, rec, m, persons, line)
+
+
+def _wonder_names():
+    """True when Muse Wonder may name who speaks: Muse Voice Transcribe hears, so the person's key is there and their
+    switch is on."""
+    wonder = mind.MINDS.get("wonder")
+    return hearing.engine() == "meta" and bool(wonder and wonder.secret())
+
+
+def _named_voices(job, rec, m, persons, line):
+    """_voices by Muse Voice Transcribe's turns and Muse Wonder naming each one (voices.py), kept in work/voices so the
+    clip made again over the same moment costs nothing. hearing.engine() is "meta", so the person's switch is on."""
+    a, b = m["start"], m["end"]
+    key = hashlib.sha1(json.dumps([rec["path"], rec["size"], rec["mtime"], a, b, [p["box"] for p in persons]],
+                                  sort_keys=True).encode("utf-8")).hexdigest()[:16]
+    kept = os.path.join(recording.WORK, "voices", key + ".json")
+    try:
+        with open(kept, encoding="utf-8") as f:
+            return json.load(f), "Who speaks was named by Muse Wonder earlier, turn by turn."
+    except (OSError, ValueError):
+        pass
+    job.working("Muse Voice Transcribe is telling the turns apart")
+    try:
+        sound = np.clip(voices.sound(rec, a, b), -1, 1)
+        found, usd = asr.turns((sound * 32767).astype("<i2").tobytes(), voices.RATE, job.languages())
+    except (voices.VoiceError, asr.VoiceError) as e:
+        return None, " ".join(filter(None, [line, "Who speaks is found from mouths moving (%s)." % e]))
+    finally:
+        job.done_working()
+    spent.add(os.path.join(recording.WORK, "spent.jsonl"), job.chat.id, job.n, asr.VOICE, {"usd": round(usd, 6)})
+    named, cost = [], 0.0
+    for k, turn in enumerate(voices.turns_of(found, a)):
+        try:
+            path = voices.numbered(rec, turn["from"], min(turn["to"], turn["from"] + voices.TURN_SENT), persons,
+                                   "%s_%d" % (key, k))
+            got = job.ask_other("wonder", voices.who_question(path, persons), voices.WHO_SCHEMA,
+                                "Muse Wonder is watching who speaks, turn %d" % (k + 1), voices.WHO_TOKENS)
+        except (voices.VoiceError, mind.MindError) as e:
+            return None, " ".join(filter(None, [line, "Who speaks is found from mouths moving (%s)." % e]))
+        cost += (got.get("engine") or {}).get("usd") or 0
+        named.append(dict(turn, who=voices.who_answer(got["text"], persons)))
+    if not any(t["who"] for t in named):
+        return None, " ".join(filter(None, [line, "Muse Wonder could not name who speaks, so it is found from mouths "
+                                                  "moving."]))
+    with open(kept + ".part", "w", encoding="utf-8") as f:
+        json.dump(named, f)
+    os.replace(kept + ".part", kept)
+    return named, ("Muse Wonder named who speaks in %d of %d turns from their voices and faces ($%.2f)." % (
+        sum(1 for t in named if t["who"]), len(named), cost + usd))
+
+
+def _two_voices(job, rec, m, persons):
+    """_voices for two people: their voices are told apart by how high they are, and Muse matches each voice to a face
+    from pictures."""
     said = [p for p in m.get("said") or [] if p["to"] - p["from"] >= voices.SHORTEST]
     if len(persons) != 2 or len(said) < 2:
         return None, ""

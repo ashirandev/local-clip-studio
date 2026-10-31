@@ -22,7 +22,7 @@ import tempfile
 import threading
 import time
 
-from . import cutout, effects, layouts, project, recording, text
+from . import cutout, effects, layouts, project, recording, talk, text
 
 PREVIEW_WIDTH = 540
 FAULT = re.compile("Failed|Invalid|Error|No such")
@@ -407,7 +407,7 @@ def _cut_out(state, default):
                                  state.get("pushes") or [])
         speaking = cutout.speaking_mask(state["mask"], clip["pieces"], clip["layout"], state["length"],
                                         state.get("pushes") or [],
-                                        told_apart=bool(clip.get("voices"))) if cuts else mask
+                                        told_apart=talk.told_apart(clip.get("voices"))) if cuts else mask
     except RuntimeError as e:
         raise ValueError(str(e))
     looks = [CUTOUT_LOOKS[c["look"]](speaking, c["start"], c["end"]) for c in cuts]

@@ -2,10 +2,12 @@
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
 
+import cv2
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -25,6 +27,67 @@ def voice(hz, seconds=1.0, rate=voices.RATE):
 
 def line(a, b):
     return {"from": a, "to": b, "text": "x"}
+
+
+class NamedTurns(unittest.TestCase):
+    def test_one_speakers_neighbours_join_and_a_short_turn_is_left_out(self):
+        got = voices.turns_of([(0.0, 3.0, "A"), (3.0, 6.0, "A"), (6.0, 6.5, "B"), (6.5, 9.0, "C")], 100.0)
+        self.assertEqual(got, [{"from": 100.0, "to": 106.0}, {"from": 106.5, "to": 109.0}])
+
+    def test_the_longest_turns_are_named_and_stay_in_order(self):
+        found = [(k * 2.0, k * 2.0 + 1.0 + k * 0.05, "AB"[k % 2]) for k in range(voices.MOST_TURNS + 3)]
+        got = voices.turns_of(found, 0.0)
+        self.assertEqual(len(got), voices.MOST_TURNS)
+        self.assertEqual(got, sorted(got, key=lambda t: t["from"]))
+        self.assertNotIn(0.0, [t["from"] for t in got], "the shortest goes")
+
+    def test_a_person_is_named_only_when_wonder_is_sure_and_they_are_followed(self):
+        people = [{"n": 1}, {"n": 2}]
+        self.assertEqual(voices.who_answer('{"who": 2, "sure": 0.8, "why": "x"}', people), 2)
+        self.assertIsNone(voices.who_answer('{"who": 2, "sure": 0.3, "why": "x"}', people), "not sure")
+        self.assertIsNone(voices.who_answer('{"who": 0, "sure": 0.9, "why": "x"}', people), "someone with no number")
+        self.assertIsNone(voices.who_answer('{"who": 4, "sure": 0.9, "why": "x"}', people), "nobody the layout follows")
+        self.assertIsNone(voices.who_answer("not json", people))
+
+    def test_a_look_follows_the_speaker_only_when_nearly_all_of_the_talk_is_named(self):
+        turn = lambda a, b, who: {"from": a, "to": b, "who": who}
+        self.assertTrue(talk.told_apart([turn(0, 95, 1), turn(95, 100, None)]))
+        self.assertFalse(talk.told_apart([turn(0, 50, 1), turn(50, 100, None)]))
+        self.assertFalse(talk.told_apart([turn(0, 5, None)]))
+        self.assertFalse(talk.told_apart(None))
+
+    @unittest.skipUnless(FFMPEG, "needs ffmpeg")
+    def test_the_video_wonder_sees_has_numbers_and_sound_and_is_made_once(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        had, recording.WORK = recording.WORK, folder
+        self.addCleanup(setattr, recording, "WORK", had)
+        path = os.path.join(folder, "talk.mp4")
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=gray:s=320x180:r=10:d=3", "-f", "lavfi",
+                        "-i", "sine=frequency=200:duration=3", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                        path], check=True)
+        rec = {"path": path, "width": 320, "height": 180}
+        made = voices.numbered(rec, 0.5, 2.5, [{"n": 1, "box": [60, 80, 40, 40]}], "turn")
+        self.assertTrue(os.path.getsize(made) > 0)
+        streams = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,width", "-of", "csv=p=0",
+                                  made], capture_output=True, text=True).stdout.split()
+        self.assertEqual(sorted(s.split(",")[0] for s in streams), ["audio", "video"])
+        self.assertIn("video,960", streams)
+        os.remove(path)
+        self.assertEqual(voices.numbered(rec, 0.5, 2.5, [{"n": 1, "box": [60, 80, 40, 40]}], "turn"), made, "kept")
+        tags = cv2.imread(os.path.join(folder, "voices", "turn.png"), cv2.IMREAD_UNCHANGED)
+        self.assertGreater(int(tags[:, :, 3].max()), 200, "the number is drawn on a see-through picture")
+        self.assertEqual(int(tags[-1, -1, 3]), 0)
+
+    def test_wonder_is_asked_with_the_video_and_how_many_people_have_numbers(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        path = os.path.join(folder, "turn.mp4")
+        with open(path, "wb") as f:
+            f.write(b"a video")
+        parts = voices.who_question(path, [{"n": 1}, {"n": 2}, {"n": 3}])[0]["content"]
+        self.assertTrue(parts[0]["text"].startswith("3 people in this video have a yellow number"))
+        self.assertTrue(parts[1]["video_url"]["url"].startswith("data:video/mp4;base64,"))
 
 
 class Pitch(unittest.TestCase):

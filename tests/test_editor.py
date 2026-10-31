@@ -1031,6 +1031,71 @@ class Tools(unittest.TestCase):
         self.assertIn("hide about 32% of their width", clear["result"], "23% of the box at its own size")
         self.assertEqual([t.get("grow") for t in self.chat.project.state()["titles"]], [None, tools.render.TITLE_GROW])
 
+    def test_with_the_switch_on_wonder_names_who_speaks_and_the_shots_follow_it(self):
+        """Tarm 10-31 by ear on EP0's four men: "EP0 ถูกต้อง!", Wonder right on 6 turns of 6, where mouths moved it."""
+        from unittest import mock
+        self.faces = found([(30 + i * 0.5, [[60, 40, 40, 40], [220, 40, 40, 40]]) for i in range(40)], size=(320, 180))
+        self.worker.phrases = [{"from": 1, "to": 9, "text": "hello there", "sure": 0.99},
+                               {"from": 10.2, "to": 19, "text": "and you", "sure": 0.99}]
+
+        def moving(rec, a, b, persons, fps=10):
+            first = [a + (i + 1) / fps < 40 for i in range(round((b - a) * fps))]
+            return [[9.0 if f else 1.0 for f in first], [1.0 if f else 9.0 for f in first]]
+
+        class Namer:
+            key, label, model_id = "wonder", "Muse Wonder", "muse-wonder-1.0"
+            answers = ['{"who": 2, "sure": 0.9, "why": "his mouth"}', '{"who": 1, "sure": 0.9, "why": "hers"}']
+            sent = []
+
+            def secret(self):
+                return "a key"
+
+            def ask(self, messages, tools=None, temperature=None, max_tokens=None, on_delta=None, asking=None,
+                    schema=None):
+                self.sent.append(messages)
+                return {"text": self.answers[len(self.sent) - 1], "thinking": "", "tool_calls": [],
+                        "message": {"role": "assistant"}, "engine": {"usd": 0.05}}
+
+        turns = mock.Mock(return_value=([(0.0, 10.0, "A"), (10.0, 20.0, "B")], 0.001))
+        real, talk.motion = talk.motion, moving
+        wonder, tools.mind.MINDS["wonder"] = tools.mind.MINDS.get("wonder"), Namer()
+        try:
+            with mock.patch.object(tools, "_wonder_names", lambda: True), mock.patch.object(tools.asr, "turns", turns):
+                _, steps = self.run_job(*self.to_moment(), '{"lines": ["hello there", "and you"]}',
+                                        [call("make_clip", moment=1, layout="talk", why="two people talking")],
+                                        [call("make_clip", moment=1, layout="talk", why="again")], "Done.")
+        finally:
+            talk.motion = real
+            tools.mind.MINDS["wonder"] = wonder
+        first, again = steps[-2:]
+        self.assertIn("Muse Wonder named who speaks in 2 of 2 turns from their voices and faces ($0.10).", first["result"])
+        self.assertIn("Who speaks was named by Muse Wonder earlier", again["result"])
+        self.assertEqual(len(Namer.sent), 2, "the clip made again asks nobody again")
+        self.assertEqual(turns.call_count, 1)
+        clip = self.chat.project.state()["clip"]
+        self.assertEqual([v["who"] for v in clip["voices"]], [2, 1])
+        self.assertEqual(clip["layout"]["shots"][0]["show"], 2, "the mouths said person 1")
+        with open(os.path.join(tools.recording.WORK, "spent.jsonl"), encoding="utf-8") as f:
+            rows = [json.loads(line) for line in f]
+        self.assertEqual(sum(1 for r in rows if r["mind"] == "wonder"), 2)
+        self.assertEqual(sum(1 for r in rows if r["mind"] == "voice" and r["usd"] == 0.001), 1)
+
+    def test_wonder_names_only_when_the_meta_hearing_is_on(self):
+        from unittest import mock
+
+        class Keyed:
+            def secret(self):
+                return "a key"
+
+        with mock.patch.dict(tools.mind.MINDS, {"wonder": Keyed()}):
+            with mock.patch.object(tools.hearing, "engine", lambda: "local"):
+                self.assertFalse(tools._wonder_names(), "with the switch off nothing goes to Meta")
+            with mock.patch.object(tools.hearing, "engine", lambda: "meta"):
+                self.assertTrue(tools._wonder_names())
+        with mock.patch.dict(tools.mind.MINDS, {"wonder": type("NoKey", (), {"secret": lambda self: ""})()}), \
+                mock.patch.object(tools.hearing, "engine", lambda: "meta"):
+            self.assertFalse(tools._wonder_names(), "no key, no Wonder")
+
     def test_in_a_talk_sam_finds_each_person_and_the_look_follows_whoever_speaks(self):
         """Tarm 10-30 on four people talking: one person kept in colour through the whole clip "มันดูตลก"."""
         self.faces = found([(30 + i * 0.5, [[60, 40, 40, 40], [220, 40, 40, 40]]) for i in range(40)], size=(320, 180))

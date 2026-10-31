@@ -110,13 +110,13 @@ def _wav(pcm, rate=RATE):
     return buf.getvalue()
 
 
-def ask(pcm, rate=RATE, languages=()):
-    """[(start s, end s, text)] Muse Voice Transcribe heard in the sound pcm, by its turns; VoiceError with a
-    sentence when it could not be asked. languages, by their English names, are what it should expect to hear
-    (languageBias): it steers, it does not force. Its answer sometimes holds a broken Thai byte: that costs the one
-    letter, as 10-31 it lost the hearing of 8 of 261 looks and EP 22's joke with them (lane 4)."""
+def _answer(pcm, rate, languages, mode):
+    """Muse Voice Transcribe's answer to the sound pcm in mode. VoiceError with a sentence when it could not be asked.
+    languages, by their English names, are what it should expect to hear (languageBias): it steers, it does not force.
+    Its answer sometimes holds a broken Thai byte: that costs the one letter, as 10-31 it lost the hearing of 8 of 261
+    looks and EP 22's joke with them (lane 4)."""
     boundary = uuid.uuid4().hex
-    asked = {"model": MODEL, "audioEncoding": "WAV", "mode": "ENDPOINTING"}
+    asked = {"model": MODEL, "audioEncoding": "WAV", "mode": mode}
     if languages:
         asked["languageBias"] = list(languages)
     request = json.dumps(asked)
@@ -129,19 +129,33 @@ def ask(pcm, rate=RATE, languages=()):
         "Authorization": "Bearer " + secret(), "Content-Type": "multipart/form-data; boundary=" + boundary})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-            got = json.loads(r.read().decode("utf-8", "ignore"))
+            return json.loads(r.read().decode("utf-8", "ignore"))
     except urllib.error.HTTPError as e:
         said = e.read()[:300].decode("utf-8", "replace")
         raise VoiceError("Muse Voice Transcribe refused the sound (%d%s)." % (
             e.code, ": the Meta key was not accepted" if e.code in (401, 403) else ", " + said if said else ""))
     except (OSError, ValueError) as e:
         raise VoiceError("Muse Voice Transcribe did not answer (%s)." % e)
+
+
+def ask(pcm, rate=RATE, languages=()):
+    """[(start s, end s, text)] Muse Voice Transcribe heard in the sound pcm, by its turns (_answer)."""
+    got = _answer(pcm, rate, languages, "ENDPOINTING")
     turns = [(t.get("startMs", 0) / 1000, t.get("endMs", 0) / 1000, (t.get("transcript") or "").strip())
              for t in got.get("turns") or []]
     turns = [t for t in turns if t[2]]
     if not turns and (got.get("transcript") or "").strip():
         turns = [(0.0, len(pcm) / 2 / rate, got["transcript"].strip())]
     return turns
+
+
+def turns(pcm, rate=RATE, languages=()):
+    """[(start s, end s, speaker)] of the sound pcm, one voice's turn each, and the US dollars it cost, from Muse Voice
+    Transcribe's DIARIZATION mode. One request, as its labels hold only inside one (clips to 10 minutes). Its words are
+    worse than the pieces' (EP0 10-31), so the turns' edges are all that is kept."""
+    got = _answer(pcm, rate, languages, "DIARIZATION")
+    return ([(t.get("startMs", 0) / 1000, t.get("endMs", 0) / 1000, t["speaker"]) for t in got.get("turns") or []
+             if t.get("speaker")], len(pcm) / 2 / rate / 3600 * USD_PER_HOUR)
 
 
 def hear(pcm, rate=RATE, stopped=None, languages=()):

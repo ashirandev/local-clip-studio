@@ -225,6 +225,16 @@ def by_voice(wins, voices):
     return out
 
 
+TOLD_SHARE = 0.9
+
+
+def told_apart(voices):
+    """True when voices ([{"from", "to", "who"}]) say who speaks for nearly all the time they cover, so a look may follow
+    the speaker: Wonder can name nobody on a turn of someone the layout does not follow, and mouths decide those."""
+    named = sum(v["to"] - v["from"] for v in voices or [] if v["who"])
+    return named > 0 and named >= TOLD_SHARE * sum(v["to"] - v["from"] for v in voices)
+
+
 def by_line(wins, lines):
     """The windows with each heard line ([from, to], the same seconds) given whole to one person: the one who wins
     most of its windows, when they win AHEAD times as many as the next, so a listener who laughs in the middle of a
