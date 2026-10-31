@@ -15,7 +15,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import mind, parts, server  # noqa: E402
+from clipstudio import hearing, mind, parts, recording, sends, server  # noqa: E402
 
 NAMES = ("LCS_SPARK_URL", "LCS_MODAL_URL", "META_API_KEY", "MODAL_KEY", "MODAL_SECRET", "LCS_KEYS", "LCS_BASETEN_URL",
          "BASETEN_API_KEY", "LCS_BASETEN_MODEL", "LCS_FIREWORKS_URL", "FIREWORKS_API_KEY", "LCS_FIREWORKS_MODEL")
@@ -26,9 +26,12 @@ class Saved(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.file = mock.patch.object(mind, "KEY_FILE", os.path.join(self.tmp, "LocalClipStudio", "keys.env"))
         self.file.start()
+        self.work = mock.patch.object(recording, "WORK", os.path.join(self.tmp, "work"))
+        self.work.start()
         self.had = {n: os.environ.pop(n, None) for n in NAMES}
 
     def tearDown(self):
+        self.work.stop()
         self.file.stop()
         for n, v in self.had.items():
             os.environ.pop(n, None)
@@ -117,7 +120,7 @@ class Saved(unittest.TestCase):
         self.assertEqual(os.environ["META_API_KEY"], "from-the-file")
 
     def test_setup_asks_once_in_the_console_and_never_shows_the_key(self):
-        answers = iter(["ftp://nope", "meta"])
+        answers = iter(["ftp://nope", "meta", "n"])
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertTrue(parts.ask_api(read=lambda q: next(answers), read_secret=lambda q: "made-up-secret"))
@@ -131,6 +134,63 @@ class Saved(unittest.TestCase):
         self.assertEqual(mind.saved_api(), ("https://inference.baseten.co/v1", True))
         with redirect_stdout(io.StringIO()):
             self.assertFalse(parts.ask_api(read=lambda q: "", read_secret=lambda q: "x"), "Enter skips")
+
+    def asked(self, *answers, endpoint="meta", secret="made-up-secret"):
+        """setup's key question with these answers after the endpoint. -> (what was printed, the questions asked)."""
+        left, asked, out = iter((endpoint,) + answers), [], io.StringIO()
+
+        def read(q):
+            asked.append(q)
+            return next(left)
+        with redirect_stdout(out):
+            self.assertTrue(parts.ask_api(read=read, read_secret=lambda q: secret))
+        return out.getvalue(), asked[1:]
+
+    def test_after_a_meta_key_setup_asks_once_says_what_is_sent_and_enter_turns_it_on(self):
+        self.assertFalse(sends.allowed(), "a fresh copy starts off")
+        said, questions = self.asked("")
+        self.assertEqual(len(questions), 1)
+        self.assertIn("Enter for yes", questions[0])
+        for what in ("what is said", "pieces of up to a minute", "frames", "with your key", "the hearing stays on this computer"):
+            self.assertIn(what, said)
+        self.assertTrue(sends.allowed())
+        self.assertEqual(hearing.engine(), "meta", "the key and the answer are all a judge needs for the better hearing")
+        self.assertEqual(self.asked(endpoint="https://api.meta.ai/v1")[1], [], "on already, so it is not asked again")
+
+    def test_a_no_stays_off_and_so_does_any_answer_that_is_not_a_yes(self):
+        for answer in ("n", "no", "N", "later", "ไม่"):
+            self.asked(answer)
+            self.assertFalse(sends.allowed(), answer)
+            self.assertEqual(hearing.engine(), "local", answer)
+        for answer in ("y", " YES "):
+            sends.allow(False)
+            self.asked(answer)
+            self.assertTrue(sends.allowed(), answer)
+
+    def test_no_answer_leaves_it_off(self):
+        def read(q):
+            if "Endpoint" in q:
+                return "meta"
+            raise EOFError
+        with redirect_stdout(io.StringIO()):
+            self.assertTrue(parts.ask_api(read=read, read_secret=lambda q: "made-up-secret"), "the key is saved all the same")
+        self.assertFalse(sends.allowed())
+
+    def test_another_apis_key_is_not_followed_by_the_question_as_the_hearing_does_not_use_it(self):
+        for endpoint, secret in (("baseten", "made-up"), ("fireworks", "made-up"), ("https://x--y.modal.direct/v1", "a.b")):
+            self.assertEqual(self.asked(endpoint=endpoint, secret=secret)[1], [], endpoint)
+        self.assertFalse(sends.allowed())
+        mind.save_api("https://api.meta.ai/v1", "made-up-secret")
+        self.assertEqual(self.asked(endpoint="baseten")[1], [], "a Meta key saved earlier is not this key")
+        self.assertFalse(sends.allowed())
+
+    def test_setup_with_nobody_at_the_keyboard_never_reaches_the_question(self):
+        for argv, stdin in (([], io.StringIO()), (["--no-key"], mock.Mock(isatty=lambda: True))):
+            with mock.patch.object(parts, "use_tools"), mock.patch.object(parts, "card", side_effect=SystemExit), \
+                    mock.patch.object(parts, "ask_api") as ask, mock.patch.object(sys, "stdin", stdin):
+                self.assertRaises(SystemExit, parts.main, argv)
+            ask.assert_not_called()
+        self.assertFalse(sends.allowed())
 
 
 class Page(unittest.TestCase):

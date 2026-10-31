@@ -9,7 +9,9 @@
    downloads about 1.4 GB (the Python packages and the hearing model).
 2. **Paste one key.** Setup asks for the endpoint and your own key: type `meta` for Meta's API (Muse Spark,
    `https://api.meta.ai/v1`), `baseten` or `fireworks` for Muse Spark Open there, or paste your Modal endpoint's
-   address. Or open Options > API and give the address there.
+   address. Or open Options > API and give the address there. With a Meta key, setup then asks whether Meta's models
+   may hear and see small pieces of your videos, for better clips, and says what that sends: Enter is yes, and
+   Options > Meta sees pieces changes it at any time. A key given in Options leaves it off until you turn it on.
 3. **Open a recording.** Drop a video on the page, or type the path of a recording or of a folder of clips. A video
    you drop, pick or send waits on the message box until you press Send, so nothing starts before you say what you
    want.
@@ -447,7 +449,7 @@ dates. No code from it is in this repository.
 
 ## Open source and models used
 
-Each piece is listed with its licence. The Status column says whether this build uses it yet. What it receives says what leaves this computer for it. On the home route (Glimmer, Omnilingual and SAM on your own card) nothing does unless you ask for a watch or a cover in your own words, or turn on Options > Meta sees pieces (off until you do), which also lets Muse Voice Transcribe hear when Omnilingual is not here. Only then are Muse Wonder, Muse Image and Muse Voice Transcribe sent what that column says, with your own key. A Muse on an API is sent what its row says.
+Each piece is listed with its licence. The Status column says whether this build uses it yet. What it receives says what leaves this computer for it. On the home route (Glimmer, Omnilingual and SAM on your own card) nothing does unless you ask for a watch or a cover in your own words, or turn on Options > Meta sees pieces (off until you do), which also makes Muse Voice Transcribe the hearing when a Meta key is set, with or without Omnilingual here. Only then are Muse Wonder, Muse Image and Muse Voice Transcribe sent what that column says, with your own key. A Muse on an API is sent what its row says.
 
 | Piece | What it does here | What it receives | Licence | Status |
 |---|---|---|---|---|
@@ -459,7 +461,7 @@ Each piece is listed with its licence. The Status column says whether this build
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) (llama-server) | runs Glimmer locally | nothing: it runs on this computer | MIT | used |
 | [FFmpeg](https://ffmpeg.org/) | reads each recording (ffprobe) and takes pictures from it; later cuts and renders the clip | nothing: it runs on this computer | LGPL-2.1+ (GPL for some builds; the Windows build setup downloads is GPL-3.0) | used |
 | [Omnilingual ASR](https://github.com/facebookresearch/omnilingual-asr) (Meta), CTC 1B v2 | writes down what is said, in many languages, with the time of every phrase | nothing: it runs on this computer | Apache-2.0 | used |
-| Muse Voice Transcribe (Meta API) | the hearing when Omnilingual is not on this computer and Meta sees pieces is on (or `LCS_HEARING=meta`): the sound is cut at its pauses into pieces of at most 10 s, each asked on its own, so a caption's words stay near their time | the stretch's sound, in pieces, with your own key | Meta's API terms | used |
+| Muse Voice Transcribe (Meta API) | the hearing when a Meta key is set and Meta sees pieces is on, with or without Omnilingual on this computer (or `LCS_HEARING=meta`): the sound is cut at its pauses into pieces of at most 10 s, each asked on its own, so a caption's words stay near their time | the stretch's sound, in pieces, with your own key | Meta's API terms | used |
 | [FLEURS](https://huggingface.co/datasets/google/fleurs) (Google), Thai *train* transcripts | counted once into `clipstudio/thai_marks.json`, which puts back the Thai vowel marks Omnilingual cannot write | nothing: files in this repo | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | used |
 | [SAM 3.1](https://github.com/facebookresearch/sam3) (Meta) | finds the person frame by frame, for the cut-out looks and the titles behind the person (`cut_out`) | nothing: it runs on this computer | SAM License | used |
 | [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) (OpenCV Zoo) | finds faces, so the layouts frame them and words never cover one | nothing: it runs on this computer | MIT | used |

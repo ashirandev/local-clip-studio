@@ -33,7 +33,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 
-from . import ears, hearing, mind, recording
+from . import ears, hearing, mind, recording, sends
 
 WORK = recording.WORK
 TOOLS = os.path.join(WORK, "tools")
@@ -419,10 +419,28 @@ def _size(n):
     return "%d MB" % round(n / 1e6) if n < 1e9 else "%.1f GB" % (n / 1e9)
 
 
+def ask_sends(read):
+    """After a Meta key is saved: may Meta's models hear and see pieces of the person's videos (sends.py)? Enter is yes,
+    any other answer is no, and no answer at all leaves the switch off. Not asked when it is on already."""
+    if sends.allowed():
+        return
+    print("  Meta's models can hear and see small pieces of your videos, for better clips. That sends Meta, with your "
+          "key: what is said, in short pieces of sound; pieces of up to a minute with their sound, for Muse Wonder to "
+          "watch; and frames, for Muse Image to draw a cover from. With no, the hearing stays on this computer.")
+    try:
+        answer = read("  Let Meta's models hear and see pieces? Options > API changes it at any time. "
+                      "(Enter for yes, n for no): ").strip().lower()
+    except EOFError:
+        print()
+        return
+    sends.allow(answer in ("", "y", "yes"))
+    print("  Meta sees pieces is %s." % ("on" if sends.allowed() else "off"))
+
+
 def ask_api(read=input, read_secret=None):
     """Asks for the API endpoint and key in the console (Enter skips, or keeps the one saved); a word names Meta's,
     Baseten's or Fireworks' endpoint (mind.NAMED), as nobody can guess an address. The key is read without showing
-    it."""
+    it. A Meta key is followed by ask_sends: that key is the one the hearing and the watching use."""
     import getpass
     read_secret = read_secret or getpass.getpass
     url, saved = mind.saved_api()
@@ -445,6 +463,8 @@ def ask_api(read=input, read_secret=None):
         why = mind.save_api(url, key)
         if not why:
             print("  Saved in %s." % mind.KEY_FILE)
+            if "META_API_KEY" in mind.api_names(url)[1]:
+                ask_sends(read)
             return True
         print("  " + why)
 
