@@ -4603,6 +4603,10 @@ ALL_BLUR = ("Not blurred. That is everyone in the clip, and a clip of blurred fa
 
 
 BLUR_MANY = 3
+# Measured on the horse trip (lane 5, 11-01, 040740-b50f): 19% of 139 faces covered whole, as a phone on a horse moves more between
+# finds than a face is wide. A person who hides a stranger and trusts "the blur moves with the face" posts the face.
+BLUR_SLIPS = ("With a moving camera a face can slip out from under its blur between finds, so do not tell the person it is hidden: "
+              "tell them to check it before they post.")
 
 
 def decide_people(job, why, blur=None, keep=None, others=None, person_said=None):
@@ -4630,10 +4634,12 @@ def decide_people(job, why, blur=None, keep=None, others=None, person_said=None)
         raise Refused(TALK_BLUR if recipe == "talk" else ALL_BLUR)
     state = job.edit({"do": "people", "blur": blur, "keep": keep})
     if len(blur) > PEOPLE_LISTED:
-        lines = ["%d people are blurred where their faces show, and each blur moves with its face." % len(blur)]
+        lines = ["%d people are blurred where their faces were found, and each blur follows those finds." % len(blur)]
     else:
-        lines = ["Person %d is blurred where their face shows, %s-%s of the clip, and the blur moves with the face."
+        lines = ["Person %d is blurred where their face was found, %s-%s of the clip, and the blur follows those finds."
                  % (n, recording.clock(people[n]["from"]), recording.clock(people[n]["to"])) for n in blur]
+    if blur:
+        lines.append(BLUR_SLIPS)
     if len(keep) > PEOPLE_LISTED:
         lines.append("Kept as they are: %d people." % len(keep))
     elif keep:
@@ -5875,6 +5881,31 @@ def _other_apps(*texts):
                       "of its tags. Write them without it." % ", ".join('"%s"' % n for n in named))
 
 
+SCORE = re.compile(r"(?<![\d:.-])(\d{1,2})\s*[-\u2013]\s*(\d{1,2})(?![\d:.-])")
+IN_A_ROW = re.compile(r"(\d+)\s*(?:ประตู|ลูก)\s*รวด|(\d+)\s*(?:goals?\s+in\s+a\s+row|straight\s+goals?|unanswered\s+goals?)", re.I)
+SCORE_SLIP = ("Not handed over: %s does not fit this match. By the clip's own titles the goals went %s. Write the title and the post "
+              "from those scores; if what you wrote is true of the match, hand over again unchanged.")
+
+
+def _score_slips(state, post):
+    """(what post says that the goals' titles do not, the scores they give): a score that never stood, or more goals in a row
+    than came. 033344-78ec (11-01) read every score right and posted 4 ประตูรวด for a side on a game of 0-1, 0-2, 1-2, 1-3."""
+    titles = [[tuple(int(n) for n in m.groups()) for m in SCORE.finditer(t["text"])]
+              for t in sorted(state["titles"], key=lambda t: t["start"])]
+    went = [found[-1] for found in titles if found]
+    if len(went) < 2:
+        return [], []
+    known = {s for found in titles for s in found} | {s[::-1] for found in titles for s in found}
+    most, run, side, was = 0, 0, None, (0, 0)
+    for now in went:
+        home = now[0] > was[0]
+        run = run + 1 if home == side else 1
+        most, side, was = max(most, run), home, now
+    return (['"%s"' % m.group(0) for m in SCORE.finditer(post) if tuple(int(n) for n in m.groups()) not in known] +
+            ['"%s"' % m.group(0) for m in IN_A_ROW.finditer(post) if int(m.group(1) or m.group(2)) > most],
+            ["%d-%d" % s for s in went])
+
+
 def hand_over(job, why, title, caption, hashtags, english=""):
     _clip_state(job)
     done = job.chat.finished()
@@ -5909,6 +5940,10 @@ def hand_over(job, why, title, caption, hashtags, english=""):
         [title, caption, english or ""] + list(hashtags)), _said(job, state))
     if names and not _told_once(job, "unseen"):
         raise Refused("%s. %s" % (_unseen_said(names, shown), UNSEEN_THEN % "hand over again"))
+    if (job.chat.clip or {}).get("recipe") == "sport":
+        slips, went = _score_slips(state, " ".join([title, caption, english or ""]))
+        if slips and not _told_once(job, "score_post"):
+            raise Refused(SCORE_SLIP % (", ".join(slips), ", ".join(went)))
     if (job.chat.clip or {}).get("recipe") == "seller":
         said = _said(job, _clip_state(job))
         wrong = _not_said(" ".join([title, caption, english or ""]), said)
@@ -7551,8 +7586,8 @@ TOOLS = {t.name: t for t in [
                                          "their own words from the chat, quoted. The program checks them."}},
          ["box"], blur_box, changes=True),
     Tool("decide_people", "Decided about people",
-         "Decide who of the other people make_clip listed is blurred and who is kept. A blurred face is followed as "
-         "it moves. Blur a real person who is not the one making the clip, such as someone passing behind; keep a "
+         "Decide who of the other people make_clip listed is blurred and who is kept. A blurred face is followed "
+         "where the finder saw it. Blur a real person who is not the one making the clip, such as someone passing behind; keep a "
          "face that belongs, such as a game character, or a face on a screen or a box. At a trip or an event every "
          "face starts kept: blur one only when the person asks. Every person seen in two pictures or more must be "
          "decided before the clip is rendered; one call can decide them all.",

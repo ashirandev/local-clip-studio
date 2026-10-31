@@ -1824,6 +1824,52 @@ class Tools(unittest.TestCase):
         self.assertIn(tools.NO_BURST % '"Goal"', steps[-3]["result"])
         self.assertNotIn("No burst yet", steps[-1]["result"])
 
+    def test_a_match_post_is_held_to_its_goals_scores(self):
+        """033344-78ec on 11-01: every score right, and the post said 4 ประตูรวด on a game of 1-3."""
+        titles = [{"text": t, "start": s, "end": s + 5} for s, t in ((20, "ยิงซ้ำ 1-2"), (0, "โหม่ง 0-1"), (10, "หนี 0-2"), (30, "ปิดเกม 1-3"))]
+        state = {"titles": titles}
+        self.assertEqual(tools._score_slips(state, "Hull 4 ประตูรวด"), (['"4 ประตูรวด"'], ["0-1", "0-2", "1-2", "1-3"]))
+        self.assertEqual(tools._score_slips(state, "4 goals in a row")[0], ['"4 goals in a row"'])
+        self.assertEqual(tools._score_slips(state, "ยิง 2 ประตูรวด จบ ARS 1-3 HUL, Hull ชนะ 3-1 นาที 3:10-3:33")[0], [])
+        self.assertEqual(tools._score_slips(state, "ชนะ 4-1")[0], ['"4-1"'])
+        self.assertEqual(tools._score_slips({"titles": titles[:1]}, "4 ประตูรวด"), ([], []), "one goal has no line to hold it to")
+        self.assertEqual(tools._score_slips({"titles": [{"text": "Hull go ahead", "start": 0, "end": 5}]}, "ชนะ 4-1"), ([], []))
+        run = [{"text": "%d-0" % n, "start": n, "end": n + 1} for n in (1, 2, 3)]
+        self.assertEqual(tools._score_slips({"titles": run}, "3 ประตูรวด")[0], [], "a run from the first goal")
+        self.assertEqual(tools._score_slips({"titles": run}, "4 ประตูรวด")[0], ['"4 ประตูรวด"'])
+
+    def handed_twice(self, kind):
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            script = self.to_moment()
+            _, steps = self.run_job(script[0], [call("load_recipe", type=kind, why="the kind")], *script[1:],
+                                    [call("make_clip", moment=1, layout="card", why="the goals")],
+                                    [call("no_chat_box", why="none shows")], [call("decide_people", keep=[1], why="him")],
+                                    [call("add_title", words="Goal 0-1", start=0, end=4, place="top", why="the first")],
+                                    [call("add_title", words="Goal 1-1", start=5, end=9, place="top", why="the second")],
+                                    [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
+                                    [call("hand_over", title="5 goals in a row", caption="c", hashtags=["#a"], why="post")],
+                                    [call("hand_over", title="5 goals in a row", caption="c", hashtags=["#a"], why="true")],
+                                    "Done.")
+        finally:
+            render.export = had
+        return steps[-2:]
+
+    def test_a_match_post_that_breaks_the_score_is_told_once(self):
+        first, second = self.handed_twice("sport")
+        self.assertTrue(first["refused"], first["result"])
+        self.assertEqual(first["result"], tools.SCORE_SLIP % ('"5 goals in a row"', "0-1, 1-1"))
+        self.assertFalse(second["refused"], second["result"])
+
+    def test_only_a_match_post_is_held_to_scores(self):
+        first, _ = self.handed_twice("game")
+        self.assertFalse(first["refused"], first["result"])
+
     def test_a_title_handed_over_is_checked_too(self):
         """A title that never went on the clip reaches the post and the cover here, unread by add_title."""
         def export(rec, state, out, on_progress=None, on_start=None, *, default):
@@ -1944,7 +1990,8 @@ class Tools(unittest.TestCase):
         self.assertIn("Person 1 is in both lists", both["result"])
         self.assertIn("There is no person 2; the clip's people are 1.", unknown["result"])
         self.assertFalse(blurred["refused"], blurred["result"])
-        self.assertIn("Person 1 is blurred where their face shows, 0:05-0:10 of the clip, and the blur moves with the face.",
+        self.assertIn(tools.BLUR_SLIPS, steps[-1]["result"])
+        self.assertIn("Person 1 is blurred where their face was found, 0:05-0:10 of the clip, and the blur follows those finds.",
                       blurred["result"])
         self.assertIn("Every person seen in two pictures or more is decided.", blurred["result"])
         self.assertIn("comes next as a picture", blurred["result"], "the frame is drawn with the moving blur")
@@ -1962,7 +2009,7 @@ class Tools(unittest.TestCase):
         self.chat.project.undo()
         self.assertEqual(tools._undecided(self.chat.project.state()), [1])
         _, crowd = self.run_job([call("decide_people", others="blur", why="a crowd behind")], "Done.")
-        self.assertIn("Person 1 is blurred where their face shows", crowd[-1]["result"],
+        self.assertIn("Person 1 is blurred where their face was found", crowd[-1]["result"],
                       "others decides everyone not named")
         self.chat.project.undo()
         clip = dict(self.chat.project.state()["clip"])
