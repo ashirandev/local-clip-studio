@@ -3285,6 +3285,38 @@ class Tools(unittest.TestCase):
         for loudest in (33.0, 20.0, None):
             self.assertNotIn("rises most", told(loudest), "3 s on is the end's own, and inside it is the moment's")
 
+    def test_a_vlog_ending_before_the_rise_in_its_sound_is_told_once_with_its_start_even_with_its_look_done(self):
+        """Lane 4 10-31: 101550-5bd0 ran 25:14 to 26:02, 48 s of 40, past far-short, on a look the edge step had opened."""
+        tools.EDGE_RECIPES, tools.SHORT_RECIPES = self.edge_recipes, self.short_recipes
+        job = mock.Mock()
+        job.chat.clip, job.chat.events = {"recipe": "vlog", "length_s": 30}, []
+        job.emit = lambda kind: job.chat.events.append({"kind": kind, "job": job.n})
+        look = {"n": 1, "start": 0.0, "end": 60.0, "seen_past": True, "loudest": 34.0}
+        said = tools._seen_past(job, "why", {"seconds": 60.0}, 1, {}, look, 10.0, 30.0)
+        self.assertTrue(said.startswith("Not proposed yet: moment 1 ends at 0:30, and the sound rises most at 0:34, after "
+                                        "this end."), said)
+        self.assertIn("move the start on so the clip stays near its 30 s", said)
+        self.assertIsNone(tools._seen_past(job, "why", {"seconds": 60.0}, 1, {}, look, 10.0, 30.0), "the second stands")
+
+    def test_a_job_hears_of_the_rise_once_and_a_talk_does_not_on_its_own(self):
+        tools.EDGE_RECIPES, tools.SHORT_RECIPES = self.edge_recipes, self.short_recipes
+        job = mock.Mock()
+        job.emit = lambda kind: job.chat.events.append({"kind": kind, "job": job.n})
+        look = {"n": 1, "start": 0.0, "end": 60.0, "seen_past": True, "loudest": 34.0}
+
+        def told(recipe, length, a=10.0):
+            job.chat.clip = {"recipe": recipe, "length_s": length}
+            return tools._seen_past(job, "why", {"seconds": 60.0}, 1, {}, look, a, 30.0)
+
+        job.chat.events = []
+        self.assertIn("rises most at 0:34", told("vlog", 60), "far-short says it")
+        self.assertIsNone(told("vlog", 30, 5.0), "the job has heard it")
+        job.chat.events = []
+        self.assertIsNone(told("talk", 30))
+        job.chat.events = []
+        look["loudest"] = 33.0
+        self.assertIsNone(told("vlog", 30, 5.0), "3 s on is the end's own")
+
     def test_only_a_talk_or_a_vlog_far_under_its_length_is_told_and_once_a_look_is_done_it_still_is(self):
         tools.EDGE_RECIPES, tools.SHORT_RECIPES = self.edge_recipes, self.short_recipes
         job = mock.Mock()

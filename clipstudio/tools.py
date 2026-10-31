@@ -1663,6 +1663,12 @@ FAR_SHORT_SAID = ("Not proposed yet: moment %d runs %g s of the %g s this clip c
 # 6 far-short steps it names the rise on those 2 only. A rise is not always a laugh, so Muse is told, and answers.
 RISE_PAST = 3.0
 RISE_SAID = " The sound rises most at %s, after this end: if that is a laugh or the answer to what was said, end after it."
+# On a vlog it is said on its own too, whatever the moment's length, and the start moves with the end: 101550-5bd0 ran
+# 25:14 to 26:02, 48 s, too long to be told, and ends alone do not make 8: 25:19-26:22 got 6.5, the 8s start 25:43-25:52
+# and run under 40 s. Measured on the moment's own look (lane 4 10-31): vlog Glimmer 6 of 11, Spark 4 of 18, talk 0 of 32.
+RISE_ALONE = ("Not proposed yet: moment %d ends at %s, and the sound rises most at %s, after this end. If that is a laugh or "
+              "the answer to what was said, end after it, and move the start on so the clip stays near its %g s. If it "
+              "lands where it is, propose it again and it stands.")
 
 
 def _seen_past(job, why, rec, i, m, look, a, b):
@@ -1673,10 +1679,13 @@ def _seen_past(job, why, rec, i, m, look, a, b):
     game = clip.get("recipe") == "game"
     if clip.get("recipe") not in EDGE_RECIPES:
         return None
+    rise = look.get("loudest")
+    past = rise is not None and rise - b > RISE_PAST
     if clip["recipe"] in SHORT_RECIPES and b - a < FAR_SHORT * clip["length_s"] and not _told_once(job, "far_short"):
-        rise = look.get("loudest")
         return FAR_SHORT_SAID % (i, round(b - a), clip["length_s"]) + (
-            RISE_SAID % recording.clock(rise) if rise is not None and rise - b > RISE_PAST else "")
+            RISE_SAID % recording.clock(rise) if past and not _told_once(job, "rise_told") else "")
+    if clip["recipe"] == "vlog" and past and not _told_once(job, "rise_told"):
+        return RISE_ALONE % (i, recording.clock(b), recording.clock(rise), clip["length_s"])
     if look.get("seen_past"):
         return None
     whole = a - look["start"] <= WHOLE_LOOK and look["end"] - b <= WHOLE_LOOK
