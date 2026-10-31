@@ -12,6 +12,8 @@
    address. Or open Options > API and give the address there. With a Meta key, setup then asks whether Meta's models
    may hear and see small pieces of your videos, for better clips, and says what that sends: Enter is yes, and
    Options > Meta sees pieces changes it at any time. A key given in Options leaves it off until you turn it on.
+   Setup then offers a second key: with `meta` first and `baseten` second, Muse Spark Open runs the chat and Meta's
+   models hear, watch, cut out and draw.
 3. **Open a recording.** Drop a video on the page, or type the path of a recording or of a folder of clips. A video
    you drop, pick or send waits on the message box until you press Send, so nothing starts before you say what you
    want.

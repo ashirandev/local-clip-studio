@@ -3,7 +3,9 @@
 Muse's face boxes were wrong on the first try on all four test recordings (10-26), and a round crop showed a hand. So
 the program looks: YuNet (OpenCV Zoo, MIT) finds the faces in pictures taken every half second across a stretch, in
 one FFmpeg pass. The face camera of a stream is the face that sits at the same place in at least half of them; a
-rough box from Muse is snapped to the face found inside it.
+rough box from Muse is snapped to the face found inside it. A face whose pixels stay as they are from picture to picture
+is a drawing on a slide or a game's screen and is left out: on Tarm's gold lesson a drawn woman sat in 50 of 50 pictures,
+so the card cut the slide round her and gave her the face circle (10-31).
 
 The pictures are 1280 pixels on their long side: a stream's face camera is still about 40 pixels tall there, which
 YuNet finds. Boxes are given back in pixels of the recording. Results are kept per stretch in work/faces, so asking
@@ -26,13 +28,16 @@ MODEL_NAME = "face_detection_yunet_2023mar.onnx"
 MODEL_URL = ("https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/"
              "face_detection_yunet_2023mar.onnx")
 MODEL = os.environ.get("LCS_FACE_MODEL") or os.path.join(recording.WORK, "models", MODEL_NAME)
-VERSION = 1
+VERSION = 2
 EVERY = 0.5
 LONG_SIDE = 1280
 SCORE = 0.7
 STEADY_SHARE = 0.5
 SAME_PLACE = 0.5
 SAMPLE_SECONDS = 600
+# How much a face's box may change from one picture to the next, the middle of the stretch, out of 255, and still be a
+# drawing. Measured 10-31: 0.00 on 5 drawn faces, 4.5 to 39 on real ones, the least a man sitting back on EP0.
+STILL = 1.0
 _lock = threading.Lock()
 _detectors = {}
 
@@ -90,15 +95,17 @@ def sample(rec, a, b, every=EVERY, on_start=None):
 
     if on_start:
         on_start(stop)
-    samples, size = [], w * h * 3
+    samples, size, before = [], w * h * 3, None
     try:
         while True:
             data = proc.stdout.read(size)
             if len(data) < size:
                 break
             boxes = [[round(x / scale, 1), round(y / scale, 1), round(bw / scale, 1), round(bh / scale, 1),
-                      round(score, 3)] for x, y, bw, bh, score in detect(data, w, h)]
+                      round(score, 3), _changed(data, before, w, h, (x, y, bw, bh))]
+                     for x, y, bw, bh, score in detect(data, w, h)]
             samples.append({"t": round(a + len(samples) * every, 2), "faces": boxes})
+            before = data
     finally:
         proc.stdout.close()
         code = proc.wait()
@@ -107,13 +114,38 @@ def sample(rec, a, b, every=EVERY, on_start=None):
     if code != 0 and not samples:
         raise NoFaces("FFmpeg could not take pictures from %s at %s-%s." % (rec["name"], recording.clock(a),
                                                                           recording.clock(b)))
-    found = {"size": [width, height], "every": every, "samples": samples}
+    found = {"size": [width, height], "every": every, "samples": _without_drawings(samples)}
     if code == 0:
         path = os.path.join(folder(), _key(rec, a, b, every) + ".json")
         with open(path + ".part", "w", encoding="utf-8") as f:
             json.dump(found, f)
         os.replace(path + ".part", path)
     return found
+
+
+def _changed(data, before, w, h, box):
+    """How much box differs between two pictures, bgr bytes of w x h, on average out of 255; None with no picture before."""
+    if before is None:
+        return None
+    import numpy
+    x0, y0 = max(0, int(box[0])), max(0, int(box[1]))
+    x1, y1 = min(w, int(box[0] + box[2])), min(h, int(box[1] + box[3]))
+    if x1 <= x0 or y1 <= y0:
+        return None
+    now, then = (numpy.frombuffer(d, dtype=numpy.uint8).reshape(h, w, 3)[y0:y1, x0:x1].astype(numpy.int16)
+                 for d in (data, before))
+    return float(numpy.abs(now - then).mean())
+
+
+def _without_drawings(samples):
+    """samples without the faces that never change, each face back to x, y, w, h, score. One picture tells nothing, so
+    its faces stay."""
+    drawn = set()
+    for g in _groups(samples):
+        changes = sorted(f[5] for f in g["faces"] if f[5] is not None)
+        if changes and changes[len(changes) // 2] < STILL:
+            drawn.update(id(f) for f in g["faces"])
+    return [dict(s, faces=[f[:5] for f in s["faces"] if id(f) not in drawn]) for s in samples]
 
 
 def _detector(w, h):
@@ -164,23 +196,28 @@ def _same_place(box, other):
         0.67 <= box[3] / max(1e-6, other[3]) <= 1.5
 
 
-def places(found):
-    """The faces grouped by where they sit, most seen first: [{"box": median box, "seen": pictures, "of": pictures
-    in all}]. A face that moves across the frame makes several groups."""
+def _groups(samples):
+    """[{"first": box, "faces": every face at that place, "last_t": its last picture}]."""
     groups = []
-    for s in found["samples"]:
+    for s in samples:
         for face in s["faces"]:
             box = face[:4]
             group = next((g for g in groups if _same_place(box, g["first"]) and g["last_t"] != s["t"]), None)
             if group is None:
-                group = {"first": box, "boxes": [], "last_t": None}
+                group = {"first": box, "faces": [], "last_t": None}
                 groups.append(group)
-            group["boxes"].append(box)
+            group["faces"].append(face)
             group["last_t"] = s["t"]
+    return groups
+
+
+def places(found):
+    """The faces grouped by where they sit, most seen first: [{"box": median box, "seen": pictures, "of": pictures
+    in all}]. A face that moves across the frame makes several groups."""
     out = []
-    for g in groups:
-        median = [sorted(b[i] for b in g["boxes"])[len(g["boxes"]) // 2] for i in range(4)]
-        out.append({"box": [round(v, 1) for v in median], "seen": len(g["boxes"]), "of": len(found["samples"])})
+    for g in _groups(found["samples"]):
+        median = [sorted(f[i] for f in g["faces"])[len(g["faces"]) // 2] for i in range(4)]
+        out.append({"box": [round(v, 1) for v in median], "seen": len(g["faces"]), "of": len(found["samples"])})
     return sorted(out, key=lambda g: -g["seen"])
 
 

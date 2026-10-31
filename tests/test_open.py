@@ -291,6 +291,10 @@ class Follow(unittest.TestCase):
         for name in ("nope", "..", "GLOW"):
             self.assertEqual(self.ask("GET", "/api/look/%s.png" % name)[0], 404, name)
 
+    def test_the_page_is_told_which_muse_a_chat_starts_on(self):
+        with mock.patch.object(mind, "default", return_value="baseten"):
+            self.assertEqual(self.ask("GET", "/api/health")[1]["default"], "baseten")
+
     def test_the_page_knows_it_is_on_this_computer(self):
         status, health = self.ask("GET", "/api/health")
         self.assertEqual((status, health["here"]), (200, True))

@@ -127,7 +127,7 @@ class Cover(unittest.TestCase):
         self.assertEqual({k: body[k] for k in ("model", "n", "size", "output_format", "response_format",
                                                "reasoning_strength")},
                          {"model": "muse-image-1.0", "n": 1, "size": "1080x1920", "output_format": "jpeg",
-                          "response_format": "b64_json", "reasoning_strength": "low"})
+                          "response_format": "b64_json", "reasoning_strength": "high"})
         self.assertEqual(body["tool_enablement"], {"enable_image_search": False, "enable_web_search": False,
                                                    "enable_shell": False}, "the frame goes to no search")
         self.assertTrue(body["prompt"].endswith(": %s The title is in Thai: write it letter for letter as given, "

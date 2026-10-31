@@ -123,7 +123,7 @@ def _ask(data, asked, key):
             "images": [{"image_url": "data:image/jpeg;base64," + base64.b64encode(data).decode("ascii")}],
             "n": 1, "size": SIZE, "output_format": "jpeg", "response_format": "b64_json",
             "tool_enablement": {"enable_image_search": False, "enable_web_search": False, "enable_shell": False},
-            "reasoning_strength": "low"}
+            "reasoning_strength": "high"}
     req = urllib.request.Request(url() + "/images/edits", json.dumps(body).encode("utf-8"),
                                  {"Content-Type": "application/json", "Authorization": "Bearer " + key})
     try:

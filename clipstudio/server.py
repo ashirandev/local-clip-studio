@@ -137,9 +137,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/phone/qr.svg":
             self.send_qr(query)
         elif path == "/api/health":
-            self.send_json({"ok": True, "version": __version__, "default": mind.DEFAULT, "here": self.here(),
-                            "minds": [m.status() for m in mind.MINDS.values()], "hearing": hearing.status(),
-                            "sends": sends.allowed()})
+            minds = [m.status() for m in mind.MINDS.values()]
+            self.send_json({"ok": True, "version": __version__, "default": mind.default(minds), "here": self.here(),
+                            "minds": minds, "hearing": hearing.status(), "sends": sends.allowed()})
         elif path == "/api/features":
             self.send_json({"ok": True, "groups": agent.features()})
         elif path == "/api/parts":

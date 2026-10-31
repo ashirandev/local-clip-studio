@@ -57,6 +57,48 @@ class NamedTurns(unittest.TestCase):
         self.assertFalse(talk.told_apart(None))
 
     @unittest.skipUnless(FFMPEG, "needs ffmpeg")
+    def test_someone_the_faces_missed_joins_the_people_from_the_heads_muse_counted(self):
+        """EP0 10-31: the man turned away had no number, and Wonder gave his turn to person 1."""
+        people = [{"n": 1, "box": [280, 400, 160, 260], "seen": 40, "of": 50},
+                  {"n": 2, "box": [820, 330, 120, 150], "seen": 40, "of": 50},
+                  {"n": 3, "box": [1170, 316, 116, 145], "seen": 40, "of": 50}]
+        heads = [[60, 336, 440, 344], [810, 330, 210, 215], [1140, 330, 230, 226], [1244, 440, 300, 270]]
+        out = talk.with_heads(people, heads)
+        self.assertEqual([p["n"] for p in out], [1, 2, 3, 4])
+        self.assertEqual([p["box"] for p in out[:3]], [p["box"] for p in people], "a face found is the better box for a shot")
+        self.assertEqual([p["head"] for p in out], heads, "every number goes on a head")
+        self.assertEqual(out[3]["box"], [1264.0, 445.0, 260, 260], "the shots stay as close")
+        fewer = talk.with_heads(people, heads[:2])
+        self.assertEqual(len(fewer), 3, "a face found stays when the count misses it")
+        self.assertIsNone(fewer[2].get("head"))
+        self.assertEqual(len(talk.with_heads(people, heads + [[1700, 300, 100, 100]])), talk.MOST_PEOPLE)
+        left = talk.with_heads(people, [[10, 300, 100, 100]] + heads[:3])
+        self.assertEqual([p["n"] for p in left], [1, 2, 3, 4], "numbered from the left again")
+        self.assertEqual(left[0]["head"], [10, 300, 100, 100])
+        self.assertEqual(left[0]["seen"], 0)
+
+    def test_heads_come_back_in_pixels_from_the_left_and_a_bad_answer_is_none(self):
+        rec = {"width": 1920, "height": 1080}
+        said = {"people": [{"head": [500, 100, 600, 300], "looks": "b"}, {"head": [0, 0, 100, 200], "looks": "a"},
+                           {"head": [700, 300, 650, 100], "looks": "no size"}, {"head": [900, 0, 1100, 200], "looks": "off"}]}
+        self.assertEqual(voices.heads_answer(json.dumps(said), rec), [[0.0, 0.0, 192.0, 216.0], [960.0, 108.0, 192.0, 216.0]])
+        self.assertIsNone(voices.heads_answer("no", rec))
+        self.assertIsNone(voices.heads_answer('{"people": [{"head": [1, 2]}]}', rec))
+        self.assertIn("Count a person turned away", voices.HEADS_ASK)
+
+    def test_a_number_sits_on_the_head_muse_saw(self):
+        """Tag 1 floated in mid-air: 0.45 of a face box above a face looking sideways, off the middle of his head."""
+        folder = tempfile.mkdtemp()
+        try:
+            path = os.path.join(folder, "tags.png")
+            voices.numbers({"width": 960, "height": 540}, [{"n": 1, "box": [150, 240, 60, 80], "head": [100, 200, 120, 120]}],
+                           (960, 540), path)
+            ys, xs = np.nonzero(cv2.imread(path, cv2.IMREAD_UNCHANGED)[:, :, 3])
+            self.assertLess(abs(xs.mean() - 160), 3)
+            self.assertLess(abs(ys.mean() - 190), 3)
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
     def test_the_video_wonder_sees_has_numbers_and_sound_and_is_made_once(self):
         folder = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, folder)

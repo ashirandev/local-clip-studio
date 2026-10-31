@@ -23,6 +23,12 @@ near their head (numbered, WHO_ASK). Mouths could not do it: on EP0's four men t
 person 2, 1 and 3 in three runs (10-31), while Wonder gave the same man on all 6 turns, 18 of 18 answers, and Tarm's ear
 agreed with all 6 ("EP0 ถูกต้อง!"). Each turn is named by itself, as one label took in up to three men. About $0.07 a
 turn, so on the switch in Options only, kept in work/voices, and at most MOST_TURNS a clip.
+
+Numbers from the faces found are not enough: on EP0 the man turned away had no face and no number, so Wonder gave his 7 s
+turn to person 1 (Tarm: "ถ่ายเน้นที่ Donut เยอะมาก"). Tarm's idea, 10-31: show Muse a picture and let it say who is there.
+Muse Spark counts the heads in one picture (HEADS_ASK, $0.006): 4 people on 9 asks of 9 across 3 frames, the same order
+each time, each box on or near the head, though up to 15% off, so good for a number and for a shot this wide, and a face
+found stays the better box (talk.with_heads).
 """
 import base64
 import json
@@ -63,6 +69,14 @@ WHO_ASK = ("%d people in this video have a yellow number near their head. Someon
            "you saw.")
 WHO_SCHEMA = {"type": "object", "properties": {"who": {"type": "integer"}, "sure": {"type": "number"},
                                                "why": {"type": "string"}}, "required": ["who", "sure", "why"]}
+HEADS_TOKENS = 800
+HEADS_ASK = ("How many real people are in this picture? Toys and figures on a shelf are not people. Count a person turned "
+             "away or cut off by the edge too. List them from left to right. For each give head: the box around their head "
+             "as [left, top, right, bottom], each from 0 to 1000 of the picture's width or height, and looks: a few words "
+             "on what they wear and where they sit.")
+HEADS_SCHEMA = {"type": "object", "properties": {"people": {"type": "array", "items": {
+    "type": "object", "properties": {"head": {"type": "array", "items": {"type": "number"}}, "looks": {"type": "string"}},
+    "required": ["head", "looks"]}}}, "required": ["people"]}
 
 
 class VoiceError(Exception):
@@ -242,8 +256,8 @@ def numbers(rec, persons, size, path):
     k = w / float(rec["width"])
     img = np.zeros((h, w, 4), np.uint8)
     for p in persons:
-        x, y, bw, bh = [v * k for v in p["box"]]
-        cx, top = int(x + bw / 2), int(max(22, y - 0.45 * bh))
+        x, y, bw, bh = [v * k for v in p.get("head") or p["box"]]
+        cx, top = int(x + bw / 2), int(max(22, y - 10 if p.get("head") else y - 0.45 * bh))
         cv2.circle(img, (cx, top), 20, (16, 16, 16, 230), -1)
         cv2.putText(img, str(p["n"]), (cx - 10, top + 11), cv2.FONT_HERSHEY_SIMPLEX, 0.95, (0, 230, 255, 255), 2, cv2.LINE_AA)
     ok, data = cv2.imencode(".png", img)
@@ -277,6 +291,26 @@ def numbered(rec, a, b, persons, name):
         if os.path.isfile(part):
             os.remove(part)
     return path
+
+
+def heads_question(path):
+    """The message that asks Muse who is in the picture at path."""
+    with open(path, "rb") as f:
+        picture_ = "data:image/jpeg;base64," + base64.b64encode(f.read()).decode("ascii")
+    return [{"role": "user", "content": [{"type": "text", "text": HEADS_ASK},
+                                         {"type": "image_url", "image_url": {"url": picture_}}]}]
+
+
+def heads_answer(text, rec):
+    """The heads in Muse's answer, [x, y, w, h] in pixels of the recording from the left, or None when it cannot be
+    read. A box with no size or off the picture is left out."""
+    try:
+        boxes = [(float(a), float(b), float(c), float(d)) for a, b, c, d in (p["head"] for p in json.loads(text)["people"])]
+    except (ValueError, KeyError, TypeError):
+        return None
+    w, h = rec["width"] / 1000.0, rec["height"] / 1000.0
+    return sorted([round(a * w, 1), round(b * h, 1), round((c - a) * w, 1), round((d - b) * h, 1)]
+                  for a, b, c, d in boxes if 0 <= a < c <= 1000 and 0 <= b < d <= 1000)
 
 
 def who_question(path, persons):

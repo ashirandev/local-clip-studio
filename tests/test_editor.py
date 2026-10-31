@@ -131,11 +131,39 @@ class Faces(unittest.TestCase):
             faces._detector = lambda w, h: (lambda data, w, h: seen.append((len(data), w, h)) or [(10, 20, 30, 40, .9)])
             try:
                 rec = recording.probe(path)
-                got = faces.sample(rec, 2.0, 5.0)
+                with mock.patch.object(faces, "STILL", 0):
+                    got = faces.sample(rec, 2.0, 5.0)
                 self.assertEqual([s["t"] for s in got["samples"]], [2.0, 2.5, 3.0, 3.5, 4.0, 4.5])
                 self.assertEqual(seen[0], (320 * 180 * 3, 320, 180))
                 self.assertEqual(got["samples"][0]["faces"], [[10.0, 20.0, 30.0, 40.0, 0.9]])
                 self.assertEqual(faces.kept(rec, 2.0, 5.0), got, "kept, so asking again is instant")
+            finally:
+                faces._detector, recording.WORK = real, work
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_a_face_that_never_changes_is_a_drawing_and_not_a_face_camera(self):
+        """A drawn woman on Tarm's gold lesson sat in 50 of 50 pictures, and the card cut the slide round her (10-31)."""
+        if not FFMPEG:
+            self.skipTest("needs ffmpeg")
+        tmp = tempfile.mkdtemp()
+        try:
+            path = os.path.join(tmp, "v.mp4")
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=white:s=160x180:r=10:d=4", "-f", "lavfi",
+                            "-i", "testsrc=s=160x180:r=10:d=4,noise=alls=60:allf=t", "-filter_complex", "hstack", "-pix_fmt",
+                            "yuv420p", path], check=True)
+            work, recording.WORK = recording.WORK, os.path.join(tmp, "work")
+            real = faces._detector
+            faces._detector = lambda w, h: (lambda data, w, h: [(20, 20, 40, 40, .9), (200, 20, 40, 40, .9)])
+            try:
+                rec = recording.probe(path)
+                got = faces.sample(rec, 0.0, 4.0)
+                self.assertGreater(len(got["samples"]), 5)
+                self.assertTrue(all(s["faces"] == [[200.0, 20.0, 40.0, 40.0, 0.9]] for s in got["samples"]), got["samples"])
+                self.assertEqual(faces.steady(got)["box"], [200.0, 20.0, 40.0, 40.0])
+                one = faces.sample(rec, 1.0, 1.4)
+                self.assertEqual(len(one["samples"]), 1)
+                self.assertEqual(len(one["samples"][0]["faces"]), 2, "one picture cannot tell")
             finally:
                 faces._detector, recording.WORK = real, work
         finally:
@@ -1056,11 +1084,18 @@ class Tools(unittest.TestCase):
                 return {"text": self.answers[len(self.sent) - 1], "thinking": "", "tool_calls": [],
                         "message": {"role": "assistant"}, "engine": {"usd": 0.05}}
 
+        class NoCount:
+            key, label, model_id = "spark", "Muse Spark", "muse-spark-1.3"
+
+            def ask(self, *args, **kwargs):
+                raise tools.mind.MindError("it did not answer")
+
         turns = mock.Mock(return_value=([(0.0, 10.0, "A"), (10.0, 20.0, "B")], 0.001))
         real, talk.motion = talk.motion, moving
         wonder, tools.mind.MINDS["wonder"] = tools.mind.MINDS.get("wonder"), Namer()
         try:
-            with mock.patch.object(tools, "_wonder_names", lambda: True), mock.patch.object(tools.asr, "turns", turns):
+            with mock.patch.object(tools, "_wonder_names", lambda: True), mock.patch.object(tools.asr, "turns", turns), \
+                    mock.patch.dict(tools.mind.MINDS, spark=NoCount()):
                 _, steps = self.run_job(*self.to_moment(), '{"lines": ["hello there", "and you"]}',
                                         [call("make_clip", moment=1, layout="talk", why="two people talking")],
                                         [call("make_clip", moment=1, layout="talk", why="again")], "Done.")
@@ -1068,6 +1103,8 @@ class Tools(unittest.TestCase):
             talk.motion = real
             tools.mind.MINDS["wonder"] = wonder
         first, again = steps[-2:]
+        self.assertIn("Muse Spark could not count the people (it did not answer), so only the 2 faces found have numbers.",
+                      first["result"])
         self.assertIn("Muse Wonder named who speaks in 2 of 2 turns from their voices and faces ($0.10).", first["result"])
         self.assertIn("Who speaks was named by Muse Wonder earlier", again["result"])
         self.assertEqual(len(Namer.sent), 2, "the clip made again asks nobody again")
@@ -1079,6 +1116,50 @@ class Tools(unittest.TestCase):
             rows = [json.loads(line) for line in f]
         self.assertEqual(sum(1 for r in rows if r["mind"] == "wonder"), 2)
         self.assertEqual(sum(1 for r in rows if r["mind"] == "voice" and r["usd"] == 0.001), 1)
+
+    def test_someone_the_faces_missed_is_counted_named_and_shown(self):
+        """EP0 10-31: Wonder had no number for the man turned away, and gave his turn to person 1."""
+        from unittest import mock
+        self.faces = found([(30 + i * 0.5, [[60, 40, 40, 40], [160, 40, 40, 40]]) for i in range(40)], size=(320, 180))
+        self.worker.phrases = [{"from": 1, "to": 9, "text": "hello there", "sure": 0.99},
+                               {"from": 10.2, "to": 19, "text": "and you", "sure": 0.99}]
+
+        class Asked:
+            def __init__(self, key, label, answers):
+                self.key, self.label, self.model_id, self.answers, self.sent = key, label, key, answers, []
+
+            def secret(self):
+                return "a key"
+
+            def ask(self, messages, tools=None, temperature=None, max_tokens=None, on_delta=None, asking=None,
+                    schema=None):
+                self.sent.append(messages)
+                return {"text": self.answers[len(self.sent) - 1], "thinking": "", "tool_calls": [],
+                        "message": {"role": "assistant"}, "engine": {"usd": 0.01}}
+
+        heads = {"people": [{"head": [170, 200, 320, 500], "looks": "left"}, {"head": [480, 200, 620, 500], "looks": "middle"},
+                            {"head": [780, 200, 920, 500], "looks": "turned away on the right"}]}
+        spark = Asked("spark", "Muse Spark", [json.dumps(heads)])
+        wonder = Asked("wonder", "Muse Wonder", ['{"who": 3, "sure": 0.9, "why": "his voice and hands"}',
+                                                 '{"who": 1, "sure": 0.9, "why": "her mouth"}'])
+        turns = mock.Mock(return_value=([(0.0, 10.0, "A"), (10.0, 20.0, "B")], 0.001))
+        with mock.patch.object(tools, "_wonder_names", lambda: True), mock.patch.object(tools.asr, "turns", turns), \
+                mock.patch.dict(tools.mind.MINDS, spark=spark, wonder=wonder), \
+                mock.patch.object(talk, "motion", lambda rec, a, b, persons, fps=10: [[1.0] * 30 for _ in persons]):
+            _, steps = self.run_job(*self.to_moment(), '{"lines": ["hello there", "and you"]}',
+                                    [call("make_clip", moment=1, layout="talk", why="three people talking")],
+                                    [call("make_clip", moment=1, layout="talk", why="again")], "Done.")
+        first, again = steps[-2:]
+        self.assertIn("It follows 3 people", first["result"])
+        self.assertIn("Muse Spark counted 3 people in one picture, and the faces found were 2", first["result"])
+        self.assertEqual(len(spark.sent), 1, "the clip made again asks nobody again")
+        self.assertIn("image_url", json.dumps(spark.sent[0]))
+        self.assertEqual(len(wonder.sent), 2)
+        self.assertIn("3 people in this video have a yellow number", json.dumps(wonder.sent[0]))
+        clip = self.chat.project.state()["clip"]
+        self.assertEqual([v["who"] for v in clip["voices"]], [3, 1])
+        self.assertEqual(clip["layout"]["shots"][0]["show"], 3, "the zoom goes to him")
+        self.assertIn("person 3", [p["name"] for p in clip["layout"]["parts"]])
 
     def test_wonder_names_only_when_the_meta_hearing_is_on(self):
         from unittest import mock

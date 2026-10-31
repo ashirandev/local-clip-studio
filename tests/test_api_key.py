@@ -120,7 +120,7 @@ class Saved(unittest.TestCase):
         self.assertEqual(os.environ["META_API_KEY"], "from-the-file")
 
     def test_setup_asks_once_in_the_console_and_never_shows_the_key(self):
-        answers = iter(["ftp://nope", "meta", "n"])
+        answers = iter(["ftp://nope", "meta", "n", ""])
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertTrue(parts.ask_api(read=lambda q: next(answers), read_secret=lambda q: "made-up-secret"))
@@ -141,10 +141,29 @@ class Saved(unittest.TestCase):
 
         def read(q):
             asked.append(q)
-            return next(left)
+            return next(left, "")
         with redirect_stdout(out):
             self.assertTrue(parts.ask_api(read=read, read_secret=lambda q: secret))
-        return out.getvalue(), asked[1:]
+        return out.getvalue(), [q for q in asked[1:] if "Another endpoint" not in q]
+
+    def test_two_keys_at_setup_keep_both_and_the_open_spark_runs_the_chat(self):
+        """Tarm's brother 10-31: Spark Open for the chat and Meta's for the rest, new to the app, with nobody beside him."""
+        answers, keys = iter(["meta", "", "baseten"]), iter(["made-up-meta", "made-up-baseten"])
+        with redirect_stdout(io.StringIO()):
+            self.assertTrue(parts.ask_api(read=lambda q: next(answers), read_secret=lambda q: next(keys)))
+        self.assertTrue(sends.allowed(), "Enter at the question between them")
+        self.assertEqual(hearing.engine(), "meta")
+        self.assertEqual(os.environ["META_API_KEY"], "made-up-meta")
+        self.assertEqual(os.environ["BASETEN_API_KEY"], "made-up-baseten")
+        mind.MINDS.update(mind.minds())
+        self.assertEqual(mind.default([m.status() for m in mind.MINDS.values() if m.key != "local"]), "baseten")
+
+    def test_a_chat_starts_on_glimmer_then_the_open_spark_then_metas(self):
+        ready = lambda *keys: [{"key": k, "ok": True} for k in keys]
+        self.assertEqual(mind.default(ready("local", "spark", "baseten")), "local")
+        self.assertEqual(mind.default(ready("spark", "wonder", "baseten")), "baseten")
+        self.assertEqual(mind.default(ready("spark", "wonder")), "spark")
+        self.assertEqual(mind.default([{"key": "spark", "ok": False}]), "local", "nothing ready: the page says how to set up")
 
     def test_after_a_meta_key_setup_asks_once_says_what_is_sent_and_enter_turns_it_on(self):
         self.assertFalse(sends.allowed(), "a fresh copy starts off")

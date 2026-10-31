@@ -80,6 +80,31 @@ def people(found):
     return [dict(g, n=i) for i, g in enumerate(kept, 1)]
 
 
+def with_heads(persons, heads):
+    """persons with the heads Muse counted ([x, y, w, h] in the recording's pixels): each person takes the nearest head
+    as where their number goes ("head"), and a head nobody takes is someone the face finder missed, turned away or cut
+    off, who joins the people, no bigger than the biggest face so the shots stay as close. Numbered from the left again,
+    at most MOST_PEOPLE."""
+    def apart(box, head):
+        (ax, ay), (bx, by) = faces._centre(box), faces._centre(head)
+        return math.hypot(ax - bx, ay - by)
+
+    out = [dict(p) for p in persons]
+    placed, taken = set(), set()
+    for _, i, k in sorted((apart(p["box"], h), i, k) for i, p in enumerate(persons) for k, h in enumerate(heads)):
+        if i not in placed and k not in taken:
+            out[i]["head"] = heads[k]
+            placed.add(i)
+            taken.add(k)
+    biggest = max(max(p["box"][2:]) for p in persons)
+    for k, (x, y, w, h) in enumerate(heads):
+        if k not in taken and len(out) < MOST_PEOPLE:
+            bw, bh = min(w, biggest), min(h, biggest)
+            out.append({"box": [x + (w - bw) / 2, y + (h - bh) / 2, bw, bh], "head": heads[k], "seen": 0,
+                        "of": persons[0]["of"]})
+    return [dict(p, n=i) for i, p in enumerate(sorted(out, key=lambda p: p["box"][0]), 1)]
+
+
 def mouth(box, size):
     """The mouth area of a face box (x, y, w, h): its lower half and a little under the chin, inside the picture."""
     x, y, w, h = box

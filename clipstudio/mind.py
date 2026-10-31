@@ -302,10 +302,10 @@ def newest_pictures(messages, most):
 
 class Mind:
     def __init__(self, key, label, url, model=None, key_env=None, reasoning_line=None, where="", provider="Meta",
-                 pictures=None):
+                 pictures=None, strength=None):
         self.key, self.label, self.url, self.model_id = key, label, url.rstrip("/"), model
         self.key_env, self.reasoning_line, self.where, self.provider = key_env, reasoning_line, where, provider
-        self.pictures = pictures
+        self.pictures, self.strength = pictures, strength
 
     def secret(self):
         return os.environ.get(self.key_env, "").strip() if self.key_env else ""
@@ -420,7 +420,7 @@ class Mind:
             raise MindError(self.missing())
         self.on_card()
         msgs = list(messages)
-        if self.reasoning_line:
+        if self.reasoning_line and not self.strength:
             if msgs and msgs[0].get("role") == "system":
                 msgs[0] = dict(msgs[0], content=self.reasoning_line + "\n\n" + msgs[0]["content"])
             else:
@@ -430,6 +430,8 @@ class Mind:
         body = {"messages": msgs, "stream": True, "stream_options": {"include_usage": True}}
         if not self.key_env:
             body["temperature"] = temperature
+        if self.strength:
+            body["chat_template_kwargs"] = {"reasoning_strength": self.strength}
         if self.model_id:
             body["model"] = self.model_id
         if tools:
@@ -602,7 +604,7 @@ def minds():
     return {
         "local": Mind("local", "Muse Glimmer", os.environ.get("LCS_MIND_URL", "http://127.0.0.1:8863/v1"),
                       model=os.environ.get("LCS_MIND_MODEL", "muse-glimmer"), reasoning_line="Reasoning strength: low",
-                      where="on this computer"),
+                      where="on this computer", strength=os.environ.get("LCS_MIND_REASONING")),
         "spark": Mind("spark", "Muse Spark", os.environ.get("LCS_SPARK_URL", NAMED["meta"]),
                       model=os.environ.get("LCS_SPARK_MODEL", "muse-spark-1.3"), key_env="META_API_KEY",
                       where="on Meta's servers, with your own key"),
@@ -627,6 +629,15 @@ def minds():
 
 MINDS = minds()
 DEFAULT = "local"
+# Who runs a chat the person has not chosen for: Glimmer here, else the open Spark, else Meta's. A Meta key is often only
+# there for the hearing and the watching, beside a key for the open model.
+FIRST_READY = ("local", "baseten", "fireworks", "modal", "spark")
+
+
+def default(statuses):
+    """The key of the mind a chat starts on, from each mind's status()."""
+    ready = {s["key"] for s in statuses if s["ok"]}
+    return next((k for k in FIRST_READY if k in ready), DEFAULT)
 
 
 def get(key):

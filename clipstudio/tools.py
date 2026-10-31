@@ -3081,6 +3081,7 @@ def _make_talk(job, rec, moment, m, pieces, cut, name="talk", kept=None):
                       "speaker or the talk layout." % len(persons))
     heard = job.chat.looks[m["look"] - 1].get("said")
     try:
+        persons, count_line = (persons, None) if name == "split" else _count_people(job, rec, found, m, persons)
         spoken, voice_line = _voices(job, rec, m, persons)
     except hearing.Stopped:
         return "Not made: the person pressed Stop."
@@ -3108,8 +3109,7 @@ def _make_talk(job, rec, moment, m, pieces, cut, name="talk", kept=None):
                                           "others are in circles at the top.",
                                "split": " Person 1 is in the top half and person 2 in the lower half for the whole "
                                         "clip, so both are always on screen."}.get(name, ""))]
-    if voice_line:
-        lines.append(voice_line)
+    lines += filter(None, [count_line, voice_line])
     if name != "split":
         lines += ["Who speaks was measured: %s." % (
                       "from the voices; the mouths only find the listener's reactions" if spoken else
@@ -3133,6 +3133,38 @@ def _make_talk(job, rec, moment, m, pieces, cut, name="talk", kept=None):
     lines += _people_lines(job, people, rec)
     job.show(clip=job.chat.clip_view())
     return "\n".join(lines)
+
+
+def _count_people(job, rec, found, m, persons):
+    """(persons with whoever Muse Spark counts in one picture of the moment, kept in work/voices; a sentence for Muse or
+    None). On the switch in Options only, as Muse Wonder's naming is. Stop raises hearing.Stopped."""
+    if not _wonder_names():
+        return persons, None
+    key = hashlib.sha1(json.dumps([rec["path"], rec["size"], rec["mtime"], m["start"], m["end"],
+                                   [p["box"] for p in persons]], sort_keys=True).encode("utf-8")).hexdigest()[:16]
+    kept = os.path.join(recording.WORK, "voices", key + "_heads.json")
+    try:
+        with open(kept, encoding="utf-8") as f:
+            heads = json.load(f)
+    except (OSError, ValueError):
+        at = max(found["samples"], key=lambda s: len(s["faces"]))["t"]
+        path = voices.picture(rec, at, [], key + "_heads")
+        try:
+            got = path and job.ask_other("spark", voices.heads_question(path), voices.HEADS_SCHEMA,
+                                         "Muse Spark is counting the people", voices.HEADS_TOKENS)
+        except mind.MindError as e:
+            return persons, "Muse Spark could not count the people (%s), so only the %d faces found have numbers." % (
+                e, len(persons))
+        heads = voices.heads_answer(got["text"], rec) if got else None
+        if heads is None:
+            return persons, "Muse Spark's count could not be read, so only the %d faces found have numbers." % len(persons)
+        with open(kept + ".part", "w", encoding="utf-8") as f:
+            json.dump(heads, f)
+        os.replace(kept + ".part", kept)
+    out = talk.with_heads(persons, heads)
+    return out, (None if len(out) == len(persons) else
+                 "Muse Spark counted %d people in one picture, and the faces found were %d: the others are followed where "
+                 "it saw their heads, so look at their shots." % (len(heads), len(persons)))
 
 
 def _voices(job, rec, m, persons):

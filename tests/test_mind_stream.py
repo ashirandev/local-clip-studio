@@ -99,6 +99,18 @@ class Stream(unittest.TestCase):
         self.assertEqual((got["engine"]["read_new"], got["engine"]["reused"], got["engine"]["write_per_s"]),
                          (14, 1088, 52.3))
 
+    def test_a_strength_goes_as_the_templates_argument_and_the_line_stays_out(self):
+        """The template prints its own strength after our prompt, so a line of ours only made the model see two."""
+        url = "http://127.0.0.1:%d/v1" % self.server.server_port
+        Fake.asked = []
+        line = "Reasoning strength: low"
+        mind.Mind("local", "Here", url, reasoning_line=line).ask([{"role": "user", "content": "hi"}])
+        self.assertIn(line, str(Fake.asked[-1]["messages"]))
+        self.assertNotIn("chat_template_kwargs", Fake.asked[-1])
+        mind.Mind("local", "Here", url, reasoning_line=line, strength="medium").ask([{"role": "user", "content": "hi"}])
+        self.assertNotIn(line, str(Fake.asked[-1]["messages"]))
+        self.assertEqual(Fake.asked[-1]["chat_template_kwargs"], {"reasoning_strength": "medium"})
+
     def test_a_hosted_muse_gets_no_temperature_and_one_here_does(self):
         """Meta's guide: Spark is tuned at its default, leave it unset."""
         url = "http://127.0.0.1:%d/v1" % self.server.server_port

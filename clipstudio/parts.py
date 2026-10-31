@@ -438,11 +438,23 @@ def ask_sends(read):
 
 
 def ask_api(read=input, read_secret=None):
-    """Asks for the API endpoint and key in the console (Enter skips, or keeps the one saved); a word names Meta's,
-    Baseten's or Fireworks' endpoint (mind.NAMED), as nobody can guess an address. The key is read without showing
-    it. A Meta key is followed by ask_sends: that key is the one the hearing and the watching use."""
+    """Asks for the API endpoint and key in the console, and then for a second one: the hearing and the watching use a
+    Meta key while the mind may be Muse Spark Open elsewhere, and someone new should not have to find Options for it.
+    True when a key was saved."""
     import getpass
     read_secret = read_secret or getpass.getpass
+    if not _ask_one(read, read_secret, "  Endpoint (Enter to skip): "):
+        return False
+    print("  A second key, if you have one: Meta's for the hearing and the watching, with Muse Spark Open's for the "
+          "chat, for example.")
+    _ask_one(read, read_secret, "  Another endpoint (Enter to finish): ")
+    return True
+
+
+def _ask_one(read, read_secret, question):
+    """One endpoint and key (Enter skips, or keeps the one saved); a word names Meta's, Baseten's or Fireworks' endpoint
+    (mind.NAMED), as nobody can guess an address. The key is read without showing it. A Meta key is followed by
+    ask_sends: that key is the one the hearing and the watching use."""
     url, saved = mind.saved_api()
     print("Muse through an API (Meta's Muse Spark, or Muse Spark Open on Modal, Baseten or Fireworks): its endpoint "
           "and your key.")
@@ -452,7 +464,7 @@ def ask_api(read=input, read_secret=None):
         print("  Saved: %s. Press Enter to keep it." % url)
     while True:
         try:
-            url = read("  Endpoint (Enter to skip): ").strip()
+            url = read(question).strip()
             url = mind.NAMED.get(url.lower(), url)
             key = read_secret("  API key (it does not show while you type): ") if url else ""
         except EOFError:
