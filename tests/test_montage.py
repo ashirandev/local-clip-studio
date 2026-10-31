@@ -455,7 +455,7 @@ class Arrange(unittest.TestCase):
 
 
     def test_at_an_event_every_face_is_kept_and_one_is_blurred_by_its_number(self):
-        def people(rec, pieces, face, span=None):
+        def people(rec, pieces, face, span=None, job=None):
             return [{"n": 1, "seen": 4, "of": 10, "from": 0.5, "to": 2.0, "box": [10, 10, 40, 40], "crop": None,
                      "points": [[0.5 * k, 10 + 2 * k, 10, 40, 40] for k in range(1, 5)]},
                     {"n": 2, "seen": 2, "of": 10, "from": 3.0, "to": 3.5, "box": [100, 20, 30, 30], "crop": None,
