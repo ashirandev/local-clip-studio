@@ -2053,16 +2053,26 @@ def _found_faces(rec, pieces, span=None):
 
 def _face_times(state, rec):
     """[(clip second, [boxes in the frame to keep words off])] for every picture the face finder took of the clip,
-    and the seconds between two pictures. The product Muse named is in every picture."""
+    and the seconds between two pictures. The product Muse named is in every picture: where its box is, or, on a frame
+    that follows it, in the frame's middle. As the box at every place that frame goes it filled both places for words,
+    and 2 of 4 clips of Tarm's seller kept a title for under 2 s (10-31)."""
     clip, out, every = state["clip"], [], faces.EVERY
     lay = clip["layout"]
 
     def on_frame(at, box):
         return layouts.to_frame(lay, box, at)
 
-    product = layouts.to_frame(lay, clip["product"]) if clip.get("product") else []
-    if product:
-        out = [(round(k * every, 2), list(product)) for k in range(int(state["length"] / every) + 1)]
+    def product(at):
+        if not clip.get("product"):
+            return []
+        if not lay.get("thing"):
+            return layouts.to_frame(lay, clip["product"])
+        whole = next(p for p in layouts.parts_at(lay, at) if p["name"] == "whole")
+        x, y, w, h = clip["product"]
+        return on_frame(at, [whole["src"][0] + (whole["src"][2] - w) / 2.0, y, w, h])
+
+    if clip.get("product"):
+        out = [(round(k * every, 2), list(product(k * every))) for k in range(int(state["length"] / every) + 1)]
     for a, b, found in _found_faces(rec, clip["pieces"], clip.get("span")):
         if not found:
             continue
@@ -2070,7 +2080,7 @@ def _face_times(state, rec):
         for t, boxes in faces.between(found, a, b):
             at = project.from_recording(clip["pieces"], t)
             if at is not None:
-                out.append((at, [f for box in boxes for f in on_frame(at, box)] + product))
+                out.append((at, [f for box in boxes for f in on_frame(at, box)] + product(at)))
     return sorted(out, key=lambda x: x[0]), every
 
 
@@ -5817,17 +5827,26 @@ def open_clip(job, why, clip):
     return "Clip %d of %d is open. %s" % (clip, len(album), job.chat.clip_line())
 
 
+TITLE_HOLDS = 3.0
+
+
+def _title_order(stretches):
+    """stretches ([(from, to, place)]) in the order to try them: the earliest of those a viewer can read a title in,
+    TITLE_HOLDS s or more, then the longer of the others."""
+    return sorted(stretches, key=lambda s: (s[1] - s[0] < TITLE_HOLDS, s[0] if s[1] - s[0] >= TITLE_HOLDS else s[0] - s[1]))
+
+
 def _title_where_clear(job, rec, words):
-    """Puts the title up in the earliest stretch of a layout place that covers no face, the longer first when two
-    start together, and says where and when; None when no stretch takes it. Seen 10-28 on a Q&A where both talkers
-    fill the frame in turn: two of three clips went out with no title, as no place was clear for the whole clip."""
+    """Puts the title up in a stretch of a layout place that covers no face (_title_order), and says where and when;
+    None when no stretch takes it. Seen 10-28 on a Q&A where both talkers fill the frame in turn: two of three clips went
+    out with no title, as no place was clear for the whole clip."""
     state = _clip_state(job)
     lay, length = state["clip"]["layout"], state["length"]
     times, every = _face_times(state, rec)
-    stretches = sorted((a, a - b, name) for name, box in lay["places"].items()
-                       for a, b in _clear(_covered(box, times, every, 0, length), 0, length))
-    for a, minus, name in stretches:
-        start, end = math.ceil(a * 10) / 10, math.floor((a - minus) * 10) / 10
+    stretches = _title_order([(a, b, name) for name, box in lay["places"].items()
+                              for a, b in _clear(_covered(box, times, every, 0, length), 0, length)])
+    for a, b, name in stretches:
+        start, end = math.ceil(a * 10) / 10, math.floor(b * 10) / 10
         try:
             add_title(job, BATCH_WHY, words, start, end, place=name)
         except Refused:

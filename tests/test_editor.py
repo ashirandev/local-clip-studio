@@ -2253,6 +2253,32 @@ class Tools(unittest.TestCase):
         self.assertLessEqual(whole["src"][0], 224, "the product's left side is in the window")
         self.assertGreaterEqual(whole["src"][0] + whole["src"][2], 272, "and its right side")
 
+    def test_a_title_takes_a_stretch_it_can_be_read_in(self):
+        """Tarm's seller 10-31: the earliest stretch was under 2 s, with 8 s free later."""
+        got = tools._title_order([(3.7, 5.6, "middle"), (9.0, 17.0, "top"), (6.0, 10.0, "middle"), (0.5, 2.0, "top")])
+        self.assertEqual([s[0] for s in got], [6.0, 9.0, 3.7, 0.5], "the earliest long one, then the longer of the rest")
+
+    def test_on_a_frame_that_follows_the_product_it_stands_in_the_frames_middle(self):
+        """Its box at every place the frame went filled both places for words (Tarm's seller, 10-31)."""
+        from unittest import mock
+        from test_cutout import make_mask
+
+        def cut_out(rec, a, b, on_start=None, on_progress=None, what=None):
+            return {"path": make_mask(self.tmp, "followed.mkv", b - a, a, "lt(abs(X-280),20)", size=(320, 180)),
+                    "person": None, "fps": 10, "size": [320, 180], "from": a, "to": b}
+
+        script = self.to_moment()
+        with mock.patch.object(tools.person, "cut_out", cut_out):
+            self.run_job(script[0], [call("load_recipe", type="seller", why="a seller")], *script[1:],
+                         [call("make_clip", moment=1, layout="subject", product=[100, 300, 250, 600], why="the product")],
+                         [call("follow_product", what="white game controller", why="the product leads")], "Done.")
+        state = self.chat.project.state()
+        times, _ = tools._face_times(state, self.chat.recording)
+        boxes = [b for _, found in times for b in found]
+        self.assertTrue(boxes)
+        for x, y, w, h in boxes:
+            self.assertAlmostEqual(x + w / 2.0, 540, delta=2, msg="in the middle of the frame, though Muse's box was far left")
+
     def test_moving_the_ends_keeps_the_frame_on_the_product_it_followed(self):
         """Glimmer's green seller 10-30: after change_ends the frame went back to the face and no title fit."""
         from unittest import mock
