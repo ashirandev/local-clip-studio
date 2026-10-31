@@ -2672,8 +2672,9 @@ def _menu_start(job, rec, a):
     if len(shown) < MENU_LINES or _told_once(job, "menu_start"):
         return None
     return ("The clip would open on the game's menu: at %s the screen shows %s, and a viewer scrolls past a menu in "
-            "the first second. Start on the play that led to it: look at %s-%s and propose the moment from there. If "
-            "the menu is the point, make it again and it is made." % (recording.clock(a), ", ".join(shown),
+            "the first second. Start on the play that led to it: look at %s-%s and propose the moment from there, with "
+            "only its start moved and its end where it was, so the reaction stays in. If the menu is the point, make "
+            "it again and it is made." % (recording.clock(a), ", ".join(shown),
                                                                      recording.clock(max(0, a - LOOK_BACK)),
                                                                      recording.clock(a)))
 
