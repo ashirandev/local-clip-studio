@@ -211,8 +211,14 @@ class Machine(unittest.TestCase):
             p.start()
         self.which = mock.patch.object(parts.shutil, "which", lambda name: None)
         self.which.start()
+        # A port free_port() gave up can be taken by another program before the test asks it: on the run of a349c92 the hearing's was.
+        listens = parts.mind.listens
+        self.answering = set()
+        self.quiet = mock.patch.object(parts.mind, "listens", lambda url: url in self.answering and listens(url))
+        self.quiet.start()
 
     def tearDown(self):
+        self.quiet.stop()
         self.which.stop()
         parts.stop_glimmer()
         parts._engine.update(process=None, why=None)
@@ -331,6 +337,7 @@ class Machine(unittest.TestCase):
         held = socket.socket()
         held.bind(("127.0.0.1", port))
         held.listen()
+        self.answering.add(parts.LOCAL_URL)
         try:
             self.assertFalse(parts.start_glimmer())
             self.assertIsNone(parts._engine["process"])
