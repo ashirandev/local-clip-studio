@@ -45,6 +45,9 @@ PROMPT = "person"
 EDGE = 1.0
 
 
+TOUCH = 0.2
+
+
 def say(**what):
     print(json.dumps(what), flush=True)
 
@@ -72,6 +75,28 @@ def pick(masks, face, size, picture, prompt=PROMPT):
     if held[best] == 0:
         raise ValueError("None of the %d people SAM found holds the face at %s." % (len(masks), list(face)))
     return best
+
+
+def joined(masks, kept):
+    """masks[kept] with the pictures it lacks from the ids SAM gave the same person after losing them: an id that shares
+    at most TOUCH of its pictures with the person so far. An id that stands beside them longer is someone else. Lane 5
+    10-31, 28 s of a review: three ids held 0-8.5 s, 8.5-14.9 s and 14.9-27.8 s, and the title behind him stood over his
+    eyes."""
+    def shown(frames):
+        return {n for n, m in enumerate(frames) if m is not None and m.any()}
+
+    def pixels(m):
+        return int(np.unpackbits(m).sum())
+
+    out, have = list(masks[kept]), shown(masks[kept])
+    for i in sorted(masks, key=lambda i: -len(shown(masks[i]))):
+        seen = shown(masks[i])
+        if i != kept and len(seen & have) <= TOUCH * len(seen):
+            for n in seen:
+                if n not in have or pixels(masks[i][n]) > pixels(out[n]):
+                    out[n] = masks[i][n]
+            have |= seen
+    return out
 
 
 def holders(masks, people, size, picture):
@@ -186,7 +211,7 @@ def cut(job):
     each = holders(masks, job.get("people") or [], job["size"], (pw, ph))
     t = time.perf_counter()
     say(stage="writing")
-    write(masks[kept], job["out"], job["size"], (pw, ph), job["fps"])
+    write(joined(masks, kept), job["out"], job["size"], (pw, ph), job["fps"])
     for k, i in each.items():
         if i is not None:
             write(masks[i], os.path.join(job["each"], "%s.mkv" % k), job["size"], (pw, ph), job["fps"])

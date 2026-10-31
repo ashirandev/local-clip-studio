@@ -390,6 +390,64 @@ class Worker(unittest.TestCase):
                          {"1": 0, "2": 1, "3": None}, "each face its own person; a face nobody holds, none")
         self.assertEqual(cut.holders(masks, [], (128, 72), (64, 36)), {})
 
+    def test_a_person_sam_lost_and_found_again_stays_one_mask(self):
+        import numpy as np
+        cut = worker_module()
+
+        def box(x0, x1):
+            m = np.zeros((36, 64), bool)
+            m[5:30, x0:x1] = True
+            return np.packbits(m, axis=-1)
+
+        a, b, c = box(0, 10), box(20, 30), box(40, 50)
+        empty = np.packbits(np.zeros((36, 64), bool), axis=-1)
+        masks = {0: [a, a, empty, None], 2: [None, None, b, b], 3: [c, None, None, c]}
+        got = cut.joined(masks, 2)
+        self.assertTrue(got[0] is a and got[1] is a, "the pictures before SAM found him again come from his first id")
+        self.assertTrue(got[2] is b and got[3] is b, "the kept id stands where it has him")
+        beside = cut.joined({2: [a, None], 3: [b, b]}, 2)
+        self.assertIs(beside[0], a)
+        self.assertIsNone(beside[1], "an id seen in a picture beside the kept one is someone else")
+        brief = cut.joined({2: [a] * 6 + [None] * 4, 3: [None] * 5 + [b] * 5}, 2)
+        self.assertTrue(all(m is a for m in brief[:6]) and all(m is b for m in brief[6:]),
+                        "two ids of one person may touch for a moment as SAM hands over, and the kept one stands there")
+        crumb = box(0, 1)
+        lost = cut.joined({0: [a] * 6 + [None, crumb] + [None] * 12, 1: [None] * 6 + [b] * 6 + [None] * 8,
+                           2: [None] * 12 + [c] * 8}, 2)
+        self.assertIs(lost[7], b, "a crumb the first id left behind gives way to the person")
+        self.assertTrue(all(m is not None for m in lost), "three ids of one person leave no picture empty")
+
+    def test_the_worker_writes_the_person_joined_up(self):
+        import types
+
+        import numpy as np
+        cut = worker_module()
+        first, later = np.zeros((36, 64), bool), np.zeros((36, 64), bool)
+        first[5:30, 0:10], later[5:30, 20:50] = True, True
+
+        class Sam:
+            def handle_request(self, ask):
+                return {"session_id": "s", "outputs": {"out_obj_ids": np.array([0]), "out_probs": np.array([0.9])}}
+
+            def handle_stream_request(self, ask):
+                for n, (i, m) in enumerate([(0, first), (2, later), (2, later)]):
+                    yield {"frame_index": n, "outputs": {"out_obj_ids": np.array([i]), "out_binary_masks": [m]}}
+
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+
+        def pictures(*a, **k):
+            for n in range(3):
+                open(os.path.join(folder, "%05d.jpg" % n), "wb").close()
+            return types.SimpleNamespace(returncode=0, stderr="")
+
+        with mock.patch.object(cut.subprocess, "run", pictures), mock.patch.object(cut, "load", lambda w: Sam()), \
+                mock.patch.object(cut, "write") as write, mock.patch.object(cut, "say"):
+            got = cut.cut({"recording": "r", "from": 0, "to": 1, "fps": 3, "size": [64, 36], "face": None, "weights": "w",
+                           "frames": folder, "out": "o"})
+        self.assertEqual(got["kept"], 2)
+        self.assertTrue(all(m is not None for m in write.call_args[0][0]), "no picture is left without the person")
+
     def test_pictures_are_at_most_1920_on_the_long_side_and_even(self):
         cut = worker_module()
         self.assertEqual(cut.picture_size((3840, 2160)), (1920, 1080))
