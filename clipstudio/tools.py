@@ -1173,10 +1173,11 @@ def _what_is_said(job, rec, look):
              for p in inside] + holes)
 
 
-def _fixed_said(job, rec, look, a, b, said=None):
+def _fixed_said(job, rec, look, a, b, said=None, titled=()):
     """The lines heard from a to b (or the lines said, from the look) with misheard words fixed by Muse from the
-    context and, when the recipe reads the screen, from the words written on it: [{from, to, text, heard, kept,
-    named}], where kept says why a line stays as heard and named lists the names the fix took from the screen."""
+    context and, when the recipe reads the screen, from the words written on it, and from titled, names the clip's
+    title will show: [{from, to, text, heard, kept, named}], where kept says why a line stays as heard and named lists
+    the names the fix took from the screen."""
     said = [p for p in look.get("said") or [] if a <= p["from"] < b] if said is None else said
     if not said:
         return []
@@ -1189,6 +1190,7 @@ def _fixed_said(job, rec, look, a, b, said=None):
             names = screen.words(rec, a, b)
         except screen.ScreenError:
             pass
+    names = names + [n for n in titled if n not in names]
     try:
         fixed, kept = hearing.fix(job.ask_aside, heard, clip["title"] if clip else "video", before, names)
     except mind.MindError as e:
@@ -1207,10 +1209,14 @@ def _heard_said(look, a, b):
     return [dict(p, heard=p["text"], kept=LATER, named=[]) for p in look.get("said") or [] if a <= p["from"] < b]
 
 
-def _fix_moment(job, rec, m):
-    """Fixes the moment's lines when they were kept as heard for later. Stop raises hearing.Stopped."""
-    if any(s.get("kept") == LATER for s in m.get("said") or []):
-        m["said"] = _fixed_said(job, rec, job.chat.looks[m["look"] - 1], m["start"], m["end"])
+def _fix_moment(job, rec, m, titled=()):
+    """Fixes the moment's lines when they were kept as heard for later, or when they lack a name of titled, from the
+    title of a clip in a batch: the first moment is fixed before any title exists, and a seller's Redmi stayed "Let me"
+    beside the title Redmi (11-01, 020751-cdcd). Stop raises hearing.Stopped."""
+    said = m.get("said") or []
+    lost = [n for n in titled if not any(n.lower() in s["text"].lower() for s in said)]
+    if lost or any(s.get("kept") == LATER for s in said):
+        m["said"] = _fixed_said(job, rec, job.chat.looks[m["look"] - 1], m["start"], m["end"], titled=lost)
 
 
 AIR = 0.25
@@ -2266,7 +2272,7 @@ def _show_frame(job, state, rec, t, caption):
     return "Its frame at %g s comes next as a picture." % round(t, 2)
 
 
-def make_clip(job, why, moment, layout, crop=None, face=None, product=None, follow=True, moved=False):
+def make_clip(job, why, moment, layout, crop=None, face=None, product=None, follow=True, moved=False, titled=()):
     rec = _open(job, "make a clip from")
     if _waits(job):
         raise Refused("Not made: the person asked to see the moments first, and they are on the cards. Answer them now "
@@ -2286,7 +2292,7 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     made = {"layout": layout, "crop": crop, "face": face, "product": product, "follow": follow}
     kept = {"made": made, "moved": True} if moved else {"made": made}
     try:
-        _fix_moment(job, rec, m)
+        _fix_moment(job, rec, m, titled)
     except hearing.Stopped:
         return "Not made: the person pressed Stop."
     recipe = (job.chat.clip or {}).get("recipe")
@@ -6040,6 +6046,9 @@ def _on_the_product(job, rec, c, notes):
     return True
 
 
+TITLE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9]+")
+
+
 def _one_clip(job, rec, k, c, layout, blur, opened=None):
     """One clip of make_clips, from its moment to the hand-over: the sentence reporting on it. Its words are
     proofread together first, so the title on the clip is spelled as the post text is. A seller's clip is framed on
@@ -6050,7 +6059,9 @@ def _one_clip(job, rec, k, c, layout, blur, opened=None):
     n, head = c["moment"], "Clip %d (moment %d)" % (k, c["moment"])
     try:
         _spell(job, [c["title"], c.get("words") or "", c["caption"]] + list(c["hashtags"]))
-        made = make_clip(job, BATCH_WHY, n, layout, product=c.get("product"))
+        titled = TITLE_NAME.findall(" ".join([c["title"], c.get("words") or ""])) if (
+            job.chat.clip or {}).get("recipe") == "seller" else ()
+        made = make_clip(job, BATCH_WHY, n, layout, product=c.get("product"), titled=list(dict.fromkeys(titled)))
         if made.startswith("Not made"):
             return "%s: not made, the person pressed Stop." % head
         state = _clip_state(job)

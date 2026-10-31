@@ -3185,7 +3185,8 @@ class Tools(unittest.TestCase):
                                     [call("make_clips", clips=[dict(bare[0], **box), named[1]], why="no words")],
                                     [call("make_clips", clips=[named[0], dict(bare[1], what="a jar")], why="no box")],
                                     [call("make_clips", clips=named, why="no background")],
-                                    [call("make_clips", clips=dressed, why="all of it")], "Done.", recipe="seller")
+                                    [call("make_clips", clips=dressed, why="all of it")], '{"lines": ["one heard"]}', "Done.",
+                                    recipe="seller")
         nothing, half, unboxed, plain, made = steps[-5:]
         self.assertTrue(nothing["refused"])
         self.assertIn("Nothing was made. A seller's clip shows its product: give the clip of moment 1 and 2 its "
@@ -3211,6 +3212,20 @@ class Tools(unittest.TestCase):
         state = self.chat.project.state()
         self.assertEqual(state["clip"]["layout"]["thing"]["what"], "white game controller", "the first clip is shown")
         self.assertEqual(state["backdrop"]["about"], "a calm shop shelf")
+
+    def test_a_sellers_title_helps_fix_a_name_the_hearing_got_wrong(self):
+        """020751-cdcd on 11-01: "Let me" where he says Redmi, under the title Redmi."""
+        from unittest import mock
+        clips = [{"moment": n, "title": "Redmi 200 บาท", "caption": "c1", "hashtags": ["#a"], "product": [600, 200, 900, 800],
+                  "what": "a phone"} for n in (1, 2)]
+        with mock.patch.object(tools, "_on_the_product", return_value=True), mock.patch.object(tools.green, "find", return_value=None):
+            brain, steps = self.several([call("make_clips", clips=clips, why="the phone")], '{"lines": ["Redmi heard"]}',
+                                        "Done.", recipe="seller", shown=("Redmi",))
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        asked = next(m for m in brain.sent if "Lines to fix" in str(m[-1]) and "Redmi" in str(m[-1]))
+        self.assertIn("Written on the screen at the time", asked[-1]["content"])
+        shown = "".join(line["text"] for line in self.chat.project.state()["captions"]["lines"])
+        self.assertIn("Redmi", shown)
 
     def test_an_example_background_is_refused_before_a_batch_does_any_work(self):
         """153416-7e05: 12 minutes of SAM and rendering, then "not handed over" for the tool's own example."""
@@ -3317,7 +3332,8 @@ class Tools(unittest.TestCase):
         broken = [clip(1, "a broken thing"), clip(2, "a stopped thing")]
         with mock.patch.object(tools.person, "cut_out", cut_out), mock.patch.object(tools.green, "find",
                                                                                      return_value=None):
-            _, steps = self.several([call("make_clips", clips=broken, why="both")], "Done.", recipe="seller")
+            _, steps = self.several([call("make_clips", clips=broken, why="both")], '{"lines": ["one heard"]}', "Done.",
+                                    recipe="seller")
         made = steps[-1]["result"]
         self.assertIn("The a broken thing could not be followed: SAM is not set up. Tell the person, or leave the "
                       "frame where it is", made)
