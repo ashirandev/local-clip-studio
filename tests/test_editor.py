@@ -2419,6 +2419,37 @@ class Tools(unittest.TestCase):
         self.assertTrue(steps[-1]["refused"])
         self.assertIn("A seller's title stays in front", steps[-1]["result"])
 
+    def test_a_title_keeps_out_from_under_an_effect_put_on_first(self):
+        """Talk 035009-dfe9 on 11-01: the sticker went on first, and sat on the title's first letter for 2 s."""
+        self.chat.emit("person", job=None, text="เอาชื่อไว้ใต้ดาวเลย")
+        _, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("add_sticker", sticker="star", at=2, place="top", why="the peak")],
+            [call("add_flurry", stickers=["coin"], at=10, place="top", why="the second")],
+            [call("add_title", words="Big win", start=0, end=4, place="top", why="under the star")],
+            [call("add_title", words="Big win", start=9, end=12, place="top", why="under the coins")],
+            [call("add_title", words="Big win", start=0, end=1.9, place="top", why="before the star")],
+            [call("add_title", words="Big win", start=1, end=3, place="top", person_said="เอาชื่อไว้ใต้ดาว", why="asked")],
+            "Done.")
+        star, coins, before, asked = steps[-4:]
+        self.assertTrue(star["refused"])
+        self.assertEqual(star["result"], tools.UNDER_EFFECT % "the sticker star at 2 s")
+        self.assertTrue(coins["refused"])
+        self.assertEqual(coins["result"], tools.UNDER_EFFECT % "the burst flurry at 10 s")
+        self.assertFalse(before["refused"], before["result"])
+        self.assertFalse(asked["refused"], asked["result"])
+        self.assertIn("It stands under the sticker star at 2 s, where the person asked for it", asked["result"])
+
+    def test_a_blur_for_a_stretch_says_it_stays_still_and_shows_its_last_frame(self):
+        """Montage 035936-7931 on 11-01: boxes on riders were shown at their middle, and stood on the trees by their end."""
+        _, steps = self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="go")],
+                                [call("blur_box", box=[400, 0, 600, 300], start=2, end=5, why="a rider")],
+                                [call("blur_box", box=[400, 0, 600, 300], why="a logo")], "Done.")
+        stretch, whole = steps[-2:]
+        self.assertIn(tools.STILL_BOX, stretch["result"])
+        self.assertIn("Its frame at 4.9 s", stretch["result"])
+        self.assertNotIn(tools.STILL_BOX, whole["result"])
+
     def test_a_flurry_keeps_off_the_title(self):
         """Vlog 10-31, 201717-f1d9: the laugh's flurry went in the top place and stood over the title held there."""
         _, steps = self.run_job(

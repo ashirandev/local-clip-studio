@@ -3672,6 +3672,11 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
             crossed, hidden, hit = (_crossing(frames, drawn, start, end), _hidden(frames, drawn),
                                     _covered(drawn, times, every, start, end))
     notes = _phone(drawn, lay, state, asked) + ([moved] if part else [])
+    over = _effects_over(state, drawn, start, end)
+    if over and job.n is not None and not asked:
+        raise Refused(UNDER_EFFECT % ", ".join(over))
+    if over:
+        notes.append("It stands under %s, where the person asked for it; tell the person." % ", ".join(over))
     if crossed is not None:
         notes.append("Behind the person: they cross the words %s and hide about %d%% of their width." % (
             _when(crossed, start, end), round(100 * float(np.median(hidden)))))
@@ -4838,6 +4843,12 @@ def _blur_wide(job):
                         if (job.chat.clip or {}).get("recipe") == "game" else "")
 
 
+# Montage 035936-7931 (11-01): 4 boxes of 2 to 2.5 s on riders, each shown at its middle, and two stood on the trees by their end.
+STILL_BOX = ("The box stays where it is while the picture moves, so what moves out of it shows again. The frame next is its last: "
+             "if it no longer covers what it should, give a shorter span, and a new box for the rest.")
+BLUR_LAST = 0.1
+
+
 def blur_box(job, why, box, start=None, end=None, person_said=None):
     asked = _asked(job, person_said)
     rec = _open(job, "blur")
@@ -4868,7 +4879,10 @@ def blur_box(job, why, box, start=None, end=None, person_said=None):
     where = "; ".join(_where(lay, px))
     lines = ["Blurred %s on your grid from %g to %g s, so nothing in it can be read. In the clip it shows %s."
              % (_grid(px, rec), a, b, where)] + widened
-    lines.append(_show_frame(job, state, rec, (a + b) / 2, "The clip with the blur:"))
+    span = start is not None or end is not None
+    if span:
+        lines.append(STILL_BOX)
+    lines.append(_show_frame(job, state, rec, b - BLUR_LAST if span else (a + b) / 2, "The clip with the blur:"))
     return "\n".join(lines)
 
 
@@ -4913,16 +4927,31 @@ def _sticker_drawn(png, band):
             round(h * fit)]
 
 
+def _on_words(drawn, box):
+    """True when drawn covers WORDS_UNDER or more of the words standing in box (frame px)."""
+    w = min(drawn[0] + drawn[2], box[0] + box[2]) - max(drawn[0], box[0])
+    h = min(drawn[1] + drawn[3], box[1] + box[3]) - max(drawn[1], box[1])
+    return w > 0 and h > 0 and w * h >= WORDS_UNDER * box[2] * box[3]
+
+
 def _over_titles(state, default, drawn, a, b):
     """The titles drawn (frame px) from a to b covers WORDS_UNDER or more of: [(title, where its letters stand)].
     Game 10-30 (174316-0f5e): a sticker at the top went on over the title at 7 s, the star over "หลาย"."""
-    out = []
-    for t, box in render.title_boxes(state, default):
-        w = min(drawn[0] + drawn[2], box[0] + box[2]) - max(drawn[0], box[0])
-        h = min(drawn[1] + drawn[3], box[1] + box[3]) - max(drawn[1], box[1])
-        if t["start"] < b and t["end"] > a and w > 0 and h > 0 and w * h >= WORDS_UNDER * box[2] * box[3]:
-            out.append((t, box))
-    return out
+    return [(t, box) for t, box in render.title_boxes(state, default)
+            if t["start"] < b and t["end"] > a and _on_words(drawn, box)]
+
+
+UNDER_EFFECT = ("The title would stand under %s, and words on the clip are never covered. Give it another place, a box or a time "
+                "clear of that, or take the effect off with change_effect and add it again in a clear spot.")
+
+
+def _effects_over(state, words, a, b):
+    """What is already on the clip from a to b that would stand over words (frame px), as it is drawn over them: talk 035009-dfe9
+    (11-01) put a sticker on at 21.5 s and then its title, and the sticker sat on the first letter for 2 s."""
+    return ["the sticker %s at %g s" % (k.get("name") or "picture", k["at"]) for k in state["stickers"]
+            if k["at"] < b and k["at"] + k["length"] > a and _on_words(_sticker_drawn(k["png"], k["box"]), words)] + [
+        "the %s flurry at %g s" % (f["move"], f["at"]) for f in state["flurries"]
+        if f["at"] < b and f["at"] + f["length"] > a and _on_words(f["box"], words)]
 
 
 # The first is the strip between a card's title and its picture, where a burst covers neither.
