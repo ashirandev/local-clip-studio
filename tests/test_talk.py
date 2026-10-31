@@ -105,6 +105,23 @@ class Turns(unittest.TestCase):
                                                            {"from": 9, "to": 12, "show": 0},
                                                            {"from": 12, "to": 20, "show": 2}])
 
+    def test_a_shot_keeps_its_place_when_cut_and_joins_only_a_shot_at_the_same_place(self):
+        shots = [{"from": 0, "to": 10, "show": 1, "crop": [5, 6]}, {"from": 10, "to": 20, "show": 2}]
+        self.assertEqual(talk.with_shot(shots, 4, 6, 2), [{"from": 0, "to": 4, "show": 1, "crop": [5, 6]},
+                                                          {"from": 4, "to": 6, "show": 2},
+                                                          {"from": 6, "to": 10, "show": 1, "crop": [5, 6]},
+                                                          {"from": 10, "to": 20, "show": 2}])
+        self.assertEqual(talk.with_shot(shots, 9, 12, 1), [{"from": 0, "to": 12, "show": 1, "crop": [5, 6]},
+                                                           {"from": 12, "to": 20, "show": 2}],
+                         "a shot of that person made longer keeps its place")
+        self.assertEqual(talk.with_shot(shots, 4, 6, 1, [7, 8]), [{"from": 0, "to": 4, "show": 1, "crop": [5, 6]},
+                                                                  {"from": 4, "to": 6, "show": 1, "crop": [7, 8]},
+                                                                  {"from": 6, "to": 10, "show": 1, "crop": [5, 6]},
+                                                                  {"from": 10, "to": 20, "show": 2}])
+        self.assertEqual(talk.with_shot(shots, 12, 14, 1, [7, 8])[2], {"from": 12, "to": 14, "show": 1, "crop": [7, 8]})
+        placed = [{"from": 0, "to": 5, "show": 1, "crop": [5, 6]}, {"from": 5, "to": 9, "show": 1}]
+        self.assertEqual(talk.without_everyone(placed), placed, "two places of one person stay two shots")
+
     def test_short_turns_join_the_one_before_and_cuts_move_to_where_words_begin(self):
         wins = self.wins([(1, [5, 1])] * 6 + [(2, [1, 5])] + [(1, [5, 1])] * 2 + [(2, [1, 5])] * 6 + [(None, [1, 1])])
         got = talk.turns(wins, starts=[0.1, 4.3])
@@ -245,6 +262,48 @@ class Talk(unittest.TestCase):
         self.assertEqual(self.colour(1.0, lay, 220, 270), "red", "person 1 fills the frame")
         self.assertEqual(self.colour(5.0, lay, 220, 270), "blue", "everyone: the card's right side is person 2")
         self.assertEqual(self.colour(5.0, lay, 25, 270), "red", "and its left side person 1")
+
+    def test_a_shot_given_a_place_shows_it_in_that_shot_alone(self):
+        """Tarm 11-01: "เก็บกรอบการ crop ในแต่ละซีนเอาไว้แล้วให้ยูเซอร์ขยับเองได้ด้วย"."""
+        shots = [{"from": 0, "to": 2.05, "show": 1}, {"from": 2.05, "to": 4.1, "show": 1, "crop": [700, 0]},
+                 {"from": 4.1, "to": 6, "show": 2}]
+        lay = talk.make((1280, 720), persons(), shots)
+        self.assertEqual(lay["shots"], shots)
+        src = lay["parts"][0]["src"]
+        self.assertEqual(talk.parts_at(lay, 3.0)[0]["src"], [700, 0] + src[2:])
+        self.assertEqual(talk.parts_at(lay, 1.0)[0]["src"], src)
+        self.assertEqual(layouts.to_frame(lay, [700, 0, 10, 10], 3.0), [[0.0, 0.0, 30.0, 30.0]],
+                         "the words keep off what the shot shows now")
+        self.assertEqual(self.colour(1.0, lay, 125, 270), "red", "person 1 at their own place, on the red side")
+        self.assertEqual(self.colour(3.0, lay, 125, 270), "blue", "the same person, the frame moved to the blue side")
+        seated = talk.make((1280, 720), persons(), shots, seats=True)
+        self.assertEqual(len(seated["shots"]), 3)
+        self.assertEqual(self.colour(1.0, seated, 125, 270), "red", "the speaker layout's main picture too")
+        self.assertEqual(self.colour(3.0, seated, 125, 270), "blue")
+
+    def test_a_place_on_the_grid_sits_around_that_point_and_stays_on_the_picture(self):
+        lay = talk.make((1280, 720), persons(), [{"from": 0, "to": 6, "show": 1}])
+        w, h = lay["parts"][1]["src"][2:]
+        self.assertEqual(talk.crop_at(lay, 2, [500, 500]), [round(640 - w / 2), round(360 - h / 2)])
+        self.assertEqual(talk.crop_at(lay, 2, [0, 0]), [0, 0])
+        self.assertEqual(talk.crop_at(lay, 2, [1000, 1000]), [1280 - w, 720 - h])
+
+    def test_a_shot_given_a_place_stays_over_the_recording_when_the_ends_move(self):
+        three = persons() + [{"n": 3, "box": [600, 200, 160, 160]}]
+        old = {"pieces": [[10, 16]], "layout": talk.make((1280, 720), three, [
+            {"from": 0, "to": 2, "show": 1}, {"from": 2, "to": 4, "show": 1, "crop": [700, 0]},
+            {"from": 4, "to": 6, "show": 3, "crop": [60, 0]}])}
+        new = {"pieces": [[8, 15]], "layout": talk.make((1280, 720), persons(), [{"from": 0, "to": 7, "show": 2}])}
+        job = mock.Mock()
+        self.assertEqual(tools._frame_kept(job, None, old, new),
+                         "The shots whose frame was moved stay where they were put over the recording.")
+        self.assertEqual(job.edit.call_args[0][0]["layout"]["shots"], [
+            {"from": 0, "to": 4, "show": 2}, {"from": 4, "to": 6, "show": 1, "crop": [700, 0]},
+            {"from": 6, "to": 7, "show": 2}], "12-14 s of the recording, and person 3 is no longer in the clip")
+        job = mock.Mock()
+        plain = {"pieces": [[10, 16]], "layout": talk.make((1280, 720), persons(), [{"from": 0, "to": 6, "show": 1}])}
+        self.assertIsNone(tools._frame_kept(job, None, plain, new), "no shot was given a place")
+        job.edit.assert_not_called()
 
     def test_the_speaker_layout_keeps_the_others_in_circles_that_switch_with_the_shot(self):
         shots = [{"from": 0, "to": 2.05, "show": 1}, {"from": 2.05, "to": 4.1, "show": 2},

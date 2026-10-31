@@ -51,6 +51,9 @@ computer only.
   the background ({"ok": true} once it has started); a "moved" event says when the clip is made, a "not_moved" event
   why it was not
 - POST /api/frame {chat, x}: the upright frame holds with its left edge at x pixels of the recording (Chat.set_frame)
+- POST /api/shot {chat, start, end, show, x, y}: a talk clip's shot from start to end s shows person show (0: everyone),
+  its frame's left top at x, y pixels of the recording when given (Chat.set_shot)
+- GET /api/shotframe?chat=<id>&t=<s>: the recording's picture at second t of the clip, for the Frame tab of a talk clip
 - POST /api/layout {chat, layout}: the clip is made again in that layout, as the Trim tab's ends are, in the
   background; a "relaid" event says when it is made, a "not_relaid" event why it was not (Chat.set_layout)
 - POST /api/remake {chat}: makes the video again from the clip as it is now, as render_clip does, without Muse.
@@ -112,10 +115,12 @@ BASE = re.compile(r"^/api/base/([0-9a-f]{16}\.mp4)$")
 POSTER_AT = 1.0
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 CHANGES = ("/api/captions", "/api/style", "/api/colour", "/api/words", "/api/remake", "/api/channel",
-           "/api/channel/save", "/api/mute", "/api/ends", "/api/title/time", "/api/frame", "/api/layout", "/api/album",
+           "/api/channel/save", "/api/mute", "/api/ends", "/api/title/time", "/api/frame", "/api/shot", "/api/layout",
+           "/api/album",
            "/api/album/look", "/api/album/back", "/api/album/make", "/api/tagline", "/api/circle")
 TIMES = {"/api/mute": "Send the start and the end of the part to mute, in seconds of the clip.",
          "/api/ends": "Send the new start and end of the clip, in seconds of the recording.",
+         "/api/shot": "Send the shot's start and end, in seconds of the clip.",
          "/api/title/time": "Send the title's new start and end, in seconds of the clip."}
 UPLOAD_WAIT = 60
 ONLY_HERE = "Open Options on the computer the studio runs on to change this."
@@ -175,6 +180,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_clip_frame(query)
         elif path == "/api/faces":
             self.send_faces(query)
+        elif path == "/api/shotframe":
+            self.send_shot_frame(query)
         elif path == "/api/panel":
             chat = agent.find(query.get("chat", ""))
             if chat is None:
@@ -319,6 +326,15 @@ class Handler(BaseHTTPRequestHandler):
                     why = chat.set_mute(start, end, body.get("back") is True)
                 elif path == "/api/ends":
                     why = chat.set_ends(float(start), float(end))
+                elif path == "/api/shot":
+                    show, place = body.get("show"), [body.get("x"), body.get("y")]
+                    place = None if place == [None, None] else place
+                    if not isinstance(show, int) or isinstance(show, bool) or not all(
+                            isinstance(v, (int, float)) and not isinstance(v, bool) and abs(v) < 1e9
+                            for v in place or []):
+                        why = "Send who the shot shows, and where its frame goes in pixels of the recording."
+                    else:
+                        why = chat.set_shot(float(start), float(end), show, *(map(float, place) if place else ()))
                 elif not isinstance(n, int) or isinstance(n, bool):
                     why = "Send which title to move: its number."
                 else:
@@ -499,6 +515,20 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(body)
+
+    def send_shot_frame(self, query):
+        """The recording's picture at second t of the chat's clip."""
+        chat = agent.find(str(query.get("chat") or ""))
+        try:
+            t = float(query.get("t") or 0)
+        except ValueError:
+            t = -1.0
+        name = chat.picture_at(t) if chat is not None and t >= 0 else None
+        if not name:
+            self.send_json({"ok": False, "error": "Send a chat that has a clip, and a second inside it."},
+                           HTTPStatus.NOT_FOUND)
+            return
+        self.send_frame(name)
 
     def send_faces(self, query):
         """The other people's faces at second t of the chat's clip, in frame pixels, for the page to tap."""

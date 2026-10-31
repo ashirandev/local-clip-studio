@@ -216,7 +216,7 @@ def _talk(layout):
     shots = layout["shots"]
     held, filled = parts["person 1"]["src"], []
     for s in shots:
-        held = parts["person %d" % s["show"]]["src"] if s["show"] else held
+        held = talk.crop_of(parts, s) if s["show"] else held
         filled.append(held)
     one = "crop=w=%d:h=%d:x='%s':y='%s',scale=%d:%d,format=gray" % (
         filled[0][2], filled[0][3], talk._switch(shots, [c[0] for c in filled], filled[-1][0]),

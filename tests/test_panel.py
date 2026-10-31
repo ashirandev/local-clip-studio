@@ -15,7 +15,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, channels, faces, hearing, layouts, mind, project, recording, render, server, takes, tools  # noqa: E402,E501
+from clipstudio import agent, channels, faces, hearing, layouts, mind, project, recording, render, server, takes, talk, tools  # noqa: E402,E501
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 from test_editor import found  # noqa: E402
 from test_hearing import Worker  # noqa: E402
@@ -687,6 +687,81 @@ class Served(Clip):
             conn.close()
 
 
+def laid_as_talk(chat, seats=False):
+    """The chat's clip laid out as two people talking: person 1, person 2, then person 1 to its end. Its layout."""
+    people = [{"n": 1, "box": [60, 40, 40, 40]}, {"n": 2, "box": [220, 40, 40, 40]}]
+    shots = [{"from": 0.0, "to": 4.0, "show": 1}, {"from": 4.0, "to": 8.0, "show": 2},
+             {"from": 8.0, "to": chat.project.state()["length"], "show": 1}]
+    chat.edit({"do": "layout", "part": "shots", "box": None, "layout": talk.make((320, 180), people, shots, seats)})
+    return chat.project.state()["clip"]["layout"]
+
+
+class ShotFrames(Clip):
+    """Tarm 11-01: "เก็บกรอบการ crop ในแต่ละซีนเอาไว้แล้วให้ยูเซอร์ขยับเองได้ด้วย และส่วนนี้คือ 20% ที่เหลือที่ผมบอก"."""
+
+    def places(self):
+        return [(s["show"], s["x"], s["y"]) for s in self.chat.panel()["frame"]["shots"]]
+
+    def test_the_person_moves_one_shots_frame_and_the_others_stay_until_undo(self):
+        self.make()
+        lay = laid_as_talk(self.chat)
+        one, two = (p["src"] for p in lay["parts"])
+        frame = self.chat.panel()["frame"]
+        self.assertEqual((frame["why"], frame["size"], frame["width"], frame["height"], frame["together"]),
+                         (None, [320, 180], one[2], one[3], True))
+        self.assertEqual([{k: p[k] for k in ("n", "x", "y")} for p in frame["people"]],
+                         [{"n": 1, "x": one[0], "y": one[1]}, {"n": 2, "x": two[0], "y": two[1]}])
+        self.assertEqual(frame["people"][1]["at"], [240.0, 40])
+        before = [(1, one[0], one[1]), (2, two[0], two[1]), (1, one[0], one[1])]
+        self.assertEqual(self.places(), before)
+        entries = len(self.chat.project.entries)
+        self.assertIsNone(self.chat.set_shot(4.0, 8.0, 2, 10.0, 4.0))
+        self.assertEqual(self.places(), [before[0], (2, 10, 4), before[2]])
+        self.assertEqual(len(self.chat.project.entries), entries + 1, "one change, so Undo takes it back whole")
+        self.assertTrue(self.chat.told[-1].endswith("from 4 to 8 s of the clip on the page: it shows person 2, with its "
+                                                    "frame where they put it"))
+        state = self.chat.project.state()
+        self.assertEqual(layouts.parts_at(state["clip"]["layout"], 6.0)[0]["src"], [10, 4] + two[2:])
+        self.chat.undo()
+        self.assertEqual(self.places(), before)
+
+    def test_a_frame_stays_on_the_picture(self):
+        self.make()
+        lay = laid_as_talk(self.chat)
+        w, h = lay["parts"][0]["src"][2:]
+        self.assertIsNone(self.chat.set_shot(4.0, 8.0, 2, 5000.0, -50.0))
+        self.assertEqual(self.places()[1], (2, 320 - w, 0))
+
+    def test_a_shot_can_show_someone_else_or_everyone(self):
+        self.make()
+        lay = laid_as_talk(self.chat)
+        one = lay["parts"][0]["src"]
+        self.assertIsNone(self.chat.set_shot(4.0, 8.0, 1, float(one[0]), float(one[1])))
+        self.assertEqual([p[0] for p in self.places()], [1, 1, 1])
+        self.assertIsNone(self.chat.set_shot(4.0, 8.0, 0))
+        self.assertEqual(self.places()[1], (0, None, None))
+        self.assertIn("it shows everyone", self.chat.told[-1])
+        self.assertNotIn("frame where", self.chat.told[-1])
+
+    def test_the_speaker_layout_has_no_shot_of_everyone(self):
+        self.make()
+        laid_as_talk(self.chat, seats=True)
+        self.assertFalse(self.chat.panel()["frame"]["together"])
+        self.assertIn("In the speaker layout everyone is on screen", self.chat.set_shot(4.0, 8.0, 0))
+
+    def test_what_change_shot_refuses_the_page_says(self):
+        self.make()
+        self.assertIn("Only a clip in the talk layout has shots", self.chat.set_shot(0.0, 4.0, 1, 0.0, 0.0))
+        laid_as_talk(self.chat)
+        self.assertIn("too short to see", self.chat.set_shot(4.0, 4.01, 1))
+        self.assertIn("show 3 is not one of the people", self.chat.set_shot(4.0, 8.0, 3, 0.0, 0.0))
+
+    def test_a_clip_that_is_not_a_talk_still_has_one_frame(self):
+        self.make()
+        self.assertNotIn("shots", self.chat.panel()["frame"])
+        self.assertIsNotNone(self.chat.panel()["frame"]["picture"])
+
+
 class Frame(Clip):
     def whole(self):
         return next(p for p in self.chat.project.state()["clip"]["layout"]["parts"] if p["name"] == "whole")
@@ -1028,6 +1103,26 @@ class Endpoints(Served):
         for wrong in ("10", True, None, 1e12):
             self.assertEqual(self.ask("POST", "/api/frame", {"chat": self.chat.id, "x": wrong}), (400, {
                 "ok": False, "error": "Send where the frame's left edge goes, in pixels of the recording."}), wrong)
+
+    def test_a_shot_is_changed_with_a_post_and_its_moment_is_a_picture(self):
+        self.make()
+        laid_as_talk(self.chat)
+        body = {"chat": self.chat.id, "start": 4.0, "end": 8.0, "show": 2, "x": 10, "y": 4}
+        self.assertEqual(self.ask("POST", "/api/shot", body), (200, {"ok": True}))
+        shot = self.chat.project.state()["clip"]["layout"]["shots"][1]
+        self.assertEqual((shot["show"], shot["crop"]), (2, [10, 4]))
+        self.assertEqual(self.ask("POST", "/api/shot", {k: v for k, v in body.items() if k not in "xy"}), (200, {"ok": True}))
+        times = "Send the shot's start and end, in seconds of the clip."
+        place = "Send who the shot shows, and where its frame goes in pixels of the recording."
+        for wrong, said in (({"start": "0"}, times), ({"end": True}, times), ({"show": "2"}, place), ({"show": True}, place),
+                            ({"x": "10"}, place), ({"x": True}, place), ({"y": None}, place), ({"y": 1e12}, place)):
+            self.assertEqual(self.ask("POST", "/api/shot", dict(body, **wrong)), (400, {"ok": False, "error": said}), wrong)
+        self.assertEqual(self.ask("POST", "/api/shot", dict(body, show=5))[0], 400)
+        status, kind, picture = self.fetch("/api/shotframe?chat=%s&t=6" % self.chat.id)
+        self.assertEqual((status, kind, picture[:2]), (200, "image/jpeg", b"\xff\xd8"))
+        for wrong in ("t=-1", "t=word", "t=5000"):
+            self.assertEqual(self.fetch("/api/shotframe?chat=%s&%s" % (self.chat.id, wrong))[0], 404, wrong)
+        self.assertEqual(self.fetch("/api/shotframe?chat=nobody&t=1")[0], 404)
 
     def test_the_video_is_made_again_with_a_post(self):
         self.make(SAID)

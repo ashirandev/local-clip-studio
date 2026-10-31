@@ -463,6 +463,8 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .frame-pick img { display: block; width: 100%; height: 100%; pointer-events: none; }
 .frame-window { position: absolute; top: 0; bottom: 0; border: 2px solid var(--sh-accent); border-radius: 6px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.6); pointer-events: none; }
 .frame-pick.held { cursor: grabbing; }
+.frame-tag { position: absolute; transform: translate(-50%, -100%); min-width: 22px; padding: 2px 6px; border-radius: 999px; background: var(--sh-accent); color: var(--sh-on-accent); font-size: 12px; font-weight: 700; text-align: center; pointer-events: none; }
+.frame-people { margin-top: 12px; }
 .ico.flip { transform: scaleX(-1); }
 .playhead { position: absolute; top: -4px; bottom: 0; width: 2px; margin-left: -1px; border-radius: 1px; background: #FFFFFF; pointer-events: none; }
 .playhead::before { content: ""; position: absolute; top: -4px; left: -5px; width: 12px; height: 12px; border-radius: 50%; background: #FFFFFF; }

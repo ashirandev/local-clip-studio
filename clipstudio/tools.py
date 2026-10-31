@@ -2396,9 +2396,15 @@ def _frame_kept(job, rec, old, new):
     """After change_ends made the clip again from how it was made: the upright frame of a subject clip where it was,
     and the sentence that says so, or None. A frame that followed a product follows it again over the new ends from
     SAM's first pass (the layout's thing, focus.thing), and a frame placed elsewhere (the person's, on the Frame tab)
-    is put back there. 10-30, Glimmer's green seller: the ends moved, the frame went back to the face, the title had
-    no clear place left, and the clip went out without one."""
+    is put back there, as the shots of a talk clip that were given a place are. 10-30, Glimmer's green seller: the ends
+    moved, the frame went back to the face, the title had no clear place left, and the clip went out without one."""
     before, after = old["layout"], new["layout"]
+    if before["kind"] == after["kind"] == "talk":
+        shots = talk.crops_kept(before, old["pieces"], after, new["pieces"])
+        if shots == after["shots"]:
+            return None
+        job.edit({"do": "layout", "part": "shots", "box": None, "layout": dict(after, shots=shots)})
+        return "The shots whose frame was moved stay where they were put over the recording."
     whole = next((p for p in before["parts"] if p["name"] == "whole"), None)
     if before["kind"] != "subject" or after["kind"] != "subject" or not whole:
         return None
@@ -3261,7 +3267,7 @@ def _two_voices(job, rec, m, persons):
         % (tones["low"], tones["high"], people["low"], people["high"]))
 
 
-def change_shot(job, why, start, end, show):
+def change_shot(job, why, start, end, show, centre=None):
     rec = _open(job, "change a shot of")
     state = _clip_state(job)
     lay = state["clip"]["layout"]
@@ -3280,7 +3286,11 @@ def change_shot(job, why, start, end, show):
     if show == 0 and lay.get("seats"):
         raise Refused("In the speaker layout everyone is on screen all the time; show the person who should fill the "
                       "frame, 1 to %d." % count)
-    shots = talk.with_shot(lay["shots"], round(start, 2), round(end, 2), show)
+    if show == 0 and centre is not None:
+        raise Refused("A shot of everyone shows them all on a card, so it has no frame to move: leave centre out, or "
+                      "show one person.")
+    crop = talk.crop_at(lay, show, centre) if centre is not None else None
+    shots = talk.with_shot(lay["shots"], round(start, 2), round(end, 2), show, crop)
     new = talk.make(tuple(lay["size"]), lay["people"], shots, bool(lay.get("seats")))
     state = job.edit({"do": "layout", "part": "shots", "box": None, "layout": new})
     lines = ["%s from %g to %g s. Shots now: %s." % ("Everyone is shown" if show == 0 else "Person %d is shown" % show,
@@ -7344,12 +7354,17 @@ TOOLS = {t.name: t for t in [
     Tool("change_shot", "Changed a shot",
          "In a talk clip, show one person from start to end: when the program cut to the wrong person, or when a "
          "reaction should be seen. Show everyone only when the person asks for it. The shots around it are cut to make "
-         "room.",
+         "room. With centre, the shot's frame moves too, when the person asks to see more of something beside the "
+         "face; it keeps its size.",
          {"start": {"type": "number", "minimum": 0, "description": "From when, in seconds of the clip."},
           "end": {"type": "number", "minimum": 0, "description": "Until when, in seconds of the clip."},
           "show": {"type": "integer", "minimum": 0, "maximum": talk.MOST_PEOPLE,
                    "description": "The person to show, numbered from the left as make_clip listed them, or 0 for "
-                                  "everyone together, when the person asks."}},
+                                  "everyone together, when the person asks."},
+          "centre": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number", "minimum": 0,
+                                                                              "maximum": 1000},
+                     "description": "[x, y] on your 0-1000 grid of the recording: the point the shot's frame sits "
+                                    "around. Leave it out and the shot keeps the place it has."}},
          ["start", "end", "show"], change_shot, changes=True),
     Tool("set_look", "Chose a colour look",
          "Grade the footage with one colour look: " + "; ".join("%s: %s" % kv for kv in LOOKS.items()) + ". It "

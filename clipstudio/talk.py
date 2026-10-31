@@ -29,7 +29,7 @@ import shutil
 import statistics
 import subprocess
 
-from . import faces, layouts
+from . import faces, layouts, project
 
 W, H = layouts.W, layouts.H
 SAID = ("two or more people talking, such as a podcast or an interview: the clip cuts to whoever speaks and to the one "
@@ -321,7 +321,7 @@ def without_everyone(shots_):
     out = []
     for i, s in enumerate(shots_):
         show = s["show"] or next((o["show"] for o in out[::-1] + shots_[i + 1:] if o["show"]), 1)
-        if out and out[-1]["show"] == show:
+        if out and out[-1]["show"] == show and out[-1].get("crop") == s.get("crop"):
             out[-1]["to"] = s["to"]
         else:
             out.append(dict(s, show=show))
@@ -505,27 +505,58 @@ def speaking(shots_, count):
     return out
 
 
-def with_shot(shots_, start, end, show):
+def with_shot(shots_, start, end, show, crop=None):
     """The shots with show from start to end (clip seconds), cutting into the ones it overlaps; neighbours that show
-    the same are joined."""
+    the same at the same place are joined. crop is where the shot's frame sits ([x, y] in the recording's pixels, the
+    person's part's own place when the shot has none); left out, the shot keeps the place a shot of that person had
+    there. Tarm 11-01: "เก็บกรอบการ crop ในแต่ละซีนเอาไว้แล้วให้ยูเซอร์ขยับเองได้ด้วย"."""
     out = []
     for s in shots_:
         if s["to"] <= start or s["from"] >= end:
             out.append(dict(s))
             continue
+        if s["show"] == show:
+            crop = crop or s.get("crop")
         if s["from"] < start:
             out.append(dict(s, to=start))
         if s["to"] > end:
             out.append(dict(s, **{"from": end}))
-    out.append({"from": start, "to": end, "show": show})
+    out.append(dict({"from": start, "to": end, "show": show}, **({"crop": list(crop)} if crop else {})))
     out.sort(key=lambda s: s["from"])
     joined = []
     for s in out:
-        if joined and joined[-1]["show"] == s["show"] and abs(joined[-1]["to"] - s["from"]) < 1e-6:
+        if joined and joined[-1]["show"] == s["show"] and abs(joined[-1]["to"] - s["from"]) < 1e-6 \
+                and joined[-1].get("crop") == s.get("crop"):
             joined[-1]["to"] = s["to"]
         else:
             joined.append(s)
     return joined
+
+
+def crop_of(parts, shot):
+    """The box of the recording a shot of a person shows, [x, y, w, h]: their part's, at the place the shot was given."""
+    src = parts["person %d" % shot["show"]]["src"]
+    return list(shot["crop"]) + list(src[2:]) if shot.get("crop") else src
+
+
+def crop_at(layout, show, centre):
+    """Where a shot of person show sits around centre ([x, y] on a 0-1000 grid of the recording): [x, y] in the
+    recording's pixels, kept on the picture. Every shot of a clip keeps one size: a crop's size is set once per run."""
+    src = next(p["src"] for p in layout["parts"] if p["name"] == "person %d" % show)
+    return [int(round(min(max(0.0, centre[k] * size / 1000.0 - src[2 + k] / 2.0), size - src[2 + k])))
+            for k, size in enumerate(layout["size"])]
+
+
+def crops_kept(before, pieces_before, after, pieces_after):
+    """after's shots (the people's layout made again, as when the clip's ends move) with the shots of before that were
+    given a place, over the same stretch of the recording, when that person is still in the clip."""
+    shots_ = after["shots"]
+    for s in before["shots"]:
+        if s.get("crop") and s["show"] <= len(after["people"]):
+            spans = project.to_clip_spans(pieces_after, project.to_recording_spans(pieces_before, s["from"], s["to"]))
+            for a, b in spans:
+                shots_ = with_shot(shots_, a, b, s["show"], s["crop"])
+    return shots_
 
 
 def said(shots_):
@@ -536,11 +567,12 @@ def said(shots_):
 
 def parts_at(layout, t):
     """The parts on screen at clip second t: the shot's, and in the speaker layout the others in their circles."""
-    shown = next((s["show"] for s in layout["shots"] if s["from"] <= t < s["to"]), layout["shots"][-1]["show"])
+    shot = next((s for s in layout["shots"] if s["from"] <= t < s["to"]), layout["shots"][-1])
+    shown = shot["show"]
     name = "everyone" if shown == 0 else "person %d" % shown
-    out = [p for p in layout["parts"] if p["name"] == name]
+    parts = {p["name"]: p for p in layout["parts"]}
+    out = [dict(parts[name], src=crop_of(parts, shot)) if shown else parts[name]]
     if layout.get("seats") and shown:
-        parts = {p["name"]: p for p in layout["parts"]}
         out += [dict(parts["circle %d" % other], dst=box) for other, box in layout["seats"][str(shown)]]
     return out
 
@@ -571,7 +603,7 @@ def graph(layout, src, out, first_input, pushes=()):
 
     parts = {p["name"]: p for p in layout["parts"]}
     shots_ = layout["shots"]
-    crops = [parts["person %d" % s["show"]]["src"] if s["show"] else None for s in shots_]
+    crops = [crop_of(parts, s) if s["show"] else None for s in shots_]
     held, filled = crops[0] or parts["person 1"]["src"], []
     for c in crops:
         held = c or held

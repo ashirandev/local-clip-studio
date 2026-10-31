@@ -706,6 +706,8 @@ function clearClip() {
   room.pick = null;
   room.pickWhy = "";
   room.frameX = null;
+  room.shotMove = null;
+  room.shotRow = null;
   againLine.textContent = "";
   previewLine.hidden = true;
   clipSave.hidden = true;
@@ -735,6 +737,7 @@ function showClip(e) {
     room.mute = {};
     room.trim = null;
     room.frameX = null;
+    room.shotMove = null;
   }
   drawClipFrame();
   clipTitle.textContent = room.ready ? room.ready.title : room.clipName || "Your clip";
@@ -875,6 +878,7 @@ function showPicked(e) {
   room.mute = {};
   room.trim = null;
   room.frameX = null;
+  room.shotMove = null;
   room.againError = false;
   showClip(e);
   if (e.file) {
@@ -1626,6 +1630,103 @@ const frameWhy = $("frameWhy");
 const frameGo = $("frameGo");
 const frameReset = $("frameReset");
 const FRAME_STEP = 0.05;
+const shotRow = $("shotRow");
+const shotPeople = $("shotPeople");
+const shotWhy = $("shotWhy");
+const frameSides = $("frameSides");
+
+function shotPicked() {
+  const f = room.panel && room.panel.frame;
+  if (!f || !f.shots) return null;
+  const t = room.shotAt || 0;
+  return f.shots.find((s) => s.from <= t && t < s.to) || f.shots[f.shots.length - 1];
+}
+
+function setShot(x, y) {
+  const f = room.panel.frame;
+  const s = shotPicked();
+  const show = (room.shotMove || s).show;
+  const vx = Math.round(Math.max(0, Math.min(f.size[0] - f.width, x)));
+  const vy = Math.round(Math.max(0, Math.min(f.size[1] - f.height, y)));
+  room.shotMove = show === s.show && vx === s.x && vy === s.y ? null : { show: show, x: vx, y: vy };
+  frameWhy.hidden = true;
+  drawFrame();
+}
+
+function pickShot(s) {
+  room.shotAt = (s.from + s.to) / 2;
+  room.shotMove = null;
+  frameWhy.hidden = true;
+  seek(room.shotAt);
+  drawFrame();
+}
+
+function pickShown(c) {
+  const s = shotPicked();
+  room.shotMove = c.n === s.show ? null : { show: c.n, x: c.x, y: c.y };
+  frameWhy.hidden = true;
+  drawFrame();
+}
+
+function drawShotRow(f, s) {
+  const shots = JSON.stringify(f.shots);
+  if (room.shotRow !== shots) {
+    const left = shotRow.scrollLeft;
+    room.shotRow = shots;
+    shotRow.replaceChildren(...f.shots.map((one) => {
+      const b = el("button", "choice");
+      const img = el("img", "look-pic layout-pic");
+      img.src = "/api/clipframe?chat=" + encodeURIComponent(room.chat) + "&t=" + ((one.from + one.to) / 2).toFixed(2) + "&width=120";
+      img.alt = "";
+      b.type = "button";
+      b.append(img, el("span", null, clock(one.from)));
+      b.addEventListener("click", () => pickShot(one));
+      return b;
+    }));
+    shotRow.scrollLeft = left;
+  }
+  [...shotRow.children].forEach((b, k) => b.setAttribute("aria-pressed", String(f.shots[k] === s)));
+  const picked = shotRow.children[f.shots.indexOf(s)];
+  if (picked && room.shotSeen !== s.from) {
+    room.shotSeen = s.from;
+    shotRow.scrollLeft = picked.offsetLeft - shotRow.offsetLeft - (shotRow.clientWidth - picked.offsetWidth) / 2;
+  }
+}
+
+function drawShots(f) {
+  const s = shotPicked();
+  const held = room.shotMove || s;
+  const at = Math.min(Math.max(room.shotAt || 0, s.from), s.to - 0.01);
+  const name = "/api/shotframe?chat=" + encodeURIComponent(room.chat) + "&t=" + at.toFixed(2);
+  const who = (n) => (n ? "person " + n : "everyone");
+  drawShotRow(f, s);
+  if (framePic.dataset.name !== name) {
+    framePic.src = name;
+    framePic.dataset.name = name;
+  }
+  framePick.hidden = false;
+  framePick.style.aspectRatio = f.size[0] + " / " + f.size[1];
+  frameWindow.hidden = !held.show;
+  if (held.show) {
+    frameWindow.style.left = (100 * held.x) / f.size[0] + "%";
+    frameWindow.style.width = (100 * f.width) / f.size[0] + "%";
+    frameWindow.style.top = (100 * held.y) / f.size[1] + "%";
+    frameWindow.style.height = (100 * f.height) / f.size[1] + "%";
+  }
+  framePick.querySelectorAll(".frame-tag").forEach((t) => t.remove());
+  f.people.forEach((p) => {
+    const tag = el("span", "frame-tag", String(p.n));
+    tag.style.left = (100 * p.at[0]) / f.size[0] + "%";
+    tag.style.top = (100 * p.at[1]) / f.size[1] + "%";
+    framePick.appendChild(tag);
+  });
+  const choices = f.people.map((p) => ({ n: p.n, x: p.x, y: p.y, label: "Person " + p.n, now: p.n === held.show, why: null }));
+  if (f.together) choices.push({ n: 0, x: null, y: null, label: "Everyone", now: held.show === 0, why: null });
+  drawChoices(shotPeople, shotWhy, choices, pickShown, null);
+  frameSays.textContent = room.shotMove ? "New: this shot shows " + who(held.show) + " from " + clock(s.from) + " to " + clock(s.to) + "." : "Tap a shot, then drag its frame over your video or choose who it shows.";
+  frameGo.disabled = !room.shotMove;
+  frameReset.hidden = !room.shotMove;
+}
 
 function frameNow() {
   const f = room.panel.frame;
@@ -1644,6 +1745,16 @@ function setFrame(x) {
 function drawFrame() {
   const f = room.panel && room.panel.frame;
   if (!f || f.why) return;
+  shotRow.hidden = shotPeople.hidden = !f.shots;
+  frameSides.hidden = Boolean(f.shots);
+  if (f.shots) {
+    if (!sheet.hidden && room.part === "frame") drawShots(f);
+    return;
+  }
+  frameWindow.hidden = false;
+  shotWhy.hidden = true;
+  frameWindow.style.top = frameWindow.style.height = "";
+  framePick.querySelectorAll(".frame-tag").forEach((t) => t.remove());
   const x = frameNow();
   const moved = room.frameX !== null && room.frameX !== undefined;
   const share = (v) => Math.round((100 * v) / f.size[0]);
@@ -1665,13 +1776,21 @@ function drawFrame() {
 framePick.addEventListener("pointerdown", (e) => {
   const f = room.panel && room.panel.frame;
   if (!f || f.why) return;
+  const held = f.shots ? room.shotMove || shotPicked() : null;
+  if (held && !held.show) return;
   const box = framePick.getBoundingClientRect();
   const at = ((e.clientX - box.left) / box.width) * f.size[0];
-  const x = frameNow();
+  const atY = ((e.clientY - box.top) / box.height) * f.size[1];
+  const x = held ? held.x : frameNow();
   const grab = at >= x && at <= x + f.width ? at - x : f.width / 2;
+  const grabY = held && atY >= held.y && atY <= held.y + f.height ? atY - held.y : (f.height || 0) / 2;
   framePick.setPointerCapture(e.pointerId);
   framePick.classList.add("held");
-  const follow = (ev) => setFrame(((ev.clientX - box.left) / box.width) * f.size[0] - grab);
+  const follow = (ev) => {
+    const nx = ((ev.clientX - box.left) / box.width) * f.size[0] - grab;
+    if (held) setShot(nx, ((ev.clientY - box.top) / box.height) * f.size[1] - grabY);
+    else setFrame(nx);
+  };
   follow(e);
   const done = () => {
     framePick.classList.remove("held");
@@ -1689,19 +1808,23 @@ $("frameRight").addEventListener("click", () => setFrame(frameNow() + FRAME_STEP
 $("frameMiddle").addEventListener("click", () => setFrame((room.panel.frame.size[0] - room.panel.frame.width) / 2));
 frameReset.addEventListener("click", () => {
   room.frameX = null;
+  room.shotMove = null;
   frameWhy.hidden = true;
   drawFrame();
 });
 frameGo.addEventListener("click", frameApply);
 
 async function frameApply() {
-  if (room.frameX === null || room.frameX === undefined) return;
+  const s = shotPicked();
+  const m = room.shotMove;
+  if (s ? !m : room.frameX === null || room.frameX === undefined) return;
   frameGo.disabled = true;
   frameWhy.hidden = true;
   try {
-    const d = await post("/api/frame", { chat: room.chat, x: room.frameX });
+    const d = await (s ? post("/api/shot", { chat: room.chat, start: s.from, end: s.to, show: m.show, x: m.x, y: m.y }) : post("/api/frame", { chat: room.chat, x: room.frameX }));
     if (d.ok) {
       room.frameX = null;
+      room.shotMove = null;
     } else {
       frameWhy.textContent = d.error || "The frame could not be moved.";
       frameWhy.hidden = false;
@@ -2584,6 +2707,12 @@ function openSheet(part) {
     loadPhone();
   } else if (part === "features") {
     loadFeatures();
+  } else if (part === "frame") {
+    const v = frameBox.querySelector("video");
+    room.shotAt = v && !room.made ? v.currentTime : Number(clipAt.value) || 0;
+    room.shotMove = null;
+    room.shotSeen = null;
+    drawFrame();
   }
   sheet.scrollTop = 0;
 }

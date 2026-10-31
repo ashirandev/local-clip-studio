@@ -2626,12 +2626,14 @@ class Tools(unittest.TestCase):
                 [call("change_shot", start=3, end=5, show=2, why="her reaction")],
                 [call("change_shot", start=15, end=17, show=0, why="they laugh")],
                 [call("change_shot", start=1, end=2, show=3, why="nobody")],
+                [call("change_shot", start=6, end=7, show=1, centre=[120, 300], why="his hands")],
+                [call("change_shot", start=1, end=2, show=0, centre=[120, 300], why="the card")],
                 [call("slow_push", start=1, end=4, why="build-up")],
                 [call("move_part", part="circle", box=[600, 700, 900, 900], why="move it")],
                 "Done.")
         finally:
             talk.motion, tools._people = real, listing
-        made, reaction, together, nobody, push, move = steps[-6:]
+        made, reaction, together, nobody, framed, card, push, move = steps[-8:]
         self.assertFalse(made["refused"], made["result"])
         self.assertEqual(asked[0], [p["box"] for p in self.chat.project.state()["clip"]["layout"]["people"]],
                          "the people the clip follows are not listed to blur (10-29: Glimmer blurred a podcast's hosts)")
@@ -2645,12 +2647,18 @@ class Tools(unittest.TestCase):
         self.assertIn("comes next as a picture", together["result"])
         self.assertTrue(nobody["refused"])
         self.assertIn("show 3 is not one of the people: use 1 to 2", nobody["result"])
+        self.assertFalse(framed["refused"], framed["result"])
+        self.assertTrue(card["refused"])
+        self.assertIn("no frame to move", card["result"])
         self.assertTrue(push["refused"])
         self.assertIn("no slow push", push["result"])
         self.assertTrue(move["refused"])
         self.assertIn("change_shot", move["result"])
         lay = self.chat.project.state()["clip"]["layout"]
         self.assertEqual([p["name"] for p in lay["parts"]], ["person 1", "person 2", "everyone"])
+        (placed,) = [s for s in lay["shots"] if s.get("crop")]
+        self.assertEqual((placed["from"], placed["to"], placed["show"]), (6, 7, 1))
+        self.assertEqual(placed["crop"], talk.crop_at(lay, 1, [120, 300]))
         times, _ = tools._face_times(self.chat.project.state(), self.chat.recording)
         on = dict(times)
         near = lambda s: on[min(on, key=lambda k: abs(k - s))]

@@ -44,7 +44,7 @@ import time
 import traceback
 
 from . import (asr, channels, chatname, countdown, faces, hearing, layer, layouts, maps, mind, montage, needs, previews,
-               project, recording, render, spent, text, words)
+               project, recording, render, spent, talk, text, words)
 from .tools import (CAPTION_LETTERS, SCRIPTS, LONGEST, LOUD_CUT, MOVED_CUTS, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST,
                     STYLES, TOOLS, UNASKED, ALBUM_PARTS, ALBUM_TOOLS, Refused, _changed_clips, _circle_box, _spoken, _subtitles,
                     _undecided, _waits, album_entries, channel_entries, channel_unfit, describe, faces_at,
@@ -715,8 +715,10 @@ class Chat:
         """Where the upright frame sits over a lying recording, for the Frame tab: {"picture": a frame of the clip's
         middle (recording.frame), "size": the recording's [w, h], "x" and "width": the frame's left edge and width in
         its pixels, "follows": True while it moves by itself, "why": None}, or {"why": the sentence} when there
-        is no frame to move. Tarm 10-30: "ซูมเป็นแนวตั้ง แต่ขยับกรอบไปชิดซ้าย"."""
+        is no frame to move, or the shots of a talk clip (shot_frames). Tarm 10-30: "ซูมเป็นแนวตั้ง แต่ขยับกรอบไปชิดซ้าย"."""
         clip, rec = state["clip"], self.recording or {}
+        if clip["layout"]["kind"] == "talk":
+            return self.shot_frames(clip["layout"])
         whole = next((p for p in clip["layout"]["parts"] if p["name"] == "whole"), None)
         if clip["layout"]["kind"] != "subject" or not whole:
             return {"why": "Only a clip whose picture fills the frame (the subject layout) has a frame to move: ask "
@@ -727,6 +729,46 @@ class Chat:
         return {"picture": recording.frame(rec, at), "size": [rec["width"], rec["height"]],
                 "x": round(whole["src"][0]), "width": round(whole["src"][2]), "follows": bool(whole.get("follow")),
                 "why": None}
+
+    def shot_frames(self, lay):
+        """The shots of a talk clip for the Frame tab: {"shots": [{"from", "to", "show", "x", "y"}] with x and y the left
+        top of the shot's frame in the recording's pixels (None in a shot of everyone), "people": [{"n", "x", "y": their
+        own place, "at": a point just above their head}], "size": the recording's [w, h], "width" and "height": the
+        frame's, "together": True when a shot may show everyone, "why": None}."""
+        parts = {p["name"]: p for p in lay["parts"]}
+        shots = [dict(s, x=None, y=None) for s in lay["shots"]]
+        for s in shots:
+            if s["show"]:
+                s["x"], s["y"] = talk.crop_of(parts, s)[:2]
+        people = [{"n": p["n"], "x": parts["person %d" % p["n"]]["src"][0], "y": parts["person %d" % p["n"]]["src"][1],
+                   "at": [p["box"][0] + p["box"][2] / 2.0, p["box"][1]]} for p in lay["people"]]
+        src = parts["person 1"]["src"]
+        return {"shots": [{k: v for k, v in s.items() if k != "crop"} for s in shots], "people": people,
+                "size": list(lay["size"]), "width": src[2], "height": src[3], "together": not lay.get("seats"),
+                "why": None}
+
+    def set_shot(self, start, end, show, x=None, y=None):
+        """The person's shot of a talk clip, from the Frame tab: change_shot's own edit, as set_mute, showing person
+        show (0: everyone) from start to end s of the clip, with its frame's left top at x, y of the recording's pixels
+        when they moved it, as one change Undo takes back, and Muse is told. Returns None, or the sentence why not."""
+        lay = self._clip_now()["clip"]["layout"]
+        src = next((p["src"] for p in lay["parts"] if p["name"] == "person %d" % show), None)
+        args = dict(start=start, end=end, show=show)
+        if x is not None and src:
+            args["centre"] = [max(0.0, min(1000.0, 1000.0 * (v + side / 2.0) / size))
+                              for v, side, size in zip((x, y), src[2:], lay["size"])]
+        refused, entry = self.tap("change_shot", **args)
+        if entry:
+            self._tell("the person changed the shot from %g to %g s of the clip on the page: it shows %s%s"
+                       % (start, end, "person %d" % show if show else "everyone",
+                          ", with its frame where they put it" if "centre" in args else ""))
+        return refused
+
+    def picture_at(self, t):
+        """The name of the recording's picture at second t of the clip (recording.frame), or None outside it."""
+        state = self.project.state()
+        at = project.to_clip(state["clip"]["pieces"], t) if state["clip"] and self.recording else None
+        return recording.frame(self.recording, at[1]) if at else None
 
     def set_frame(self, x):
         """The person's place for the upright frame, from the Frame tab: x is its left edge in the recording's pixels.

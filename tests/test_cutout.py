@@ -121,6 +121,19 @@ class FrameMask(unittest.TestCase):
         self.assertNotEqual(cutout.frame_mask(mask, [[0, 3]], dict(layout, shots=moved), 3.0), made,
                             "new shots, a new frame mask")
 
+    def test_a_talk_shot_given_a_place_moves_its_mask_with_the_picture(self):
+        from clipstudio import talk
+        persons = [{"n": 1, "box": [120, 120, 80, 80]}, {"n": 2, "box": [440, 120, 80, 80]}]
+        plain = talk.make((640, 360), persons, [{"from": 0, "to": 3.0, "show": 1}])
+        x, y = plain["parts"][0]["src"][:2]
+        layout = dict(plain, shots=[{"from": 0, "to": 1.5, "show": 1}, {"from": 1.5, "to": 3.0, "show": 1, "crop": [x + 50, y]}])
+        one = make_mask(self.tmp, "placed.mkv", 3.0, 0, expr="lt(hypot(X-160,Y-200),60)")
+        mask = dict(self.mask, path=one, **{"from": 0.0, "to": 3.0})
+        _, got = grey_frames(cutout.frame_mask(mask, [[0, 3]], layout, 3.0), [15, 60])
+        row = int((200 - y) * 1920 / plain["parts"][0]["src"][3])
+        self.assertEqual(int(got[15][row, 30]), 0, "left of the person, at the shot's own place")
+        self.assertEqual(int(got[60][row, 30]), 255, "the frame moved right, so the person is further left in it")
+
     def test_in_a_talk_the_mask_is_whoever_speaks(self):
         """Tarm 10-30, four people talking with one kept in colour all through: "ถ้าผมพูดก็ไฮไลท์ผม"."""
         from clipstudio import talk

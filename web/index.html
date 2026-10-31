@@ -263,11 +263,14 @@
     </div>
     <div class="panel-group" data-part="frame">
       <p class="channel-says" id="frameSays"></p>
+      <div class="panel-row picture-row" id="shotRow" hidden></div>
       <div class="frame-pick" id="framePick" hidden>
         <img id="framePic" alt="" draggable="false">
         <div class="frame-window" id="frameWindow"></div>
       </div>
-      <div class="acts">
+      <div class="panel-row frame-people" id="shotPeople" hidden></div>
+      <p class="panel-why" id="shotWhy" role="status" hidden></p>
+      <div class="acts" id="frameSides">
         <button type="button" class="act" id="frameLeft"><svg class="ico"><use href="#i-back"/></svg><span>Left</span></button>
         <button type="button" class="act" id="frameMiddle"><svg class="ico"><use href="#i-move"/></svg><span>Middle</span></button>
         <button type="button" class="act" id="frameRight"><svg class="ico flip"><use href="#i-back"/></svg><span>Right</span></button>
