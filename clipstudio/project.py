@@ -160,6 +160,8 @@ class Project:
                     flurries = _changed(flurries, e, lambda a, b: _same_box(a, b, "at", "length"))
                 elif e["of"] == "picture":
                     pictures = _changed(pictures, e, _crossing)
+                elif e["of"] == "title":
+                    titles = _changed(titles, e, same_spot)
                 else:
                     pushes = _changed(pushes, e, lambda a, b: a["start"] < b["end"] and b["start"] < a["end"])
             elif e["do"] == "layout":
@@ -220,7 +222,9 @@ class Project:
 
 def effect_name(of, effect):
     """What tells one effect from another at the same second: a hit's or a sound's kind, a sticker's file, a flurry's
-    stickers, a picture's words. A slow push has no name, as two never cross."""
+    stickers, a picture's words, a title's words. A slow push has no name, as two never cross."""
+    if of == "title":
+        return effect["text"]
     if of in ("hit", "sound"):
         return effect["kind"]
     if of == "sticker":
@@ -236,17 +240,21 @@ def _crossing(a, b):
     return a["at"] < b["at"] + b["length"] and b["at"] < a["at"] + a["length"]
 
 
+LASTING = ("push", "title")
+
+
 def _changed(items, e, clash):
     """items without the effect e names, or with it at e["to"]: the person's hand on one effect (Tarm 11-01: every step
     of Muse's is theirs to change on the timeline before they export). One moved onto another of its kind replaces
     it, as adding it there would."""
-    key = "start" if e["of"] == "push" else "at"
+    key = "start" if e["of"] in LASTING else "at"
     mine = [x for x in items if abs(x[key] - e["at"]) < 0.01 and effect_name(e["of"], x) == e["name"]]
     rest = [x for x in items if not any(x is m for m in mine)]
     if e.get("to") is None or not mine:
         return rest
     moved = dict(mine[0], **{key: e["to"]})
-    if e["of"] == "push":
+    moved.update({k: e[k] for k in ("box", "place") if e.get(k)})
+    if e["of"] in LASTING:
         moved["end"] = round(moved["end"] + e["to"] - e["at"], 2)
     return [x for x in rest if not clash(x, moved)] + [moved]
 

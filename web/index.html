@@ -162,6 +162,14 @@
       <button type="button" class="pill" id="pickWords" hidden><svg class="ico sm"><use href="#i-words"/></svg>Change words</button>
       <button type="button" class="pill" id="pickOff" hidden><svg class="ico sm"><use href="#i-x"/></svg>Take off</button>
       <button type="button" class="pill go" id="pickGo" hidden><svg class="ico sm"><use href="#i-cut"/></svg><span>Apply</span></button>
+      <div class="acts pick-spot" id="pickSpot" role="group" aria-label="Move it on the picture" hidden>
+        <button type="button" class="act" data-spot="up"><svg class="ico up"><use href="#i-down"/></svg><span>Up</span></button>
+        <button type="button" class="act" data-spot="down"><svg class="ico"><use href="#i-down"/></svg><span>Down</span></button>
+        <button type="button" class="act side" data-spot="left"><svg class="ico left"><use href="#i-down"/></svg><span>Left</span></button>
+        <button type="button" class="act side" data-spot="right"><svg class="ico right"><use href="#i-down"/></svg><span>Right</span></button>
+        <button type="button" class="act side" data-spot="bigger"><svg class="ico"><use href="#i-plus"/></svg><span>Bigger</span></button>
+        <button type="button" class="act side" data-spot="smaller"><svg class="ico"><use href="#i-minus"/></svg><span>Smaller</span></button>
+      </div>
     </div>
     <p class="clip-line" id="clipLine"></p>
     <nav class="tools" id="partTabs" aria-label="Change the clip">

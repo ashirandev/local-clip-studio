@@ -458,6 +458,8 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .pick-says { flex: 1 1 auto; min-width: 0; margin: 0; color: var(--st-text); font-size: 13px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .clip .pill.go { background: var(--st-accent); color: var(--st-on-accent); }
 .pick-bar .pill:disabled { opacity: 0.5; cursor: not-allowed; }
+.pick-spot { flex: 1 0 100%; margin-top: 0; gap: 6px; }
+.pick-spot .act { padding: 6px 2px; font-size: 12px; background: var(--st-surface); color: var(--st-text); }
 .trim-at { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
 .trim-at input { flex: 1; min-width: 0; accent-color: var(--sh-accent); }
 .trim-at span { color: var(--sh-text); font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -542,6 +544,8 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .fx-stickers button:disabled { opacity: 0.5; cursor: not-allowed; }
 .fx-stickers img { width: 36px; height: 36px; }
 .ico.up { transform: rotate(180deg); }
+.ico.left { transform: rotate(90deg); }
+.ico.right { transform: rotate(-90deg); }
 .choice { display: grid; justify-items: center; gap: 6px; flex: none; padding: 0; border: 0; background: none; color: var(--sh-text); font-size: 13px; font-weight: 600; cursor: pointer; }
 .choice .mini, .choice .look-pic { width: 100%; border-radius: 12px; outline: 3px solid transparent; }
 .choice .frame-pic { aspect-ratio: 1; object-fit: cover; object-position: 50% 40%; }

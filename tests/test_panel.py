@@ -221,6 +221,57 @@ class Panel(Clip):
             self.assertIsNone(self.chat.add_effect("sticker", "fire", 3))
         self.assertEqual(tried[-1]["box"], list(agent.EFFECT_BOXES[0]))
 
+    def test_a_sticker_goes_on_by_the_persons_word_when_no_spot_is_clear(self):
+        self.make()
+        seen = []
+
+        def tap(name, trial=False, asked=False, **args):
+            seen.append((asked, args.get("box")))
+            return (None, {"do": "hit", "kind": "flash", "at": 3, "word": None}) if asked else ("Taken.", None)
+
+        with mock.patch.object(self.chat, "tap", tap):
+            self.assertIsNone(self.chat.add_effect("sticker", "fire", 3))
+        self.assertEqual(seen[-1], (True, list(agent.EFFECT_BOXES[-1])))
+        self.assertFalse(any(asked for asked, _ in seen[:-1]))
+
+    def test_a_sticker_moves_on_the_picture_and_undo_takes_it_back(self):
+        self.make(SAID, call("add_sticker", sticker="fire", at=9, place="top", why="the peak"))
+        was = self.chat.project.state()["stickers"][0]["box"]
+        self.assertIsNone(self.chat.set_effect("sticker", "fire", 9, box=[100, 500, 300, 700]))
+        kept = self.chat.project.state()["stickers"]
+        self.assertEqual(len(kept), 1)
+        self.assertEqual((kept[0]["at"], kept[0]["box"]), (9, [108, 960, 216, 384]))
+        block = next(b for b in self.chat.panel()["effects"] if b["of"] == "sticker")
+        self.assertEqual(block["box"], [100, 500, 300, 700])
+        self.assertIsNotNone(self.chat.undo())
+        self.assertEqual(self.chat.project.state()["stickers"][0]["box"], was)
+
+    def test_a_title_moves_on_the_picture_with_its_words_and_times(self):
+        self.make(SAID, call("add_title", words="Boss down", start=0, end=3, place="top", why="the hook"))
+        self.assertIsNone(self.chat.set_effect("title", "Boss down", 0, box=[100, 500, 900, 600]))
+        titles = self.chat.project.state()["titles"]
+        self.assertEqual(len(titles), 1)
+        self.assertEqual((titles[0]["text"], titles[0]["start"], titles[0]["end"]), ("Boss down", 0, 3))
+        self.assertEqual(titles[0]["box"], [108, 960, 864, 192])
+        self.assertTrue(titles[0]["place"].startswith("box at"))
+        word = next(b for b in self.chat.panel()["words"] if b["kind"] == "title")
+        self.assertEqual(word["box"], [100, 500, 900, 600])
+
+    def test_a_spot_off_the_frame_or_for_a_hit_is_refused(self):
+        self.make(SAID, call("add_sticker", sticker="fire", at=9, place="top", why="the peak"),
+                  call("add_hit", at=3, kind="shake", why="the fall"))
+        self.assertIn("off the frame", self.chat.set_effect("sticker", "fire", 9, box=[800, 100, 1100, 300]))
+        self.assertIn("no spot", self.chat.set_effect("hit", "shake", 3, box=[100, 100, 300, 300]))
+
+    def test_the_persons_tap_may_cover_what_muse_may_not(self):
+        self.make(SAID, call("add_title", words="Boss down", start=0, end=3, place="top", why="the hook"))
+        refused, entry = self.chat.tap("add_sticker", sticker="fire", at=1, place="top")
+        self.assertTrue(refused)
+        self.assertIsNone(entry)
+        refused, entry = self.chat.tap("add_sticker", asked=True, sticker="fire", at=1, place="top")
+        self.assertIsNone(refused)
+        self.assertEqual(entry["do"], "sticker")
+
     def test_a_part_of_the_frame_goes_where_the_person_put_it_and_undo_takes_it_back(self):
         self.make()
         before = self.chat.panel()["parts"]
@@ -1020,6 +1071,7 @@ class Endpoints(Served):
         self.assertEqual([s["kind"] for s in self.chat.project.state()["sounds"]], ["ding"])
         self.assertEqual(self.ask("POST", "/api/effect", {"chat": chat, "of": "hit", "name": "shake", "at": "soon"})[0], 400)
         self.assertEqual(self.ask("POST", "/api/effect", {"chat": chat, "add": True, "of": "song", "name": "x", "at": 4})[0], 400)
+        self.assertEqual(self.ask("POST", "/api/effect", {"chat": chat, "of": "hit", "name": "shake", "at": 5, "box": [1, 2]})[0], 400)
         self.assertEqual(self.ask("POST", "/api/part", {"chat": chat, "part": "whole", "box": [0, 100, 1000, 900]}),
                          (200, {"ok": True}))
         self.assertEqual(self.ask("POST", "/api/part", {"chat": chat, "part": "whole", "box": [0, 100]})[0], 400)

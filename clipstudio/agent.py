@@ -45,7 +45,7 @@ import traceback
 
 from . import (asr, channels, chatname, countdown, effects, faces, hearing, layer, layouts, maps, mind, montage, needs, previews,
                project, recording, render, spent, talk, text, words)
-from .tools import (CAPTION_LETTERS, HITS, SCRIPTS, LONGEST, LOUD_CUT, MOVED_CUTS, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST,
+from .tools import (CAPTION_LETTERS, HITS, ON_THE_PICTURE, SCRIPTS, LONGEST, LOUD_CUT, MOVED_CUTS, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST,
                     SOUNDS, STYLES, TOOLS, UNASKED, ALBUM_PARTS, ALBUM_TOOLS, Refused, _changed_clips, _circle_box, _spoken, _subtitles,
                     _undecided, _waits, album_entries, channel_entries, channel_unfit, describe, faces_at,
                     features, look_of, look_said)
@@ -89,7 +89,8 @@ PREVIEW_WAIT = 1.0
 TAP_SAID = "(tapped) "
 BLOCK_LENGTH = 0.6
 EFFECT_PLACES = ("middle", "top")
-EFFECT_BOXES = ((300, 700, 700, 880), (300, 420, 700, 600), (60, 620, 400, 780), (600, 620, 940, 780))
+EFFECT_BOXES = ((300, 700, 700, 880), (300, 420, 700, 600), (60, 620, 400, 780), (600, 620, 940, 780),
+                (340, 230, 660, 440), (60, 230, 380, 440), (620, 230, 940, 440))
 COVER_SAID = re.compile(r"(?i)\bcovers?\b|หน้าปก|ภาพปก|ปกพร้อม|ปกคลิป|ปกให้|ปกของ|ปกสวย")
 NO_COVER = ("[studio] Your answer speaks of the clip's cover, but no cover is made for the finished clip. Answer the "
             "person again without saying it has one; if they want one, they can tap Make the cover or ask for it.")
@@ -357,11 +358,12 @@ class Chat:
     def faces(self, t):
         return faces_at(self.project.state(), t)
 
-    def tap(self, name, trial=False, **args):
-        """Runs Muse's tool name for a tap on the page, through the tool's own input check (see Hand). Returns
+    def tap(self, name, trial=False, asked=False, **args):
+        """Runs Muse's tool name for a tap on the page, through the tool's own input check (see Hand), as the person's
+        own word when asked. Returns
         (None, the entry it made) when it made its edit, or with trial would, and (the first sentence of its refusal,
         None) when it refused."""
-        tool, hand = TOOLS[name], Hand(self, trial)
+        tool, hand = TOOLS[name], Hand(self, trial, asked=asked)
         try:
             why, _, clean = tool.check(dict(args, why=TAPPED), 0)
             said = tool.run(hand, why, **clean)
@@ -528,7 +530,7 @@ class Chat:
         """The words on the clip as blocks the page places by their time: every title, and every phrase of the
         captions (its lines joined give it back whole), "typed" when the person wrote it on the page, and every
         draft: a phrase the hearing was not sure of, not on the video until the person keeps or fixes it."""
-        out = [{"kind": "title", "n": k, "text": t["text"], "start": t["start"], "end": t["end"]}
+        out = [{"kind": "title", "n": k, "text": t["text"], "start": t["start"], "end": t["end"], "box": _grid_box(t["box"])}
                for k, t in enumerate(state["titles"])]
         for kind, key in (("caption", "lines"), ("draft", "drafts")):
             lines = (state["captions"] or {}).get(key) or []
@@ -546,8 +548,9 @@ class Chat:
         length, out = state["length"], []
 
         def block(of, x, label, start, end):
-            out.append({"of": of, "name": project.effect_name(of, x), "label": label, "start": start,
-                        "end": round(min(end, length), 2)})
+            out.append(dict({"of": of, "name": project.effect_name(of, x), "label": label, "start": start,
+                             "end": round(min(end, length), 2)},
+                            **({"box": _grid_box(x["box"])} if of in ON_THE_PICTURE else {})))
 
         for h in state["hits"]:
             block("hit", h, h.get("word") or h["kind"].capitalize(), h["at"], h["at"] + BLOCK_LENGTH)
@@ -583,11 +586,13 @@ class Chat:
                                             round((p["dst"][1] + p["dst"][3]) * 1000 / layouts.H)]}
                 for p in lay["parts"] if p.get("dst")]
 
-    def set_effect(self, of, name, at, to=None):
-        """The person's hand on one effect on the timeline: change_effect's own edit, taking it off, or moving it to the
-        second to. Undo takes it back, and Muse is told. Returns None, or the sentence why not."""
+    def set_effect(self, of, name, at, to=None, box=None):
+        """The person's hand on one effect on the timeline: change_effect's own edit, taking it off, moving it to the
+        second to, or moving it to box on the picture, as a title moves too. Undo takes it back, and Muse is told.
+        Returns None, or the sentence why not."""
         self._clip_now()
-        refused, entry = self.tap("change_effect", what=of, called=name, at=at, **({} if to is None else {"to": to}))
+        moved = dict({} if to is None else {"to": to}, **({} if box is None else {"box": box}))
+        refused, entry = self.tap("change_effect", what=of, called=name, at=at, **moved)
         if entry:
             self._tell("the person changed the clip on the page: %s" % describe(entry))
         return refused
@@ -595,7 +600,8 @@ class Chat:
     def add_effect(self, of, name, at, word=None):
         """The person's tap in the Effects sheet: the tool Muse would call, at the second they chose. A sticker or a
         burst goes in the first of the layout's places clear of faces and titles, or the first clear spot of
-        EFFECT_BOXES, as a card's only place holds its title. Returns None, or the sentence why not."""
+        EFFECT_BOXES, as a card's only place holds its title; with none clear it goes in the last, as the person asked
+        for it. Returns None, or the sentence why not."""
         state = self._clip_now()
         if of == "hit":
             tries = [("add_hit", dict({"kind": name, "at": at}, **({"word": word} if word else {})))]
@@ -606,6 +612,7 @@ class Chat:
             spots = [{"place": p} for p in places] + [{"box": list(b)} for b in EFFECT_BOXES]
             tries = [("add_sticker", dict(s, sticker=name, at=at)) if of == "sticker" else
                      ("add_flurry", dict(s, stickers=[name], at=at)) for s in spots]
+            tries.append((tries[-1][0], dict(tries[-1][1], asked=True)))
         else:
             return "Choose a hit, a sound, a sticker or a burst."
         refused = None
@@ -2161,8 +2168,8 @@ class Hand(Job):
     knows a choice the tool would refuse, and why. page names what the hand makes for the page (the video, the
     preview), so the page shows each one's progress in its own place."""
 
-    def __init__(self, chat, trial=False, page="video", whole=False):
-        self.chat, self.trial, self.page, self.n, self.steps = chat, trial, page, None, 0
+    def __init__(self, chat, trial=False, page="video", whole=False, asked=False):
+        self.chat, self.trial, self.page, self.n, self.steps, self.asked = chat, trial, page, None, 0, asked
         self.whole, self.act = whole, "%s.page.%s" % (chat.id, secrets.token_hex(4))
         self.proofread, self.pictures, self.shown_extra = {}, [], {}
         self.asking = self.stop_work = self.entry = None

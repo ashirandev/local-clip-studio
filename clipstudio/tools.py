@@ -3515,8 +3515,10 @@ def _thai_for_english(job, texts):
 
 
 def _asked(job, person_said):
-    """True when person_said quotes words the person typed in this chat, False when it is empty; Refused when the
-    person never said it, so Muse cannot claim a request nobody made."""
+    """True when person_said quotes words the person typed in this chat or their own tap made the call, False when it
+    is empty; Refused when the person never said it, so Muse cannot claim a request nobody made."""
+    if getattr(job, "asked", False):
+        return True
     if not person_said:
         return False
     quote = " ".join(person_said.split()).lower()
@@ -4723,21 +4725,34 @@ def _where(lay, box):
     return out
 
 
-EFFECTS = ("hit", "sticker", "flurry", "sound", "picture", "push")
+EFFECTS = ("hit", "sticker", "flurry", "sound", "picture", "push", "title")
+ON_THE_PICTURE = ("sticker", "flurry", "picture", "title")
 
 
-def change_effect(job, why, what, called, at, to=None):
+def change_effect(job, why, what, called, at, to=None, box=None, person_said=None):
     _open(job, "change an effect on")
     state = _clip_state(job)
-    key, kept = ("start", "pushes") if what == "push" else ("at", {"hit": "hits", "sticker": "stickers", "flurry": "flurries",
-                                                                 "sound": "sounds", "picture": "pictures"}[what])
+    key, kept = ("start", {"push": "pushes", "title": "titles"}[what]) if what in project.LASTING else (
+        "at", {"hit": "hits", "sticker": "stickers", "flurry": "flurries", "sound": "sounds", "picture": "pictures"}[what])
     found = [x for x in state[kept] if abs(x[key] - at) < 0.01 and project.effect_name(what, x) == called]
     if not found:
         raise Refused("The clip has no %s \"%s\" at %g s; its %s: %s." % (what, called, at, kept, ", ".join(
             "%s at %g s" % (project.effect_name(what, x), x[key]) for x in state[kept]) or "none"))
     effect, length = found[0], state["length"]
+    if box is not None:
+        if what not in ON_THE_PICTURE:
+            raise Refused("A %s has no spot on the picture to move." % what)
+        if max(box) > 1000:
+            raise Refused("The box %s runs off the frame: the grid ends at 1000." % _on_grid(box))
+        if job.n is not None and not _asked(job, person_said):
+            raise Refused("A box here goes over faces and titles unchecked, so it is only for a spot the person asked for: "
+                          "give person_said with their words. To choose a spot yourself, add the %s again there." % what)
+        band = _frame_box("box", box)
+        job.edit(dict({"do": "effect", "of": what, "name": called, "at": effect[key], "to": effect[key], "box": band},
+                      **({"place": "box at %s on your grid" % _grid(band, FRAME)} if what == "title" else {})))
+        return "The %s \"%s\" is at %s on your grid now." % (what, called, _on_grid(box))
     if to is not None:
-        lasts = effect["end"] - effect["start"] if what == "push" else effect.get("length", 0)
+        lasts = effect["end"] - effect["start"] if what in project.LASTING else effect.get("length", 0)
         if not 0 <= to < length or to + lasts > length:
             raise Refused("It would run off the clip: a %s of %g s fits from 0 to %g s of the %g s clip." % (
                 what, lasts, round(length - lasts, 2), length))
@@ -6805,6 +6820,8 @@ def describe(entry):
     if entry["do"] == "untitle":
         return 'taking the title "%s" off' % entry["text"]
     if entry["do"] == "effect":
+        if entry.get("box"):
+            return "moving the %s %s to another spot on the picture" % (entry["of"], entry["name"])
         return "%s the %s %s at %g s%s" % ("taking off" if entry.get("to") is None else "moving", entry["of"], entry["name"],
                                            entry["at"], "" if entry.get("to") is None else " to %g s" % entry["to"])
     if entry["do"] == "look":
@@ -7488,14 +7505,19 @@ TOOLS = {t.name: t for t in [
     Tool("change_effect", "Changed an effect",
          "Take one effect off the clip, or move it to another second: a hit, sticker, flurry, sound, picture or slow "
          "push, by its name and second as the clip's list says them. Use it when the person asks for one effect to go "
-         "or to come earlier or later. It keeps everything else about the effect.",
+         "or to come earlier or later. It keeps everything else about the effect. With box, a sticker, flurry, picture "
+         "or title goes to that spot on the picture, as the person asked, and nothing else about it changes.",
          {"what": {"type": "string", "enum": list(EFFECTS), "description": "Which kind of effect."},
           "called": {"type": "string", "maxLength": 300,
                      "description": "A hit's or sound's kind, a sticker's name, a flurry's stickers joined by +, a "
-                                    "picture's words, or push."},
+                                    "picture's words, a title's words, or push."},
           "at": {"type": "number", "minimum": 0, "description": "The second it is at now, in seconds of the clip."},
           "to": {"type": "number", "minimum": 0,
-                 "description": "The second to move it to. Leave it out to take the effect off."}},
+                 "description": "The second to move it to. Leave it out to take the effect off."},
+          "box": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0},
+                  "description": "[x1, y1, x2, y2] on the 0-1000 grid of the clip's frame: the new spot on the picture."},
+          "person_said": {"type": "string", "maxLength": 200,
+                          "description": "With box: the person's own words asking for that spot, quoted exactly."}},
          ["what", "called", "at"], change_effect, changes=True),
     Tool("add_sticker", "Put a sticker on",
          "Put one of the studio's stickers on the clip: a 3D emoji picture that pops in, holds and fades out, such "

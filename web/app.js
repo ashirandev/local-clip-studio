@@ -1410,6 +1410,7 @@ const pickSays = $("pickSays");
 const pickBack = $("pickBack");
 const pickWords = $("pickWords");
 const pickOff = $("pickOff");
+const pickSpot = $("pickSpot");
 const pickGo = $("pickGo");
 
 function tenths(t) {
@@ -1929,12 +1930,14 @@ function drawPick() {
   const trimming = Boolean(!b && !f && e && room.trim);
   pickWords.hidden = !b;
   pickOff.hidden = !f;
+  pickSpot.hidden = !(b || f) || !(b || f).box;
+  pickSpot.querySelectorAll(".side").forEach((n) => (n.hidden = Boolean(b)));
   pickBack.hidden = pickGo.hidden = !trimming;
   pickBar.hidden = !b && !f && !trimming;
   if (b) {
     pickSays.textContent = room.pickWhy || b.start.toFixed(1) + "–" + b.end.toFixed(1) + " s · drag its ends";
   } else if (f) {
-    pickSays.textContent = room.pickWhy || f.label + " at " + f.start.toFixed(1) + " s · drag it to move";
+    pickSays.textContent = room.pickWhy || f.label + " at " + f.start.toFixed(1) + " s · drag it to another second";
   } else if (trimming) {
     pickSays.textContent = trimWhy.hidden ? "New: " + (room.trim.end - room.trim.start).toFixed(1) + " s" : trimWhy.textContent;
     pickGo.disabled = trimGo.disabled;
@@ -2049,6 +2052,16 @@ async function changeEffect(body, failed) {
   loadPanel();
 }
 
+pickSpot.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-spot]");
+  const t = pickedTitle();
+  const f = t ? null : pickedEffect();
+  const on = t || f;
+  if (!b || !on || !on.box) return;
+  const which = t ? { of: "title", name: t.text, at: t.start } : { of: f.of, name: f.name, at: f.start };
+  await changeEffect(Object.assign(which, { box: partMoved(on.box, b.dataset.spot) }), "It could not be moved.");
+});
+
 pickOff.addEventListener("click", async () => {
   const f = pickedEffect();
   if (!f) return;
@@ -2144,7 +2157,7 @@ function partMoved(box, how) {
   const grow = PART_STEP[how] || 1;
   const w = Math.min(1000, (x2 - x1) * grow);
   const h = Math.min(1000, (y2 - y1) * grow);
-  const cx = (x1 + x2) / 2;
+  const cx = (x1 + x2) / 2 + (how === "left" ? -40 : how === "right" ? 40 : 0);
   const cy = (y1 + y2) / 2 + (how === "up" ? -40 : how === "down" ? 40 : 0);
   x1 = Math.max(0, Math.min(1000 - w, cx - w / 2));
   y1 = Math.max(0, Math.min(1000 - h, cy - h / 2));

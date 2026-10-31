@@ -51,8 +51,9 @@ computer only.
   the background ({"ok": true} once it has started); a "moved" event says when the clip is made, a "not_moved" event
   why it was not
 - GET /api/sticker/<name>.png: a sticker of the studio's, for the Effects sheet
-- POST /api/effect {chat, of, name, at, to?} or {chat, add: true, of, name, at, word?}: one effect taken off or moved
-  on the timeline, or put on at the second the person chose, by the tool Muse would call
+- POST /api/effect {chat, of, name, at, to?, box?} or {chat, add: true, of, name, at, word?}: one effect taken off,
+  moved on the timeline, or moved to box on the 0-1000 grid of the frame, as a title (of: "title") moves too, or put on
+  at the second the person chose, by the tool Muse would call
 - POST /api/part {chat, part, box}: a part of the frame moved or sized, box on the 0-1000 grid of the clip's frame
 - POST /api/frame {chat, x}: the upright frame holds with its left edge at x pixels of the recording (Chat.set_frame)
 - POST /api/shot {chat, start, end, show, x, y}: a talk clip's shot from start to end s shows person show (0: everyone),
@@ -317,7 +318,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/circle":
                 why = chat.set_circle(str(body.get("spot") or ""))
             elif path == "/api/effect":
-                at, to = body.get("at"), body.get("to")
+                at, to, box = body.get("at"), body.get("to"), body.get("box")
                 if not isinstance(at, (int, float)) or isinstance(at, bool) or \
                         (to is not None and (not isinstance(to, (int, float)) or isinstance(to, bool))):
                     why = "Send which effect: its kind, its name and its second."
@@ -326,7 +327,7 @@ class Handler(BaseHTTPRequestHandler):
                                           str(body.get("word") or "") or None)
                 else:
                     why = chat.set_effect(str(body.get("of") or ""), str(body.get("name") or ""), float(at),
-                                          None if to is None else float(to))
+                                          None if to is None else float(to), box)
             elif path == "/api/part":
                 box = body.get("box")
                 if not isinstance(box, list) or len(box) != 4 or \

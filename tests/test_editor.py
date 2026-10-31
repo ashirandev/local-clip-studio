@@ -1702,6 +1702,21 @@ class Tools(unittest.TestCase):
         self.assertFalse(blurred["refused"], blurred["result"])
         self.assertIn("Person 1 is blurred", blurred["result"])
 
+    def test_muse_moves_an_effect_on_the_picture_only_when_the_person_asked(self):
+        script = self.to_moment() + [[call("make_clip", moment=1, layout="subject", why="the cooking")],
+                                     [call("add_sticker", sticker="fire", at=2, place="top", why="the peak")]]
+        moved = dict(what="sticker", called="fire", at=2, box=[100, 500, 300, 700], why="a better spot")
+        self.chat.emit("person", job=None, text="move the fire down")
+        _, steps = self.run_job(*script, [call("change_effect", **moved)],
+                                [call("change_effect", person_said="nobody said this", **moved)],
+                                [call("change_effect", person_said="move the fire down", **moved)], "Done.")
+        unasked, made_up, asked = steps[-3:]
+        self.assertTrue(unasked["refused"], unasked["result"])
+        self.assertIn("person_said", unasked["result"])
+        self.assertFalse(asked["refused"], asked["result"])
+        self.assertTrue(made_up["refused"], made_up["result"])
+        self.assertIn("did not say", made_up["result"])
+
     def test_everyone_in_a_clip_blurred_goes_back_once(self):
         """11-01 005953-ecc0: Glimmer blurred all 9 people of a cooking episode."""
         from unittest import mock
