@@ -1113,10 +1113,7 @@ def _pieces(said, most):
                     and _letters(said[s:k]) <= most]
             breaks = [k for k in fits if k in words] or near or fits
             if not breaks:
-                end = next(m.end() for m in thai.NUMBER.finditer(said) if m.start() < e and m.end() > s)
-                if end >= e:
-                    break
-                breaks = [end]
+                break
             pieces.append((s, breaks[-1]))
             s = breaks[-1]
         pieces.append((s, e))
