@@ -2413,6 +2413,36 @@ class Tools(unittest.TestCase):
         self.assertFalse(clear["refused"], clear["result"])
         self.assertFalse(after["refused"], after["result"])
 
+    def test_a_refusal_with_no_place_clear_names_a_box_that_is(self):
+        """Sport 032940-bc6c on 11-01: a card's one place held the title, and no goal got its burst in 7 tries."""
+        _, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="card", why="the play")],
+            [call("add_title", words="Big win", start=0, end=15, place="top", why="the hook")],
+            [call("add_flurry", stickers=["coin"], at=5, place="top", why="over it")],
+            [call("add_flurry", stickers=["coin"], at=5, box=[340, 230, 660, 440], why="the box it named")], "Done.")
+        over, named = steps[-2:]
+        self.assertTrue(over["refused"])
+        self.assertIn("No place is clear of it at 5 s: give the box [340, 230, 660, 440], or a time the title is not shown.",
+                      over["result"])
+        self.assertFalse(named["refused"], named["result"])
+
+    def test_the_box_a_refusal_names_keeps_off_titles_faces_and_what_a_phone_covers(self):
+        from unittest import mock
+        high = [450, 500, 180, 100]
+        state = {"clip": {"layout": layouts.make("card", (1920, 1080))}, "captions": [], "length": 30}
+
+        def named(titles=(), found=(), captions=()):
+            with mock.patch.object(tools, "_face_times", return_value=([(5, list(found))], 1)), \
+                    mock.patch.object(tools.render, "title_boxes", return_value=list(titles)):
+                return tools._clear_box(dict(state, captions=list(captions)), None, "clean", 5, 2, lambda spot: spot)
+
+        self.assertEqual(named(), (340, 230, 660, 440))
+        self.assertEqual(named(titles=[({"start": 0, "end": 30, "text": "x"}, high)]), (60, 230, 380, 440))
+        self.assertEqual(named(titles=[({"start": 8, "end": 30, "text": "x"}, high)]), (340, 230, 660, 440), "shown later")
+        self.assertEqual(named(found=[[400, 600, 100, 100]]), (620, 230, 940, 440))
+        self.assertEqual(named(captions=["a line"]), (300, 420, 700, 600))
+        self.assertIsNone(named(found=[[0, 0, 1080, 1920]]))
+
     def test_captions_are_translated_when_the_speaker_speaks_another_language_than_the_person(self):
         """Tarm 10-31: a person asking in Thai over an English recording gets Thai captions without asking for them."""
         job = types.SimpleNamespace(chat=types.SimpleNamespace(events=[

@@ -4925,17 +4925,36 @@ def _over_titles(state, default, drawn, a, b):
     return out
 
 
-def _title_in_the_way(what, state, default, under, at, length, drawn):
+EFFECT_BOXES = ((300, 700, 700, 880), (300, 420, 700, 600), (60, 620, 400, 780), (600, 620, 940, 780),
+                (340, 230, 660, 440), (60, 230, 380, 440), (620, 230, 940, 440))
+
+
+def _clear_box(state, rec, default, at, length, drawn):
+    """The highest of EFFECT_BOXES clear of titles, faces and what a phone covers from at, for a refusal to name, or None:
+    told only to give a box, Glimmer tried a card's one place 7 times and no goal of sport 032940-bc6c got its burst (11-01).
+    Highest first, as a card's picture starts below them."""
+    times, every = _face_times(state, rec)
+    for box in sorted(EFFECT_BOXES, key=lambda b: b[1]):
+        spot = drawn(_frame_box("box", box))
+        if not (_over_titles(state, default, spot, at, at + length) or _covered(spot, times, every, at, at + length)
+                or _covers([round(v) for v in spot], state["clip"]["layout"], state)):
+            return box
+    return None
+
+
+def _title_in_the_way(what, state, rec, default, under, at, length, drawn):
     """Refused for a sticker or a flurry that would cover the titles under: where they are, and the layout's places
-    that are clear at that time (drawn(place) is where it would stand there)."""
+    that are clear at that time (drawn(place) is where it would stand there), or a box that is when none is."""
     clear = [name for name, spot in state["clip"]["layout"]["places"].items()
              if not _over_titles(state, default, drawn(spot), at, at + length)]
+    box = None if clear else _clear_box(state, rec, default, at, length, drawn)
     raise Refused("The %s would cover the title %s: words on the clip are never covered. %s, or a time the title is not "
                   "shown." % (what, "; ".join('"%s" (%s, from %g to %g s)' % (
                       t["text"], ", ".join(layouts.on_grid(box[i], box[i] + box[i + 2], "xy"[i], inward=False)
                                            for i in (0, 1)), t["start"], t["end"]) for t, box in under),
                       "Clear of it at %g s: %s" % (at, ", ".join(clear)) if clear else
-                      "No place is clear of it at %g s: give a box away from it" % at))
+                      "No place is clear of it at %g s: give %s" % (
+                          at, "the box %s" % _on_grid(box) if box else "a box away from it")))
 
 
 def add_sticker(job, why, sticker, at, length=STICKER_LENGTH, place=None, box=None, person_said=None):
@@ -4964,7 +4983,7 @@ def add_sticker(job, why, sticker, at, length=STICKER_LENGTH, place=None, box=No
     default = job.chat.clip["style"] if job.chat.clip else "clean"
     under = _over_titles(state, default, drawn, at, at + length)
     if under and not asked:
-        _title_in_the_way("sticker", state, default, under, at, length, lambda spot: _sticker_drawn(png, spot))
+        _title_in_the_way("sticker", state, rec, default, under, at, length, lambda spot: _sticker_drawn(png, spot))
     notes = _phone(drawn, state["clip"]["layout"], state, asked)
     if under:
         notes.append("It covers the title %s, where the person asked for it; tell the person." % ", ".join(
@@ -5303,7 +5322,7 @@ def add_flurry(job, why, stickers, at, move="burst", count=8, length=None, place
     default = job.chat.clip["style"] if job.chat.clip else "clean"
     under = _over_titles(state, default, band, at, at + length)
     if under and not asked:
-        _title_in_the_way("flurry", state, default, under, at, length, lambda spot: spot)
+        _title_in_the_way("flurry", state, rec, default, under, at, length, lambda spot: spot)
     notes = _phone(band, state["clip"]["layout"], state, asked)
     more, hit = _off_faces(state, rec, band, at, at + length, asked, "flurry")
     replaced = [f for f in state["flurries"] if project._same_box(f, {"box": band, "at": at, "length": length},
