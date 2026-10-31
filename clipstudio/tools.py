@@ -1994,7 +1994,8 @@ def _the_face(job, rec, a, b, face):
         if g:
             return g["box"], ("The face inside your face box was found in %d of %d pictures, at %s on your grid; the "
                               "layout uses it." % (g["seen"], n, _grid(g["box"], rec)))
-        return rough, "No face was found inside your face box in %d pictures, so the box is used as you gave it." % n
+        return None, ("No face was found inside your face box in %d pictures, so the layout goes without it: a circle "
+                      "needs a face in it." % n)
     g = faces.steady(found)
     if g:
         return g["box"], ("A face sits at the same place in %d of %d pictures, at %s on your grid; the layout uses it."

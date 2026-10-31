@@ -4547,6 +4547,19 @@ class FaceToFollow(unittest.TestCase):
         self.assertEqual(self.face(0)[1], "No face was found in the moment's 20 pictures.")
         self.assertIsNotNone(self.face(6)[0], "seen in a quarter of them: the layout follows it")
 
+    def test_a_face_box_with_no_face_in_it_draws_no_circle(self):
+        """183706-b632: a box on a slide, no face in 146 pictures, and the clip went out with an empty white circle."""
+        found = {"samples": [{"t": float(t), "faces": [[700, 700, 40, 40, 0.9]]} for t in range(20)]}
+        job = type("Job", (), {"find_faces": lambda self, rec, a, b: found})()
+        rec = {"width": 1000, "height": 1000}
+        box, said = tools._the_face(job, rec, 0.0, 20.0, [50, 50, 100, 100])
+        self.assertIsNone(box)
+        self.assertEqual(said, "No face was found inside your face box in 20 pictures, so the layout goes without it: a "
+                               "circle needs a face in it.")
+        self.assertEqual(layouts.make("card", (1920, 1080), box)["notes"][0], "No face was given or found, so the card has no "
+                                                                              "circle.")
+        self.assertIsNotNone(tools._the_face(job, rec, 0.0, 20.0, [690, 690, 750, 750])[0], "a face in the box is used")
+
 
 class VlogTrim(unittest.TestCase):
     """EP 2.2 of บ้านไร้นาม, 10-30: four people a quarter of the frame's height on a vlog's whole-picture card."""

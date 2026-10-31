@@ -149,6 +149,11 @@ class Hears(unittest.TestCase):
             asr.hear(sound((8, True), (0.6, False), (5, True)))
         self.assertNotIsInstance(got.exception, asr.PartHeard)
 
+    def test_a_stretch_with_no_sound_in_it_asks_nothing_and_nothing_was_said(self):
+        """183215-ea60: "propose_moments broke ()", as next() of no failures is a StopIteration with no words in it."""
+        self.assertEqual(asr.hear(bytes(RATE * 2 * 5)), ([], 0))
+        self.assertEqual(self.meta.got, [])
+
     def test_stop_asks_nothing_again(self):
         self.meta.fails = lambda ms, n: True
         asked = []

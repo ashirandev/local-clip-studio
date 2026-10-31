@@ -148,7 +148,7 @@ def hear(pcm, rate=RATE, stopped=None, languages=()):
     """[{from, to, text}] said in the sound pcm, in seconds of it, and the US dollars it cost: each piece asked,
     AT_ONCE at a time, expecting languages (ask), up to PIECE_TRIES times. stopped() True leaves the pieces not yet
     sent unsent. A piece that still fails costs that piece: PartHeard holds the rest. VoiceError when none was
-    heard."""
+    heard; sound with nothing in it asks nothing, and nothing was said."""
     if not secret():
         raise VoiceError("Muse Voice Transcribe needs your Meta API key, and none is set.")
     cut = pieces(pcm, rate)
@@ -174,7 +174,7 @@ def hear(pcm, rate=RATE, stopped=None, languages=()):
         heard = [t for got in pool.map(one, cut) for t in got]
     usd = sum(b - a for a, b in cut) / 3600 * USD_PER_HOUR
     said = [{"from": round(a, 2), "to": round(b, 2), "text": text} for a, b, text in heard]
-    if len(failed) == len(cut):
+    if failed and len(failed) == len(cut):
         raise VoiceError(next(iter(failed.values())))
     if failed:
         raise PartHeard(next(iter(failed.values())), said, usd, sorted(failed))
