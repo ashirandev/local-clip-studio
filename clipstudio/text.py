@@ -55,6 +55,9 @@ THAI = re.compile("[\u0e00-\u0e7f]")
 # Chinese and Japanese leave no spaces, so a line may break between any two letters, and each stands twice as wide as a
 # Thai or Latin one.
 UNSPACED = re.compile("[\u3040-\u30ff\u4e00-\u9fff]")
+# Two or three Latin words in a Thai line are a name, and a line does not end on the first of them: "เปิด The" over
+# "Ghost ให้ฟัง" on EP0 (10-31).
+LATIN_NAME = re.compile(r"[A-Za-z0-9'’-]+(?: [A-Za-z0-9'’-]+){1,2}")
 DRAWN = 32
 RENDER_SECONDS = 60
 MOST_CANVAS = 8192
@@ -797,6 +800,9 @@ def _atoms(text):
     locked = set()
     for m in thai.NUMBER.finditer(text):
         locked.update(range(m.start() + 1, m.end()))
+    if THAI.search(text):
+        for m in LATIN_NAME.finditer(text):
+            locked.update(range(m.start() + 1, m.end()))
     atoms, last = [], ""
     for a, b in tokens:
         piece = text[a:b]

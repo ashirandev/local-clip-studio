@@ -1160,9 +1160,8 @@ class Tools(unittest.TestCase):
         heads = {"people": [{"head": [170, 200, 320, 500], "looks": "left"}, {"head": [480, 200, 620, 500], "looks": "middle"},
                             {"head": [780, 200, 920, 500], "looks": "turned away on the right"}]}
         spark = Asked("spark", "Muse Spark", [json.dumps(heads)])
-        wonder = Asked("wonder", "Muse Wonder", ['{"who": 3, "sure": 0.9, "why": "his voice and hands"}',
-                                                 '{"who": 1, "sure": 0.9, "why": "her mouth"}'])
-        turns = mock.Mock(return_value=([(0.0, 20.0, "A")], 0.001))
+        wonder = Asked("wonder", "Muse Wonder", ['{"who": %d, "sure": 0.9, "why": "seen"}' % who for who in (3, 1, 2, 2, 1, 3, 2)])
+        turns = mock.Mock(return_value=([(0.0, 14.0, "A"), (14.0, 17.0, "B"), (17.0, 20.0, "C")], 0.001))
         with mock.patch.object(tools, "_wonder_names", lambda: True), mock.patch.object(tools.asr, "turns", turns), \
                 mock.patch.dict(tools.mind.MINDS, spark=spark, wonder=wonder), \
                 mock.patch.object(talk, "motion", lambda rec, a, b, persons, fps=10: [[1.0] * 30 for _ in persons]):
@@ -1174,10 +1173,10 @@ class Tools(unittest.TestCase):
         self.assertIn("Muse Spark counted 3 people in one picture, and the faces found were 2", first["result"])
         self.assertEqual(len(spark.sent), 1, "the clip made again asks nobody again")
         self.assertIn("image_url", json.dumps(spark.sent[0]))
-        self.assertEqual(len(wonder.sent), 2)
+        self.assertEqual(len(wonder.sent), 7, "a short turn is asked twice, and a third time when the two differ")
         self.assertIn("near their head: 1, left; 2, middle; 3, turned away on the right.", json.dumps(wonder.sent[0]))
         clip = self.chat.project.state()["clip"]
-        self.assertEqual([v["who"] for v in clip["voices"]], [3, 1])
+        self.assertEqual([v["who"] for v in clip["voices"]], [3, 1, 2, None], "three answers that differ name nobody")
         self.assertEqual(clip["voices"][0]["to"], 39.0, "one long turn, named in pieces cut where a heard line ends")
         self.assertEqual(clip["layout"]["shots"][0]["show"], 3, "the zoom goes to him")
         self.assertIn("person 3", [p["name"] for p in clip["layout"]["parts"]])

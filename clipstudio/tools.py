@@ -3210,12 +3210,16 @@ def _named_voices(job, rec, m, persons, line):
         try:
             path = voices.numbered(rec, turn["from"], min(turn["to"], turn["from"] + voices.TURN_SENT), persons,
                                    "%s_%d" % (key, k))
-            got = job.ask_other("wonder", voices.who_question(path, persons), voices.WHO_SCHEMA,
-                                "Muse Wonder is watching who speaks, turn %d" % (k + 1), voices.WHO_TOKENS)
+            answers = []
+            while not answers or (len(answers) < voices.SHORT_ASKS and turn["to"] - turn["from"] < voices.TURN_SHORT
+                                  and voices.agreed(answers + [None]) is None):
+                got = job.ask_other("wonder", voices.who_question(path, persons), voices.WHO_SCHEMA,
+                                    "Muse Wonder is watching who speaks, turn %d" % (k + 1), voices.WHO_TOKENS)
+                cost += (got.get("engine") or {}).get("usd") or 0
+                answers.append(voices.who_answer(got["text"], persons))
         except (voices.VoiceError, mind.MindError) as e:
             return None, " ".join(filter(None, [line, "Who speaks is found from mouths moving (%s)." % e]))
-        cost += (got.get("engine") or {}).get("usd") or 0
-        named.append(dict(turn, who=voices.who_answer(got["text"], persons)))
+        named.append(dict(turn, who=voices.agreed(answers)))
     if not any(t["who"] for t in named):
         return None, " ".join(filter(None, [line, "Muse Wonder could not name who speaks, so it is found from mouths "
                                                   "moving."]))

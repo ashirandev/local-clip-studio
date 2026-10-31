@@ -41,6 +41,24 @@ class NamedTurns(unittest.TestCase):
         self.assertEqual(got, sorted(got, key=lambda t: t["from"]))
         self.assertNotIn(0.0, [t["from"] for t in got], "the shortest goes")
 
+    def test_the_last_turn_is_always_named_and_the_cap_still_holds(self):
+        """8 turns ran out before EP0's end, the gesture Tarm praised (10-31)."""
+        n = voices.MOST_TURNS + 3
+        found = [(k * 3.0, k * 3.0 + 2.0 + (n - k) * 0.01, "AB"[k % 2]) for k in range(n)]
+        got = voices.turns_of(found, 0.0)
+        self.assertEqual(len(got), voices.MOST_TURNS)
+        self.assertEqual(got[-1]["from"], (n - 1) * 3.0, "the shortest of all, and the last")
+        self.assertEqual(got, sorted(got, key=lambda t: t["from"]))
+        self.assertEqual(voices.turns_of([], 0.0), [])
+
+    def test_answers_that_differ_go_by_most_of_them(self):
+        self.assertEqual(voices.agreed([2]), 2)
+        self.assertIsNone(voices.agreed([None]))
+        self.assertEqual(voices.agreed([2, 2]), 2)
+        self.assertEqual(voices.agreed([2, 3, 2]), 2)
+        self.assertIsNone(voices.agreed([1, 2, 3]))
+        self.assertIsNone(voices.agreed([2, None]))
+
     def test_a_long_turn_is_named_in_pieces_cut_where_lines_end(self):
         """EP0 10-31: one turn of 32 s took in man 3 and then man 1, and the one name stood for both (Tarm's ear)."""
         said = [line(1100.0, 1105.0), line(1105.5, 1110.0), line(1110.5, 1116.0), line(1116.5, 1124.0)]

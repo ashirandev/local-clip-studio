@@ -157,6 +157,14 @@ class Fonts(unittest.TestCase):
                                                 r"\{part: font\} with the parts title, caption, big"):
             text.look(fonts={"logo": "Kanit"})
 
+    def test_a_name_in_latin_letters_stays_whole_in_a_thai_line(self):
+        said = "ชอบเปิดอะไรเปิด The Ghost ให้ฟังอย่างนี้"
+        pieces = [said[a:b].strip() for a, b in text._atoms(said)]
+        self.assertIn("The Ghost", pieces, pieces)
+        self.assertNotIn("The", pieces)
+        english = "it was the ghost all along"
+        self.assertIn("the", [english[a:b].strip() for a, b in text._atoms(english)], "English lines break between words")
+
     def test_chinese_and_japanese_break_between_letters_and_count_as_wide_as_they_stand(self):
         """They leave no spaces, so a sentence was one piece too wide for its line, and Tarm asked about Chinese users."""
         said = "这个产品真的很好用，我每天都在用。"
