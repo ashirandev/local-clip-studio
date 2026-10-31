@@ -1085,6 +1085,9 @@ def watch_piece(job, why, start, end, person_said=None):
                       "video goes to Meta unless they ask for it in their own words (quote them in person_said) or "
                       "turn on Meta sees pieces in Options. Go on from your looks and what was heard, without asking "
                       "them about it.")
+    if not asked and not job.chat.moments and _told_once(job, "watched_early"):
+        raise Refused("Muse Wonder has watched once already and no moment is proposed yet. Each watch is paid: propose "
+                      "from your looks and what was heard, then have it watch the clip's own stretch for its effects.")
     started = time.time()
     try:
         job.working("Cutting %s-%s for Muse Wonder to watch" % (clock(a), clock(b)))
@@ -5043,6 +5046,11 @@ def follow_product(job, why, what):
     return "\n".join(lines)
 
 
+# Touching the frame's edge was enough to pass "The product is in the frame": Glimmer's balm 10-31 passed with his face
+# on all 6 sampled frames.
+PRODUCT_SHOWN = 0.5
+
+
 def _hold_product(job, rec, state, said):
     """follow_product with no SAM on this computer, as on anyone's who uses the API alone: the frame moves once, to the
     product box Muse named, and holds there. Spark 10-31 on Tarm's green-cloth seller with no SAM: the frame stayed on
@@ -5408,12 +5416,13 @@ def check_clip(job, why):
         check("The product is in the frame", None, "the person asked for a layout that cuts between faces")
     elif kind == "seller":
         product = state["clip"].get("product")
-        inside = bool(product) and bool(layouts.to_frame(state["clip"]["layout"], product))
+        inside = bool(product) and layouts.shown_share(state["clip"]["layout"], product) >= PRODUCT_SHOWN
         check("The product is in the frame", inside,
               "the product box is inside the clip's picture" if inside else
               "no product box was named and the frame follows nothing, so nothing shows the product is in the picture: "
               "make the clip again with its product, or call follow_product" if not product else
-              "the product box is outside the clip's picture")
+              "under half of the product box is inside the clip's picture: frame it again around the product, or "
+              "choose the card layout to show all of it")
     else:
         check("The product is in the frame", None, "not a seller's clip")
     check("The length fits a Reel", made["seconds"] <= REEL_LONGEST,

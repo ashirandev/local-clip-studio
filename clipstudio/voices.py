@@ -21,7 +21,7 @@ Three or more people, or two whose voices are too alike, need more than pitch. M
 gives the turns (turns_of), and Muse Wonder names each one from a small video of it with its sound, each person's number
 near their head (numbered, WHO_ASK). Mouths could not do it: on EP0's four men the label of the same voice went to
 person 2, 1 and 3 in three runs (10-31), while Wonder gave the same man on all 6 turns, 18 of 18 answers, and Tarm's ear
-agreed with all 6 ("EP0 ถูกต้อง!"). Each turn is named by itself, as one label took in up to three men. About $0.05 a
+agreed with all 6 ("EP0 ถูกต้อง!"). Each turn is named by itself, as one label took in up to three men. About $0.07 a
 turn, so on the switch in Options only, kept in work/voices, and at most MOST_TURNS a clip.
 """
 import base64
@@ -52,7 +52,7 @@ SCHEMA = {"type": "object", "properties": {"speaking": {"type": "array", "items"
           "required": ["speaking"], "additionalProperties": False}
 TURN_LEAST = 1.0
 TURN_SENT = 20.0
-MOST_TURNS = 8
+MOST_TURNS = 6
 NUMBERED_LONGEST = 960
 WHO_SURE = 0.5
 WHO_TOKENS = 600

@@ -31,7 +31,8 @@ With "hosted", the API's address in the job, Meta's SAM 3.1 on the Model API doe
 the same stretch goes up as a small H.264 file, at most HOSTED_LONGEST pixels on the long side, and the same picking
 and writing follow. It runs in the studio's own Python, needs META_API_KEY in its environment and meta-sam-parser, and
 the file is deleted from Meta's side after. Measured 10-31 on Tarm's green-cloth seller: 14 s, 140 pictures, 13 s,
-$0.028, the controller in 135 of them, and its mask on it; the answer's masks are local to their boxes.
+$0.028, the controller in 135 of them, and its mask on it; the answer's masks are local to their boxes. The parser is
+plain Python, about 0.2 s a mask, and four people through 65 s took 806 s on one core (EP0, 10-31), so every core reads.
 
 These settings make SAM run here (Windows, an RTX 5070 Ti, PyTorch 2.14 with CUDA 13), as found when it was first
 run on this computer (10-27) and kept for every measurement since: the weights are read from the .safetensors file
@@ -39,6 +40,7 @@ run on this computer (10-27) and kept for every measurement since: the weights a
 feed-forward layers stay in float32; attention uses whichever kernel PyTorch has, not only FlashAttention; finding
 and post-processing take one object at a time; init_state gets only the arguments it takes.
 """
+import concurrent.futures
 import json
 import os
 import re
@@ -147,6 +149,10 @@ def found_in(line, picture):
     return int(head.group(1)), out
 
 
+def read_line(asked):
+    return found_in(*asked)
+
+
 def api(job, path, data=None, headers=None, method=None):
     """The answer to one call on the Model API, open; ValueError with a sentence when it is refused."""
     req = urllib.request.Request(job["hosted"].rstrip("/") + path, data=data, method=method, headers=dict(
@@ -223,13 +229,13 @@ def hosted(job, seconds):
     t = time.perf_counter()
     n = read or int(round((job["to"] - job["from"]) * job["fps"]))
     masks = {}
-    for k, line in enumerate(lines):
-        at, found = found_in(line, picture)
-        for i, m in found.items():
-            if at < n:
-                masks.setdefault(i, [None] * n)[at] = m
-        if (k + 1) % 10 == 0:
-            say(done=k + 1, of=len(lines))
+    with concurrent.futures.ProcessPoolExecutor(max(1, (os.cpu_count() or 2) - 2)) as pool:
+        for k, (at, found) in enumerate(pool.map(read_line, [(line, picture) for line in lines], chunksize=8)):
+            for i, m in found.items():
+                if at < n:
+                    masks.setdefault(i, [None] * n)[at] = m
+            if (k + 1) % 10 == 0:
+                say(done=k + 1, of=len(lines))
     seconds["reading"] = round(time.perf_counter() - t, 1)
     return masks, [{"id": i, "sure": None} for i in masks], n, max(n, LEAST_BILLED) * USD_A_PICTURE, picture
 

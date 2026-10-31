@@ -556,6 +556,19 @@ def parts_at(layout, t):
             for p in layout["parts"]]
 
 
+def shown_share(layout, box):
+    """How much of a box of the recording the clip's frame shows at best, from 0 to 1: the most of it any one part holds
+    at any place it goes (the blurred background is not counted)."""
+    best = 0.0
+    for p in layout["parts"]:
+        for s in p.get("follow") or [{"x": p["src"][0], "y": p["src"][1]}]:
+            w = min(box[0] + box[2], s["x"] + p["src"][2]) - max(box[0], s["x"])
+            h = min(box[1] + box[3], s["y"] + p["src"][3]) - max(box[1], s["y"])
+            if w > 0 and h > 0:
+                best = max(best, w * h / float(box[2] * box[3]))
+    return best
+
+
 def to_frame(layout, box, at=None):
     """Where a box of the recording shows in the clip's frame: a list of frame boxes, one for each part it is in
     (the blurred background is not counted). At clip second at, or when at is None, anywhere it may show: once for

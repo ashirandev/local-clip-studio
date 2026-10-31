@@ -108,6 +108,7 @@ class Backdrop(unittest.TestCase):
             got = green.backdrop("a tidy gaming desk")
         self.assertEqual(asked, [("a tidy gaming desk", green.ASK, "1080x1920")])
         self.assertIn("No people, hands, writing", green.ASK)
+        self.assertIn("no goods on show", green.ASK, "a drawn console behind a seller reads as what is on sale")
         size = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0",
                                got["path"]], capture_output=True, text=True, check=True).stdout.strip()
         self.assertEqual(size, "1080,1920")

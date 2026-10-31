@@ -54,6 +54,35 @@ class Watch(unittest.TestCase):
         mind.MINDS["wonder"] = self.real_wonder
         test_editor.Tools.tearDown(self)
 
+    def test_one_paid_watch_before_any_moment_is_proposed(self):
+        """Spark Open watched 3 full minutes, $0.29, before proposing anything (EP0, 10-31)."""
+        _, steps = self.run_job(*self.to_moment()[:2],
+                                [call("watch_piece", start="0:30", end="0:50", why="what happens")],
+                                [call("watch_piece", start="0:50", end="1:10", why="and here")], "Done.")
+        self.assertFalse(steps[-2]["refused"], steps[-2]["result"])
+        self.assertTrue(steps[-1]["refused"])
+        self.assertIn("has watched once already and no moment is proposed yet", steps[-1]["result"])
+        self.assertEqual(len(self.wonder.sent), 1)
+
+    def test_a_proposed_moment_or_the_persons_own_words_lift_the_one_watch(self):
+        _, steps = self.run_job(*self.to_moment(),
+                                [call("watch_piece", start="0:30", end="0:50", why="what happens")],
+                                [call("watch_piece", start="0:50", end="1:10", why="and here")], "Done.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.chat.emit("person", job=None, text="ให้ Wonder ดูด้วยนะ")
+        self.chat.moments = None
+        _, steps = self.run_job([call("watch_piece", start="0:30", end="0:50", person_said="ให้ Wonder ดูด้วย", why="asked")],
+                                [call("watch_piece", start="0:50", end="1:10", person_said="ให้ Wonder ดูด้วย", why="asked")],
+                                "Done.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+
+    def test_a_watch_that_sent_nothing_does_not_use_up_the_one_before_a_moment(self):
+        sends.allow(False)
+        _, steps = self.run_job([call("open_recording", path=self.clip, why="open it")],
+                                [call("watch_piece", start="0:30", end="0:50", why="unasked")],
+                                [call("watch_piece", start="0:50", end="1:10", why="still unasked")], "Done.")
+        self.assertIn("Not watched, and nothing was sent", steps[-1]["result"])
+
     def test_wonder_watches_the_stretch_and_its_moments_come_back_at_the_clips_seconds(self):
         _, steps = self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
                                 [call("watch_piece", start="0:30", end="0:50", why="what the words miss")], "Done.")

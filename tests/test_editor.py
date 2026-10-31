@@ -2265,6 +2265,16 @@ class Tools(unittest.TestCase):
         self.assertLessEqual(whole["src"][0], 224, "the product's left side is in the window")
         self.assertGreaterEqual(whole["src"][0] + whole["src"][2], 272, "and its right side")
 
+    def test_a_product_at_the_edge_of_the_picture_is_not_in_the_frame(self):
+        """Glimmer's balm 10-31: his face on all 6 sampled frames, and the check passed."""
+        lay = {"parts": [{"name": "whole", "src": [600, 0, 608, 1080], "dst": [0, 0, 1080, 1920]}]}
+        self.assertEqual(layouts.shown_share(lay, [700, 400, 100, 100]), 1.0)
+        self.assertAlmostEqual(layouts.shown_share(lay, [1188, 400, 200, 200]), 0.1)
+        self.assertEqual(layouts.shown_share(lay, [1400, 400, 100, 100]), 0.0)
+        self.assertTrue(layouts.to_frame(lay, [1188, 400, 200, 200]), "the sliver that used to pass")
+        followed = {"parts": [dict(lay["parts"][0], follow=[{"x": 600, "y": 0}, {"x": 1000, "y": 0}])]}
+        self.assertEqual(layouts.shown_share(followed, [1188, 400, 200, 200]), 1.0, "the frame goes to it")
+
     def test_a_title_takes_a_stretch_it_can_be_read_in(self):
         """Tarm's seller 10-31: the earliest stretch was under 2 s, with 8 s free later."""
         got = tools._title_order([(3.7, 5.6, "middle"), (9.0, 17.0, "top"), (6.0, 10.0, "middle"), (0.5, 2.0, "top")])
@@ -4673,6 +4683,16 @@ class Tools(unittest.TestCase):
         self.assertFalse(again["refused"], again["result"])
         self.assertIn("- passed: The product is in the frame (the product box is inside the clip's picture)",
                       passed["result"])
+
+    def test_a_seller_clip_showing_under_half_of_its_product_fails_the_check(self):
+        """Glimmer's balm 10-31 passed on a box that only touched the frame."""
+        with mock.patch.object(layouts, "shown_share", return_value=0.4):
+            _, steps = self.seller_finished(
+                [call("make_clip", moment=1, layout="subject", product=[200, 200, 800, 800], why="the product")],
+                [call("decide_people", keep=[1], why="it is the seller")], [call("render_clip", why="make the file")],
+                [call("check_clip", why="check it")], "Done.")
+        self.assertIn("- FAILED: The product is in the frame (under half of the product box is inside the clip's "
+                      "picture", steps[-1]["result"])
 
     def test_a_seller_clip_in_a_layout_that_cuts_between_faces_is_not_failed_for_its_product(self):
         """The person asked for it, and a layout that cuts between faces takes no product box."""

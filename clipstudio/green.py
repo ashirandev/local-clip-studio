@@ -34,7 +34,8 @@ ASK = ("The background behind a person in a short vertical video, seen from wher
        "place with nobody in it, photo-like, softly out of focus as a place is behind a person filmed up close, in "
        "soft even light. One continuous photograph from top to bottom: the room goes on upward with its own wall or "
        "ceiling, with no band, panel, border or line across it, and little detail in its upper part. No people, hands, "
-       "writing, letters, numbers, logos or watermarks anywhere in it.")
+       "writing, letters, numbers, logos or watermarks anywhere in it, and no goods on show: no bottle, gadget, phone "
+       "or console a viewer could take for what is on sale.")
 SIZE = "1080x1920"
 WIDTH, HEIGHT = 1080, 1920
 SAMPLES = 6
