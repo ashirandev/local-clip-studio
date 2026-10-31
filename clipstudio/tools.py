@@ -4552,6 +4552,12 @@ def _undecided(state):
 # 10-31 050337-bff5: Glimmer blurred all four people on a talk's sofa, the one telling the story too.
 TALK_BLUR = ("Not blurred. A talk is its people: keep the ones talking, and blur only someone passing behind. If the person "
              "asked for this blur, decide again and it is done.")
+# Glimmer blurred all 9 people of a cooking episode "for privacy" (11-01, 005953-ecc0).
+ALL_BLUR = ("Not blurred. That is everyone in the clip, and a clip of blurred faces has nobody in it. Keep the people the clip "
+            "is about, and blur only someone passing behind. If the person asked for this blur, decide again and it is done.")
+
+
+BLUR_MANY = 3
 
 
 def decide_people(job, why, blur=None, keep=None, others=None):
@@ -4572,8 +4578,10 @@ def decide_people(job, why, blur=None, keep=None, others=None):
     unknown = [n for n in blur + keep if n not in people]
     if unknown:
         raise Refused("There is no person %s; the clip's people are %s." % (_numbers(unknown), _numbers(people)))
-    if blur and (job.chat.clip or {}).get("recipe") == "talk" and job.n is not None and not _told_once(job, "talk_blur"):
-        raise Refused(TALK_BLUR)
+    recipe = (job.chat.clip or {}).get("recipe")
+    crowd = len(blur) == len(people) >= BLUR_MANY and recipe != "seller"
+    if job.n is not None and blur and (recipe == "talk" or crowd) and not _told_once(job, "talk_blur"):
+        raise Refused(TALK_BLUR if recipe == "talk" else ALL_BLUR)
     state = job.edit({"do": "people", "blur": blur, "keep": keep})
     if len(blur) > PEOPLE_LISTED:
         lines = ["%d people are blurred where their faces show, and each blur moves with its face." % len(blur)]
@@ -6981,7 +6989,8 @@ def chips(clip):
 
 
 def _recipe_list():
-    return ", ".join("%s (%s)" % (r["name"], r["title"]) for r in RECIPES.values())
+    """Each recipe with when to pick it: with its title alone, Glimmer took three recipes for one ask on EP 22 (11-01)."""
+    return " ".join("%s: %s" % (r["name"], r["description"]) for r in RECIPES.values())
 
 
 TOOLS = {t.name: t for t in [
@@ -7089,8 +7098,8 @@ TOOLS = {t.name: t for t in [
     Tool("load_recipe", "Picked the kind of clip",
          "Read the recipe for this kind of video before you plan the clip, and give your guesses for it. The page "
          "shows your guesses with buttons, so the person can change any of them with one tap. Call it again when "
-         "the person says it is another kind, then plan again. The kinds with a recipe now: " + _recipe_list() +
-         ". If the video is another kind, still name that kind.",
+         "the person says it is another kind, or the pictures you looked at show it is, then plan again. The kinds "
+         "with a recipe now: " + _recipe_list() + " If the video is another kind, still name that kind.",
          {"type": {"type": "string", "maxLength": 40,
                    "description": "The kind of video as it really is: a recipe's name when one fits, else your own "
                                   "word for it, such as travel. Never pick a recipe that does not fit."},

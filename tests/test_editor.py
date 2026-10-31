@@ -1702,6 +1702,31 @@ class Tools(unittest.TestCase):
         self.assertFalse(blurred["refused"], blurred["result"])
         self.assertIn("Person 1 is blurred", blurred["result"])
 
+    def test_everyone_in_a_clip_blurred_goes_back_once(self):
+        """11-01 005953-ecc0: Glimmer blurred all 9 people of a cooking episode."""
+        from unittest import mock
+        with mock.patch.object(tools, "BLUR_MANY", 1):
+            _, steps = self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the cooking")],
+                                    [call("decide_people", others="blur", why="privacy")],
+                                    [call("decide_people", others="blur", why="they asked")], "Done.")
+        first, second = steps[-2:]
+        self.assertTrue(first["result"].startswith("Not blurred. That is everyone in the clip"), first["result"])
+        self.assertFalse(second["refused"], second["result"])
+
+    def test_a_crowd_behind_a_seller_may_be_blurred(self):
+        from unittest import mock
+        with mock.patch.object(tools, "BLUR_MANY", 1):
+            script = self.to_moment()
+            _, steps = self.run_job(script[0], [call("load_recipe", type="seller", why="a seller")], *script[1:],
+                                    [call("make_clip", moment=1, layout="subject", product=[100, 300, 250, 600], why="it")],
+                                    [call("decide_people", others="blur", why="the crowd behind")], "Done.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+
+    def test_muse_reads_when_to_pick_each_recipe(self):
+        said = tools.TOOLS["load_recipe"].summary
+        for recipe in tools.RECIPES.values():
+            self.assertIn(recipe["description"], said)
+
     def test_a_clip_made_again_on_the_page_keeps_what_was_decided_about_each_person(self):
         """Lane 5 10-31: a tap on a layout wiped the decisions, so the render was refused until each face was tapped."""
         self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
