@@ -114,6 +114,23 @@ class Fine(unittest.TestCase):
         self.assertAlmostEqual(tr["points"][1][0] - tr["points"][0][0], 0.25, places=2)
         self.assertAlmostEqual(tr["points"][-1][0] - tr["points"][-2][0], 0.25, places=2)
 
+    def test_a_big_patch_found_in_two_pictures_is_no_face(self):
+        pictures = [[[100, 300, 80, 80]] + ([[600, 100, 400, 400]] if k in (30, 31) else []) for k in range(60)]
+        (tr,) = tracks.tracks(found(pictures, every=tracks.FINE))
+        self.assertEqual(tr["box"][2], 80)
+
+    def test_a_big_face_found_for_a_quarter_of_a_second_stays(self):
+        (tr,) = tracks.tracks(found([[[600, 100, 400, 400]]] * tracks.SOLID, every=tracks.FINE))
+        self.assertEqual(tr["box"][2], 400)
+
+    def test_a_small_face_found_in_one_picture_stays(self):
+        (tr,) = tracks.tracks(found([[[600, 100, 200, 200]]], every=tracks.FINE))
+        self.assertEqual(tr["box"][2], 200)
+
+    def test_at_half_a_second_a_big_face_in_one_picture_stays(self):
+        (tr,) = tracks.tracks(found([[[600, 100, 400, 400]]]))
+        self.assertEqual(tr["box"][2], 400)
+
     def test_seen_counts_half_seconds_as_the_person_was_told(self):
         (tr,) = tracks.tracks(found([[[300, 300, 100, 100]]] * 20, every=tracks.FINE))
         self.assertEqual(tr["seen"], 2)

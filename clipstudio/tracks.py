@@ -15,6 +15,12 @@ from half a second covered 13% of the faces found on other frames whole and 38% 
 passed on sheets too small to show it. There the points are not smoothed, as a shake is the face's real path, and each
 box is WIDE times bigger.
 
+A finer look finds more that is no face. On the trip a stretch of dirt road passed for a face 800 px tall in 2 pictures
+of a shake (11-01, 054136-4493), and its blur stood in the middle of the clip for 0.6 s, when the real faces that big
+were found in 26 pictures and more. A face that big is found picture after picture, so a track taller than BIG of the
+picture's short side and found in under SOLID pictures is dropped. Small ones stay: a small face really is found
+once, and a blur on a saddle for a moment costs less than a face left showing.
+
 Times are recording seconds and boxes are recording pixels, as faces.sample() gives them; lane 1 turns the times into
 clip seconds with project.from_recording().
 """
@@ -35,6 +41,8 @@ FINE = 0.05
 SHORT = 6
 FEW = 3
 WIDE = 1.13
+SOLID = 5
+BIG = 0.25
 CROP_HEIGHT = 160
 CROP_SHARE = 1.8
 
@@ -83,6 +91,8 @@ def tracks(found, rec=None):
     out = []
     for tr in done:
         box = [sorted(p[i] for p in tr["raw"])[len(tr["raw"]) // 2] for i in range(1, 5)]
+        if fine and tr["seen"] < SOLID and box[3] > BIG * min(size):
+            continue
         points = _held(tr["raw"] if fine else _smoothed(tr["raw"]), faces.EVERY)
         points = [[round(t, 2)] + [round(v, 1) for v in _inside(_wider(p) if fine else p, size)] for t, *p in points]
         out.append({"from": points[0][0], "to": points[-1][0], "seen": max(1, round(tr["seen"] * per_half)),
