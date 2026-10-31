@@ -356,6 +356,40 @@ class MakeCountdown(unittest.TestCase):
         self.assertIn("Joined 2 moments", steps[-1]["result"])
         self.assertIn("moment 1, 0:06-", steps[-1]["result"])
 
+    def test_a_match_reels_scores_that_cannot_be_a_match_are_refused_once_and_the_second_answer_stands(self):
+        """10-31 094114-7e80: the board read right, then Hull 1-0, Hull 2-0, Arsenal level at 1-2."""
+        wide = [{"look": 1, "start": "0:06", "end": "0:21", "reason": "first"},
+                {"look": 1, "start": "0:22", "end": "0:37", "reason": "second"}]
+        pieces = [{"moment": 1, "words": "Hull 2-0", "start": "0:06", "end": "0:21"},
+                  {"moment": 2, "words": "Arsenal 1-2", "start": "0:22", "end": "0:37"}]
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(pieces), self.counted(pieces), recipe="sport", moments=wide)
+        refused, made = steps[-2:]
+        self.assertTrue(refused["refused"], refused["result"])
+        self.assertIn("The scores in these words read 2-0, then 1-2, and a match's score only goes up", refused["result"])
+        self.assertFalse(made["refused"], made["result"])
+
+    def test_scores_are_read_in_order_and_a_time_is_not_a_score(self):
+        self.assertIsNone(tools._scores_off(["0-1 ประตูแรก", "0-2 ประตูที่สอง", "1-2 นาที 40:07", "1-3"]))
+        self.assertIsNone(tools._scores_off(["1-1 ตีเสมอ", "ท้ายเกม", "2-1"]), "a level word on a level score")
+        self.assertIsNone(tools._scores_off(["นาที 32:21", "นาที 40:07"]))
+        self.assertIsNone(tools._scores_off(["0-2", "1-2"]), "a goal between two pieces is left out, not wrong")
+        self.assertEqual(tools._scores_off(["Hull 1-0", "Hull 2-0", "Arsenal 1-2"]), "1-0, then 2-0, then 1-2")
+        self.assertEqual(tools._scores_off(["1-1", "1-1"]), "1-1, then 1-1")
+        self.assertEqual(tools._scores_off(["0-2", "0-1"]), "0-2, then 0-1")
+        self.assertEqual(tools._scores_off(["Arsenal ตีเสมอ 1-2"]), "1-2", "a level word on a score that is not level")
+        self.assertEqual(tools._scores_off(["Level at 2-1"]), "2-1")
+
+    def test_a_countdown_of_a_game_is_not_read_for_scores(self):
+        scored = [dict(self.ORDER[0], words="2-0"), dict(self.ORDER[1], words="1-2"), dict(self.ORDER[2], words="1-1")]
+        steps = self.run_job("ทำคลิป Top 3 ช่วงที่มันส์ที่สุด", self.counted(scored))
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+
+    def test_a_top_three_of_a_match_is_ranked_so_its_scores_may_run_out_of_order(self):
+        """Lane 1's review: a person-asked top 3 is best last, not match order."""
+        scored = [dict(self.ORDER[0], words="2-1"), dict(self.ORDER[1], words="1-0"), dict(self.ORDER[2], words="1-1 เสมอ")]
+        steps = self.run_job("ทำคลิป Top 3 ช่วงที่มันส์ที่สุด", self.counted(scored), recipe="sport")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+
     def test_one_clip_of_a_match_with_more_moments_is_refused_once_and_the_second_answer_stands(self):
         """10-31: Glimmer proposed 3 goals and made a clip of the first, 2 of 2."""
         one = [call("make_clip", moment=1, layout="card", why="the first goal")]

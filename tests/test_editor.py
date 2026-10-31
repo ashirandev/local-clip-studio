@@ -3436,6 +3436,33 @@ class Tools(unittest.TestCase):
         self.assertTrue(steps[3]["result"].startswith("Not proposed yet: moment 1 runs 11 s"), steps[3]["result"])
         self.assertTrue(steps[5]["result"].startswith("Proposed 1 moment"), steps[5]["result"])
 
+    def test_a_game_moment_that_is_its_whole_look_is_seen_back_from_once(self):
+        """Lane 4 10-31: 35:43-36:13, the look itself, in 8 of 13 Glimmer runs, past the death at 35:34 unseen."""
+        tools.EDGE_RECIPES = self.edge_recipes
+        whole = [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the fight", "start": "0:30",
+                                                                   "end": "0:50"}])]
+        with mock.patch.object(tools, "GAME_SHORT", 0.1):
+            _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="game", why="a stream")],
+                                    self.to_moment()[1], whole, "Done.")
+        told = steps[3]["result"]
+        self.assertTrue(told.startswith("Not proposed yet: moment 1 runs 20 s of the 30 s"), told)
+        self.assertIn("A look's end is where the look stopped, not the peak: end just after the reaction.", told)
+        self.assertIn("Look 2: 0:05-0:50", told, "25 s back")
+
+    def test_a_game_moment_inside_its_look_is_not_seen_back_from_for_being_whole(self):
+        tools.EDGE_RECIPES = self.edge_recipes
+        job = mock.Mock()
+        job.chat.clip, job.chat.events = {"recipe": "game", "length_s": 30}, []
+        look = {"n": 1, "start": 0.0, "end": 60.0}
+
+        def told(a, b):
+            job.chat.events = []
+            return tools._seen_past(job, "why", {"seconds": 60.0}, 1, {"start": "x", "end": "y"}, look, a, b)
+
+        self.assertIsNone(told(10.0, 37.0))
+        self.assertIsNone(told(2.0, 60.0), "from the look's start only")
+        self.assertIsNone(told(0.0, 57.0), "to the look's end only")
+
     def test_a_game_moment_near_its_length_is_not_seen_back_from(self):
         tools.EDGE_RECIPES = self.edge_recipes
         job = mock.Mock()

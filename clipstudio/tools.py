@@ -1650,6 +1650,9 @@ EDGE_RECIPES = ("talk", "vlog", "explain", "game")
 # A talk or a vlog's first moment under this share of the clip's length is told so, once a job, whatever its looks saw.
 # Lane 4 10-31, EP 0 rows since the edit-first rubric: under 60% of the recipe's 60 s, 6 of 6 at 7 or lower; at 36 s or
 # more, 11 of 12 at 7.5 or higher. Glimmer kept 18:21 in 4 of 9 talk runs, and seen_past left it no second word.
+# A game moment within this of its look at both ends took the look whole, and is looked back from like a short one:
+# Glimmer 8 of 13, the last 7 all 35:43-36:13, Spark 0 of 17, and both game 8s hold the death at 35:34 (lane 4 10-31).
+WHOLE_LOOK = 1.0
 SHORT_RECIPES = ("talk", "vlog")
 FAR_SHORT = 0.6
 FAR_SHORT_SAID = ("Not proposed yet: moment %d runs %g s of the %g s this clip can hold. A stranger needs how it starts and "
@@ -1676,7 +1679,8 @@ def _seen_past(job, why, rec, i, m, look, a, b):
             RISE_SAID % recording.clock(rise) if rise is not None and rise - b > RISE_PAST else "")
     if look.get("seen_past"):
         return None
-    before = (b - a < GAME_SHORT * clip["length_s"] and not _told_once(job, "seen_back")) if game else (
+    whole = a - look["start"] <= WHOLE_LOOK and look["end"] - b <= WHOLE_LOOK
+    before = ((b - a < GAME_SHORT * clip["length_s"] or whole) and not _told_once(job, "seen_back")) if game else (
         m.get("start") and a - look["start"] <= EDGE)
     after = not game and m.get("end") and look["end"] - b <= EDGE
     if not before and not after:
@@ -1696,7 +1700,8 @@ def _seen_past(job, why, rec, i, m, look, a, b):
     if game:
         return ("Not proposed yet: moment %d runs %g s of the %g s this clip can hold, and you have not seen what led up "
                 "to it. The program looked back for you.\n%s\nPropose again from look %d: move the start back to where "
-                "what leads to the moment begins, if that tells it better, and keep the end on the peak." % (
+                "what leads to the moment begins, if that tells it better, and keep the end on the peak. A look's end is "
+                "where the look stopped, not the peak: end just after the reaction." % (
                     i, round(b - a), clip["length_s"], seen, looks[-1]["n"]))
     edges = " and ".join(([clock(look["start"])] if before else []) + ([clock(look["end"])] if after else []))
     return ("Not proposed yet: moment %d sits at the edge of look %d (%s), so you have not seen what is said on the other "
@@ -2535,6 +2540,25 @@ def _plain(job, rec, lay, a, b):
         "The screen holds about %d lines of words at a time, so the card sits on a plain ground of the picture's "
         "colours instead of its blurred copy, which would show those words big behind the card and the title."
         % round(many))
+
+
+# Lane 4 10-31, 12 match reels with words: Glimmer read the board right 7 of 7, and 4 of those went false when it wrote
+# the words again, leader first (094114-7e80: Hull 1-0, Hull 2-0, Arsenal level at 1-2). All 4 go down or stay, Spark 0 of 5.
+REEL_SCORE = re.compile(r"(?<![\d:])(\d{1,2})\s*-\s*(\d{1,2})(?![\d:])")
+REEL_LEVEL = ("เสมอ", "level", "equal", "draw")
+SCORES_OFF = ("The scores in these words read %s, and a match's score only goes up, one side at a time, in the board's "
+              "order. Read each piece's score off the board, and write what happened in the play, not who leads. If they "
+              "are right as they are, call it again and they stand.")
+
+
+def _scores_off(lines):
+    """The scores in a match reel's lines in order when they cannot be a match's, else None: a later score lower on
+    either side or the same as the one before it, or a level word on a score that is not level. Numbers only: a wrong
+    team on a right number passes."""
+    scores = [(int(m[1]), int(m[2]), line.lower()) for line, m in ((s, REEL_SCORE.search(s)) for s in lines) if m]
+    level = any(a != b and any(w in line for w in REEL_LEVEL) for a, b, line in scores)
+    back = any(c < a or d < b or (c, d) == (a, b) for (a, b, _), (c, d, _) in zip(scores, scores[1:]))
+    return ", then ".join("%d-%d" % s[:2] for s in scores) if level or back else None
 
 
 def _one_goal(job, why, moments):
@@ -5798,6 +5822,9 @@ def make_countdown(job, why, moments, story):
     if thai:
         problems.append("The person asked for the words on the clip in English, so a viewer who reads no Thai can "
                         "follow: write these in English: %s." % "; ".join('"%s"' % t for t in thai))
+    off = _scores_off([c["words"] for c in moments]) if reel else None
+    if off and not _told_once(job, "reel_scores"):
+        problems.append(SCORES_OFF % off)
     if problems:
         raise Refused("Nothing was joined. Fix all of these, then call it again:\n- " + "\n- ".join(problems))
     menu = None if reel else _menu_start(job, rec, spans[0][0])
