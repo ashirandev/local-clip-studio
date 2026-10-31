@@ -4897,6 +4897,8 @@ def follow_product(job, why, what):
         raise Refused(str(e))
     except person.Stopped:
         return "Not followed: the person pressed Stop."
+    except person.NotSetUp:
+        return _hold_product(job, rec, state, said)
     except person.PersonError as e:
         return "The %s could not be followed: %s Tell the person, or leave the frame where it is." % (said, e)
     finally:
@@ -4929,6 +4931,26 @@ def follow_product(job, why, what):
     at = round((cut[0][0] + cut[0][1]) / 2 if cut else state["length"] / 2, 2)
     lines.append(_show_frame(job, state, rec, at, "The clip following the %s%s:" % (
         said, ", where the frame cuts it" if cut else "")))
+    return "\n".join(lines)
+
+
+def _hold_product(job, rec, state, said):
+    """follow_product with no SAM on this computer, as on anyone's who uses the API alone: the frame moves once, to the
+    product box Muse named, and holds there. Spark 10-31 on Tarm's green-cloth seller with no SAM: the frame stayed on
+    his face, no title found a place on any of the 4 clips, 3 failed the product check, and the 30 steps ran out with 1
+    handed over."""
+    clip = state["clip"]
+    if not clip.get("product"):
+        return ("SAM 3.1 is not on this computer, so nothing can follow the %s. Make the clip again with product: [x1, "
+                "y1, x2, y2] on your grid around it, and the frame holds that place." % said)
+    plan = focus.held(clip["product"], (rec["width"], rec["height"]), layouts.W / float(layouts.H))
+    state = job.edit({"do": "layout", "part": "product", "box": None,
+                      "layout": layouts.followed(clip["layout"], plan, "whole")})
+    lines = ["With no SAM on this computer the frame does not follow the %s: it holds one place, %s on your grid, around "
+             "your product box, for the whole clip." % (said, _grid([plan["shots"][0]["x"], 0] + plan["size"], rec)),
+             "Places for words now:"]
+    lines += _place_lines(state, rec)
+    lines.append(_show_frame(job, state, rec, round(state["length"] / 2, 2), "The clip held on the %s:" % said))
     return "\n".join(lines)
 
 

@@ -2068,6 +2068,28 @@ class Tools(unittest.TestCase):
         self.assertIn("Only the subject layout's frame can follow the product", steps[-1]["result"])
         self.assertEqual(asked, ["white game controller", "a missing thing", "a broken thing"])
 
+    def test_with_no_sam_the_frame_holds_the_product_box(self):
+        """Spark 10-31, Tarm's green-cloth seller with no SAM: 1 of 4 clips handed over, the frame on his face."""
+        from unittest import mock
+        script = self.to_moment()
+        with mock.patch.object(tools.person, "PYTHON", ""):
+            _, steps = self.run_job(
+                script[0], [call("load_recipe", type="seller", why="a seller")], *script[1:],
+                [call("make_clip", moment=1, layout="subject", why="no box")],
+                [call("follow_product", what="white game controller", why="the product leads")],
+                [call("make_clip", moment=1, layout="subject", product=[700, 200, 850, 600], why="the product")],
+                [call("follow_product", what="white game controller", why="the product leads")], "Done.")
+        boxless, held = steps[-3], steps[-1]
+        self.assertIn("Make the clip again with product", boxless["result"])
+        self.assertFalse(held["refused"], held["result"])
+        self.assertIn("With no SAM on this computer the frame does not follow the white game controller: it holds one "
+                      "place", held["result"])
+        self.assertIn("comes next as a picture", held["result"])
+        self.assertNotIn("LCS_SAM_PYTHON", held["result"])
+        whole = self.chat.project.state()["clip"]["layout"]["parts"][0]
+        self.assertLessEqual(whole["src"][0], 224, "the product's left side is in the window")
+        self.assertGreaterEqual(whole["src"][0] + whole["src"][2], 272, "and its right side")
+
     def test_moving_the_ends_keeps_the_frame_on_the_product_it_followed(self):
         """Glimmer's green seller 10-30: after change_ends the frame went back to the face and no title fit."""
         from unittest import mock

@@ -51,6 +51,10 @@ class PersonError(Exception):
     """No mask could be made. The sentence says why."""
 
 
+class NotSetUp(PersonError):
+    """SAM is not on this computer, as on anyone's who uses the API alone."""
+
+
 class Stopped(Exception):
     """The person pressed Stop while SAM was working."""
 
@@ -129,7 +133,7 @@ def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=
     start, end, face, people = _checked(rec, start, end, face, people)
     why = _not_set_up()
     if why:
-        raise PersonError(why)
+        raise NotSetUp(why)
     folder = os.path.join(recording.WORK, "masks")
     name = key(rec, start, end, face, people, what)
     path = os.path.join(folder, name + ".mkv")

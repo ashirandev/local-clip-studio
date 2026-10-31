@@ -470,6 +470,15 @@ THING_INSIDE = 0.8
 THING_CUT_LEAST = 0.5
 
 
+def held(box, size, aspect):
+    """The window of the vertical frame centred on box (x, y, w, h of a recording of size wider than the window), as
+    thing() gives one, in one place for the whole clip."""
+    w, h = size
+    ww = min(w, int(round(h * aspect / 2.0)) * 2)
+    x = int(round(min(max(box[0] + box[2] / 2.0 - ww / 2.0, 0), w - ww) / 2.0)) * 2
+    return {"size": [ww, h], "shots": [{"from": 0.0, "x": x, "y": 0}], "seen": 1.0}
+
+
 def thing(mask, pieces, size, aspect, rest=None):
     """The window of the vertical frame following a thing SAM followed (mask: person.cut_out's entry made with what,
     on the recording's pixel grid), as plan() gives one: {"size": [w, h], "shots": [{"from", "x", "y"}], "seen": the
