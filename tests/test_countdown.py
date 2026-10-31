@@ -252,7 +252,7 @@ class MakeCountdown(unittest.TestCase):
         goals = [{"moment": 3, "words": "ปิดเกม 1-3", "start": "0:42", "end": "0:55"},
                  {"moment": 1, "words": "นำ 0-1", "start": "0:06", "end": "0:21"},
                  {"moment": 2, "words": "0-2", "start": "0:22", "end": "0:37"}]
-        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(goals), recipe="sport")
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(goals), self.counted(goals), recipe="sport")
         made = steps[-1]
         self.assertFalse(made["refused"], made["result"])
         self.assertRegex(made["result"], r"Joined 3 moments into one recording, \S+ s long, in match order: ")
@@ -266,9 +266,10 @@ class MakeCountdown(unittest.TestCase):
                {"look": 1, "start": "0:33", "end": "0:50", "reason": "second"}]
         bare = [{"moment": 1, "words": "0-1", "start": "0:06", "end": "0:21"}, {"moment": 2, "words": "0-2"}]
         goals = [bare[0], dict(bare[1], start="0:33", end="0:50")]
-        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(bare), self.counted(goals), recipe="sport", moments=two)
-        self.assertTrue(steps[-2]["refused"])
-        self.assertIn("Give each piece its start, where the attack starts", steps[-2]["result"])
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(bare), self.counted(goals), self.counted(goals), recipe="sport",
+                             moments=two)
+        self.assertTrue(steps[-3]["refused"])
+        self.assertIn("Give each piece its start, where the attack starts", steps[-3]["result"])
         self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
         self.assertIn("Joined 2 moments", steps[-1]["result"])
 
@@ -329,7 +330,7 @@ class MakeCountdown(unittest.TestCase):
                              [call("look_at_piece", start="0:30", end="0:50", why="loud")],
                              [call("propose_moments", why="the goals", moments=late)],
                              [call("look_at_piece", start="0:06", end="0:24", why="what led to it")],
-                             self.counted(back), "Done.")
+                             self.counted(back), self.counted(back), "Done.")
         self.chat.jobs += 1
         self.chat.emit("person", job=self.chat.jobs, text="ทำคลิปไฮไลท์")
         job = self.chat.job = agent.Job(self.chat, brain, "ทำคลิปไฮไลท์")
@@ -348,8 +349,9 @@ class MakeCountdown(unittest.TestCase):
         over = [{"moment": 1, "words": "0-1", "start": "0:05", "end": "0:21"},
                 {"moment": 2, "words": "0-2", "start": "0:22", "end": "0:50"}]
         fixed = [over[0], dict(over[1], end="0:40")]
-        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(over), self.counted(fixed), recipe="sport", moments=wide)
-        said = steps[-2]["result"]
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(over), self.counted(fixed), self.counted(fixed), recipe="sport",
+                             moments=wide)
+        said = steps[-3]["result"]
         self.assertIn("is 28 s long, and a piece is 3 to 20 s; give it a start and an end around the goal.", said)
         self.assertNotIn("Moment 1", said, "a start before the moment is brought to it")
         self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
@@ -362,11 +364,53 @@ class MakeCountdown(unittest.TestCase):
                 {"look": 1, "start": "0:22", "end": "0:37", "reason": "second"}]
         pieces = [{"moment": 1, "words": "Hull 2-0", "start": "0:06", "end": "0:21"},
                   {"moment": 2, "words": "Arsenal 1-2", "start": "0:22", "end": "0:37"}]
-        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(pieces), self.counted(pieces), recipe="sport", moments=wide)
-        refused, made = steps[-2:]
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(pieces), self.counted(pieces), self.counted(pieces), recipe="sport",
+                             moments=wide)
+        board, refused, made = steps[-3:]
+        self.assertEqual(board["result"], tools.READ_BOARD, "the board comes first, so Muse reads it before it writes again")
         self.assertTrue(refused["refused"], refused["result"])
         self.assertIn("The scores in these words read 2-0, then 1-2, and a match's score only goes up", refused["result"])
         self.assertFalse(made["refused"], made["result"])
+
+    def test_a_match_reel_reads_the_board_as_each_attack_starts_before_it_is_joined(self):
+        """022837-3062 on 11-01: 0-3 on a board at 1-2, as just after a goal the picture is a replay with no board."""
+        wide = [{"look": 1, "start": "0:06", "end": "0:21", "reason": "first"},
+                {"look": 1, "start": "0:22", "end": "0:37", "reason": "second"}]
+        pieces = [{"moment": 1, "words": "0-1", "start": "0:06", "end": "0:21"},
+                  {"moment": 2, "words": "0-2", "start": "0:22", "end": "0:37"}]
+        seen, real = [], recording.frame
+
+        def frame(rec, at=None, side=540):
+            seen.append((at, side))
+            return real(rec, at=at, side=side)
+
+        with mock.patch.object(recording, "frame", frame):
+            steps = self.run_job("ทำคลิปไฮไลท์", self.counted(pieces), self.counted(pieces), recipe="sport", moments=wide)
+        first, made = steps[-2:]
+        self.assertEqual(first["result"], tools.READ_BOARD)
+        self.assertFalse(made["refused"], made["result"])
+        times = [at for at, side in seen if side == tools.BOARD_SIDE]
+        self.assertEqual(len(times), 2, "this recording has nothing 30 s after the last goal")
+        self.assertAlmostEqual(times[0], 6, delta=1.5)
+        self.assertAlmostEqual(times[1], 22, delta=1.5)
+
+    def test_the_board_pictures_end_after_the_last_goal_and_are_at_most_eight(self):
+        job = mock.Mock()
+        spans = [[k * 100.0, k * 100.0 + 10] for k in range(10)]
+        with mock.patch.object(recording, "frame", return_value="f.jpg") as frame:
+            self.assertEqual(tools._read_the_board(job, {"seconds": 2000.0}, spans), tools.READ_BOARD)
+        times = [c.kwargs["at"] for c in frame.call_args_list]
+        self.assertEqual(len(times), tools.ACROSS_PICTURES)
+        self.assertEqual(times[:2], [400.0, 500.0], "the earliest attacks go first")
+        self.assertEqual(times[-2:], [940.0, 955.0])
+        self.assertEqual(job.attach.call_count, tools.ACROSS_PICTURES)
+
+    def test_a_picture_is_as_wide_as_asked(self):
+        small, big = (recording.frame(recording.probe(self.clip), at=1.0, side=side) for side in (540, 1024))
+        self.assertNotEqual(small, big, "one file for each size")
+        from PIL import Image
+        with Image.open(os.path.join(recording.WORK, "frames", big)) as picture:
+            self.assertEqual(max(picture.size), 1024)
 
     def test_scores_are_read_in_order_and_a_time_is_not_a_score(self):
         self.assertIsNone(tools._scores_off(["0-1 ประตูแรก", "0-2 ประตูที่สอง", "1-2 นาที 40:07", "1-3"]))

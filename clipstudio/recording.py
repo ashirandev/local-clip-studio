@@ -262,15 +262,15 @@ def probe(path):
             "codec": video.get("codec_name") or ""}
 
 
-def frame(rec, at=None):
-    """One picture at second at (default: a tenth of the way in), 540 pixels on its long side: the file name in
+def frame(rec, at=None, side=540):
+    """One picture at second at (default: a tenth of the way in), side pixels on its long side: the file name in
     work/frames, or None."""
     tool = shutil.which("ffmpeg")
     if not tool:
         return None
     at = rec["seconds"] / 10 if at is None else at
-    key = hashlib.sha1(("%s|%d|%s|%.2f" % (rec["path"], rec["size"], rec["mtime"], at)).encode("utf-8")
-                       ).hexdigest()[:16]
+    key = hashlib.sha1(("%s|%d|%s|%.2f%s" % (rec["path"], rec["size"], rec["mtime"], at, "" if side == 540 else "|%d" % side)
+                        ).encode("utf-8")).hexdigest()[:16]
     folder = os.path.join(WORK, "frames")
     os.makedirs(folder, exist_ok=True)
     name = key + ".jpg"
@@ -279,7 +279,7 @@ def frame(rec, at=None):
         temp = os.path.join(folder, "%s.%d.part.jpg" % (key, threading.get_ident()))
         try:
             subprocess.run([tool, "-v", "error", "-y", "-ss", "%.2f" % at, "-i", rec["path"],
-                            "-frames:v", "1", "-vf", "scale='if(gt(iw,ih),540,-2)':'if(gt(iw,ih),-2,540)'",
+                            "-frames:v", "1", "-vf", "scale='if(gt(iw,ih),%d,-2)':'if(gt(iw,ih),-2,%d)'" % (side, side),
                             temp], capture_output=True, timeout=PROBE_SECONDS, check=True)
             try:
                 os.replace(temp, target)

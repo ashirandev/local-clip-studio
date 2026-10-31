@@ -1789,6 +1789,26 @@ def _read_across(job, rec):
             % (ACROSS_PICTURES, clock(gap)))
 
 
+# Spark Open wrote 0-1, 0-2, 0-3, 1-3 over a match the board has at 0-1, 0-2, 1-2, 1-3 (11-01, 022837-3062): just after a goal
+# the picture is a replay with no board, so it worked the score out. As each attack starts the board shows: asked cold, it
+# read the board right 7 of 8 times at those seconds, and 4 of 4 from 30 s after the last goal.
+BOARD_SIDE, BOARD_AFTER = 1024, (30.0, 45.0)
+READ_BOARD = ("Nothing was joined yet. The pictures that come next show the match as each piece's attack starts and after the "
+              "last goal. Read the score on the board in each picture yourself: the change from one piece's picture to the "
+              "next is that piece's goal, and it tells which side scored. A picture with no board tells nothing. Write each "
+              "piece's words with the score the board shows after its goal, then call make_countdown again.")
+
+
+def _read_the_board(job, rec, spans):
+    """READ_BOARD, with pictures of the match at the start of each of spans and after the last, at most ACROSS_PICTURES."""
+    after = [spans[-1][1] + wait for wait in BOARD_AFTER]
+    for t in ([a for a, _ in spans] + [t for t in after if t < rec["seconds"]])[-ACROSS_PICTURES:]:
+        frame = recording.frame(rec, at=t, side=BOARD_SIDE)
+        if frame:
+            job.attach(os.path.join(recording.WORK, "frames", frame), "The match at %s:" % recording.clock(t))
+    return READ_BOARD
+
+
 # A seller shows one product after another, and a batch holds only what Muse's looks saw. Lane 5 10-31, 153416-7e05, 5 products
 # in 2:20: three looks of 30 s from the map missed the balm, and the Redmi and the Samsung went into one clip, graded 6.
 PRODUCT_RECIPES = ("seller",)
@@ -3538,7 +3558,7 @@ def _asked(job, person_said):
 # Glimmer's own word รีสไตน์ reached a Sifu title on 11-01, and its spelling check, asked to keep every word, kept it. Of
 # 100 titles that night the dictionary flagged 11: 5 wrong, 6 right (จอย, โกล, now in the dictionary), so Muse may send
 # a word it means again.
-ODD_TITLE = ("Not put on: no dictionary has %s in this title, and a viewer reads the title first. If it is a slip or a word "
+ODD_TITLE = ("%s: no dictionary has %s in this title, and a viewer reads the title first. If it is a slip or a word "
              "you made up, write a word they know. If it is a name or a word people use, send the same title again.")
 
 
@@ -3570,10 +3590,9 @@ def add_title(job, why, words, start, end, place=None, key=None, box=None, perso
                                  _said(job, state))
     if names and not _told_once(job, "unseen"):
         raise Refused("%s. %s" % (_unseen_said(names, shown), UNSEEN_THEN % "put the title on again"))
-    # As Muse wrote it: the proofread made Glimmer's ขึ้อน into ขี้อน (11-01, 015633-a2c5), two words, so nothing was odd after it.
-    odd = _odd_thai(written) if job.n is not None and not asked else []
+    odd = (_odd_thai(words) or _split_up(written, words)) if job.n is not None and not asked else []
     if odd and not _told_once(job, "odd_title"):
-        raise Refused(ODD_TITLE % ", ".join('"%s"' % bit for bit in odd))
+        raise Refused(ODD_TITLE % ("Not put on", ", ".join('"%s"' % bit for bit in odd)))
     length, lay = state["length"], state["clip"]["layout"]
     if not 0 <= start < length:
         raise Refused("start %g s is outside the clip, which is %g s long: use a start from 0 to %g, in seconds of "
@@ -4560,17 +4579,18 @@ def _undecided(state):
 
 
 # 10-31 050337-bff5: Glimmer blurred all four people on a talk's sofa, the one telling the story too.
-TALK_BLUR = ("Not blurred. A talk is its people: keep the ones talking, and blur only someone passing behind. If the person "
-             "asked for this blur, decide again and it is done.")
+TALK_BLUR = ("Not blurred. A talk is its people: keep them. If the person asked for this blur, give person_said with their "
+             "words.")
 # Glimmer blurred all 9 people of a cooking episode "for privacy" (11-01, 005953-ecc0).
 ALL_BLUR = ("Not blurred. That is everyone in the clip, and a clip of blurred faces has nobody in it. Keep the people the clip "
-            "is about, and blur only someone passing behind. If the person asked for this blur, decide again and it is done.")
+            "is about, and blur only someone passing behind. If the person asked for this blur, give person_said with their "
+            "words.")
 
 
 BLUR_MANY = 3
 
 
-def decide_people(job, why, blur=None, keep=None, others=None):
+def decide_people(job, why, blur=None, keep=None, others=None, person_said=None):
     rec = _open(job, "blur")
     state = _clip_state(job)
     people = {p["n"]: p for p in state["people"]}
@@ -4590,7 +4610,8 @@ def decide_people(job, why, blur=None, keep=None, others=None):
         raise Refused("There is no person %s; the clip's people are %s." % (_numbers(unknown), _numbers(people)))
     recipe = (job.chat.clip or {}).get("recipe")
     crowd = len(blur) == len(people) >= BLUR_MANY and recipe != "seller"
-    if job.n is not None and blur and (recipe == "talk" or crowd) and not _told_once(job, "talk_blur"):
+    # Sent again unasked, Glimmer's blur of 5 of a talk's 6 faces once went through (11-01, 021005-389c): it needs their words.
+    if job.n is not None and blur and (recipe == "talk" or crowd) and not _asked(job, person_said):
         raise Refused(TALK_BLUR if recipe == "talk" else ALL_BLUR)
     state = job.edit({"do": "people", "blur": blur, "keep": keep})
     if len(blur) > PEOPLE_LISTED:
@@ -5335,6 +5356,11 @@ def add_glass(job, why, box, start, end, tint=None, shine=True, person_said=None
 MOST_TAGS = 5
 
 
+# Glimmer gave EP 0's talk no title (11-01, 021005-389c): every recipe has one.
+NO_TITLE = (" No title is on the clip, and a viewer scrolling past reads the title first: put one on with add_title and render "
+            "again, unless the person asked for none.")
+
+
 def render_clip(job, why):
     rec = _open(job, "render")
     state = _clip_state(job)
@@ -5364,7 +5390,8 @@ def render_clip(job, why):
     job.emit("rendered", file=made)
     job.show(rendered=made)
     return ("Rendered the finished clip in %s: %g s, 1080x1920, %.1f MB. The person can play it on the page now. Hand "
-            "it over next." % (recording.clock(made["seconds"]), made["length"], made["size"] / 1e6))
+            "it over next." % (recording.clock(made["seconds"]), made["length"], made["size"] / 1e6)) + (
+        NO_TITLE if (job.chat.clip or {}).get("recipe") and not state["titles"] and why != BATCH_WHY else "")
 
 
 REEL_LONGEST = 90
@@ -5688,6 +5715,7 @@ LOOK_AT_IT = ("%d pictures of the finished clip come next, as a viewer sees it. 
               "Say in your next why what you saw. If something is wrong, fix it, render again and check again.")
 
 _odd_thai = words.odd_thai
+_split_up = words.split_up
 
 
 def _spell(job, texts, heard=False):
@@ -5797,10 +5825,14 @@ def hand_over(job, why, title, caption, hashtags, english=""):
         raise Refused("%d hashtags (%s): give at most %d, the first three about what the viewer is looking for or "
                       "struggling with, because the apps show the first three, then two about the topic or the "
                       "channel. Each more says less about this clip." % (len(tags), " ".join(tags), MOST_TAGS))
+    written = title
     try:
         (title, caption, *tags), spelling = _spell(job, [title, caption] + tags)
     except hearing.Stopped:
         return "Not handed over: the person pressed Stop."
+    odd = [] if why == BATCH_WHY or job.n is None or job.finishing else _odd_thai(title) or _split_up(written, title)
+    if odd and not _told_once(job, "odd_post"):
+        raise Refused(ODD_TITLE % ("Not handed over", ", ".join('"%s"' % bit for bit in odd)))
     tags = list(dict.fromkeys(t for t in (_tag(w) for w in tags) if t))
     if not tags:
         raise Refused("Give at least one hashtag, such as #gaming.")
@@ -6225,6 +6257,8 @@ def make_countdown(job, why, moments, story):
     if thai:
         problems.append("The person asked for the words on the clip in English, so a viewer who reads no Thai can "
                         "follow: write these in English: %s." % "; ".join('"%s"' % t for t in thai))
+    if reel and not problems and not _told_once(job, "reel_board"):
+        raise Refused(_read_the_board(job, rec, spans))
     off = _scores_off([c["words"] for c in moments]) if reel else None
     if off and not _told_once(job, "reel_scores"):
         problems.append(SCORES_OFF % off)
@@ -7427,7 +7461,10 @@ TOOLS = {t.name: t for t in [
           "keep": {"type": "array", "items": {"type": "integer", "minimum": 1},
                    "description": "The numbers of the people to keep as they are."},
           "others": {"type": "string", "enum": ["blur", "keep"],
-                     "description": "What happens to everyone not named in blur or keep, such as a crowd."}},
+                     "description": "What happens to everyone not named in blur or keep, such as a crowd."},
+          "person_said": {"type": "string", "maxLength": 200,
+                          "description": "Only when the person asked for this blur: their own words from the chat, "
+                                         "quoted."}},
          [], decide_people, changes=True),
     Tool("show_people", "Looked at the people",
          "Shows the clip's picture at one second with a numbered box on every face the program found then. Use it "

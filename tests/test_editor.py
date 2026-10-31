@@ -1705,15 +1705,21 @@ class Tools(unittest.TestCase):
         self.assertTrue(steps[3]["refused"], steps[3]["result"])
         self.assertTrue(steps[4]["result"].startswith("Proposed 1 moment"), steps[4]["result"])
 
-    def test_a_talk_keeps_its_people_unless_it_is_asked_twice(self):
-        """10-31 050337-bff5: Glimmer blurred all four people on the sofa."""
+    def test_a_talk_keeps_its_people_unless_the_person_asked(self):
+        """10-31 050337-bff5: Glimmer blurred all four people on the sofa; 11-01 021005-389c: sent again unasked, it stood."""
+        self.chat.emit("person", job=None, text="please blur them all")
         _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="talk", why="a talk")],
                                 *self.to_moment()[1:], [call("make_clip", moment=1, layout="subject", why="the talk")],
                                 [call("decide_people", others="blur", why="people on the sofa")],
-                                [call("decide_people", others="blur", why="the person asked")], "Done.")
-        refused, blurred = steps[-2:]
+                                [call("decide_people", others="blur", why="again")],
+                                [call("decide_people", others="blur", person_said="nobody said this", why="made up")],
+                                [call("decide_people", others="blur", person_said="blur them all", why="the person asked")],
+                                "Done.")
+        refused, again, made_up, blurred = steps[-4:]
+        self.assertIn("did not say", made_up["result"])
         self.assertTrue(refused["refused"], refused["result"])
         self.assertTrue(refused["result"].startswith("Not blurred. A talk is its people"), refused["result"])
+        self.assertTrue(again["refused"], again["result"])
         self.assertFalse(blurred["refused"], blurred["result"])
         self.assertIn("Person 1 is blurred", blurred["result"])
 
@@ -1735,13 +1741,16 @@ class Tools(unittest.TestCase):
     def test_everyone_in_a_clip_blurred_goes_back_once(self):
         """11-01 005953-ecc0: Glimmer blurred all 9 people of a cooking episode."""
         from unittest import mock
+        self.chat.emit("person", job=None, text="blur everyone please")
         with mock.patch.object(tools, "BLUR_MANY", 1):
             _, steps = self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the cooking")],
                                     [call("decide_people", others="blur", why="privacy")],
-                                    [call("decide_people", others="blur", why="they asked")], "Done.")
-        first, second = steps[-2:]
+                                    [call("decide_people", others="blur", why="again")],
+                                    [call("decide_people", others="blur", person_said="blur everyone", why="they asked")], "Done.")
+        first, again, asked = steps[-3:]
         self.assertTrue(first["result"].startswith("Not blurred. That is everyone in the clip"), first["result"])
-        self.assertFalse(second["refused"], second["result"])
+        self.assertTrue(again["refused"], "sent again unasked it stays refused (11-01, 021005-389c)")
+        self.assertFalse(asked["refused"], asked["result"])
 
     def test_a_crowd_behind_a_seller_may_be_blurred(self):
         from unittest import mock
@@ -1756,6 +1765,52 @@ class Tools(unittest.TestCase):
         said = tools.TOOLS["load_recipe"].summary
         for recipe in tools.RECIPES.values():
             self.assertIn(recipe["description"], said)
+
+    def test_a_clip_with_a_recipe_and_no_title_is_told_after_its_render(self):
+        """021005-389c on 11-01: Glimmer rendered EP 0's talk with no title on it."""
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            script = self.to_moment()
+            _, steps = self.run_job(script[0], [call("load_recipe", type="game", why="a game")], *script[1:],
+                                    [call("make_clip", moment=1, layout="subject", why="the action")],
+                                    [call("no_chat_box", why="none shows")], [call("decide_people", keep=[1], why="him")],
+                                    [call("render_clip", why="make the file")],
+                                    [call("add_title", words="Boss down", start=0, end=4, place="top", why="the hook")],
+                                    [call("render_clip", why="again")], "Done.")
+        finally:
+            render.export = had
+        bare, titled = steps[-3], steps[-1]
+        self.assertIn(tools.NO_TITLE, bare["result"])
+        self.assertNotIn(tools.NO_TITLE, titled["result"])
+
+    def test_a_title_handed_over_is_checked_too(self):
+        """A title that never went on the clip reaches the post and the cover here, unread by add_title."""
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        said = "ตายแล้วรีสไตน์ภายในวินาที"
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            _, steps = self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                                    [call("decide_people", keep=[1], why="him")], [call("render_clip", why="make the file")],
+                                    [call("check_clip", why="check it")],
+                                    [call("hand_over", title=said, caption="c", hashtags=["#a"], why="post")],
+                                    '{"texts": ["%s", "c", "#a"]}' % said,
+                                    [call("hand_over", title="ตายแล้วฟื้นภายในวินาที", caption="c", hashtags=["#a"], why="post")],
+                                    "Done.")
+        finally:
+            render.export = had
+        first, second = steps[-2:]
+        self.assertTrue(first["refused"], first["result"])
+        self.assertIn("Not handed over: no dictionary has", first["result"])
+        self.assertFalse(second["refused"], second["result"])
 
     def test_a_clip_made_again_on_the_page_keeps_what_was_decided_about_each_person(self):
         """Lane 5 10-31: a tap on a layout wiped the decisions, so the render was refused until each face was tapped."""
@@ -3836,8 +3891,8 @@ class Tools(unittest.TestCase):
         fixed = dict(clips[0], title="Jabs pack", caption="Jabs c", hashtags=["#Jabs"])
         with mock.patch.object(tools.person, "cut_out", side_effect=tools.person.PersonError("SAM is not set up.")):
             _, steps = self.several([call("make_clips", clips=clips, why="both")],
-                                    [call("make_clips", clips=[fixed, clips[1]], why="as the pack says")], "Done.",
-                                    recipe="seller", shown=["Jabs", "PDRN", "ASTAXANTHIN"])
+                                    [call("make_clips", clips=[fixed, clips[1]], why="as the pack says")],
+                                    '{"lines": ["one heard"]}', "Done.", recipe="seller", shown=["Jabs", "PDRN", "ASTAXANTHIN"])
         asked, made = steps[-2], steps[-1]
         self.assertTrue(asked["refused"])
         self.assertEqual(asked["result"], 'Nothing was made. Clip of moment 1: "ASTI", "SineySociety" are not on the '

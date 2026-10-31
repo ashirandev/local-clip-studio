@@ -277,6 +277,28 @@ def _odd(text):
     return odd + lone, len(toks)
 
 
+RARE = 1000
+
+
+def split_up(before, after):
+    """odd_thai(before) when the fix after cut before into more words and one of them is rare, else []: Glimmer's ขึ้อน for
+    ขึ้น became ขี้อน, the words ขี้ and อน (the corpus has 315 of อน), so odd_thai sees nothing after it (11-01, 015633-a2c5)."""
+    from pythainlp.tokenize import word_tokenize
+    odd = odd_thai(before)
+    if not odd:
+        return []
+    counts, trie = _counts()
+
+    def cut(text):
+        return [w for w in word_tokenize(text, engine="newmm", keep_whitespace=True, custom_dict=_WORDS[1]) if w.strip()]
+
+    def rare(word):
+        return any(counts.get(p, 0) < RARE for p in word_tokenize(word, engine="newmm", custom_dict=trie) if p.strip())
+
+    was, now = cut(before), cut(after)
+    return odd if len(now) > len(was) and any(rare(w) for w in now if w not in was and THAI.search(w)) else []
+
+
 def spelled(ask, texts, every=False, kept=None):
     """(texts with their Thai spelling fixed, [(before, after)] for each one fixed). The texts odd_thai flags, or with
     every all Thai texts, are asked about in one question to Muse in a conversation of their own: ask(messages, schema)
