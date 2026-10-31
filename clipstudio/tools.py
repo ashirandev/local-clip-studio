@@ -2300,7 +2300,7 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     at = min(max(0.0, peak if peak is not None else state["length"] / 2), state["length"] - 0.1)
     lines.append(_show_frame(job, state, rec, at, "The clip at %g s (moment %d, %s layout):" % (
         round(at, 2), moment, lay["kind"])))
-    if people and recipe == MONTAGE:
+    if people and recipe in EVENT_RECIPES:
         state = job.edit({"do": "people", "blur": [], "keep": [p["n"] for p in people]})
         lines.append(KEPT_AT_AN_EVENT % len(people))
     else:
@@ -2351,7 +2351,8 @@ GREEN_SAYS = ("A green cloth is behind the person: put a new background behind t
 EMPTY_ABOVE = ("With no face circle, the frame above the card (%s on your grid) holds only the title: when the words "
                "name a thing a picture can show, such as gold bars or a price going up, put a picture of it there with "
                "add_picture at the second it is said, 1 to 3 in a clip.")
-KEPT_AT_AN_EVENT = ("%d people's faces are in the clip, all kept as they are: at a trip or an event the people are "
+EVENT_RECIPES = (MONTAGE, "sport")
+KEPT_AT_AN_EVENT = ("%d people's faces are in the clip, all kept as they are: at a trip, an event or a match the people are "
                     "part of the day. Blur someone only when the person asks: show_people numbers the faces at the "
                     "second they mean, and decide_people blurs that number.")
 

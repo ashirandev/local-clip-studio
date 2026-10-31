@@ -40,7 +40,7 @@ class Private(unittest.TestCase):
             ("4111111111111111", "a card number"),
             ("%s-%s-%s-%s-%s" % (tid[0], tid[1:5], tid[5:10], tid[10:12], tid[12]), "an ID number"),
             (tid, "an ID number"),
-            ("dash.cloudflare.com/b4b0a8b12a7ffaa7f2a43fdaf370ca9/ashiranscore.com", "a key or an account number"),
+            ("dash.cloudflare.com/a1b2c3d4e5f60718293a4b5c6d7e8f9/example.com", "a key or an account number"),
             ("export OPENAI=sk-proj-abcdefghijklmnop1234", "a key or an account number"),
             ("hf_AbCdEfGhIjKlMnOpQrStUvWx", "a key or an account number"),
             ("password: hunter22", "a password"),

@@ -125,8 +125,8 @@ class Project:
                                                                                          sounds, pictures))
                     pushes, cutouts = move.spans(pushes), move.spans(cutouts)
                     blurs = move.spans([move.track(b) for b in blurs])
+                decided = _carried(decided, clip, e) if e.get("moved") else {}
                 clip = e
-                decided = {}
                 blurs = [b for b in blurs if not b.get("private")]
             elif e["do"] == "style":
                 style = e
@@ -203,6 +203,15 @@ class Project:
                 "channel": channel if clip else None,
                 "cutouts": sorted([c for c in cutouts if inside(c["start"])], key=lambda c: c["start"]),
                 "mutes": mutes}
+
+
+def _carried(decided, old, new):
+    """What was decided about the people of clip old, for the same faces in clip new, made again from the same moment: a
+    person is known by the box of their face, as new's numbers can differ. Lane 5 10-31: Subject tapped on a match reel
+    wiped Muse's decisions about 318 faces, the render was refused until each was tapped, and the page took them one by
+    one."""
+    was = {tuple(p["box"]): decided[p["n"]] for p in (old or {}).get("people") or [] if p["n"] in decided}
+    return {p["n"]: was[tuple(p["box"])] for p in new.get("people") or [] if tuple(p["box"]) in was}
 
 
 class _Mover:

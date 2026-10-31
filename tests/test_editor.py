@@ -1509,6 +1509,45 @@ class Tools(unittest.TestCase):
         self.assertFalse(blurred["refused"], blurred["result"])
         self.assertIn("Person 1 is blurred", blurred["result"])
 
+    def test_a_clip_made_again_on_the_page_keeps_what_was_decided_about_each_person(self):
+        """Lane 5 10-31: a tap on a layout wiped the decisions, so the render was refused until each face was tapped."""
+        self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                     [call("decide_people", blur="1", why="someone passing behind")], "Done.")
+        self.assertIsNone(self.chat.set_layout("card"))
+        until = time.time() + 30
+        while self.chat.making and time.time() < until:
+            time.sleep(0.05)
+        state = self.chat.project.state()
+        self.assertEqual(state["clip"]["layout"]["kind"], "card")
+        self.assertEqual([p["blur"] for p in state["people"]], [True])
+        self.assertEqual(tools._undecided(state), [], "nothing stands in the render's way")
+        self.assertEqual(len([b for b in state["blurs"] if b.get("person") == 1]), 1, "and the blur is still drawn")
+        self.assertTrue(self.chat.set_person(1, False))
+        self.assertEqual([p["blur"] for p in self.chat.project.state()["people"]], [False], "a later tap counts")
+        self.chat.undo()
+        self.chat.undo()
+        self.assertEqual(self.chat.project.state()["clip"]["layout"]["kind"], "subject", "Undo goes back through it")
+
+    def test_a_person_is_carried_by_their_face_and_a_new_clip_decides_again(self):
+        old = {"people": [{"n": 1, "box": [1, 2, 3, 4]}, {"n": 2, "box": [5, 6, 7, 8]}]}
+        new = {"people": [{"n": 1, "box": [5, 6, 7, 8]}, {"n": 2, "box": [1, 2, 3, 4]}, {"n": 3, "box": [9, 9, 9, 9]}]}
+        self.assertEqual(project._carried({1: True}, old, new), {2: True}, "by the face, not its number")
+        self.assertEqual(project._carried({}, None, new), {})
+        p = project.Project()
+        new["people"] = [dict(x, points=[[0.0, 1, 1, 1, 1]], **{"from": 0.0, "to": 1.0}) for x in new["people"]]
+        clip = dict(new, do="clip", pieces=[[0.0, 5.0]], layout={"kind": "subject"})
+        p.entries = [dict(old, do="clip", pieces=[[0.0, 5.0]], layout={"kind": "subject"}), {"do": "people", "blur": [1], "keep": []}, clip]
+        self.assertEqual([x["blur"] for x in p.state()["people"]], [None, None, None], "a clip not made again starts over")
+        p.entries[-1] = dict(clip, moved=True)
+        self.assertEqual([x["blur"] for x in p.state()["people"]], [None, True, None], "made again, the face keeps it")
+
+    def test_a_match_keeps_its_faces_as_any_event_does(self):
+        """Lane 5 10-31: 318 faces in a match, and Muse's steps went on them."""
+        _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="sport", why="a match")], self.to_moment()[1],
+                                self.to_moment()[2], [call("make_clip", moment=1, layout="card", why="the goal")], "Done.")
+        self.assertIn("all kept as they are: at a trip, an event or a match", steps[-1]["result"])
+        self.assertEqual(tools._undecided(self.chat.project.state()), [])
+
     def test_muse_decides_who_is_blurred_and_a_blurred_face_is_followed_in_clip_seconds(self):
         brain, steps = self.run_job(
             *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
