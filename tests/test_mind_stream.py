@@ -6,6 +6,7 @@ import threading
 import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -23,9 +24,12 @@ TOOL_CALL = [
 ]
 
 
+OUT_OF_MEMORY = {"error": {"code": 500, "message": "got exception: bad allocation", "type": "server_error"}}
+
+
 class Fake(BaseHTTPRequestHandler):
     chunks, pause, status, asked, models, states, loads = TOOL_CALL, 0, 200, [], [], {}, []
-    listing, seen = 200, []
+    listing, seen, scripted = 200, [], []
     refusal = b'{"error": "the request exceeds the available context size"}'
 
     def do_GET(self):
@@ -63,7 +67,7 @@ class Fake(BaseHTTPRequestHandler):
             self.wfile.write(self.refusal)
             return
         try:
-            for i, chunk in enumerate(self.chunks):
+            for i, chunk in enumerate(self.scripted.pop(0) if self.scripted else self.chunks):
                 if i == 1:
                     time.sleep(self.pause)
                 self.wfile.write(("data: %s\n\n" % json.dumps(chunk)).encode())
@@ -79,7 +83,7 @@ class Fake(BaseHTTPRequestHandler):
 class Stream(unittest.TestCase):
     def setUp(self):
         Fake.chunks, Fake.pause, Fake.status, Fake.refusal = TOOL_CALL, 0, 200, Fake.refusal
-        Fake.listing, Fake.seen = 200, []
+        Fake.listing, Fake.seen, Fake.scripted, Fake.asked = 200, [], [], []
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.mind = mind.Mind("test", "Test mind", "http://127.0.0.1:%d/v1" % self.server.server_port)
@@ -174,6 +178,66 @@ class Stream(unittest.TestCase):
         thread.join(5)
         self.assertEqual(out.get("how"), "cancelled")
         self.assertLess(out["at"] - cancelled_at, 1.0)
+
+    def test_an_answer_that_broke_off_is_asked_for_once_more(self):
+        """Talk 035149-8058 on 11-01: llama-server sent its error inside the stream, the studio read no choices in it, and the
+        job ended on "an empty answer (it stopped because: None)", which said nothing of the bad allocation."""
+        Fake.scripted = [[TOOL_CALL[0], OUT_OF_MEMORY]]
+        with mock.patch.object(mind, "AGAIN_AFTER", 0):
+            got = self.mind.ask([{"role": "user", "content": "hi"}])
+        self.assertEqual(got["tool_calls"][0]["function"]["name"], "find_recordings")
+        self.assertEqual(len(Fake.asked), 2)
+        self.assertEqual(Fake.asked[0], Fake.asked[1], "the same question")
+
+    def test_an_answer_that_broke_off_twice_says_why(self):
+        Fake.chunks = [OUT_OF_MEMORY]
+        with mock.patch.object(mind, "AGAIN_AFTER", 0), self.assertRaises(mind.MindError) as e:
+            self.mind.ask([{"role": "user", "content": "hi"}])
+        self.assertEqual(str(e.exception), "Test mind broke off its answer (got exception: bad allocation). Say go on and "
+                                           "it tries again.")
+        self.assertEqual(len(Fake.asked), 2)
+
+    def test_a_stream_that_closes_empty_is_asked_for_once_more(self):
+        Fake.chunks = []
+        with mock.patch.object(mind, "AGAIN_AFTER", 0), self.assertRaises(mind.MindError) as e:
+            self.mind.ask([{"role": "user", "content": "hi"}])
+        self.assertIn("stopped with nothing in it and no reason", str(e.exception))
+        self.assertEqual(len(Fake.asked), 2)
+
+    def test_an_empty_answer_the_model_chose_is_not_asked_for_again(self):
+        Fake.chunks = [{"choices": [{"delta": {}, "finish_reason": "stop"}]}]
+        with self.assertRaises(mind.MindError) as e:
+            self.mind.ask([{"role": "user", "content": "hi"}])
+        self.assertIn("it stopped because: stop", str(e.exception))
+        self.assertEqual(len(Fake.asked), 1)
+
+    def test_a_question_too_long_inside_the_stream_makes_room_and_is_not_asked_again_here(self):
+        Fake.chunks = [{"error": {"code": 400, "message": "too long", "type": "exceed_context_size_error",
+                                  "n_prompt_tokens": 50308, "n_ctx": 49152}}]
+        with self.assertRaises(mind.TooLong) as e:
+            self.mind.ask([{"role": "user", "content": "hi"}])
+        self.assertEqual((e.exception.asked, e.exception.room), (50308, 49152))
+        self.assertEqual(len(Fake.asked), 1)
+
+    def test_stop_during_the_wait_stops_at_once(self):
+        Fake.chunks = [OUT_OF_MEMORY]
+        asking, out = mind.Asking(), {}
+
+        def ask():
+            try:
+                self.mind.ask([{"role": "user", "content": "hi"}], asking=asking)
+            except mind.Cancelled:
+                out["at"] = time.time()
+
+        with mock.patch.object(mind, "AGAIN_AFTER", 30):
+            thread = threading.Thread(target=ask)
+            thread.start()
+            time.sleep(0.5)
+            cancelled_at = time.time()
+            asking.cancel()
+            thread.join(5)
+        self.assertLess(out["at"] - cancelled_at, 1.0)
+        self.assertEqual(len(Fake.asked), 1)
 
     def test_a_refused_question_gives_the_servers_reason(self):
         Fake.status = 400

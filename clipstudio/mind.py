@@ -207,6 +207,15 @@ class TooLong(MindError):
         self.asked, self.room = asked, room
 
 
+class Broke(MindError):
+    """The answer broke off: the server said why inside its stream, or the stream closed with nothing in it and no reason."""
+
+
+# llama-server ran out of memory 7 s into reading a question (11-01, talk 035149-8058: "got exception: bad allocation"), its
+# only such error in 11 hours of runs, and read the next question 9 s later. The job had ended there, with Wonder's $1.11 spent.
+AGAIN_AFTER = 5
+
+
 class Cancelled(Exception):
     """The question was cancelled while it was in flight."""
 
@@ -236,6 +245,14 @@ class Asking:
                 sock.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
+
+    def wait(self, seconds):
+        """Waits, and raises Cancelled the moment the question is cancelled."""
+        try:
+            self.pieces.get(timeout=seconds)
+        except queue.Empty:
+            return
+        raise Cancelled()
 
     def stream(self, url, body, headers):
         """Posts the question and yields each streamed chunk as a dict. Raises Cancelled when cancelled."""
@@ -403,7 +420,8 @@ class Mind:
 
     def ask(self, messages, tools=None, temperature=CHAT_TEMPERATURE, max_tokens=None, on_delta=None,
             asking=None, schema=None):
-        """Asks once. Returns {text, thinking, tool_calls, message, engine}.
+        """Asks, and once more after AGAIN_AFTER s when the answer broke off. Returns {text, thinking, tool_calls, message,
+        engine}.
 
         on_delta(kind, piece) gets the thinking and the words as they are written ("thinking" or "text"). Pass an
         Asking to be able to cancel; a cancelled question raises Cancelled. A JSON schema makes the answer's words
@@ -416,6 +434,15 @@ class Mind:
         thinking. llama-server reuses everything before it; from this message on it reads again (a few hundred
         tokens), because the thinking it wrote is not sent back.
         """
+        asking = asking or Asking()
+        try:
+            return self._ask_once(messages, tools, temperature, max_tokens, on_delta, asking, schema)
+        except Broke as e:
+            print("%s Asking once more." % e, flush=True)
+            asking.wait(AGAIN_AFTER)
+            return self._ask_once(messages, tools, temperature, max_tokens, on_delta, asking, schema)
+
+    def _ask_once(self, messages, tools, temperature, max_tokens, on_delta, asking, schema):
         if self.key_env and not self.secret():
             raise MindError(self.missing())
         self.on_card()
@@ -441,11 +468,11 @@ class Mind:
         if schema:
             body["response_format"] = {"type": "json_schema", "json_schema": {
                 "name": "answer", "strict": True, "schema": _closed(schema) if self.key_env else schema}}
-        asking = asking or Asking()
-        text, thinking, calls, finish, tail = [], [], {}, None, {}
+        text, thinking, calls, finish, tail, broke = [], [], {}, None, {}, None
         t0 = time.time()
         try:
             for chunk in asking.stream(self.url + "/chat/completions", body, self.headers(msgs)):
+                broke = chunk.get("error") or broke
                 for key in ("timings", "usage"):
                     if chunk.get(key):
                         tail[key] = chunk[key]
@@ -475,6 +502,13 @@ class Mind:
             raise MindError(sentence)
         except (OSError, http.client.HTTPException, ValueError) as e:
             raise MindError(self.unreachable(e))
+        if broke:
+            sentence = "%s broke off its answer (%s). Say go on and it tries again." % (
+                self.label, broke.get("message") if isinstance(broke, dict) else broke)
+            full = _full(json.dumps({"error": broke}))
+            if full:
+                raise TooLong(sentence, *full)
+            raise Broke(sentence)
         numbers = engine(tail, time.time() - t0)
         numbers["usd"] = self.cost(numbers)
         if finish == "length" and numbers["written"] is not None and (not max_tokens or
@@ -487,6 +521,8 @@ class Mind:
             if finish == "length":
                 raise MindError("%s thought for %s tokens without reaching an answer, so the studio cut it off. "
                                 "Ask again, or say it more simply." % (self.label, max_tokens))
+            if finish is None:
+                raise Broke("%s's answer stopped with nothing in it and no reason. Say go on and it tries again." % self.label)
             raise MindError("%s gave an empty answer (it stopped because: %s)." % (self.label, finish))
         back = {"role": "assistant", "content": words}
         if calls:
