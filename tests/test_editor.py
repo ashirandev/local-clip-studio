@@ -1705,6 +1705,21 @@ class Tools(unittest.TestCase):
         self.assertTrue(steps[3]["refused"], steps[3]["result"])
         self.assertTrue(steps[4]["result"].startswith("Proposed 1 moment"), steps[4]["result"])
 
+    def test_the_persons_whole_ask_for_the_clip_is_no_word_on_one_thing(self):
+        """031834-b64b on 11-01: the opening ask as person_said put a title on a forehead for 32 s."""
+        ask = "ทำคลิปรีวิวจาก C:\\Users\\trip.mov ให้พร้อมโพสต์ ให้ Muse Wonder ดูทั้งภาพและเสียงแล้วใส่เอฟเฟกต์ตรงจังหวะที่มันเจอ และทำปกด้วย"
+        long_ask = "ทำคลิปรีวิวเครื่องดูดความชื้นให้พร้อมโพสต์ ใส่เอฟเฟกต์ตรงจังหวะที่มันเจอ และเอาชื่อไว้บนหน้าผม ทำปกด้วยนะ"
+        from unittest import mock
+        job = mock.Mock(asked=False)
+        job.chat.events = [{"kind": "person", "text": ask}, {"kind": "person", "text": long_ask},
+                           {"kind": "person", "text": "เอาไว้บนหน้าผม"}]
+        for quote in (ask, ask[:len(ask) // 2 + 5], "C:\\Users\\trip.mov", long_ask, long_ask[:len(long_ask) // 2 + 5]):
+            with self.assertRaises(tools.Refused) as said:
+                tools._asked(job, quote)
+            self.assertEqual(str(said.exception), tools.WHOLE_ASK, quote)
+        self.assertTrue(tools._asked(job, "เอาชื่อไว้บนหน้าผม"), "a few words of a long ask")
+        self.assertTrue(tools._asked(job, "เอาไว้บนหน้าผม"), "a short message is all about this")
+
     def test_a_talk_keeps_its_people_unless_the_person_asked(self):
         """10-31 050337-bff5: Glimmer blurred all four people on the sofa; 11-01 021005-389c: sent again unasked, it stood."""
         self.chat.emit("person", job=None, text="please blur them all")

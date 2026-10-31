@@ -3541,6 +3541,12 @@ def _thai_for_english(job, texts):
     return [t for t in texts if re.search("[ก-๛]", t) and " ".join(t.split()) not in said]
 
 
+# Glimmer gave the person's whole opening ask as person_said, and a title sat on a forehead for 32 s (11-01, 031834-b64b).
+LONG_ASK = 60
+WHOLE_ASK = ("That is the person's ask for the clip, not their word on this one thing, so it does not stand. Quote only the "
+             "words that ask for this; when nobody asked for it, choose yourself and leave person_said out.")
+
+
 def _asked(job, person_said):
     """True when person_said quotes words the person typed in this chat or their own tap made the call, False when it
     is empty; Refused when the person never said it, so Muse cannot claim a request nobody made."""
@@ -3550,9 +3556,12 @@ def _asked(job, person_said):
         return False
     quote = " ".join(person_said.split()).lower()
     said = [" ".join(e["text"].split()).lower() for e in job.chat.events if e["kind"] == "person"]
-    if len(quote) < 3 or not any(quote in s for s in said):
+    whole = next((s for s in said if quote in s), None)
+    if len(quote) < 3 or whole is None:
         raise Refused("The person did not say \"%s\" in this chat. person_said must quote their own words asking for "
                       "this; when nobody asked, choose yourself and leave person_said out." % person_said)
+    if PLACES.search(quote) or (len(whole) > LONG_ASK and len(quote) > len(whole) / 2):
+        raise Refused(WHOLE_ASK)
     return True
 
 
