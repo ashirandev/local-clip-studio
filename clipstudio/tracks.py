@@ -4,10 +4,16 @@ blurred as it moves (effects.blur_track), and Muse can look at each person and d
 A track never jumps to another face: in each picture, the faces are matched to the tracks nearest first, measured
 from where each track's face is expected (moving on as it moved last), and a face further than REACH face sizes per
 half second, or more than half again bigger or smaller, starts a track of its own.
-A face missed in one picture (the finder misses a turned head) is bridged with a point between its neighbours, so the
-blur does not let it show for a moment; missed in two or more, the track ends there, so no two points of a track are
-more than 0.5 s apart, which is what blur_track asks. The points are smoothed (1-2-1), held half a picture before the
-first and after the last, and kept inside the picture.
+A face missed for up to MISS half seconds (the finder misses a turned head) is bridged with a point for each picture
+it was missed in, so the blur does not let it show for a moment; missed for longer, the track ends there, so no two
+points of a track are more than 0.5 s apart, which is what blur_track asks. The points are smoothed (1-2-1), held a
+quarter of a second before the first and after the last, and kept inside the picture.
+
+Faces that will not stay in a track are looked for again every FINE s (finer): a straight line between pictures half a
+second apart is not where a face went when the phone is on a horse. On the trip of 11-01, 7 clips in 28.5 s, the blur
+from half a second covered 13% of the faces found on other frames whole and 38% more than half, and three montages had
+passed on sheets too small to show it. There the points are not smoothed, as a shake is the face's real path, and each
+box is WIDE times bigger.
 
 Times are recording seconds and boxes are recording pixels, as faces.sample() gives them; lane 1 turns the times into
 clip seconds with project.from_recording().
@@ -25,6 +31,10 @@ REACH = 1.5
 SIZE_CHANGE = 1.5
 MISS = 1
 STILL = 0.5
+FINE = 0.05
+SHORT = 6
+FEW = 3
+WIDE = 1.13
 CROP_HEIGHT = 160
 CROP_SHARE = 1.8
 
@@ -36,6 +46,8 @@ def tracks(found, rec=None):
     clearest picture when rec is given, else None}]."""
     every = found["every"]
     size = found["size"]
+    per_half = every / faces.EVERY
+    fine = every <= FINE
     open_tracks, done = [], []
     for sample in found["samples"]:
         t = sample["t"]
@@ -58,7 +70,7 @@ def tracks(found, rec=None):
             _extend(open_tracks[k], t, boxes[j], scores[j], every)
         still = []
         for k, tr in enumerate(open_tracks):
-            if k in used_tracks or round((t - tr["raw"][-1][0]) / every) <= MISS:
+            if k in used_tracks or round(t - tr["raw"][-1][0], 2) <= (MISS + 1) * faces.EVERY - every:
                 still.append(tr)
             else:
                 done.append(tr)
@@ -71,9 +83,9 @@ def tracks(found, rec=None):
     out = []
     for tr in done:
         box = [sorted(p[i] for p in tr["raw"])[len(tr["raw"]) // 2] for i in range(1, 5)]
-        points = _held(_smoothed(tr["raw"]), every)
-        points = [[round(t, 2)] + [round(v, 1) for v in _inside(p, size)] for t, *p in points]
-        out.append({"from": points[0][0], "to": points[-1][0], "seen": tr["seen"],
+        points = _held(tr["raw"] if fine else _smoothed(tr["raw"]), faces.EVERY)
+        points = [[round(t, 2)] + [round(v, 1) for v in _inside(_wider(p) if fine else p, size)] for t, *p in points]
+        out.append({"from": points[0][0], "to": points[-1][0], "seen": max(1, round(tr["seen"] * per_half)),
                     "steady": _still(sit, box),
                     "box": [round(v, 1) for v in box], "points": points,
                     "crop": _crop(rec, tr["best"]) if rec else None})
@@ -81,6 +93,25 @@ def tracks(found, rec=None):
     for n, tr in enumerate(out, 1):
         tr["n"] = n
     return out
+
+
+def finer(rec, a, b, found, on_start=None):
+    """found, or the faces from a to b looked for every FINE s when found's faces will not stay in a track; found when
+    that cannot be done. The clips of 11-01 tell them apart: 1.4 and 1.5 faces a track on the trip, 16 and more on a
+    talk, a seller and a vlog."""
+    made = tracks(found) if found["every"] > FINE else []
+    if len(made) < FEW or sum(tr["seen"] for tr in made) >= SHORT * len(made):
+        return found
+    try:
+        return faces.sample(rec, a, b, every=FINE, on_start=on_start)
+    except (faces.NoFaces, faces.Stopped):
+        return found
+
+
+def _wider(box):
+    """box WIDE times bigger around its middle."""
+    x, y, w, h = box
+    return [x - w * (WIDE - 1) / 2, y - h * (WIDE - 1) / 2, w * WIDE, h * WIDE]
 
 
 def _still(sit, box):

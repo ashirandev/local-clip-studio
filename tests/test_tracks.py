@@ -5,11 +5,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import effects, recording, tracks  # noqa: E402
+from clipstudio import effects, recording, tools, tracks  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
 
@@ -84,6 +86,133 @@ class Tracks(unittest.TestCase):
 
 
 @unittest.skipUnless(FFMPEG, "needs ffmpeg")
+class Fine(unittest.TestCase):
+    """Faces on a moving camera, found every tracks.FINE s."""
+
+    def test_a_shaking_face_keeps_its_path_and_a_wider_box(self):
+        shaky = [[[300 + (40 if k % 2 else 0), 300, 100, 100]] for k in range(20)]
+        (tr,) = tracks.tracks(found(shaky, every=tracks.FINE))
+        xs = [p[1] for p in tr["points"][1:-1]]
+        self.assertAlmostEqual(xs[1] - xs[0], 40, delta=1)
+        self.assertAlmostEqual(tr["points"][5][3], 100 * tracks.WIDE, delta=1)
+
+    def test_a_face_missed_for_most_of_a_second_is_bridged_and_for_longer_the_track_ends(self):
+        def gap(missed):
+            pictures = [[[300, 300, 100, 100]]] * 5 + [[]] * missed + [[[300, 300, 100, 100]]] * 5
+            return tracks.tracks(found(pictures, every=tracks.FINE))
+        self.assertEqual(len(gap(18)), 1)
+        self.assertEqual(len(gap(24)), 2)
+
+    def test_a_bridged_track_has_no_two_points_too_far_apart_for_the_blur(self):
+        pictures = [[[300, 300, 100, 100]]] * 5 + [[]] * 18 + [[[300, 300, 100, 100]]] * 5
+        (tr,) = tracks.tracks(found(pictures, every=tracks.FINE))
+        self.assertLessEqual(max(gaps(tr["points"])), 0.5)
+        effects.blur_tracks([tr["points"]])
+
+    def test_it_is_held_a_quarter_of_a_second_at_both_ends(self):
+        (tr,) = tracks.tracks(found([[[300, 300, 100, 100]]] * 20, every=tracks.FINE))
+        self.assertAlmostEqual(tr["points"][1][0] - tr["points"][0][0], 0.25, places=2)
+        self.assertAlmostEqual(tr["points"][-1][0] - tr["points"][-2][0], 0.25, places=2)
+
+    def test_seen_counts_half_seconds_as_the_person_was_told(self):
+        (tr,) = tracks.tracks(found([[[300, 300, 100, 100]]] * 20, every=tracks.FINE))
+        self.assertEqual(tr["seen"], 2)
+        (once,) = tracks.tracks(found([[[300, 300, 100, 100]]], every=tracks.FINE))
+        self.assertEqual(once["seen"], 1)
+
+    def test_at_half_a_second_a_box_stays_the_size_the_finder_gave(self):
+        (tr,) = tracks.tracks(found([[[300, 300, 100, 100]]] * 4))
+        self.assertEqual(tr["points"][2][3], 100)
+
+    def test_faces_that_stay_in_their_tracks_are_not_looked_for_again(self):
+        still = found([[[100, 300, 80, 80], [600, 300, 80, 80], [1200, 300, 80, 80]]] * 20)
+        with mock.patch.object(tracks.faces, "sample") as sample:
+            self.assertIs(tracks.finer({}, 0, 10, still), still)
+        sample.assert_not_called()
+
+    def test_one_or_two_faces_passing_are_not_looked_for_again(self):
+        few = found([[[100, 300, 80, 80]], [[1200, 300, 80, 80]], [], []])
+        with mock.patch.object(tracks.faces, "sample") as sample:
+            self.assertIs(tracks.finer({}, 0, 2, few), few)
+        sample.assert_not_called()
+
+    def test_faces_that_will_not_stay_in_a_track_are_looked_for_every_fine_step(self):
+        moving = found([[[100 + 900 * (k % 2), 200 * (k % 5), 80, 80]] for k in range(20)])
+        better = found([[[100, 300, 80, 80]]], every=tracks.FINE)
+        with mock.patch.object(tracks.faces, "sample", return_value=better) as sample:
+            self.assertIs(tracks.finer({"r": 1}, 2, 12, moving, on_start="stop"), better)
+        sample.assert_called_once_with({"r": 1}, 2, 12, every=tracks.FINE, on_start="stop")
+
+    def test_when_the_finer_look_fails_the_faces_already_found_stand(self):
+        moving = found([[[100 + 900 * (k % 2), 200 * (k % 5), 80, 80]] for k in range(20)])
+        with mock.patch.object(tracks.faces, "sample", side_effect=tracks.faces.NoFaces("no")):
+            self.assertIs(tracks.finer({}, 0, 10, moving), moving)
+
+    def test_faces_already_fine_are_not_looked_for_again(self):
+        fine = found([[[100 + 900 * (k % 2), 200 * (k % 5), 80, 80]] for k in range(20)], every=tracks.FINE)
+        with mock.patch.object(tracks.faces, "sample") as sample:
+            self.assertIs(tracks.finer({}, 0, 1, fine), fine)
+        sample.assert_not_called()
+
+
+@unittest.skipUnless(FFMPEG, "needs ffmpeg")
+class Drawings(unittest.TestCase):
+    def test_a_finer_look_compares_pictures_half_a_second_apart(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        video = os.path.join(folder, "still.mp4")
+        subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=320x240:r=30:d=1.5", "-pix_fmt",
+                        "yuv420p", video], check=True)
+        rec = {"path": video, "size": 1, "mtime": 1, "width": 320, "height": 240, "name": "still.mp4"}
+        against = []
+
+        def changed(data, before, w, h, box):
+            against.append(before)
+            return 9.0
+
+        with mock.patch.object(tracks.faces, "folder", return_value=folder), \
+                mock.patch.object(tracks.faces, "_detector", return_value=lambda d, w, h: [[10, 10, 50, 50, 0.9]]), \
+                mock.patch.object(tracks.faces, "_changed", changed):
+            tracks.faces.sample(rec, 0, 1.5, every=tracks.FINE)
+        back = round(tracks.faces.EVERY / tracks.FINE)
+        self.assertEqual(sum(1 for b in against if b is None), back)
+        self.assertGreater(len(against), back)
+
+
+class FromTheClip(unittest.TestCase):
+    def people(self, recipe, fine):
+        job = types.SimpleNamespace(chat=types.SimpleNamespace(clip={"recipe": recipe}), started_work="stop")
+        coarse = found([[[100, 300, 80, 80]]] * 20)
+        with mock.patch.object(tools, "_found_faces", return_value=[(0.0, 10.0, coarse)]), \
+                mock.patch.object(tools.tracks, "_crop"), \
+                mock.patch.object(tools.tracks, "finer", return_value=fine) as finer:
+            got = tools._people({"width": 1920, "height": 1080}, [[0.0, 10.0]], None, [0.0, 10.0], job=job)
+        return got, finer
+
+    def test_the_players_of_a_game_are_not_looked_for_again(self):
+        for recipe in ("game", "sport"):
+            with self.subTest(recipe):
+                self.people(recipe, None)[1].assert_not_called()
+
+    def test_the_people_of_a_trip_are_and_stop_on_the_page_ends_it(self):
+        fine = found([[[100 + 3 * k, 300, 80, 80]] for k in range(200)], every=tracks.FINE, start=0.0)
+        got, finer = self.people("montage", fine)
+        self.assertEqual(finer.call_args.kwargs, {"on_start": "stop"})
+        self.assertEqual(len(got), 1)
+
+    def test_seen_and_of_stay_in_half_seconds(self):
+        got = self.people("montage", found([[[100 + 3 * k, 300, 80, 80]] for k in range(200)], every=tracks.FINE, start=0.0))[0]
+        self.assertEqual((got[0]["seen"], got[0]["of"]), (20, 20))
+
+    def test_a_talk_built_without_a_job_is_not_looked_for_again(self):
+        coarse = found([[[100, 300, 80, 80]]] * 20)
+        with mock.patch.object(tools, "_found_faces", return_value=[(0.0, 10.0, coarse)]), \
+                mock.patch.object(tools.tracks, "_crop"), \
+                mock.patch.object(tools.tracks, "finer") as finer:
+            tools._people({"width": 1920, "height": 1080}, [[0.0, 10.0]], None, [0.0, 10.0])
+        finer.assert_not_called()
+
+
 class Crops(unittest.TestCase):
     def test_each_person_gets_a_small_picture_of_their_face(self):
         tmp = tempfile.mkdtemp()

@@ -95,17 +95,19 @@ def sample(rec, a, b, every=EVERY, on_start=None):
 
     if on_start:
         on_start(stop)
-    samples, size, before = [], w * h * 3, None
+    samples, size, recent = [], w * h * 3, []
+    back = max(1, round(EVERY / every))
     try:
         while True:
             data = proc.stdout.read(size)
             if len(data) < size:
                 break
+            before = recent[-back] if len(recent) >= back else None
             boxes = [[round(x / scale, 1), round(y / scale, 1), round(bw / scale, 1), round(bh / scale, 1),
                       round(score, 3), _changed(data, before, w, h, (x, y, bw, bh))]
                      for x, y, bw, bh, score in detect(data, w, h)]
             samples.append({"t": round(a + len(samples) * every, 2), "faces": boxes})
-            before = data
+            recent = (recent + [data])[-back:]
     finally:
         proc.stdout.close()
         code = proc.wait()
@@ -124,7 +126,8 @@ def sample(rec, a, b, every=EVERY, on_start=None):
 
 
 def _changed(data, before, w, h, box):
-    """How much box differs between two pictures, bgr bytes of w x h, on average out of 255; None with no picture before."""
+    """How much box differs between two pictures, bgr bytes of w x h, on average out of 255; None with no picture before.
+    The pictures are EVERY apart at any step: a real face hardly changes in a twentieth of a second."""
     if before is None:
         return None
     import numpy

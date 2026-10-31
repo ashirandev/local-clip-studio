@@ -2369,7 +2369,7 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     private = _private_lines(job, rec, lay, pieces, [a, b])
     if private is None:
         return "Not made: the person pressed Stop."
-    people = _people(rec, pieces, box, [a, b])
+    people = _people(rec, pieces, box, [a, b], job=job)
     state = job.edit(dict({"do": "clip", "moment": moment, "pieces": pieces, "span": [a, b], "layout": lay,
                            "product": item, "people": [{k: v for k, v in p.items() if k != "crop"} for p in people or []],
                            "speech": _speech(rec, job.chat.looks[m["look"] - 1], pieces)}, **kept))
@@ -4515,16 +4515,19 @@ CROWD_SHOWN = 4
 SAME_FACE = 0.3
 
 
-def _people(rec, pieces, face, span=None, shown=()):
+def _people(rec, pieces, face, span=None, shown=(), job=None):
     """The other people's faces in the clip, from the faces already found in each piece, most seen first: [{"n",
     "seen", "of", "from", "to" (clip seconds), "box" (recording), "points": [[clip second, x, y, w, h]], "crop"}].
     The face the layout shows, the faces of a talk layout (shown: the people it follows, the clip itself), and a
     face that sits still (the person making the clip), are not among them. None when the faces of a piece were not
-    found. 10-29, the brother's podcast: the three hosts were listed as other people, and Glimmer blurred them all."""
+    found. 10-29, the brother's podcast: the three hosts were listed as other people, and Glimmer blurred them all.
+    With a job, faces that move are looked for again, finer, unless they are the players of a game."""
     out = []
     for a, b, found in _found_faces(rec, pieces, span):
         if not found:
             return None
+        if job and (job.chat.clip or {}).get("recipe") not in PICTURE_ENDS:
+            found = tracks.finer(rec, a, b, found, on_start=getattr(job, "started_work", None))
         for tr in tracks.tracks(found, rec):
             if tr["steady"] or face and _overlap(tr["box"], face) > SAME_FACE or any(
                     _overlap(tr["box"], box) > SAME_FACE for box in shown):
@@ -4536,7 +4539,8 @@ def _people(rec, pieces, face, span=None, shown=()):
                     points.append([round(at, 3), x, y, w, h])
             if not points:
                 continue
-            out.append({"seen": tr["seen"], "of": len(found["samples"]), "from": points[0][0],
+            out.append({"seen": tr["seen"], "of": round(len(found["samples"]) * found["every"] / faces.EVERY),
+                        "from": points[0][0],
                         "to": points[-1][0], "box": [round(v) for v in tr["box"]], "points": points,
                         "crop": tr["crop"]})
     out.sort(key=lambda p: -p["seen"])

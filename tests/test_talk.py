@@ -173,7 +173,7 @@ class Followed(unittest.TestCase):
             return {"box": box, "steady": steady, "seen": 8, "crop": None,
                     "points": [[t, box[0], box[1], box[2], box[3]] for t in (1.0, 2.0, 3.0)]}
 
-        found = {"samples": [None] * 10}
+        found = {"samples": [None] * 10, "every": 0.5}
         with mock.patch.object(tools, "_found_faces", lambda rec, pieces, span: [(0.0, 4.0, found)]),                 mock.patch.object(tools.tracks, "tracks", lambda f, rec: [
                     track([LEFT[0] + 6, LEFT[1] - 4, 150, 166]), track(list(RIGHT)), track(passer)]):
             listed = tools._people({"width": 1280, "height": 720}, [[0.0, 4.0]], None, [0.0, 4.0],
