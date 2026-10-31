@@ -407,7 +407,8 @@ def _cut_out(state, default):
                                  state.get("pushes") or [])
         speaking = cutout.speaking_mask(state["mask"], clip["pieces"], clip["layout"], state["length"],
                                         state.get("pushes") or [],
-                                        told_apart=talk.told_apart(clip.get("voices"))) if cuts else mask
+                                        told_apart=talk.told_apart(clip.get("voices")) and not any(
+                                            c.get("everyone") for c in cuts)) if cuts else mask
     except RuntimeError as e:
         raise ValueError(str(e))
     looks = [CUTOUT_LOOKS[c["look"]](speaking, c["start"], c["end"]) for c in cuts]

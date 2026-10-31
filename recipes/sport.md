@@ -33,7 +33,8 @@ in and the celebration, and knows what it did to the score.
 ## Rules
 
 - The score and the match minute in the title or the post are the ones on the screen at that moment, never worked
-  out or guessed.
+  out or guessed. Before saying how the match ended, look at its last minutes and read the final score. A score you
+  did not read in a picture stays out: write what happened with no number.
 - Name a team or a player only when the name is on the screen or said.
 - Captions are the player's own words when they talk over the match. The commentator is part of the match's sound:
   leave the commentary out of the captions unless the person asks for it.

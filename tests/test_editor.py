@@ -773,6 +773,26 @@ class Tools(unittest.TestCase):
         self.assertEqual([p["text"] for p in self.chat.moments[0]["said"]],
                          ["ตั้งค่าเครื่องง่ายมาก", "ราคาถูกมาก"], "the check reads the line as the caption shows it")
 
+    def test_a_lone_foreign_word_on_a_laugh_is_no_caption_and_capitals_stay(self):
+        """Voice wrote "Yeah," for a laugh among EP0's Thai lines (10-31)."""
+        said = [{"from": 2.0, "to": 4.0, "text": "ราคาถูกมาก"}, {"from": 5.0, "to": 6.5, "text": "Yeah,"},
+                {"from": 7.0, "to": 8.0, "text": "OK"}, {"from": 9.0, "to": 11.0, "text": "ของดีมาก"}]
+        self.assertEqual([tools._stray(p, said) for p in said], [False, True, False, False])
+        long_ = dict(said[1], to=7.5)
+        self.assertFalse(tools._stray(long_, said), "two seconds of it is someone saying it")
+        english = [{"from": 1.0, "to": 2.0, "text": "Yeah,"}, {"from": 3.0, "to": 5.0, "text": "that is right"}]
+        self.assertFalse(tools._stray(english[0], english), "English among English lines is what was said")
+        self.worker.phrases = said
+        script = self.to_moment()
+        self.run_job(*script[:2], [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the setup"}])],
+                     '{"lines": ["ราคาถูกมาก", "Yeah,", "OK", "ของดีมาก"]}',
+                     [call("make_clip", moment=1, layout="subject", why="the action")],
+                     [call("add_captions", why="say what he says")],
+                     '{"texts": ["ราคาถูกมาก", "OK", "ของดีมาก"]}', "Done.")
+        shown = "".join(line["text"] for line in self.chat.project.state()["captions"]["lines"])
+        self.assertNotIn("Yeah", shown)
+        self.assertIn("OK", shown)
+
     def test_a_talk_clip_leaves_out_the_lines_said_while_the_video_shows_words_of_its_own_in_the_frame(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "this is the moment"},
                                {"from": 5.0, "to": 8.0, "text": "watch him fall down now"}]
@@ -1142,7 +1162,7 @@ class Tools(unittest.TestCase):
         spark = Asked("spark", "Muse Spark", [json.dumps(heads)])
         wonder = Asked("wonder", "Muse Wonder", ['{"who": 3, "sure": 0.9, "why": "his voice and hands"}',
                                                  '{"who": 1, "sure": 0.9, "why": "her mouth"}'])
-        turns = mock.Mock(return_value=([(0.0, 10.0, "A"), (10.0, 20.0, "B")], 0.001))
+        turns = mock.Mock(return_value=([(0.0, 20.0, "A")], 0.001))
         with mock.patch.object(tools, "_wonder_names", lambda: True), mock.patch.object(tools.asr, "turns", turns), \
                 mock.patch.dict(tools.mind.MINDS, spark=spark, wonder=wonder), \
                 mock.patch.object(talk, "motion", lambda rec, a, b, persons, fps=10: [[1.0] * 30 for _ in persons]):
@@ -1158,6 +1178,7 @@ class Tools(unittest.TestCase):
         self.assertIn("near their head: 1, left; 2, middle; 3, turned away on the right.", json.dumps(wonder.sent[0]))
         clip = self.chat.project.state()["clip"]
         self.assertEqual([v["who"] for v in clip["voices"]], [3, 1])
+        self.assertEqual(clip["voices"][0]["to"], 39.0, "one long turn, named in pieces cut where a heard line ends")
         self.assertEqual(clip["layout"]["shots"][0]["show"], 3, "the zoom goes to him")
         self.assertIn("person 3", [p["name"] for p in clip["layout"]["parts"]])
 
@@ -1225,6 +1246,10 @@ class Tools(unittest.TestCase):
         self.chat.edit(dict(whole, do="mask", everyone=whole["path"]))
         _, told = self.run_job([call("cut_out", look="grey", why="everyone in the talk")], "Done.")
         self.assertIn("only the room is black and white and everyone keeps their colour", told[-1]["result"])
+        _, asked_for = self.run_job([call("cut_out", look="grey", everyone=True, why="they said everyone keeps colour")],
+                                    "Done.")
+        self.assertIn("everyone keeps their colour, as the person asked", asked_for[-1]["result"])
+        self.assertTrue(self.chat.project.state()["cutouts"][-1]["everyone"])
 
     def test_a_line_that_leaves_out_a_number_is_asked_once_with_the_number_then_stands_and_is_named(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "นะครับสามก่อนเข้าไปดู"},

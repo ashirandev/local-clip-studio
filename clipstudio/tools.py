@@ -3187,7 +3187,8 @@ def _named_voices(job, rec, m, persons, line):
     """_voices by Muse Voice Transcribe's turns and Muse Wonder naming each one (voices.py), kept in work/voices so the
     clip made again over the same moment costs nothing. hearing.engine() is "meta", so the person's switch is on."""
     a, b = m["start"], m["end"]
-    key = hashlib.sha1(json.dumps([rec["path"], rec["size"], rec["mtime"], a, b, [p["box"] for p in persons]],
+    key = hashlib.sha1(json.dumps([rec["path"], rec["size"], rec["mtime"], a, b, [p["box"] for p in persons],
+                                   [p.get("looks") for p in persons], voices.MOST_TURNS, voices.TURN_LONG],
                                   sort_keys=True).encode("utf-8")).hexdigest()[:16]
     kept = os.path.join(recording.WORK, "voices", key + ".json")
     try:
@@ -3205,7 +3206,7 @@ def _named_voices(job, rec, m, persons, line):
         job.done_working()
     spent.add(os.path.join(recording.WORK, "spent.jsonl"), job.chat.id, job.n, asr.VOICE, {"usd": round(usd, 6)})
     named, cost = [], 0.0
-    for k, turn in enumerate(voices.turns_of(found, a)):
+    for k, turn in enumerate(voices.turns_of(found, a, m.get("said") or [])):
         try:
             path = voices.numbered(rec, turn["from"], min(turn["to"], turn["from"] + voices.TURN_SENT), persons,
                                    "%s_%d" % (key, k))
@@ -4217,6 +4218,16 @@ def _eye(job, state, hidden):
             else "The captions show again, as they were.")
 
 
+STRAY_SECONDS = 2.0
+
+
+def _stray(p, said):
+    """True when Voice Transcribe wrote one foreign word on a laugh or a breath: "Yeah," for 1.8 s and "Do" among EP0's
+    Thai lines (10-31), and "have" before. Letters in capitals, such as OK or MT4, stay."""
+    return (p["to"] - p["from"] < STRAY_SECONDS and bool(re.fullmatch(r"[A-Za-z][a-z']*[,.!?]*", p["text"].strip())) and
+            2 * sum(1 for q in said if any(letters.search(q["text"]) for _, letters in SCRIPTS)) >= len(said))
+
+
 def add_captions(job, why, on=True, lit=False, pop=None, language="", hidden=None):
     rec = _open(job, "caption")
     state = _clip_state(job)
@@ -4242,7 +4253,7 @@ def add_captions(job, why, on=True, lit=False, pop=None, language="", hidden=Non
     phrases, doubtful, heard = [], [], []
     for n, p in enumerate(said):
         at = _in_clip(clip["pieces"], p, length)
-        if not at:
+        if not at or _stray(p, said):
             continue
         if _unsure(p) and (at[0], at[1]) not in typed:
             for a, b, line, odd in _by_line(p, at):
@@ -6245,7 +6256,7 @@ def undo(job, why):
     return "Took back %s." % describe(entry)
 
 
-def cut_out(job, why, look=None, start=None, end=None):
+def cut_out(job, why, look=None, start=None, end=None, everyone=False):
     """Finds the person through the clip with SAM 3.1 (person.cut_out), once for the clip's stretch of the recording,
     so titles can go behind them and the clip can take a cut-out look. The mask is kept: asking again with another
     look or time does not run SAM again."""
@@ -6281,7 +6292,8 @@ def cut_out(job, why, look=None, start=None, end=None):
                        recording.clock(a), recording.clock(b), mask["fps"]))
     says = CUTOUT_LOOK_SAYS
     if any((state["mask"] or {}).get("each") or []):
-        says = CUTOUT_EVERYONE_SAYS if state["mask"].get("everyone") and not clip.get("voices") else CUTOUT_SPEAKER_SAYS
+        says = CUTOUT_ALL_SAYS if everyone and state["mask"].get("everyone") else CUTOUT_EVERYONE_SAYS if state[
+            "mask"].get("everyone") and not clip.get("voices") else CUTOUT_SPEAKER_SAYS
     if look:
         s = 0.0 if start is None else length + start if start < 0 else start
         e = length if end is None else length + end if end < 0 else min(end, length)
@@ -6289,7 +6301,7 @@ def cut_out(job, why, look=None, start=None, end=None):
             raise Refused("start %g s and end %g s do not make a time inside the clip, which is %g s long."
                           % (s, e, length))
         s, e = round(s, 2), round(e, 2)
-        job.edit({"do": "cutout", "look": look, "start": s, "end": e})
+        job.edit({"do": "cutout", "look": look, "start": s, "end": e, "everyone": bool(everyone)})
         said.append("The %s look is on from %g to %g s of the %g s clip%s: %s." % (
             look, s, e, length, "" if e >= length - 0.05 else ", so the clip's last %g s are without it"
             % round(length - e, 2), says[look]))
@@ -6307,6 +6319,8 @@ CUTOUT_EVERYONE_SAYS = {"grey": "only the room is black and white and everyone k
                                 "the person asked for the speaker alone",
                         "outline": "a white edge goes around everyone, as their voices do not tell who speaks; say so "
                                    "if the person asked for the speaker alone"}
+CUTOUT_ALL_SAYS = {"grey": "only the room is black and white and everyone keeps their colour, as the person asked",
+                   "outline": "a white edge goes around everyone, as the person asked"}
 BEHIND_SHARE = 0.05
 HIDDEN_MOST = 1 / 3.0
 PERSON_STEP = 5
@@ -7214,6 +7228,9 @@ TOOLS = {t.name: t for t in [
                                   "their colour. outline: a white edge around the person. In a talk both follow "
                                   "whoever speaks when their voices tell who that is, and else take in everyone. "
                                   "Leave it out to only find the person, for a title behind them."},
+          "everyone": {"type": "boolean", "description": "In a talk, true when the person said everyone keeps their "
+                                                         "colour or the look goes on everyone: the look then does not "
+                                                         "follow whoever speaks."},
           "start": {"type": "number", "description": "When the look starts, in seconds of the clip; a negative "
                                                      "number counts back from the clip's end, so -5 is its last 5 "
                                                      "seconds. Leave it out for the start."},

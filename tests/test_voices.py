@@ -41,6 +41,15 @@ class NamedTurns(unittest.TestCase):
         self.assertEqual(got, sorted(got, key=lambda t: t["from"]))
         self.assertNotIn(0.0, [t["from"] for t in got], "the shortest goes")
 
+    def test_a_long_turn_is_named_in_pieces_cut_where_lines_end(self):
+        """EP0 10-31: one turn of 32 s took in man 3 and then man 1, and the one name stood for both (Tarm's ear)."""
+        said = [line(1100.0, 1105.0), line(1105.5, 1110.0), line(1110.5, 1116.0), line(1116.5, 1124.0)]
+        got = voices.turns_of([(0.0, 32.0, "A")], 1096.0, said)
+        self.assertEqual([(t["from"], t["to"]) for t in got], [(1096.0, 1105.0), (1105.0, 1116.0), (1116.0, 1128.0)])
+        self.assertEqual(voices.in_pieces(0.0, 30.0, []), [[0.0, 12.0], [12.0, 24.0], [24.0, 30.0]], "no line ends in reach")
+        self.assertEqual(voices.in_pieces(0.0, 24.5, []), [[0.0, 12.0], [12.0, 24.5]], "a last sliver stays with its piece")
+        self.assertEqual(voices.in_pieces(3.0, 15.0, [8.0]), [[3.0, 15.0]], "up to TURN_LONG stays whole")
+
     def test_a_person_is_named_only_when_wonder_is_sure_and_they_are_followed(self):
         people = [{"n": 1}, {"n": 2}]
         self.assertEqual(voices.who_answer('{"who": 2, "sure": 0.8, "why": "x"}', people), 2)

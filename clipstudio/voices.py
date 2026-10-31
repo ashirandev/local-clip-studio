@@ -30,6 +30,9 @@ Muse Spark counts the heads in one picture (HEADS_ASK, $0.006): 4 people on 9 as
 each time, each box on or near the head, though up to 15% off, so good for a number and for a shot this wide, and a face
 found stays the better box (talk.with_heads). Its few words on each person go in Wonder's question: with the numbers alone
 Wonder gave EP0's turns to men 1 and 3, with Spark's words to men 4 and 2, as Tarm's ear has them (10-31, 2 of 2).
+
+A turn from the diarisation can hold two people: 32 s on EP0 took in man 3 and then man 1, and the one name stood for both,
+so a turn over TURN_LONG s is named in pieces, cut where heard lines end.
 """
 import base64
 import json
@@ -59,7 +62,8 @@ SCHEMA = {"type": "object", "properties": {"speaking": {"type": "array", "items"
           "required": ["speaking"], "additionalProperties": False}
 TURN_LEAST = 1.0
 TURN_SENT = 20.0
-MOST_TURNS = 6
+TURN_LONG = 12.0
+MOST_TURNS = 8
 NUMBERED_LONGEST = 960
 WHO_SURE = 0.5
 WHO_TOKENS = 600
@@ -236,19 +240,36 @@ def match(ask, rec, voiced, persons):
     return out
 
 
-def turns_of(found, start):
+def in_pieces(a, b, ends):
+    """a to b cut into pieces of at most TURN_LONG s, at the last of ends (seconds, sorted) each can reach, or at
+    TURN_LONG itself where no line ends in reach. A last sliver goes with the piece before it."""
+    out, at = [], a
+    while b - at > TURN_LONG:
+        reach = [e for e in ends if at + TURN_LEAST <= e <= at + TURN_LONG]
+        cut = reach[-1] if reach else at + TURN_LONG
+        out.append([at, cut])
+        at = cut
+    if out and b - at < TURN_LEAST:
+        out[-1][1] = b
+    else:
+        out.append([at, b])
+    return out
+
+
+def turns_of(found, start, said=()):
     """The turns to name, [{"from", "to"}] in seconds of the recording and in order: found ([(start s, end s, speaker)]
-    in seconds of the stretch from start) with one speaker's neighbours joined, those under TURN_LEAST s left out,
-    the MOST_TURNS longest."""
+    in seconds of the stretch from start) with one speaker's neighbours joined, a long one in pieces at the ends of the
+    lines said ({"to"} in seconds of the recording), those under TURN_LEAST s left out, the MOST_TURNS longest."""
     joined = []
     for a, b, label in sorted(found):
         if joined and joined[-1][2] == label:
             joined[-1][1] = b
         else:
             joined.append([a, b, label])
-    long_ = [t for t in joined if t[1] - t[0] >= TURN_LEAST]
+    ends = sorted(p["to"] - start for p in said)
+    long_ = [t for a, b, _ in joined for t in in_pieces(a, b, ends) if t[1] - t[0] >= TURN_LEAST]
     kept = sorted(sorted(long_, key=lambda t: t[0] - t[1])[:MOST_TURNS])
-    return [{"from": round(start + a, 2), "to": round(start + b, 2)} for a, b, _ in kept]
+    return [{"from": round(start + a, 2), "to": round(start + b, 2)} for a, b in kept]
 
 
 def numbers(rec, persons, size, path):

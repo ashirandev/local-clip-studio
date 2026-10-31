@@ -175,6 +175,9 @@ class FrameMask(unittest.TestCase):
             state["clip"]["voices"] = [{"from": 0, "to": 1, "who": 1}]
             render._cut_out(state, "clean")
             self.assertIs(speaking.call_args.kwargs["told_apart"], True)
+            state["cutouts"][0]["everyone"] = True
+            render._cut_out(state, "clean")
+            self.assertIs(speaking.call_args.kwargs["told_apart"], False, "the person's words win over the voices")
 
     def test_a_slow_push_pushes_the_mask_with_the_picture(self):
         import numpy as np
