@@ -19,10 +19,10 @@ import types
 
 import numpy as np
 
-from . import (channels, cover, cutout, effects, faces, focus, green, hearing, layouts, maps, mind, montage, pauses,
-               person, picture, pitch,
+from . import (asr, channels, cover, cutout, effects, faces, focus, green, hearing, layouts, maps, mind, montage,
+               pauses, person, picture, pitch,
                countdown, previews,
-               project, recording, render, review, sends, voices,
+               project, recording, render, review, sends, spent, voices,
                screen, spoken, takes, talk, text, thai, tracks, watch, words)
 from .recipes import RECIPES, SIGNALS
 
@@ -4871,6 +4871,15 @@ def put_background(job, why, about):
     return "\n".join(lines)
 
 
+def _sam_goes(job):
+    """What person.cut_out needs to send the stretch to Meta's SAM 3.1, where the computer has no SAM: a Meta key, and,
+    as for Muse Wonder, the switch in Options unless Muse is on Meta's servers already. Nothing without them."""
+    if not asr.secret() or (_here(job) and not sends.allowed()):
+        return {}
+    return {"send": True, "on_paid": lambda usd: spent.add(os.path.join(recording.WORK, "spent.jsonl"), job.chat.id,
+                                                           job.n, person.SAM, {"usd": round(usd, 6)})}
+
+
 def follow_product(job, why, what):
     """SAM 3.1 finds what (the product, in English words) through the clip (person.cut_out with what as its prompt),
     and the vertical frame moves with it (focus.thing), so a product held out to the side stays in the picture. Tarm
@@ -4892,7 +4901,8 @@ def follow_product(job, why, what):
     try:
         found = person.cut_out(rec, a, b, on_start=job.started_work, what=said,
                                on_progress=lambda done, of: job.working(
-                                   "SAM 3.1 is following the %s: picture %d of %d" % (said, done, of)))
+                                   "SAM 3.1 is following the %s: picture %d of %d" % (said, done, of)),
+                               **_sam_goes(job))
     except ValueError as e:
         raise Refused(str(e))
     except person.Stopped:
@@ -6100,7 +6110,8 @@ def cut_out(job, why, look=None, start=None, end=None):
         try:
             mask = person.cut_out(rec, a, b, face=clip["layout"].get("face"), on_start=job.started_work,
                                   on_progress=lambda done, of: job.working(
-                                      "SAM 3.1 is finding the person: picture %d of %d" % (done, of)), people=people)
+                                      "SAM 3.1 is finding the person: picture %d of %d" % (done, of)), people=people,
+                                  **_sam_goes(job))
         except ValueError as e:
             raise Refused(str(e))
         except person.Stopped:

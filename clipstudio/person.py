@@ -20,11 +20,17 @@ mask in every frame where it found one.
 Masks are kept per recording, stretch and face in work/masks, so asking again is instant and Glimmer stays. For a
 talk, each person the layout follows gets their own mask from the same run (name.each/n.mkv), so the one speaking
 can keep their colour (cutout.speaking_mask).
+
+A computer with no SAM of its own, as anyone's who came for the API, sends the stretch to Meta's SAM 3.1 on the Model
+API when the caller says a piece of the video may go (send), with the same Meta key and the same worker in the
+studio's own Python, so Glimmer stays on the card. LCS_SAM=meta chooses it where SAM is set up too, LCS_SAM=local
+never sends. Same masks, same files: the rest of the studio does not know which one ran.
 """
 import hashlib
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -35,6 +41,7 @@ from . import mind, recording
 
 VERSION = 2
 FPS = 10
+API = os.environ.get("LCS_SAM_URL", mind.NAMED["meta"])
 MOST_SECONDS = 120
 WORKER = os.path.join(recording.ROOT, "cutting", "cut.py")
 PYTHON = os.environ.get("LCS_SAM_PYTHON", "")
@@ -45,6 +52,13 @@ LOAD_SECONDS = 120
 SECONDS_A_PICTURE = 2.0
 HERE = ("127.0.0.1", "localhost", "::1")
 _lock = threading.Lock()
+
+
+class Label:
+    key, label, model_id = "sam", "Meta SAM 3.1", "sam-3.1"
+
+
+SAM = Label()
 
 
 class PersonError(Exception):
@@ -74,6 +88,13 @@ def _not_set_up():
         return ("SAM 3.1 is not set up: LCS_SAM_WEIGHTS %r is not a file. Download sam3.1_multiplex_fp16.safetensors "
                 "as the README shows, and set LCS_SAM_WEIGHTS to it." % WEIGHTS)
     return None
+
+
+def _goes_to_meta(send):
+    """True when this stretch goes to Meta's SAM 3.1: the caller says it may, and SAM is not set up here or LCS_SAM=meta
+    chooses it; never with LCS_SAM=local."""
+    wanted = os.environ.get("LCS_SAM", "").strip().lower()
+    return bool(send) and wanted != "local" and (wanted == "meta" or bool(_not_set_up()))
 
 
 def _checked(rec, start, end, face, people=None):
@@ -119,7 +140,8 @@ def _each(folder, name, people):
     return [p if os.path.isfile(p) else None for p in paths]
 
 
-def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=None, what=None):
+def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=None, what=None, send=False,
+            on_paid=None):
     """state['mask'] for the person from start to end (recording seconds): {"path", "person", "fps", "size", "from",
     "to"}, person being the face box the person was picked by (None: the person with the most pixels). face is
     [x, y, w, h] in the recording's pixels (the layout's face camera), so when SAM finds several people the one
@@ -128,10 +150,12 @@ def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=
     people SAM followed, a face or not. With what, SAM finds that instead of a person,
     such as "white game controller" (the product a seller holds), and keeps the one with the most pixels over the
     stretch when there are several. on_progress(done, of) as SAM follows them;
-    on_start(stop) hands over a function that ends the work at once (then Stopped is raised). PersonError with a
-    sentence when no mask could be made."""
+    on_start(stop) hands over a function that ends the work at once (then Stopped is raised). send says a piece of the
+    video may go to Meta (_goes_to_meta), and on_paid(usd) gets what that cost. PersonError with a sentence when no
+    mask could be made."""
     start, end, face, people = _checked(rec, start, end, face, people)
-    why = _not_set_up()
+    hosted = _goes_to_meta(send)
+    why = None if hosted else _not_set_up()
     if why:
         raise NotSetUp(why)
     folder = os.path.join(recording.WORK, "masks")
@@ -167,11 +191,12 @@ def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=
             return given()
         if stopped.is_set():
             raise Stopped()
-        aside = _step_aside()
+        aside = None if hosted else _step_aside()
         try:
             if stopped.is_set():
                 raise Stopped()
-            _run(rec, start, end, face, path, folder, name, running, stopped, on_progress, people, what)
+            _run(rec, start, end, face, path, folder, name, running, stopped, on_progress, people, what, hosted,
+                 on_paid)
         except BaseException as e:
             if aside:
                 _come_back(*aside, after=e)
@@ -181,7 +206,8 @@ def cut_out(rec, start, end, face=None, on_progress=None, on_start=None, people=
     return given()
 
 
-def _run(rec, start, end, face, path, folder, name, running, stopped, on_progress, people=None, what=None):
+def _run(rec, start, end, face, path, folder, name, running, stopped, on_progress, people=None, what=None,
+         hosted=False, on_paid=None):
     frames = os.path.join(folder, name + ".pictures")
     part = path + ".part"
     each, each_part = os.path.join(folder, name + ".each"), os.path.join(folder, name + ".each.part")
@@ -191,6 +217,8 @@ def _run(rec, start, end, face, path, folder, name, running, stopped, on_progres
            "face": face, "weights": WEIGHTS, "frames": frames, "out": part}
     if what:
         job["prompt"] = what
+    if hosted:
+        job["hosted"] = API
     if people:
         _clear(each_part)
         os.makedirs(each_part)
@@ -198,8 +226,9 @@ def _run(rec, start, end, face, path, folder, name, running, stopped, on_progres
     last = {}
     try:
         with open(os.path.join(folder, name + ".log"), "w", encoding="utf-8") as log:
-            worker = subprocess.Popen([PYTHON, "-X", "utf8", WORKER], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                      stderr=log, cwd=os.path.dirname(WORKER))
+            worker = subprocess.Popen([sys.executable if hosted else PYTHON, "-X", "utf8", WORKER],
+                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log,
+                                      cwd=os.path.dirname(WORKER))
             running["worker"] = worker
             if stopped.is_set():
                 worker.kill()
@@ -243,6 +272,8 @@ def _run(rec, start, end, face, path, folder, name, running, stopped, on_progres
                               % (worker.returncode, os.path.join(folder, name + ".log")))
         if not os.path.isfile(part):
             raise PersonError("SAM said it was done, but wrote no mask.")
+        if on_paid and last.get("usd"):
+            on_paid(last["usd"])
         if people:
             _clear(each)
             os.replace(each_part, each)

@@ -2068,6 +2068,44 @@ class Tools(unittest.TestCase):
         self.assertIn("Only the subject layout's frame can follow the product", steps[-1]["result"])
         self.assertEqual(asked, ["white game controller", "a missing thing", "a broken thing"])
 
+    def test_a_piece_goes_to_metas_sam_only_with_a_key_and_the_switch_or_muse_on_metas_servers(self):
+        from unittest import mock
+        job = types.SimpleNamespace(chat=self.chat, n=1)
+        with mock.patch.object(tools.asr, "secret", lambda: ""):
+            self.assertEqual(tools._sam_goes(job), {}, "no key, nothing goes")
+        with mock.patch.object(tools.asr, "secret", lambda: "a key"), mock.patch.object(tools, "_here", lambda j: True):
+            tools.sends.allow(False)
+            self.assertEqual(tools._sam_goes(job), {}, "Muse here and the switch off, nothing goes")
+            tools.sends.allow(True)
+            self.assertTrue(tools._sam_goes(job)["send"])
+            tools.sends.allow(False)
+        with mock.patch.object(tools.asr, "secret", lambda: "a key"), mock.patch.object(tools, "_here", lambda j: False):
+            goes = tools._sam_goes(job)
+        self.assertTrue(goes["send"], "Muse on Meta's servers already sees the pictures")
+        goes["on_paid"](0.06)
+        with open(os.path.join(tools.recording.WORK, "spent.jsonl"), encoding="utf-8") as f:
+            rows = [json.loads(line) for line in f]
+        self.assertEqual([(r["label"], r["usd"]) for r in rows if r["mind"] == "sam"], [("Meta SAM 3.1", 0.06)])
+
+    def test_both_callers_of_sam_say_what_may_go_to_meta(self):
+        from unittest import mock
+        from test_cutout import make_mask
+        asked = []
+
+        def cut_out(rec, a, b, **k):
+            asked.append(k.get("send"))
+            return {"path": make_mask(self.tmp, "sent.mkv", b - a, a, "lt(abs(X-280),20)", size=(320, 180)),
+                    "person": None, "fps": 10, "size": [320, 180], "from": a, "to": b}
+
+        script = self.to_moment()
+        with mock.patch.object(tools.person, "cut_out", cut_out), \
+                mock.patch.object(tools, "_sam_goes", lambda job: {"send": True}):
+            self.run_job(script[0], [call("load_recipe", type="seller", why="a seller")], *script[1:],
+                         [call("make_clip", moment=1, layout="subject", why="the product")],
+                         [call("follow_product", what="white game controller", why="the product leads")],
+                         [call("cut_out", why="the person")], "Done.")
+        self.assertEqual(asked, [True, True])
+
     def test_with_no_sam_the_frame_holds_the_product_box(self):
         """Spark 10-31, Tarm's green-cloth seller with no SAM: 1 of 4 clips handed over, the frame on his face."""
         from unittest import mock

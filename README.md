@@ -253,6 +253,11 @@ runs in its own Python as a worker, and Glimmer steps off the graphics card whil
 | Code | [facebookresearch/sam3](https://github.com/facebookresearch/sam3) at `f1647e8d`, in its own Python 3.11 with PyTorch 2.14.1 and CUDA 13.0; the install lines are at the top of `cutting/cut.py` |
 | Licence | SAM License (Meta, last updated 19 Nov 2025) |
 
+With no SAM on the computer, the same work goes to Meta's SAM 3.1 on the Model API: with your Meta key, and with
+**Meta sees pieces** on in Options or Muse on Meta's servers. It uses no graphics card and costs $0.20 per 1,000 pictures,
+10 pictures a second of the clip, so about 6 cents for 30 s. `LCS_SAM=meta` chooses it where SAM is set up too, and
+`LCS_SAM=local` never sends.
+
 Set `LCS_SAM_PYTHON` to that Python's `python.exe` and `LCS_SAM_WEIGHTS` to the file. Without them, everything
 else works the same.
 

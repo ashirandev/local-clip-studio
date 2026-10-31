@@ -27,6 +27,12 @@ pixels on the long side, since SAM works at 1008 anyway (measured 10-28: the who
 face camera gave the same mask, IoU .988, at the same 0.23 s a picture). The mask goes back on the recording's own
 pixel grid, frame k at recording second from + k / fps, 255 the person, with a soft edge of about a pixel.
 
+With "hosted", the API's address in the job, Meta's SAM 3.1 on the Model API does the following in place of a card:
+the same stretch goes up as a small H.264 file, at most HOSTED_LONGEST pixels on the long side, and the same picking
+and writing follow. It runs in the studio's own Python, needs META_API_KEY in its environment and meta-sam-parser, and
+the file is deleted from Meta's side after. Measured 10-31 on Tarm's green-cloth seller: 14 s, 140 pictures, 13 s,
+$0.028, the controller in 135 of them, and its mask on it; the answer's masks are local to their boxes.
+
 These settings make SAM run here (Windows, an RTX 5070 Ti, PyTorch 2.14 with CUDA 13), as found when it was first
 run on this computer (10-27) and kept for every measurement since: the weights are read from the .safetensors file
 (SAM's builder reads them with torch.load, which cannot); the model sits on the card in bfloat16; the decoder's
@@ -35,15 +41,26 @@ and post-processing take one object at a time; init_state gets only the argument
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
+import uuid
 
 import numpy as np
 
 LONGEST = 1920
+HOSTED_LONGEST = 1008
 PROMPT = "person"
 EDGE = 1.0
+SAM_MODEL = "sam-3.1"
+USD_A_PICTURE = 0.0002
+LEAST_BILLED = 50
+API_SECONDS = 600
+FRAME_LINE = re.compile(r"<(\d+)f(?:;[^>]*)?>")
+FOUND = re.compile(r",?(\d+)<\|box;x1=(\d+);y1=(\d+);[^|]*\|><\|mask;[^|]*?data=(\d+),(\d+),([!~][^|]+)\|>")
 
 
 TOUCH = 0.2
@@ -53,10 +70,10 @@ def say(**what):
     print(json.dumps(what), flush=True)
 
 
-def picture_size(size):
-    """(w, h) of the pictures SAM is given for a recording of size: at most LONGEST on the long side, even."""
+def picture_size(size, longest=LONGEST):
+    """(w, h) of the pictures SAM is given for a recording of size: at most longest on the long side, even."""
     w, h = size
-    k = min(1.0, LONGEST / float(max(w, h)))
+    k = min(1.0, longest / float(max(w, h)))
     return max(2, int(w * k / 2 + 0.5) * 2), max(2, int(h * k / 2 + 0.5) * 2)
 
 
@@ -108,6 +125,113 @@ def everyone(masks):
             if m is not None:
                 out[n] = m if out[n] is None else out[n] | m
     return out
+
+
+def found_in(line, picture):
+    """(picture number, {id: its mask on the whole picture, packed as in masks}) from one line of the API's answer, or
+    (None, {}) for any other line. The masks come local to their boxes."""
+    from meta_sam_parser import SegmentationMask, decode_mask_to_raster
+    head = FRAME_LINE.match(line)
+    if not head:
+        return None, {}
+    pw, ph = picture
+    out = {}
+    for m in FOUND.finditer(line, head.end()):
+        i, x, y, h, w = (int(v) for v in m.groups()[:5])
+        data = m.group(6)
+        raster = decode_mask_to_raster(SegmentationMask("lossless" if data[0] == "~" else "one_bit", data, w, h))
+        part = np.frombuffer(raster, np.uint8).reshape(h, w)[:ph - y, :pw - x] > 0
+        whole = np.zeros((ph, pw), bool)
+        whole[y:y + part.shape[0], x:x + part.shape[1]] = part
+        out[i] = np.packbits(whole, axis=-1)
+    return int(head.group(1)), out
+
+
+def api(job, path, data=None, headers=None, method=None):
+    """The answer to one call on the Model API, open; ValueError with a sentence when it is refused."""
+    req = urllib.request.Request(job["hosted"].rstrip("/") + path, data=data, method=method, headers=dict(
+        headers or {}, Authorization="Bearer " + os.environ.get("META_API_KEY", "")))
+    try:
+        return urllib.request.urlopen(req, timeout=API_SECONDS)
+    except urllib.error.HTTPError as e:
+        said = e.read()[:300].decode("utf-8", "replace")
+        raise ValueError("Meta's SAM 3.1 refused the video (%d%s)." % (
+            e.code, ": the Meta key was not accepted" if e.code in (401, 403) else ", " + said if said else ""))
+    except OSError as e:
+        raise ValueError("Meta's SAM 3.1 did not answer (%s)." % e)
+
+
+def upload(job, path):
+    """The id of the file at path on Meta's side."""
+    mark = uuid.uuid4().hex
+    with open(path, "rb") as f:
+        video = f.read()
+    body = b"".join([("--%s\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nuser_data\r\n" % mark).encode("ascii"),
+                     ("--%s\r\nContent-Disposition: form-data; name=\"file\"; filename=\"stretch.mp4\"\r\nContent-Type: "
+                      "video/mp4\r\n\r\n" % mark).encode("ascii"), video, ("\r\n--%s--\r\n" % mark).encode("ascii")])
+    with api(job, "/files", body, {"Content-Type": "multipart/form-data; boundary=" + mark}) as r:
+        return json.loads(r.read().decode("utf-8"))["id"]
+
+
+def answer(job, file_id, prompt):
+    """(the lines SAM 3.1 wrote, the pictures it read)."""
+    asked = {"model": SAM_MODEL, "stream": True, "input": [{"type": "message", "role": "user", "content": [
+        {"type": "input_text", "text": prompt}, {"type": "input_video", "file_id": file_id}]}]}
+    text, read = [], None
+    with api(job, "/responses", json.dumps(asked).encode("utf-8"),
+             {"Content-Type": "application/json", "Accept": "text/event-stream"}) as r:
+        for raw in r:
+            line = raw.decode("utf-8", "replace").strip()
+            if not line.startswith("data: ") or line == "data: [DONE]":
+                continue
+            event = json.loads(line[6:])
+            kind = event.get("type")
+            if kind == "response.output_text.delta":
+                text.append(event.get("delta") or "")
+            elif kind == "response.completed":
+                read = ((event.get("response") or {}).get("usage") or {}).get("video_frames_processed")
+            elif kind in ("response.failed", "response.incomplete", "error"):
+                raise ValueError("Meta's SAM 3.1 stopped before the end of the video (%s)." % kind)
+    return "".join(text).split("\n"), read
+
+
+def hosted(job, seconds):
+    """(masks as cut() follows them, [{"id", "sure"}], pictures, what it cost in US dollars), from Meta's SAM 3.1."""
+    picture = picture_size(job["size"], HOSTED_LONGEST)
+    t = time.perf_counter()
+    say(stage="pictures")
+    piece = os.path.join(job["frames"], "stretch.mp4")
+    made = subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "%.3f" % job["from"], "-t",
+                           "%.3f" % (job["to"] - job["from"]), "-i", job["recording"], "-map", "0:v:0", "-an", "-vf",
+                           "fps=%g,scale=%d:%d" % (job["fps"], picture[0], picture[1]), "-c:v", "libx264", "-preset",
+                           "veryfast", "-crf", "26", "-pix_fmt", "yuv420p", "-movflags", "+faststart", piece],
+                          capture_output=True, text=True)
+    if made.returncode != 0 or not os.path.isfile(piece):
+        raise ValueError("FFmpeg could not make the video for SAM (%s)." % made.stderr.strip()[-200:])
+    seconds["pictures"] = round(time.perf_counter() - t, 1)
+    t = time.perf_counter()
+    say(stage="following")
+    file_id = upload(job, piece)
+    try:
+        lines, read = answer(job, file_id, job.get("prompt") or PROMPT)
+    finally:
+        try:
+            api(job, "/files/" + file_id, method="DELETE").close()
+        except ValueError:
+            pass
+    seconds["following"] = round(time.perf_counter() - t, 1)
+    t = time.perf_counter()
+    n = read or int(round((job["to"] - job["from"]) * job["fps"]))
+    masks = {}
+    for k, line in enumerate(lines):
+        at, found = found_in(line, picture)
+        for i, m in found.items():
+            if at < n:
+                masks.setdefault(i, [None] * n)[at] = m
+        if (k + 1) % 10 == 0:
+            say(done=k + 1, of=len(lines))
+    seconds["reading"] = round(time.perf_counter() - t, 1)
+    return masks, [{"id": i, "sure": None} for i in masks], n, max(n, LEAST_BILLED) * USD_A_PICTURE, picture
 
 
 def holders(masks, people, size, picture):
@@ -178,11 +302,10 @@ def load(weights):
     return predictor
 
 
-def cut(job):
-    seconds = {}
+def on_card(job, seconds, pw, ph):
+    """(masks, [{"id", "sure"}], pictures), from SAM on this computer's graphics card."""
     t = time.perf_counter()
     say(stage="pictures")
-    pw, ph = picture_size(job["size"])
     made = subprocess.run(["ffmpeg", "-v", "error", "-ss", "%.3f" % job["from"], "-t",
                            "%.3f" % (job["to"] - job["from"]), "-i", job["recording"], "-vf",
                            "fps=%g,scale=%d:%d" % (job["fps"], pw, ph), "-q:v", "2", "-start_number", "0",
@@ -218,6 +341,17 @@ def cut(job):
             say(done=done, of=n)
     predictor.handle_request(dict(type="close_session", session_id=sid))
     seconds["following"] = round(time.perf_counter() - t, 1)
+    return masks, people, n
+
+
+def cut(job):
+    seconds, usd = {}, None
+    if job.get("hosted"):
+        masks, people, n, usd, (pw, ph) = hosted(job, seconds)
+    else:
+        pw, ph = picture_size(job["size"])
+        masks, people, n = on_card(job, seconds, pw, ph)
+    prompt = job.get("prompt") or PROMPT
     kept = pick(masks, job.get("face"), job["size"], (pw, ph), prompt)
     each = holders(masks, job.get("people") or [], job["size"], (pw, ph))
     t = time.perf_counter()
@@ -229,7 +363,7 @@ def cut(job):
     if job.get("each"):
         write(everyone(masks), os.path.join(job["each"], "everyone.mkv"), job["size"], (pw, ph), job["fps"])
     seconds["writing"] = round(time.perf_counter() - t, 1)
-    return {"ok": True, "frames": n, "people": people, "kept": kept, "each": each, "seconds": seconds}
+    return {"ok": True, "frames": n, "people": people, "kept": kept, "each": each, "seconds": seconds, "usd": usd}
 
 
 def main():

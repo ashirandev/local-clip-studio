@@ -214,6 +214,43 @@ class CutOut(unittest.TestCase):
             asking.join(2)
         self.assertEqual(got, [first], "a kept mask does not wait for another cut-out to finish")
 
+    def real_video(self):
+        """The stretch that goes up to Meta must be a real video, not the empty file the fake SAM here is given."""
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=black:s=64x36:r=10:d=6", "-c:v",
+                        "libx264", "-pix_fmt", "yuv420p", self.rec["path"]], check=True)
+
+    def test_with_no_sam_here_the_stretch_goes_to_metas_sam_and_comes_back_a_mask(self):
+        """API computers have no card and no SAM: Tarm's seller 10-31 lost 3 of 4 clips for it."""
+        self.real_video()
+        api = FakeSam(picture=(64, 36))
+        self.addCleanup(api.close)
+        with mock.patch.object(person, "PYTHON", ""), mock.patch.object(person, "API", api.url), \
+                mock.patch.object(person, "WORKER", os.path.join(ROOT, "cutting", "cut.py")), \
+                mock.patch.dict(os.environ, {"META_API_KEY": "the key"}):
+            with self.assertRaises(person.NotSetUp):
+                person.cut_out(self.rec, 2, 5)
+            with mock.patch.dict(os.environ, {"LCS_SAM": "local"}), self.assertRaises(person.NotSetUp):
+                person.cut_out(self.rec, 2, 5, send=True)
+            paid = []
+            made = person.cut_out(self.rec, 2, 5, what="white game controller", send=True, on_paid=paid.append)
+        self.assertEqual(self.said(), [], "Glimmer stays on the card: nothing runs here")
+        self.assertTrue(os.path.isfile(made["path"]), "the same file as SAM's here")
+        self.assertEqual(cutout._checked(made, [64, 36])[1:], (10.0, 2.0, 5.0))
+        self.assertEqual(paid, [50 * 0.0002], "30 pictures, and 50 are the least billed")
+        self.assertEqual(api.prompts, ["white game controller"])
+        self.assertEqual(api.keys, {"Bearer the key"})
+        self.assertEqual(api.deleted, ["file-1"], "the video does not stay on Meta's side")
+
+    def test_a_refusal_from_metas_sam_says_so(self):
+        self.real_video()
+        api = FakeSam(picture=(64, 36), refuse=403)
+        self.addCleanup(api.close)
+        with mock.patch.object(person, "PYTHON", ""), mock.patch.object(person, "API", api.url), \
+                mock.patch.object(person, "WORKER", os.path.join(ROOT, "cutting", "cut.py")), \
+                mock.patch.dict(os.environ, {"META_API_KEY": "the key"}):
+            with self.assertRaisesRegex(person.PersonError, r"refused the video \(403: the Meta key was not accepted\)"):
+                person.cut_out(self.rec, 2, 5, send=True)
+
     def test_each_person_of_a_talk_gets_their_own_mask_from_the_same_run(self):
         """Tarm 10-30: in a talk the one speaking keeps their colour, so each person needs a mask of their own."""
         os.environ["LCS_FAKE_LOST"] = "2"
@@ -362,6 +399,62 @@ class CutOut(unittest.TestCase):
         self.assertTrue(person.status()["ok"])
 
 
+def sam_line(at, objects):
+    """One line as the API writes it: objects are (id, x, y, w, h), all of each box filled."""
+    from meta_sam_parser._mask_codec import _encode_raster
+    parts = ["%d<|box;x1=%d;y1=%d;x2=%d;y2=%d;w=64;h=36|><|mask;x=0;y=0;data=%d,%d,%s|>" % (
+        i, x, y, x + w - 1, y + h - 1, h, w, _encode_raster(bytes([1]) * (w * h), w, h)) for i, x, y, w, h in objects]
+    return "<%df>%s" % (at, ",".join(parts))
+
+
+class FakeSam:
+    """Meta's Model API as SAM 3.1 uses it: a file goes up, an answer streams, the file is deleted."""
+
+    def __init__(self, picture, refuse=None):
+        self.prompts, self.keys, self.deleted = [], set(), []
+        fake = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def send(self, body, kind="application/json"):
+                self.send_response(200)
+                self.send_header("Content-Type", kind)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_DELETE(self):
+                fake.deleted.append(self.path.rsplit("/", 1)[1])
+                self.send(b"{}")
+
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers["Content-Length"]))
+                fake.keys.add(self.headers["Authorization"])
+                if refuse:
+                    self.send_response(refuse)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                elif self.path.endswith("/files"):
+                    self.send(json.dumps({"id": "file-1", "status": "uploaded"}).encode())
+                else:
+                    fake.prompts.append(json.loads(body)["input"][0]["content"][0]["text"])
+                    events = [{"type": "response.output_text.delta", "delta": sam_line(k, [(3, 10, 5, 8, 6)]) + "\n"}
+                              for k in range(30)]
+                    events.append({"type": "response.completed", "response": {"usage": {"video_frames_processed": 30}}})
+                    self.send(("".join("data: %s\n\n" % json.dumps(e) for e in events) + "data: [DONE]\n\n").encode(),
+                              "text/event-stream")
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = "http://127.0.0.1:%d/v1" % self.server.server_port
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
 def worker_module():
     spec = importlib.util.spec_from_file_location("cut", os.path.join(ROOT, "cutting", "cut.py"))
     cut = importlib.util.module_from_spec(spec)
@@ -432,6 +525,18 @@ class Worker(unittest.TestCase):
         np.testing.assert_array_equal(got[1], pa)
         np.testing.assert_array_equal(got[2], pb)
         self.assertIsNone(got[3], "a picture with nobody in it stays empty")
+
+    def test_the_answers_masks_stand_where_their_boxes_are(self):
+        import numpy as np
+        cut = worker_module()
+        at, found = cut.found_in(sam_line(4, [(7, 10, 5, 8, 6)]), (64, 36))
+        self.assertEqual(at, 4)
+        got = np.unpackbits(found[7], axis=-1)[:, :64]
+        self.assertEqual(int(got.sum()), 48)
+        self.assertEqual(got[5:11, 10:18].min(), 1, "the mask at its box")
+        self.assertEqual(cut.found_in("not a frame", (64, 36)), (None, {}))
+        at, found = cut.found_in(sam_line(1, [(1, 60, 30, 8, 8)]), (64, 36))
+        self.assertEqual(int(np.unpackbits(found[1], axis=-1)[:, :64].sum()), 4 * 6, "a box past the edge is cut there")
 
     def test_the_worker_writes_the_person_joined_up(self):
         import types
