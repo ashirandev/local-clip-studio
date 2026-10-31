@@ -329,7 +329,8 @@ Detailed steps the input, the result and the engine numbers.
   0.3 s from a word, but only while nothing moves on the screen: the answer streaming in while the speaker waits is
   the payoff, not dead air. A game keeps every second. Muse is told what was cut and why.
 - **In a conversation, the clip cuts between the faces.** For two or more people talking, whoever speaks fills the
-  frame, with a short cut to the listener's reaction and to everyone when they laugh together. Two more layouts are
+  frame, with a short cut to the listener's reaction, and when they laugh together the frame stays on the one who spoke
+  last; ask, and it shows everyone instead. Two more layouts are
   there when you ask for everyone on screen at once: the others in circles in the top corner away from the speaker's
   head, or, for two people, the screen split into a top half and a bottom half, each person's captions under their
   own face (Tarm, 10-29, on a clip with circles: cut between faces instead). A Q&A's comment card is read like a tutorial's screen, and a viewer's handle on

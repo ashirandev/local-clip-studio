@@ -5971,7 +5971,7 @@ def cut_out(job, why, look=None, start=None, end=None):
 CUTOUT_LOOK_SAYS = {"grey": "the footage around the person is black and white, and the person keeps their colour",
                     "outline": "a white edge goes around the person"}
 CUTOUT_SPEAKER_SAYS = {"grey": "the footage is black and white around whoever speaks, who keeps their colour while "
-                               "they speak, everyone when they talk together",
+                               "they speak",
                        "outline": "a white edge goes around whoever speaks, while they speak"}
 BEHIND_SHARE = 0.05
 HIDDEN_MOST = 1 / 3.0
@@ -6985,13 +6985,14 @@ TOOLS = {t.name: t for t in [
                                  "goes. A circle stays round, in the middle of the box."}},
          ["part", "box"], move_part, changes=True),
     Tool("change_shot", "Changed a shot",
-         "In a talk clip, show one person, or everyone, from start to end: when the program cut to the wrong person, "
-         "when a reaction should be seen, or when the person asks. The shots around it are cut to make room.",
+         "In a talk clip, show one person from start to end: when the program cut to the wrong person, or when a "
+         "reaction should be seen. Show everyone only when the person asks for it. The shots around it are cut to make "
+         "room.",
          {"start": {"type": "number", "minimum": 0, "description": "From when, in seconds of the clip."},
           "end": {"type": "number", "minimum": 0, "description": "Until when, in seconds of the clip."},
           "show": {"type": "integer", "minimum": 0, "maximum": talk.MOST_PEOPLE,
                    "description": "The person to show, numbered from the left as make_clip listed them, or 0 for "
-                                  "everyone together."}},
+                                  "everyone together, when the person asks."}},
          ["start", "end", "show"], change_shot, changes=True),
     Tool("set_look", "Chose a colour look",
          "Grade the footage with one colour look: " + "; ".join("%s: %s" % kv for kv in LOOKS.items()) + ". It "

@@ -37,8 +37,9 @@ joke and the laugh after it.
 
 ## The clip
 
-- Layout: cut between the faces (talk): whoever speaks fills the frame, a short cut to the one listening for a
-  reaction, and to everyone when they laugh or talk together. Faces in circles over the picture (speaker) and two
+- Layout: cut between the faces (talk): whoever speaks fills the frame, with a short cut to the one listening for a
+  reaction. When they laugh or talk together the frame stays on the one who spoke last (Tarm, 10-31:
+  "นั่งคุยเอาแบบซูมเข้าคนที่พูด"), and everyone together only when the person asks. Faces in circles over the picture (speaker) and two
   people one above the other (split) only when the person asks for everyone to stay on the screen (Tarm, 10-29, on a
   clip with circles: "ถ้าจะคัต ต้อง cut สลับหน้า ไม่ใช่วาง layout แบบนี้"). Never leave a person who speaks off the
   screen: if a shot shows the wrong person, change who is shown then.

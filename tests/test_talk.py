@@ -76,6 +76,27 @@ class Turns(unittest.TestCase):
         shots, _ = talk.plan(None, [[0, 6]], said, persons(), read=laugh)
         self.assertEqual([s["show"] for s in shots], [2], "person 1 laughs for 1.5 s of person 2's 6 s line")
 
+    def test_a_laugh_holds_on_the_one_who_spoke_last_and_no_card_of_everyone_is_planned(self):
+        """Tarm 10-31, shown a small card of everyone beside a cut to one person: "นั่งคุยเอาแบบซูมเข้าคนที่พูด"."""
+        def laugh(rec, a, b, people):
+            return [[6.0] * 40 + [1.0] * 50, [1.0] * 20 + [6.0] * 40 + [1.0] * 30]
+
+        said = [{"from": 0.0, "to": 2.0}, {"from": 2.0, "to": 4.0}, {"from": 4.0, "to": 6.0}]
+        wins = talk.plan(None, [[0, 9]], said, persons(), read=laugh)[1]
+        self.assertIn(0, [w["who"] for w in wins], "the two move alike from 2 to 4 s")
+        shots = talk.plan(None, [[0, 9]], said, persons(), read=laugh)[0]
+        self.assertEqual([(s["from"], s["show"]) for s in shots], [(0.0, 1), (4.0, 2)],
+                         "person 1 spoke last, so the laugh stays on them until person 2 speaks")
+        self.assertNotIn("everyone", [p["name"] for p in talk.make((1280, 720), persons(), shots)["parts"]])
+
+    def test_a_clip_that_opens_on_a_laugh_starts_on_the_first_to_speak(self):
+        def laugh(rec, a, b, people):
+            return [[6.0] * 20 + [1.0] * 70, [6.0] * 40 + [1.0] * 50]
+
+        said = [{"from": 0.0, "to": 2.0}, {"from": 2.0, "to": 4.0}]
+        shots = talk.plan(None, [[0, 9]], said, persons(), read=laugh)[0]
+        self.assertEqual([s["show"] for s in shots], [2])
+
     def test_a_changed_shot_cuts_into_its_neighbours_and_joins_the_same_one(self):
         shots = [{"from": 0, "to": 10.2, "show": 1}, {"from": 10.2, "to": 20, "show": 2}]
         self.assertEqual(talk.with_shot(shots, 9, 10.2, 2), [{"from": 0, "to": 9, "show": 1},

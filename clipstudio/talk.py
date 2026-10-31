@@ -1,9 +1,10 @@
 """Two or more people talking (a podcast, an interview): the clip follows whoever speaks.
 
 Cropping one person of a conversation hides the other's reaction, and showing the whole picture makes everyone small.
-So the talk layout cuts between them the way an editor would: to whoever speaks, at the start of what they say; to
-the one listening for a short reaction during a long answer; and to all of them together, as a card across the
-middle, when they talk over each other or laugh.
+So the talk layout cuts between them the way an editor would: to whoever speaks, at the start of what they say, and to
+the one listening for a short reaction during a long answer. When they talk over each other or laugh, the frame stays
+on the one who spoke last. Tarm 10-31, shown a small card of everyone beside a cut to one person: "นั่งคุยเอาแบบซูมเข้าคนที่พูด".
+A card of all of them across the middle comes only when it is asked for.
 
 Who speaks is measured, never guessed. A person is a face that sits at the same place in the moment's pictures; their
 mouth area is the lower part of that face box. One FFmpeg pass reads every person's mouth area, small and grey, ten
@@ -31,8 +32,8 @@ import subprocess
 from . import faces, layouts
 
 W, H = layouts.W, layouts.H
-SAID = ("two or more people talking, such as a podcast or an interview: the clip cuts to whoever speaks, to the one "
-        "listening for a short reaction, and to everyone when they laugh or talk together")
+SAID = ("two or more people talking, such as a podcast or an interview: the clip cuts to whoever speaks and to the one "
+        "listening for a short reaction, and stays on the one who spoke last when they laugh or talk together")
 SPEAKER_SAID = ("two or more people talking, everyone on screen all the time: whoever speaks fills the frame and the "
                 "others stay in circles at the top, so a quick reply or a reaction is never missed; for quick turns "
                 "and reactions")
@@ -256,7 +257,8 @@ def plan(rec, pieces, said, persons, read=None, voices=None):
     clip: measured over each piece, a piece where one person speaks throughout makes their speaking their rest, so a
     listener who fidgets at a third of it scores within AHEAD of them and nobody is shown speaking. Clips cut at their
     silences have such pieces. With voices (voices.speakers), who speaks is taken from them, and the mouths only find
-    the listener's reactions; without, each heard line goes to one person (by_line)."""
+    the listener's reactions; without, each heard line goes to one person (by_line). No shot shows everyone: where they
+    move alike, it goes to the one who spoke last (without_everyone)."""
     read = read or motion
     wins, starts, joins, at = [], [], [], 0.0
     read_ = [read(rec, a, b, persons) for a, b in pieces]
@@ -274,7 +276,7 @@ def plan(rec, pieces, said, persons, read=None, voices=None):
         return [{"from": 0.0, "to": round(at, 3), "show": 1}], wins
     found = shots(wins, turns(wins, starts, joins[:-1]), len(persons))
     found[0]["from"], found[-1]["to"] = 0.0, round(at, 3)
-    return found, wins
+    return without_everyone(found), wins
 
 
 def without_everyone(shots_):
