@@ -4702,6 +4702,30 @@ def _where(lay, box):
     return out
 
 
+EFFECTS = ("hit", "sticker", "flurry", "sound", "picture", "push")
+
+
+def change_effect(job, why, what, called, at, to=None):
+    _open(job, "change an effect on")
+    state = _clip_state(job)
+    key, kept = ("start", "pushes") if what == "push" else ("at", {"hit": "hits", "sticker": "stickers", "flurry": "flurries",
+                                                                 "sound": "sounds", "picture": "pictures"}[what])
+    found = [x for x in state[kept] if abs(x[key] - at) < 0.01 and project.effect_name(what, x) == called]
+    if not found:
+        raise Refused("The clip has no %s \"%s\" at %g s; its %s: %s." % (what, called, at, kept, ", ".join(
+            "%s at %g s" % (project.effect_name(what, x), x[key]) for x in state[kept]) or "none"))
+    effect, length = found[0], state["length"]
+    if to is not None:
+        lasts = effect["end"] - effect["start"] if what == "push" else effect.get("length", 0)
+        if not 0 <= to < length or to + lasts > length:
+            raise Refused("It would run off the clip: a %s of %g s fits from 0 to %g s of the %g s clip." % (
+                what, lasts, round(length - lasts, 2), length))
+    job.edit({"do": "effect", "of": what, "name": called, "at": effect[key], "to": None if to is None else round(to, 2)})
+    if to is None:
+        return "The %s \"%s\" at %g s is off the clip." % (what, called, effect[key])
+    return "The %s \"%s\" moved from %g s to %g s." % (what, called, effect[key], to)
+
+
 def remove_title(job, why, words):
     rec = _open(job, "take words off")
     state = _clip_state(job)
@@ -6759,6 +6783,9 @@ def describe(entry):
             "moving the %s" % entry["part"]
     if entry["do"] == "untitle":
         return 'taking the title "%s" off' % entry["text"]
+    if entry["do"] == "effect":
+        return "%s the %s %s at %g s%s" % ("taking off" if entry.get("to") is None else "moving", entry["of"], entry["name"],
+                                           entry["at"], "" if entry.get("to") is None else " to %g s" % entry["to"])
     if entry["do"] == "look":
         return "the %s look" % entry["name"] if entry["name"] else "taking the look off"
     if entry["do"] == "channel":
@@ -7436,6 +7463,18 @@ TOOLS = {t.name: t for t in [
           "word": {"type": "string", "maxLength": 20,
                    "description": "For a word hit: the word, short, in the clip's language."}},
          ["at", "kind"], add_hit, changes=True),
+    Tool("change_effect", "Changed an effect",
+         "Take one effect off the clip, or move it to another second: a hit, sticker, flurry, sound, picture or slow "
+         "push, by its name and second as the clip's list says them. Use it when the person asks for one effect to go "
+         "or to come earlier or later. It keeps everything else about the effect.",
+         {"what": {"type": "string", "enum": list(EFFECTS), "description": "Which kind of effect."},
+          "called": {"type": "string", "maxLength": 300,
+                     "description": "A hit's or sound's kind, a sticker's name, a flurry's stickers joined by +, a "
+                                    "picture's words, or push."},
+          "at": {"type": "number", "minimum": 0, "description": "The second it is at now, in seconds of the clip."},
+          "to": {"type": "number", "minimum": 0,
+                 "description": "The second to move it to. Leave it out to take the effect off."}},
+         ["what", "called", "at"], change_effect, changes=True),
     Tool("add_sticker", "Put a sticker on",
          "Put one of the studio's stickers on the clip: a 3D emoji picture that pops in, holds and fades out, such "
          "as fire on the peak, money_bag on a price, thumbs_up on a good result. One or two in a clip, on the "

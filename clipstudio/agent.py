@@ -43,10 +43,10 @@ import threading
 import time
 import traceback
 
-from . import (asr, channels, chatname, countdown, faces, hearing, layer, layouts, maps, mind, montage, needs, previews,
+from . import (asr, channels, chatname, countdown, effects, faces, hearing, layer, layouts, maps, mind, montage, needs, previews,
                project, recording, render, spent, talk, text, words)
-from .tools import (CAPTION_LETTERS, SCRIPTS, LONGEST, LOUD_CUT, MOVED_CUTS, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST,
-                    STYLES, TOOLS, UNASKED, ALBUM_PARTS, ALBUM_TOOLS, Refused, _changed_clips, _circle_box, _spoken, _subtitles,
+from .tools import (CAPTION_LETTERS, HITS, SCRIPTS, LONGEST, LOUD_CUT, MOVED_CUTS, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST,
+                    SOUNDS, STYLES, TOOLS, UNASKED, ALBUM_PARTS, ALBUM_TOOLS, Refused, _changed_clips, _circle_box, _spoken, _subtitles,
                     _undecided, _waits, album_entries, channel_entries, channel_unfit, describe, faces_at,
                     features, look_of, look_said)
 
@@ -87,6 +87,9 @@ COLOUR_LOOKS = ("none",) + tuple(n for n in LOOKS if n != "none")
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"(])")
 PREVIEW_WAIT = 1.0
 TAP_SAID = "(tapped) "
+BLOCK_LENGTH = 0.6
+EFFECT_PLACES = ("middle", "top")
+EFFECT_BOXES = ((300, 700, 700, 880), (300, 420, 700, 600), (60, 620, 400, 780), (600, 620, 940, 780))
 COVER_SAID = re.compile(r"(?i)\bcovers?\b|หน้าปก|ภาพปก|ปกพร้อม|ปกคลิป|ปกให้|ปกของ|ปกสวย")
 NO_COVER = ("[studio] Your answer speaks of the clip's cover, but no cover is made for the finished clip. Answer the "
             "person again without saying it has one; if they want one, they can tap Make the cover or ask for it.")
@@ -395,7 +398,8 @@ class Chat:
                 "styles": choices("style", STYLES, lambda n: LOOK_LABELS.get(n, n.capitalize()), "set_style",
                                   lambda n: {"style": n}),
                 "looks": choices("look", COLOUR_LOOKS, str.capitalize, "set_look", lambda n: {"look": n}),
-                "words": self.words_on(state), "again": bool(self.rendered) and self.finished() is None,
+                "words": self.words_on(state), "effects": self.effects_on(state), "offered": self.effects_offered(),
+                "parts": self.parts_now(state), "again": bool(self.rendered) and self.finished() is None,
                 "making": self.making is not None, "channels": self.channels_now(state),
                 "sound": {"mutes": state["mutes"], "has": self.has_sound()}, "ends": self.ends(state),
                 "frame": self.framing(state), "layouts": self.layouts_now(state), "album": self.album_now(),
@@ -534,6 +538,92 @@ class Chat:
                             "start": mine[0]["from"], "end": mine[-1]["to"],
                             "typed": any(ln.get("typed") for ln in mine)})
         return sorted(out, key=lambda b: (b["start"], b["kind"]))
+
+    def effects_on(self, state):
+        """Every effect on the clip as a block the timeline places by its time, {"of", "name", "label", "start", "end"}
+        (Tarm 11-01: every step of Muse's is the person's to change before they export). A hit or a sound has no length
+        of its own; its end only gives the block a width."""
+        length, out = state["length"], []
+
+        def block(of, x, label, start, end):
+            out.append({"of": of, "name": project.effect_name(of, x), "label": label, "start": start,
+                        "end": round(min(end, length), 2)})
+
+        for h in state["hits"]:
+            block("hit", h, h.get("word") or h["kind"].capitalize(), h["at"], h["at"] + BLOCK_LENGTH)
+        for s in state["sounds"]:
+            block("sound", s, s["kind"].capitalize(), s["at"], s["at"] + BLOCK_LENGTH)
+        for k in state["stickers"]:
+            name = project.effect_name("sticker", k)
+            block("sticker", k, name.replace("_", " ").capitalize(), k["at"], k["at"] + k["length"])
+        for f in state["flurries"]:
+            name = project.effect_name("flurry", f)
+            block("flurry", f, name.replace("_", " ").capitalize(), f["at"], f["at"] + (f.get("length") or BLOCK_LENGTH))
+        for p in state["pictures"]:
+            block("picture", p, p["about"], p["at"], p["at"] + p["length"])
+        for p in state["pushes"]:
+            block("push", p, "Slow push", p["start"], p["end"])
+        return sorted(out, key=lambda b: (b["start"], b["of"]))
+
+    def effects_offered(self):
+        """What the page's Effects sheet offers to put on at the second the person chose: the very kinds and stickers
+        Muse chooses from, so the page and Muse never disagree."""
+        return {"hits": [{"name": k, "says": v} for k, v in HITS.items()],
+                "sounds": [{"name": k, "says": v} for k, v in SOUNDS.items()],
+                "stickers": [{"name": s["name"], "says": s["en"]} for s in effects.stickers()]}
+
+    def parts_now(self, state):
+        """The parts of the frame a person can move or size, each with its box on the 0-1000 grid of the frame, or []
+        for a talk clip, which cuts between the people."""
+        lay = state["clip"]["layout"]
+        if lay["kind"] in TALK_KINDS:
+            return []
+        return [{"name": p["name"], "box": [round(p["dst"][0] * 1000 / layouts.W), round(p["dst"][1] * 1000 / layouts.H),
+                                            round((p["dst"][0] + p["dst"][2]) * 1000 / layouts.W),
+                                            round((p["dst"][1] + p["dst"][3]) * 1000 / layouts.H)]}
+                for p in lay["parts"] if p.get("dst")]
+
+    def set_effect(self, of, name, at, to=None):
+        """The person's hand on one effect on the timeline: change_effect's own edit, taking it off, or moving it to the
+        second to. Undo takes it back, and Muse is told. Returns None, or the sentence why not."""
+        self._clip_now()
+        refused, entry = self.tap("change_effect", what=of, called=name, at=at, **({} if to is None else {"to": to}))
+        if entry:
+            self._tell("the person changed the clip on the page: %s" % describe(entry))
+        return refused
+
+    def add_effect(self, of, name, at, word=None):
+        """The person's tap in the Effects sheet: the tool Muse would call, at the second they chose. A sticker or a
+        burst goes in the first of the layout's places clear of faces and titles, or the first clear spot of
+        EFFECT_BOXES, as a card's only place holds its title. Returns None, or the sentence why not."""
+        state = self._clip_now()
+        if of == "hit":
+            tries = [("add_hit", dict({"kind": name, "at": at}, **({"word": word} if word else {})))]
+        elif of == "sound":
+            tries = [("add_sound", {"kind": name, "at": at})]
+        elif of in ("sticker", "flurry"):
+            places = sorted(state["clip"]["layout"]["places"], key=lambda p: (p not in EFFECT_PLACES, p))
+            spots = [{"place": p} for p in places] + [{"box": list(b)} for b in EFFECT_BOXES]
+            tries = [("add_sticker", dict(s, sticker=name, at=at)) if of == "sticker" else
+                     ("add_flurry", dict(s, stickers=[name], at=at)) for s in spots]
+        else:
+            return "Choose a hit, a sound, a sticker or a burst."
+        refused = None
+        for tool, args in tries:
+            refused, entry = self.tap(tool, **args)
+            if entry:
+                self._tell("the person added to the clip on the page: %s" % describe(entry))
+                return None
+        return refused
+
+    def set_part(self, name, box):
+        """The person's tap on Bigger, Smaller, Up or Down for a part of the frame: move_part's own edit. Undo takes it
+        back, and Muse is told. Returns None, or the sentence why not."""
+        self._clip_now()
+        refused, entry = self.tap("move_part", part=name, box=box)
+        if entry:
+            self._tell("the person moved the %s on the page to %s on the grid" % (name, box))
+        return refused
 
     def set_captions(self, mode):
         """The person's tap on Off, Plain, Lit or Pop beside the clip: add_captions's own edit, made at once without

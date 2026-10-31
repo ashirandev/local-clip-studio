@@ -208,6 +208,14 @@
   "show": "sticker"
  },
  {
+  "tool": "change_effect",
+  "group": "Effects",
+  "name": "Take off or move an effect",
+  "says": "Any effect on the clip comes off or moves to another second, and the rest stays. On the timeline you can do the same by hand.",
+  "ask": "Take off the shake, and move the fire to the end.",
+  "show": "sticker"
+ },
+ {
   "tool": "add_picture",
   "group": "Effects",
   "name": "Picture of what you talk about",

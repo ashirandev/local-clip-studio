@@ -50,6 +50,10 @@ computer only.
 - POST /api/ends {chat, start, end}: the clip starts and ends there, in seconds of the recording: change_ends, run in
   the background ({"ok": true} once it has started); a "moved" event says when the clip is made, a "not_moved" event
   why it was not
+- GET /api/sticker/<name>.png: a sticker of the studio's, for the Effects sheet
+- POST /api/effect {chat, of, name, at, to?} or {chat, add: true, of, name, at, word?}: one effect taken off or moved
+  on the timeline, or put on at the second the person chose, by the tool Muse would call
+- POST /api/part {chat, part, box}: a part of the frame moved or sized, box on the 0-1000 grid of the clip's frame
 - POST /api/frame {chat, x}: the upright frame holds with its left edge at x pixels of the recording (Chat.set_frame)
 - POST /api/shot {chat, start, end, show, x, y}: a talk clip's shot from start to end s shows person show (0: everyone),
   its frame's left top at x, y pixels of the recording when given (Chat.set_shot)
@@ -108,6 +112,7 @@ PREVIEW = re.compile(r"^/api/preview/([0-9a-f]{16}\.mp4)$")
 CLIP = re.compile(r"^/api/clip/([0-9a-f]{16}\.mp4)$")
 MOVE = re.compile(r"^/api/move/([a-z]+)\.mp4$")
 POSTER = re.compile(r"^/api/clip/([0-9a-f]{16})\.jpg$")
+STICKER = re.compile(r"^/api/sticker/([a-z0-9_]+\.png)$")
 LOOK = re.compile(r"^/api/look/([0-9a-z]+)\.png$")
 LAYER = re.compile(r"^/api/layer/([0-9a-f]{20}\.png)$")
 COVER = re.compile(r"^/api/cover/([0-9a-f]{16}(?:\.[0-9]{1,4})?\.jpg)$")
@@ -117,7 +122,8 @@ RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 CHANGES = ("/api/captions", "/api/style", "/api/colour", "/api/words", "/api/remake", "/api/channel",
            "/api/channel/save", "/api/mute", "/api/ends", "/api/title/time", "/api/frame", "/api/shot", "/api/layout",
            "/api/album",
-           "/api/album/look", "/api/album/back", "/api/album/make", "/api/tagline", "/api/circle")
+           "/api/album/look", "/api/album/back", "/api/album/make", "/api/tagline", "/api/circle", "/api/effect",
+           "/api/part")
 TIMES = {"/api/mute": "Send the start and the end of the part to mute, in seconds of the clip.",
          "/api/ends": "Send the new start and end of the clip, in seconds of the recording.",
          "/api/shot": "Send the shot's start and end, in seconds of the clip.",
@@ -174,6 +180,8 @@ class Handler(BaseHTTPRequestHandler):
                             download=query.get("download") == "1")
         elif POSTER.match(path):
             self.send_poster(POSTER.match(path).group(1))
+        elif STICKER.match(path):
+            self.send_picture(effects.STICKERS, STICKER.match(path).group(1))
         elif MOVE.match(path):
             self.send_move(MOVE.match(path).group(1))
         elif path == "/api/clipframe":
@@ -308,6 +316,24 @@ class Handler(BaseHTTPRequestHandler):
                 why = chat.set_tagline(str(body.get("words") or ""), body.get("spot") or None)
             elif path == "/api/circle":
                 why = chat.set_circle(str(body.get("spot") or ""))
+            elif path == "/api/effect":
+                at, to = body.get("at"), body.get("to")
+                if not isinstance(at, (int, float)) or isinstance(at, bool) or \
+                        (to is not None and (not isinstance(to, (int, float)) or isinstance(to, bool))):
+                    why = "Send which effect: its kind, its name and its second."
+                elif body.get("add") is True:
+                    why = chat.add_effect(str(body.get("of") or ""), str(body.get("name") or ""), float(at),
+                                          str(body.get("word") or "") or None)
+                else:
+                    why = chat.set_effect(str(body.get("of") or ""), str(body.get("name") or ""), float(at),
+                                          None if to is None else float(to))
+            elif path == "/api/part":
+                box = body.get("box")
+                if not isinstance(box, list) or len(box) != 4 or \
+                        not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in box):
+                    why = "Send where the part goes: [x1, y1, x2, y2] on the 0-1000 grid of the frame."
+                else:
+                    why = chat.set_part(str(body.get("part") or ""), box)
             elif path == "/api/frame":
                 x = body.get("x")
                 why = chat.set_frame(float(x)) if isinstance(x, (int, float)) and not isinstance(x, bool) and abs(x) < 1e9 else                     "Send where the frame's left edge goes, in pixels of the recording."

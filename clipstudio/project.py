@@ -60,7 +60,7 @@ import json
 import os
 
 DOES = ("clip", "style", "title", "captions", "blur", "hit", "sticker", "people", "look", "push", "layout", "untitle",
-        "sound", "music", "glass", "mask", "cutout", "channel", "flurry", "mute", "picture", "backdrop", "eye")
+        "sound", "music", "glass", "mask", "cutout", "channel", "flurry", "mute", "picture", "backdrop", "eye", "effect")
 MADE_BY = ("clipstudio", "cutting", "fonts", "stickers")
 
 
@@ -149,6 +149,19 @@ class Project:
                 flurries = [f for f in flurries if not _same_box(f, e, "at", "length")] + [e]
             elif e["do"] == "untitle":
                 titles = [t for t in titles if t["text"] != e["text"]]
+            elif e["do"] == "effect":
+                if e["of"] == "hit":
+                    hits = _changed(hits, e, _near)
+                elif e["of"] == "sound":
+                    sounds = _changed(sounds, e, _near)
+                elif e["of"] == "sticker":
+                    stickers = _changed(stickers, e, lambda a, b: _same_box(a, b, "at", "length"))
+                elif e["of"] == "flurry":
+                    flurries = _changed(flurries, e, lambda a, b: _same_box(a, b, "at", "length"))
+                elif e["of"] == "picture":
+                    pictures = _changed(pictures, e, _crossing)
+                else:
+                    pushes = _changed(pushes, e, lambda a, b: a["start"] < b["end"] and b["start"] < a["end"])
             elif e["do"] == "layout":
                 clip = dict(clip, layout=e["layout"]) if clip else None
             elif e["do"] == "look":
@@ -203,6 +216,39 @@ class Project:
                 "channel": channel if clip else None,
                 "cutouts": sorted([c for c in cutouts if inside(c["start"])], key=lambda c: c["start"]),
                 "mutes": mutes}
+
+
+def effect_name(of, effect):
+    """What tells one effect from another at the same second: a hit's or a sound's kind, a sticker's file, a flurry's
+    stickers, a picture's words. A slow push has no name, as two never cross."""
+    if of in ("hit", "sound"):
+        return effect["kind"]
+    if of == "sticker":
+        return os.path.splitext(os.path.basename(effect["png"]))[0]
+    return "+".join(effect["names"]) if of == "flurry" else effect["about"] if of == "picture" else "push"
+
+
+def _near(a, b):
+    return a["kind"] == b["kind"] and abs(a["at"] - b["at"]) < 0.5
+
+
+def _crossing(a, b):
+    return a["at"] < b["at"] + b["length"] and b["at"] < a["at"] + a["length"]
+
+
+def _changed(items, e, clash):
+    """items without the effect e names, or with it at e["to"]: the person's hand on one effect (Tarm 11-01: every step
+    of Muse's is theirs to change on the timeline before they export). One moved onto another of its kind replaces
+    it, as adding it there would."""
+    key = "start" if e["of"] == "push" else "at"
+    mine = [x for x in items if abs(x[key] - e["at"]) < 0.01 and effect_name(e["of"], x) == e["name"]]
+    rest = [x for x in items if not any(x is m for m in mine)]
+    if e.get("to") is None or not mine:
+        return rest
+    moved = dict(mine[0], **{key: e["to"]})
+    if e["of"] == "push":
+        moved["end"] = round(moved["end"] + e["to"] - e["at"], 2)
+    return [x for x in rest if not clash(x, moved)] + [moved]
 
 
 def _carried(decided, old, new):

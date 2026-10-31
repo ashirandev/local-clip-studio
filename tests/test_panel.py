@@ -153,6 +153,92 @@ class Panel(Clip):
         self.assertEqual(self.chat.set_captions("plain"), why["plain"])
         self.assertEqual(self.chat.project.entries, had)
 
+    def test_every_effect_is_a_block_and_the_person_takes_one_off_and_undo_puts_it_back(self):
+        self.make(SAID, call("add_hit", at=3, kind="shake", why="the fall"), call("add_sound", kind="ding", at=5, why="a price"),
+                  call("add_sticker", sticker="fire", at=9, place="top", why="the peak"),
+                  call("slow_push", start=6, end=9, why="the build"))
+        blocks = self.chat.panel()["effects"]
+        self.assertEqual([(b["of"], b["name"], b["start"]) for b in blocks],
+                         [("hit", "shake", 3), ("sound", "ding", 5), ("push", "push", 6), ("sticker", "fire", 9)])
+        self.assertEqual([b["end"] for b in blocks if b["of"] == "push"], [9])
+        self.assertIsNone(self.chat.set_effect("hit", "shake", 3))
+        self.assertEqual(self.chat.project.state()["hits"], [])
+        self.assertNotIn("hit", [b["of"] for b in self.chat.panel()["effects"]])
+        self.assertTrue(any("taking off the hit shake" in t for t in self.chat.told))
+        self.assertIsNotNone(self.chat.undo())
+        self.assertEqual([h["at"] for h in self.chat.project.state()["hits"]], [3])
+
+    def test_the_person_moves_an_effect_and_one_of_its_kind_there_is_replaced(self):
+        self.make(SAID, call("add_hit", at=3, kind="shake", why="the fall"), call("add_hit", at=8, kind="shake", why="the end"),
+                  call("add_hit", at=8, kind="flash", why="the end"))
+        self.assertIsNone(self.chat.set_effect("hit", "shake", 3, 8.2))
+        self.assertEqual([(h["kind"], h["at"]) for h in self.chat.project.state()["hits"]], [("flash", 8), ("shake", 8.2)])
+        self.chat.undo()
+        self.assertEqual([(h["kind"], h["at"]) for h in self.chat.project.state()["hits"]],
+                         [("shake", 3), ("shake", 8), ("flash", 8)])
+
+    def test_a_slow_push_moves_whole(self):
+        self.make(SAID, call("slow_push", start=2, end=5, why="the build"))
+        self.assertIsNone(self.chat.set_effect("push", "push", 2, 7))
+        self.assertEqual([(p["start"], p["end"]) for p in self.chat.project.state()["pushes"]], [(7, 10)])
+
+    def test_an_effect_that_would_run_off_the_clip_or_is_not_there_is_refused_with_the_tools_reason(self):
+        self.make(SAID, call("add_sticker", sticker="fire", at=9, place="top", length=3, why="the peak"))
+        length = self.chat.project.state()["length"]
+        self.assertIn("run off the clip", self.chat.set_effect("sticker", "fire", 9, length - 1))
+        self.assertIn("run off the clip", self.chat.set_effect("sticker", "fire", 9, length))
+        self.assertIn("no hit", self.chat.set_effect("hit", "shake", 2))
+        self.assertEqual([k["at"] for k in self.chat.project.state()["stickers"]], [9])
+
+    def test_the_person_adds_what_muse_could_at_the_second_they_chose(self):
+        self.make()
+        self.assertIsNone(self.chat.add_effect("hit", "flash", 4))
+        self.assertIsNone(self.chat.add_effect("hit", "word", 6, "POW"))
+        self.assertIsNone(self.chat.add_effect("sound", "whoosh", 4))
+        self.assertIsNone(self.chat.add_effect("sticker", "fire", 9))
+        self.assertIsNone(self.chat.add_effect("flurry", "fire", 12))
+        state = self.chat.project.state()
+        self.assertEqual([(h["kind"], h["at"]) for h in state["hits"]], [("flash", 4), ("word", 6)])
+        self.assertEqual([h["word"] for h in state["hits"]], [None, "POW"])
+        self.assertEqual([s["kind"] for s in state["sounds"]], ["whoosh"])
+        self.assertEqual(len(state["stickers"]) + len(state["flurries"]), 2)
+        self.assertIn("word", self.chat.add_effect("hit", "word", 7))
+        self.assertIsNone(self.chat.add_effect("sticker", "star", 3))
+        self.assertEqual(len(self.chat.project.state()["stickers"]) + len(self.chat.project.state()["flurries"]), 3)
+        offered = self.chat.panel()["offered"]
+        self.assertEqual([h["name"] for h in offered["hits"]], list(tools.HITS))
+        self.assertIn("fire", [s["name"] for s in offered["stickers"]])
+
+    def test_a_sticker_goes_to_a_spare_spot_when_the_layouts_places_are_taken(self):
+        self.make()
+        tried = []
+
+        def tap(name, trial=False, **args):
+            tried.append(args)
+            return ("Taken.", None) if "box" not in args else (None, {"do": "hit", "kind": "flash", "at": 3, "word": None})
+
+        with mock.patch.object(self.chat, "tap", tap):
+            self.assertIsNone(self.chat.add_effect("sticker", "fire", 3))
+        self.assertEqual(tried[-1]["box"], list(agent.EFFECT_BOXES[0]))
+
+    def test_a_part_of_the_frame_goes_where_the_person_put_it_and_undo_takes_it_back(self):
+        self.make()
+        before = self.chat.panel()["parts"]
+        self.assertEqual([p["name"] for p in before], ["whole"])
+        self.assertIsNone(self.chat.set_part("whole", [0, 100, 1000, 900]))
+        after = self.chat.panel()["parts"]
+        self.assertEqual(after[0]["box"], [0, 100, 1000, 900])
+        self.assertTrue(any("moved the whole" in t for t in self.chat.told))
+        self.assertIn("not in", self.chat.set_part("card", [0, 100, 1000, 900]))
+        self.chat.undo()
+        self.assertEqual(self.chat.panel()["parts"], before)
+
+    def test_a_talk_clip_offers_no_parts_to_move(self):
+        self.make()
+        state = self.chat.project.state()
+        state["clip"] = dict(state["clip"], layout=dict(state["clip"]["layout"], kind="talk"))
+        self.assertEqual(self.chat.parts_now(state), [])
+
     def test_a_tap_makes_the_tools_edit_at_once_and_undo_takes_it_back(self):
         self.make()
         for tap in (lambda: self.chat.set_captions("lit"), lambda: self.chat.set_style("pop"),
@@ -919,6 +1005,26 @@ class Endpoints(Served):
         self.assertTrue(self.chat.project.state()["captions"]["pop"])
         self.assertEqual(self.ask("POST", "/api/captions", {"chat": "nope", "mode": "pop"})[0], 404)
         self.assertEqual(self.ask("POST", "/api/style", {"chat": self.chat.id, "style": "pop"}, "text/plain")[0], 415)
+
+    def test_an_effect_changes_and_a_part_moves_with_a_post_and_a_sticker_is_served(self):
+        self.make(SAID, call("add_hit", at=3, kind="shake", why="the fall"))
+        chat = self.chat.id
+        self.assertEqual(self.ask("POST", "/api/effect", {"chat": chat, "of": "hit", "name": "shake", "at": 3, "to": 5}),
+                         (200, {"ok": True}))
+        self.assertEqual([h["at"] for h in self.chat.project.state()["hits"]], [5])
+        self.assertEqual(self.ask("POST", "/api/effect", {"chat": chat, "of": "hit", "name": "shake", "at": 5}),
+                         (200, {"ok": True}))
+        self.assertEqual(self.chat.project.state()["hits"], [])
+        self.assertEqual(self.ask("POST", "/api/effect", {"chat": chat, "add": True, "of": "sound", "name": "ding", "at": 4}),
+                         (200, {"ok": True}))
+        self.assertEqual([s["kind"] for s in self.chat.project.state()["sounds"]], ["ding"])
+        self.assertEqual(self.ask("POST", "/api/effect", {"chat": chat, "of": "hit", "name": "shake", "at": "soon"})[0], 400)
+        self.assertEqual(self.ask("POST", "/api/effect", {"chat": chat, "add": True, "of": "song", "name": "x", "at": 4})[0], 400)
+        self.assertEqual(self.ask("POST", "/api/part", {"chat": chat, "part": "whole", "box": [0, 100, 1000, 900]}),
+                         (200, {"ok": True}))
+        self.assertEqual(self.ask("POST", "/api/part", {"chat": chat, "part": "whole", "box": [0, 100]})[0], 400)
+        self.assertEqual(self.fetch("/api/sticker/fire.png")[0], 200)
+        self.assertEqual(self.ask("GET", "/api/sticker/nope.png")[0], 404)
 
     def test_a_part_is_muted_with_a_post_of_its_seconds_and_muse_is_told(self):
         self.make(SAID, call("add_captions", why="say it"))

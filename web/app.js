@@ -93,9 +93,9 @@ const phoneFiles = $("phoneFiles");
 const attached = $("attached");
 const idle = text.placeholder;
 
-const SHEETS = { album: ["film", "Album"], layout: ["stack", "Layout"], trim: ["cut", "Trim"], frame: ["move", "Frame"], caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
-const EDITS = ["layout", "trim", "frame", "caps", "style", "look", "sound", "words", "channel", "album"];
-const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_ends: "cut", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", match_album: "film", move_part: "move", mute_sound: "mute", no_chat_box: "blur", open_clip: "film", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_album: "gear", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", set_tagline: "at", show_people: "people", slow_push: "move", undo: "undo", undo_album: "undo", use_channel_look: "at", watch_piece: "eye" };
+const SHEETS = { fx: ["spark", "Effects"], album: ["film", "Album"], layout: ["stack", "Layout"], trim: ["cut", "Trim"], frame: ["move", "Frame"], caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
+const EDITS = ["layout", "trim", "frame", "caps", "style", "look", "fx", "sound", "words", "channel", "album"];
+const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_ends: "cut", change_effect: "sticker", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", match_album: "film", move_part: "move", mute_sound: "mute", no_chat_box: "blur", open_clip: "film", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_album: "gear", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", set_tagline: "at", show_people: "people", slow_push: "move", undo: "undo", undo_album: "undo", use_channel_look: "at", watch_piece: "eye" };
 
 const room = { mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false, layout: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null, sends: false };
 
@@ -1301,6 +1301,9 @@ function drawPanel(d) {
   partTabs.querySelector('[data-show="frame"]').hidden = !d.frame || Boolean(d.frame.why);
   partTabs.querySelector('[data-show="layout"]').hidden = !d.layouts;
   partTabs.querySelector('[data-show="album"]').hidden = !d.album;
+  partTabs.querySelector('[data-show="fx"]').hidden = !d.offered;
+  if (d.offered) drawEffects(d);
+  drawFrameParts(d);
   if (d.album) drawAlbumPanel(d);
   const circle = $("circleRow");
   circle.hidden = $("circleHead").hidden = !d.circle;
@@ -1406,6 +1409,7 @@ const pickBar = $("pickBar");
 const pickSays = $("pickSays");
 const pickBack = $("pickBack");
 const pickWords = $("pickWords");
+const pickOff = $("pickOff");
 const pickGo = $("pickGo");
 
 function tenths(t) {
@@ -1669,6 +1673,9 @@ function pickShown(c) {
 }
 
 function tapShot(s) {
+  room.pick = room.fx = null;
+  room.pickWhy = "";
+  drawPicked();
   if (sheet.hidden || room.part !== "frame") openSheet("frame");
   pickShot(s);
 }
@@ -1918,12 +1925,16 @@ function pickedTitle() {
 function drawPick() {
   const b = pickedTitle();
   const e = room.panel && room.panel.ends;
-  const trimming = Boolean(!b && e && room.trim);
+  const f = b ? null : pickedEffect();
+  const trimming = Boolean(!b && !f && e && room.trim);
   pickWords.hidden = !b;
+  pickOff.hidden = !f;
   pickBack.hidden = pickGo.hidden = !trimming;
-  pickBar.hidden = !b && !trimming;
+  pickBar.hidden = !b && !f && !trimming;
   if (b) {
     pickSays.textContent = room.pickWhy || b.start.toFixed(1) + "–" + b.end.toFixed(1) + " s · drag its ends";
+  } else if (f) {
+    pickSays.textContent = room.pickWhy || f.label + " at " + f.start.toFixed(1) + " s · drag it to move";
   } else if (trimming) {
     pickSays.textContent = trimWhy.hidden ? "New: " + (room.trim.end - room.trim.start).toFixed(1) + " s" : trimWhy.textContent;
     pickGo.disabled = trimGo.disabled;
@@ -1946,12 +1957,223 @@ function drawPicked() {
       node.appendChild(g);
     });
   });
+  lanes.querySelectorAll(".lane.effect .block").forEach((node) => {
+    const on = node.dataset.key === room.fx;
+    node.classList.toggle("picked", on);
+    node.setAttribute("aria-pressed", String(on));
+  });
   drawPick();
 }
+
+function fxKey(b) {
+  return b.of + "|" + b.name + "|" + b.start;
+}
+
+function pickedEffect() {
+  if (!room.fx || !room.panel) return null;
+  return (room.panel.effects || []).find((b) => fxKey(b) === room.fx) || null;
+}
+
+function drawEffectLane(d) {
+  if (!d.effects || !d.effects.length) return;
+  const lane = el("div", "lane effect");
+  lane.setAttribute("role", "group");
+  lane.setAttribute("aria-label", "Effects");
+  const track = el("div", "track");
+  const row = rows(d.effects);
+  track.style.height = (Math.max(...row) + 1) * 30 + "px";
+  d.effects.forEach((b, i) => {
+    const node = el("button", "block " + b.of, b.label);
+    node.type = "button";
+    node.title = b.label;
+    node.style.left = (100 * b.start / d.length) + "%";
+    node.style.width = (100 * (b.end - b.start) / d.length) + "%";
+    node.style.top = row[i] * 30 + "px";
+    node.dataset.key = fxKey(b);
+    node.setAttribute("aria-label", b.of + " " + b.label + " at " + b.start.toFixed(1) + " s");
+    node.addEventListener("pointerdown", (e) => effectDrag(e, b, node));
+    node.addEventListener("click", () => tapEffect(b));
+    track.appendChild(node);
+  });
+  lane.append(ico("spark", "sm lane-ico"), track);
+  lanes.appendChild(lane);
+}
+
+function tapEffect(b) {
+  if (room.dragged) return;
+  room.pickWhy = "";
+  room.pick = null;
+  room.fx = fxKey(b);
+  seek(b.start);
+  drawPicked();
+}
+
+function effectDrag(e, b, node) {
+  room.dragged = false;
+  const box = node.parentNode.getBoundingClientRect();
+  const length = room.panel.length;
+  const last = length - Math.max(b.end - b.start, 0.1);
+  const lasts = b.of === "hit" || b.of === "sound" ? length - 0.1 : last;
+  const x0 = e.clientX;
+  let t = b.start;
+  const move = (ev) => {
+    if (Math.abs(ev.clientX - x0) > 3) room.dragged = true;
+    if (!room.dragged) return;
+    t = Math.round(Math.max(0, Math.min(lasts, b.start + (ev.clientX - x0) / box.width * length)) * 10) / 10;
+    node.style.left = (100 * t / length) + "%";
+    pickSays.textContent = t.toFixed(1) + " s · let go to keep it";
+    seek(t);
+  };
+  const up = async () => {
+    const dragged = room.dragged;
+    setTimeout(() => (room.dragged = false), 0);
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", up);
+    if (!dragged || t === b.start) return;
+    room.fx = fxKey(Object.assign({}, b, { start: t }));
+    await changeEffect({ of: b.of, name: b.name, at: b.start, to: t }, "The effect could not be moved.");
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+  window.addEventListener("pointercancel", up);
+}
+
+async function changeEffect(body, failed) {
+  try {
+    const d = await post("/api/effect", Object.assign({ chat: room.chat }, body));
+    room.pickWhy = d.ok ? "" : d.error || failed;
+  } catch (err) {
+    room.pickWhy = "The studio is not answering. Start it again with: python app.py";
+  }
+  loadPanel();
+}
+
+pickOff.addEventListener("click", async () => {
+  const f = pickedEffect();
+  if (!f) return;
+  room.fx = null;
+  await changeEffect({ of: f.of, name: f.name, at: f.start }, "The effect could not be taken off.");
+});
+
+function fxAt() {
+  const v = frameBox.querySelector("video");
+  return room.made ? Number(clipAt.value) || 0 : v ? v.currentTime : 0;
+}
+
+function sayFxAt() {
+  $("fxSays").textContent = "Goes on at " + fxAt().toFixed(1) + " s. Move along the clip to choose the second.";
+}
+
+async function addEffect(body) {
+  const why = $("fxWhy");
+  why.hidden = true;
+  try {
+    const d = await post("/api/effect", Object.assign({ chat: room.chat, add: true, at: fxAt() }, body));
+    if (!d.ok) {
+      why.textContent = d.error || "It could not be put on.";
+      why.hidden = false;
+    }
+  } catch (err) {
+    why.textContent = "The studio is not answering. Start it again with: python app.py";
+    why.hidden = false;
+  }
+  loadPanel();
+}
+
+function drawEffects(d) {
+  const named = (list) => list.map((x) => ({ name: x.name, label: x.name.charAt(0).toUpperCase() + x.name.slice(1), now: false, why: null }));
+  drawChoices($("fxHits"), $("fxWhy"), named(d.offered.hits), (x) => {
+    if (x.name === "word") {
+      $("fxWordForm").hidden = false;
+      $("fxWord").focus();
+    } else {
+      addEffect({ of: "hit", name: x.name });
+    }
+  }, false);
+  drawChoices($("fxSounds"), $("fxWhy"), named(d.offered.sounds), (x) => addEffect({ of: "sound", name: x.name }), false);
+  const how = room.fxHow || "sticker";
+  drawChoices($("fxHow"), $("fxWhy"), [{ name: "sticker", label: "One", now: how === "sticker", why: null }, { name: "flurry", label: "Burst", now: how === "flurry", why: null }], (x) => {
+    room.fxHow = x.name;
+    drawEffects(room.panel);
+  }, false);
+  const box = $("fxStickers");
+  if (!box.children.length) {
+    d.offered.stickers.forEach((s) => {
+      const b = el("button");
+      b.type = "button";
+      b.title = s.says;
+      b.setAttribute("aria-label", s.says);
+      const pic = el("img");
+      pic.src = "/api/sticker/" + s.name + ".png";
+      pic.alt = "";
+      pic.loading = "lazy";
+      b.appendChild(pic);
+      b.addEventListener("click", () => addEffect({ of: room.fxHow || "sticker", name: s.name }));
+      box.appendChild(b);
+    });
+  }
+  sayFxAt();
+}
+
+$("fxWordForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const word = $("fxWord").value.trim();
+  if (!word) return;
+  $("fxWordForm").hidden = true;
+  $("fxWord").value = "";
+  addEffect({ of: "hit", name: "word", word });
+});
+
+function drawFrameParts(d) {
+  const list = d.parts || [];
+  const pick = $("partPick");
+  $("partHead").hidden = pick.hidden = $("partRow").hidden = !list.length;
+  if (!list.length) return;
+  if (!list.some((p) => p.name === room.partName)) room.partName = list[0].name;
+  drawChoices(pick, $("partWhy"), list.map((p) => ({ name: p.name, label: p.name.charAt(0).toUpperCase() + p.name.slice(1), now: p.name === room.partName, why: null })), (x) => {
+    room.partName = x.name;
+    drawFrameParts(room.panel);
+  }, false);
+}
+
+const PART_STEP = { bigger: 1.08, smaller: 0.93 };
+
+function partMoved(box, how) {
+  let [x1, y1, x2, y2] = box;
+  const grow = PART_STEP[how] || 1;
+  const w = Math.min(1000, (x2 - x1) * grow);
+  const h = Math.min(1000, (y2 - y1) * grow);
+  const cx = (x1 + x2) / 2;
+  const cy = (y1 + y2) / 2 + (how === "up" ? -40 : how === "down" ? 40 : 0);
+  x1 = Math.max(0, Math.min(1000 - w, cx - w / 2));
+  y1 = Math.max(0, Math.min(1000 - h, cy - h / 2));
+  return [x1, y1, x1 + w, y1 + h].map(Math.round);
+}
+
+$("partRow").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-part-do]");
+  const part = room.panel && (room.panel.parts || []).find((p) => p.name === room.partName);
+  if (!b || !part) return;
+  const why = $("partWhy");
+  why.hidden = true;
+  try {
+    const d = await post("/api/part", { chat: room.chat, part: part.name, box: partMoved(part.box, b.dataset.partDo) });
+    if (!d.ok) {
+      why.textContent = d.error || "It could not be moved.";
+      why.hidden = false;
+    }
+  } catch (err) {
+    why.textContent = "The studio is not answering. Start it again with: python app.py";
+    why.hidden = false;
+  }
+  loadPanel();
+});
 
 function tapBlock(b) {
   if (room.dragged) return;
   room.pickWhy = "";
+  room.fx = null;
   if (b.kind === "title" && !(pickedTitle() && pickedTitle().n === b.n)) {
     room.pick = { n: b.n, was: b.text };
     seek(b.start);
@@ -2209,6 +2431,7 @@ function drawWords(d) {
     lane.append(ico(icon, "sm lane-ico"), track);
     lanes.appendChild(lane);
   });
+  drawEffectLane(d);
   const head = el("div", "playhead");
   head.setAttribute("aria-hidden", "true");
   lanes.appendChild(head);
@@ -2263,6 +2486,7 @@ function movePlayhead(t) {
   if (!head || !room.panel) return;
   const share = Math.max(0, Math.min(1, t / room.panel.length));
   head.style.left = (share * 100) + "%";
+  if (room.part === "fx") sayFxAt();
   showTrimAt(t);
   if (room.made) updatePlayer();
 }
@@ -2296,8 +2520,8 @@ $("timeline").addEventListener("pointerdown", (e) => {
     return;
   }
   if (e.target.closest(".block")) return;
-  if (room.pick) {
-    room.pick = null;
+  if (room.pick || room.fx) {
+    room.pick = room.fx = null;
     room.pickWhy = "";
     drawPicked();
   }

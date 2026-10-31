@@ -11,6 +11,7 @@
   <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24"><path class="solid" d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></symbol>
   <symbol id="i-pause" viewBox="0 0 24 24"><rect class="solid" x="6" y="5" width="4" height="14" rx="1"/><rect class="solid" x="14" y="5" width="4" height="14" rx="1"/></symbol>
   <symbol id="i-stop" viewBox="0 0 24 24"><rect class="solid" x="6" y="6" width="12" height="12" rx="2"/></symbol>
@@ -159,6 +160,7 @@
       <p class="pick-says" id="pickSays"></p>
       <button type="button" class="pill" id="pickBack" hidden><svg class="ico sm"><use href="#i-x"/></svg>As it was</button>
       <button type="button" class="pill" id="pickWords" hidden><svg class="ico sm"><use href="#i-words"/></svg>Change words</button>
+      <button type="button" class="pill" id="pickOff" hidden><svg class="ico sm"><use href="#i-x"/></svg>Take off</button>
       <button type="button" class="pill go" id="pickGo" hidden><svg class="ico sm"><use href="#i-cut"/></svg><span>Apply</span></button>
     </div>
     <p class="clip-line" id="clipLine"></p>
@@ -170,6 +172,7 @@
       <button type="button" class="tool" data-show="caps" aria-pressed="false"><svg class="ico"><use href="#i-cc"/></svg>Captions</button>
       <button type="button" class="tool" data-show="style" aria-pressed="false"><svg class="ico"><use href="#i-aa"/></svg>Style</button>
       <button type="button" class="tool" data-show="look" aria-pressed="false"><svg class="ico"><use href="#i-drop"/></svg>Colour</button>
+      <button type="button" class="tool" data-show="fx" aria-pressed="false" hidden><svg class="ico"><use href="#i-spark"/></svg>Effects</button>
       <button type="button" class="tool" data-show="sound" aria-pressed="false"><svg class="ico"><use href="#i-sound"/></svg>Sound</button>
       <button type="button" class="tool" data-show="words" aria-pressed="false"><svg class="ico"><use href="#i-words"/></svg>Words</button>
       <button type="button" class="tool" data-show="channel" aria-pressed="false"><svg class="ico"><use href="#i-at"/></svg>Channel</button>
@@ -196,6 +199,15 @@
       <p class="s-sub" id="circleHead" hidden><svg class="ico sm"><use href="#i-people"/></svg>Face circle</p>
       <div class="panel-row" id="circleRow" role="group" aria-label="Where the face circle sits" hidden></div>
       <p class="panel-why" id="circleWhy" hidden></p>
+      <p class="s-sub" id="partHead" hidden><svg class="ico sm"><use href="#i-move"/></svg>Size and place</p>
+      <div class="seg" id="partPick" role="group" aria-label="Which part of the frame" hidden></div>
+      <div class="acts" id="partRow" hidden>
+        <button type="button" class="act" data-part-do="bigger"><svg class="ico"><use href="#i-plus"/></svg><span>Bigger</span></button>
+        <button type="button" class="act" data-part-do="smaller"><svg class="ico"><use href="#i-minus"/></svg><span>Smaller</span></button>
+        <button type="button" class="act" data-part-do="up"><svg class="ico up"><use href="#i-down"/></svg><span>Up</span></button>
+        <button type="button" class="act" data-part-do="down"><svg class="ico"><use href="#i-down"/></svg><span>Down</span></button>
+      </div>
+      <p class="panel-why" id="partWhy" role="status" hidden></p>
     </div>
     <div class="panel-group" data-part="style">
       <div class="panel-row wide" id="styleRow"></div>
@@ -204,6 +216,21 @@
     <div class="panel-group" data-part="look">
       <div class="panel-row" id="lookRow"></div>
       <p class="panel-why" id="lookWhy" hidden></p>
+    </div>
+    <div class="panel-group" data-part="fx">
+      <p class="channel-says" id="fxSays"></p>
+      <p class="s-sub"><svg class="ico sm"><use href="#i-spark"/></svg>Hits</p>
+      <div class="panel-row" id="fxHits" role="group" aria-label="Hits"></div>
+      <form class="word-edit" id="fxWordForm" hidden>
+        <input class="channel-input" id="fxWord" maxlength="20" placeholder="The word" autocomplete="off" aria-label="The word">
+        <button type="submit" class="pill">Put it on</button>
+      </form>
+      <p class="s-sub"><svg class="ico sm"><use href="#i-sound"/></svg>Sounds</p>
+      <div class="panel-row" id="fxSounds" role="group" aria-label="Sounds"></div>
+      <p class="s-sub"><svg class="ico sm"><use href="#i-sticker"/></svg>Stickers</p>
+      <div class="seg" id="fxHow" role="group" aria-label="One sticker or a burst"></div>
+      <div class="fx-stickers" id="fxStickers" role="group" aria-label="Stickers"></div>
+      <p class="panel-why" id="fxWhy" role="status" hidden></p>
     </div>
     <div class="panel-group" data-part="channel">
       <div class="panel-row" id="channelRow"></div>

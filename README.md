@@ -406,6 +406,11 @@ Detailed steps the input, the result and the engine numbers.
   in its place). When the clip has changed since its video was made,
   Update video renders it as Muse's render does. Under Captions, As said puts them back in the words as
   said at a tap; English is a tap that asks Muse, which writes the translation.
+- **Every effect is the person's too.** Hits, sounds, stickers, bursts, pictures and slow pushes sit on the timeline
+  by their time, and a tap picks one: drag it to another second or take it off. The Effects tab puts a hit, a word, a
+  sound, a sticker or a burst of stickers on at the second the clip is at, by the very tools Muse calls, with their
+  checks. Under Layout, Bigger, Smaller, Up and Down move a part of the frame, such as a game's card, so nothing is
+  stretched. One Undo takes each back, Muse is told, and Update video renders it.
 - **Trim, or take in more, at a tap.** Muse picks the moment; the person drags a yellow handle at either end of the
   film strip under the clip, inward to cut, or out past the strip's edge and held there to take in more of the video,
   with the seconds shown as it moves. Under Trim the person can also tap a spot on the timeline and start or end the
