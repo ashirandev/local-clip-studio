@@ -293,7 +293,9 @@ SHORTEST_PIECE, LONGEST_PIECE = 1.0, 8.0
 SHORTEST_FIT = 2.0
 # A piece of a long clip given no seconds starts this much before the middle picture of the clip's strip, one Muse saw,
 # so the picture stays in it however short it is cut to fit (SHORTEST_FIT at the least). Seen 10-29 on a trip seen
-# through glasses: seven pieces given no seconds all started at 0 s, the first one looking at the sky.
+# through glasses: seven pieces given no seconds all started at 0 s, the first one looking at the sky. The close, the last
+# piece on the clip shot last, goes by the closing picture instead: 10-31 Glimmer named clip 7 as the close 3 of 3 with no
+# seconds, and its piece came from 61.7 s of 125 s, not the group facing the camera at 113-119 s (lane 4).
 MIDDLE_LEAD = 1.0
 OVER_LENGTH = 1.25
 LINE_EVERY = 15.0
@@ -517,12 +519,15 @@ def arrange_clips(job, why, story, clips, left_out=None, hook="", products=None)
         b = min(c.get("end", rec["seconds"]), rec["seconds"])
         talk = c["clip"] in talking
         if not talk and "start" not in c and "end" not in c and rec["seconds"] > LONGEST_PIECE:
-            seen = montage.strip_times(rec["seconds"])[len(montage.STRIP_AT) // 2]
+            close = k == len(clips) and c["clip"] == max(known)
+            seen = round(rec["seconds"] * montage.LAST_AT, 2) if close else montage.strip_times(rec["seconds"])[
+                len(montage.STRIP_AT) // 2]
             a = round(max(0.0, min(seen - MIDDLE_LEAD, rec["seconds"] - each)), 2)
             b = round(a + each, 2)
-            fitted.append("clip %d: no seconds were given, so its piece starts at %g s, by the middle picture of its "
+            fitted.append("clip %d: no seconds were given, so its piece starts at %g s, by the %s picture of its "
                           "strip (%g s), and runs %g s, %s; give a start and an end for other seconds" % (
-                              c["clip"], a, seen, each, "the longest a piece runs" if each >= LONGEST_PIECE else
+                              c["clip"], a, "closing" if close else "middle", seen, each,
+                              "the longest a piece runs" if each >= LONGEST_PIECE else
                               "the %g s asked shared by the %d pieces" % (job.chat.clip["length_s"], len(clips))))
         frozen = [s for s in clip["stills"] if s[0] < b and a < s[1]]
         if talk and ("start" not in c or "end" not in c):
@@ -1158,9 +1163,10 @@ def _what_is_said(job, rec, look):
     inside = [p for p in said if p["to"] > a and p["from"] < b]
     if not inside:
         return holes or ["No words were heard here."]
-    return (["What is said here, by time, as heard (some words may be misheard; the numbers are as heard; a line "
-             "marked (not sure) is one the hearing was not sure of, so do not build on it):"] +
-            ["%s %s%s" % (clock(p["from"]), p["text"], " (not sure)" if _unsure(p) else "") for p in inside] + holes)
+    return (["What is said here, each line with when it begins and when it ends, as heard (some words may be misheard; the "
+             "numbers are as heard; a line marked (not sure) is one the hearing was not sure of, so do not build on it):"] +
+            ["%s-%s %s%s" % (clock(p["from"]), clock(p["to"]), p["text"], " (not sure)" if _unsure(p) else "")
+             for p in inside] + holes)
 
 
 def _fixed_said(job, rec, look, a, b, said=None):
@@ -1641,13 +1647,27 @@ COLD_RECIPES = ("talk", "explain")
 EDGE_RECIPES = ("talk", "vlog", "explain", "game")
 
 
+# A talk or a vlog's first moment under this share of the clip's length is told so, once a job, whatever its looks saw.
+# Lane 4 10-31, EP 0 rows since the edit-first rubric: under 60% of the recipe's 60 s, 6 of 6 at 7 or lower; at 36 s or
+# more, 11 of 12 at 7.5 or higher. Glimmer kept 18:21 in 4 of 9 talk runs, and seen_past left it no second word.
+SHORT_RECIPES = ("talk", "vlog")
+FAR_SHORT = 0.6
+FAR_SHORT_SAID = ("Not proposed yet: moment %d runs %g s of the %g s this clip can hold. A stranger needs how it starts and "
+                  "how it ends: move the start back to where the story begins and the end on to where it pays off, looking "
+                  "first if you have not seen them. If it is whole as it is, propose it again and it stands.")
+
+
 def _seen_past(job, why, rec, i, m, look, a, b):
     """What Muse sees past the edges of moment i, m as Muse gave it (a to b inside look), when a start or an end Muse
     gave stops at one and no look has shown what is there, else what it reads again (_read_cold). Once for a look, so
     Muse's second answer stands."""
     clip = job.chat.clip or {}
     game = clip.get("recipe") == "game"
-    if clip.get("recipe") not in EDGE_RECIPES or look.get("seen_past"):
+    if clip.get("recipe") not in EDGE_RECIPES:
+        return None
+    if clip["recipe"] in SHORT_RECIPES and b - a < FAR_SHORT * clip["length_s"] and not _told_once(job, "far_short"):
+        return FAR_SHORT_SAID % (i, round(b - a), clip["length_s"])
+    if look.get("seen_past"):
         return None
     before = (b - a < GAME_SHORT * clip["length_s"] and not _told_once(job, "seen_back")) if game else (
         m.get("start") and a - look["start"] <= EDGE)
@@ -1724,8 +1744,21 @@ def _read_across(job, rec):
             job.attach(os.path.join(recording.WORK, "frames", frame), "The match at %s:" % clock(t))
     return ("Not proposed yet: your looks saw little of the match, and the crowd does not rise for a goal against its side. "
             "%d pictures across the whole match come next, one every %s. Read the score in each: where it differs between "
-            "two pictures, a goal lies between them, so look at that stretch until you see it. Then propose every goal."
+            "two pictures, a goal lies between them, so look at that whole stretch, from the earlier picture on, until "
+            "you see it. The last picture's score says how many goals there are: propose every one."
             % (ACROSS_PICTURES, clock(gap)))
+
+
+NO_RECIPE = ("Not proposed yet: no recipe is loaded. Your load_recipe came before the recording was open, so it was not "
+             "done. Call load_recipe now for what you saw, then propose these moments again.")
+
+
+def _no_recipe(job):
+    """True once a job when its load_recipe was refused for coming before the recording and none was loaded since. 10-31:
+    045116-b599 and 045946-c52f did so on Glimmer and made a clip with no recipe: a slide cut at both sides, and a seller's
+    phone never in the frame while the product check said this was not a seller's clip."""
+    return (not job.chat.clip and any(e["kind"] == "recipe_blind" and e.get("job") == job.n for e in job.chat.events)
+            and not _told_once(job, "no_recipe"))
 
 
 def propose_moments(job, why, moments, then="make"):
@@ -1733,6 +1766,8 @@ def propose_moments(job, why, moments, then="make"):
     clock, looks = recording.clock, job.chat.looks
     if not looks:
         raise Refused("You have not looked at any stretch yet. Look first: a moment you propose must be one you saw.")
+    if _no_recipe(job):
+        raise Refused(NO_RECIPE)
     picked, gave, finer = [], [], []
     for i, m in enumerate(moments, 1):
         if not 1 <= m["look"] <= len(looks):
@@ -4208,6 +4243,11 @@ def _undecided(state):
     return [p["n"] for p in state["people"] if p["blur"] is None and p["seen"] > 1]
 
 
+# 10-31 050337-bff5: Glimmer blurred all four people on a talk's sofa, the one telling the story too.
+TALK_BLUR = ("Not blurred. A talk is its people: keep the ones talking, and blur only someone passing behind. If the person "
+             "asked for this blur, decide again and it is done.")
+
+
 def decide_people(job, why, blur=None, keep=None, others=None):
     rec = _open(job, "blur")
     state = _clip_state(job)
@@ -4226,6 +4266,8 @@ def decide_people(job, why, blur=None, keep=None, others=None):
     unknown = [n for n in blur + keep if n not in people]
     if unknown:
         raise Refused("There is no person %s; the clip's people are %s." % (_numbers(unknown), _numbers(people)))
+    if blur and (job.chat.clip or {}).get("recipe") == "talk" and job.n is not None and not _told_once(job, "talk_blur"):
+        raise Refused(TALK_BLUR)
     state = job.edit({"do": "people", "blur": blur, "keep": keep})
     if len(blur) > PEOPLE_LISTED:
         lines = ["%d people are blurred where their faces show, and each blur moves with its face." % len(blur)]
@@ -4925,11 +4967,18 @@ def _said(job, state):
     return [p["text"] for p in (moments[n - 1].get("said") or [] if n <= len(moments) else [])]
 
 
+NAMED_NUMBER = re.compile(r"(?<![A-Za-z0-9])(?:[A-Za-z]*[a-z][A-Z][A-Za-z]*[ -]?|[A-Z]{1,2})\d{1,2}(?![\d,.])"
+                          r"(?!\s*(?:(?i:baht|thb)|บาท|฿|%))")
+
+
 def _not_said(words, said):
     """The numbers in words that are not among the numbers in said (spoken.values: digits in any script, Thai and
-    English number words)."""
+    English number words). A number in what can only be a product's name, a word with a capital inside it or capitals
+    glued to the digits, is left out: 10-31 053131-51de, the name check took PlayStation 5 in place of PS5, this one failed
+    its 5, and 8 steps went on it. Any other word is left in, as "Only 5 left" and "Flash Sale 50%" are claims: a name
+    wrongly refused costs steps, a claim wrongly passed goes on a seller's post (lane 1)."""
     heard = set().union(*[spoken.values(s) for s in said]) if said else set()
-    return [m for m in spoken.DIGITS.findall(words) if spoken.digits(m) - heard]
+    return [m for m in spoken.DIGITS.findall(NAMED_NUMBER.sub("", words)) if spoken.digits(m) - heard]
 
 
 def _numbers_unread(job, said):
@@ -5682,7 +5731,7 @@ def make_countdown(job, why, moments, story):
         if any(c.get("start") is None or c.get("end") is None for c in moments):
             problems.append("Give each piece its start, where the attack starts, and its end, when the celebration ends: "
                             "only you saw where the goal is in the moment.")
-    clock, spans, fitted = recording.clock, [], []
+    clock, spans, fitted, heard_in = recording.clock, [], [], []
     chosen = [proposed[k - 1] for k in numbers if 1 <= k <= len(proposed)]
     for c in moments:
         if not 1 <= c["moment"] <= len(proposed):
@@ -5711,7 +5760,11 @@ def make_countdown(job, why, moments, story):
             a = _time("moment %d's start" % c["moment"], c["start"]) if c.get("start") else m["start"]
             b = _time("moment %d's end" % c["moment"], c["end"]) if c.get("end") else m["end"]
             if reel:
-                a, b = max(a, m["start"]), min(b, m["end"])
+                saw = next((s for s in looks if s["start"] <= a and b <= s["end"]), None)
+                if saw:
+                    m = dict(m, look=saw["n"], start=min(a, m["start"]), end=max(b, m["end"]))
+                else:
+                    a, b = max(a, m["start"]), min(b, m["end"])
             wrong = []
             if round(a, 2) < m["start"] or round(b, 2) > m["end"]:
                 wrong.append("runs outside the moment (%s-%s)" % (clock(m["start"]), clock(m["end"])))
@@ -5720,7 +5773,7 @@ def make_countdown(job, why, moments, story):
                                                                           countdown.LONGEST))
             if wrong:
                 problems.append("Moment %d: its piece %s-%s %s; %s." % (
-                    c["moment"], clock(a), clock(b), " and ".join(wrong), "give it a start and an end inside the moment"
+                    c["moment"], clock(a), clock(b), " and ".join(wrong), "give it a start and an end around the goal"
                     if reel else "leave start and end out for the %g s around its peak" % (
                         countdown.BEFORE + countdown.AFTER)))
                 continue
@@ -5728,6 +5781,7 @@ def make_countdown(job, why, moments, story):
         if moved:
             fitted.append("moment %d's piece %s" % (c["moment"], moved))
         spans.append([a, b])
+        heard_in.append(looks[m["look"] - 1])
     total = sum(b - a for a, b in spans)
     if not SHORTEST <= round(total) <= LONGEST:
         problems.append("The pieces add up to %g s; a clip is %d to %d s: %s." % (
@@ -5753,8 +5807,8 @@ def make_countdown(job, why, moments, story):
     picked = [proposed[c["moment"] - 1] for c in moments]
     at = countdown.starts(spans)
     said = []
-    for m, (a, b), t in zip(picked, spans, at):
-        for s in looks[m["look"] - 1].get("said") or []:
+    for heard, (a, b), t in zip(heard_in, spans, at):
+        for s in heard.get("said") or []:
             x, y = max(s["from"], a), min(s["to"], b)
             if y > x:
                 said.append(dict(s, **{"from": round(t + x - a, 2), "to": round(t + y - a, 2)}))
@@ -6382,6 +6436,7 @@ def load_recipe(job, why, type, length_s=None, style=None, language="", brief=""
                       "kind of video: tell the person a clip of this kind is not ready yet, and what the studio can "
                       "make now." % (type, _recipe_list()))
     if not (job.chat.recording or job.chat.clips):
+        job.emit("recipe_blind")
         raise Refused(BLIND)
     if recipe["name"] == MONTAGE and not job.chat.clips:
         raise Refused("The %s recipe is for several clips opened together with open_clips; this chat has %s. Pick "

@@ -249,8 +249,8 @@ class Look(unittest.TestCase):
         self.assertEqual(len(self.worker.got[0]), (20 + 2 * tools.SPILL) * 16000 * 2,
                          "20 s of 16 kHz mono 16-bit sound, and SPILL s more at each side")
         for step in self.steps()[1:]:
-            self.assertIn("What is said here, by time, as heard", step["result"])
-            self.assertIn("0:31 สินค้าราคาเจ็ดสิบห้าบาท\n0:34 ใส่ทุกอยางเขาไป", step["result"])
+            self.assertIn("What is said here, each line with when it begins and when it ends, as heard", step["result"])
+            self.assertIn("0:31-0:32 สินค้าราคาเจ็ดสิบห้าบาท\n0:34-0:35 ใส่ทุกอยางเขาไป", step["result"])
         self.assertEqual([p["from"] for p in self.steps()[1]["look"]["said"]], [31.0, 34.0])
         self.assertEqual(len(brain.sent), 4, "a look asks Muse nothing aside")
 
@@ -259,7 +259,7 @@ class Look(unittest.TestCase):
         brain, job = self.run_job([call("open_recording", path=self.clip, why="open it")],
                                   [call("look_at_piece", start="0:30", end="0:50", why="look")], "Done.")
         job.run()
-        self.assertIn("0:31 ราคา 5,000บาทนะครับ", self.steps()[-1]["result"], "lane 5's seller 10-30: ห้าพันบาท")
+        self.assertIn("0:31-0:32 ราคา 5,000บาทนะครับ", self.steps()[-1]["result"], "lane 5's seller 10-30: ห้าพันบาท")
         rec = recording.probe(self.clip)
         hearing.keep(rec, 1.0, 9.0, [{"from": 2.0, "to": 3.0, "text": "5,0บาท", "sure": 0.9}])
         self.assertEqual(hearing.heard(rec, 1.0, 9.0)[0]["text"], "5,000บาท", "kept before this was written")

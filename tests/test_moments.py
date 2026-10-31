@@ -172,6 +172,8 @@ class Moments(unittest.TestCase):
     def setUp(self):
         self.addCleanup(setattr, tools, "EDGE_RECIPES", tools.EDGE_RECIPES)
         tools.EDGE_RECIPES = ()
+        self.addCleanup(setattr, tools, "SHORT_RECIPES", tools.SHORT_RECIPES)
+        tools.SHORT_RECIPES = ()
         self.tmp = tempfile.mkdtemp()
         self.videos = os.path.join(self.tmp, "videos")
         os.makedirs(self.videos)
@@ -326,7 +328,7 @@ class Moments(unittest.TestCase):
         with mock.patch.object(hearing, "heard", lambda *a: kept[-1] if kept else None), \
                 mock.patch.object(hearing, "keep", lambda rec, a, b, said, languages: kept.append(said)):
             said = tools._what_is_said(job, rec, look)
-            self.assertEqual(said[1], "0:31 what was heard")
+            self.assertEqual(said[1], "0:31-0:34 what was heard")
             self.assertIn("The hearing failed from 0:40 to 0:48, so what is said there is missing here", said[2])
             self.assertEqual(look["said"], [line], "what was heard is used")
             self.assertEqual(kept, [], "a hole is not kept")
@@ -357,7 +359,7 @@ class Moments(unittest.TestCase):
                 mock.patch.object(hearing, "keep", lambda *a: kept.append(a)):
             said = tools._what_is_said(job, {"name": "x.mp4", "seconds": 60.0, "sound_tracks": 1},
                                        {"start": 30.0, "end": 50.0})
-        self.assertEqual(said[1:], ["0:31 what was heard"])
+        self.assertEqual(said[1:], ["0:31-0:34 what was heard"])
         self.assertEqual(kept, [])
 
     def test_a_clip_is_made_with_its_last_end_free_to_reach_on(self):

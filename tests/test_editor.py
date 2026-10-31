@@ -440,6 +440,9 @@ class Tools(unittest.TestCase):
         self.edge_recipes = tools.EDGE_RECIPES
         self.addCleanup(setattr, tools, "EDGE_RECIPES", self.edge_recipes)
         tools.EDGE_RECIPES = ()
+        self.short_recipes = tools.SHORT_RECIPES
+        self.addCleanup(setattr, tools, "SHORT_RECIPES", self.short_recipes)
+        tools.SHORT_RECIPES = ()
         self.tmp = tempfile.mkdtemp()
         self.videos = os.path.join(self.tmp, "videos")
         os.makedirs(self.videos)
@@ -1469,6 +1472,42 @@ class Tools(unittest.TestCase):
         with open(os.path.join(agent.WORK, "spent.jsonl"), encoding="utf-8") as f:
             paid = [json.loads(line) for line in f if '"image"' in line]
         self.assertEqual([(r["mind"], r["label"], r["usd"]) for r in paid], [("image", "Muse Image", 0.01)])
+
+    def test_a_recipe_asked_for_before_the_recording_is_asked_for_again_before_a_moment(self):
+        """10-31 045116-b599, 045946-c52f: refused before the recording was open, never called again, and a clip made with
+        no recipe."""
+        early = [call("load_recipe", type="talk", why="the ask says so")]
+        again = [call("load_recipe", type="talk", why="what the pictures show")]
+        _, steps = self.run_job(early, *self.to_moment(), again, self.to_moment()[2], "Done.")
+        self.assertTrue(steps[3]["refused"], steps[3]["result"])
+        self.assertTrue(steps[3]["result"].startswith("Not proposed yet: no recipe is loaded."), steps[3]["result"])
+        self.assertFalse(steps[4]["refused"], steps[4]["result"])
+        self.assertTrue(steps[5]["result"].startswith("Proposed 1 moment"), steps[5]["result"])
+
+    def test_a_recipe_loaded_after_the_refusal_is_enough(self):
+        early = [call("load_recipe", type="talk", why="the ask says so")]
+        opened, look, moment = self.to_moment()
+        _, steps = self.run_job(early, opened, [call("load_recipe", type="talk", why="what the pictures show")], look, moment,
+                                "Done.")
+        self.assertTrue(steps[4]["result"].startswith("Proposed 1 moment"), steps[4]["result"])
+
+    def test_a_moment_is_refused_for_no_recipe_once(self):
+        early = [call("load_recipe", type="talk", why="the ask says so")]
+        _, steps = self.run_job(early, *self.to_moment(), self.to_moment()[2], "Done.")
+        self.assertTrue(steps[3]["refused"], steps[3]["result"])
+        self.assertTrue(steps[4]["result"].startswith("Proposed 1 moment"), steps[4]["result"])
+
+    def test_a_talk_keeps_its_people_unless_it_is_asked_twice(self):
+        """10-31 050337-bff5: Glimmer blurred all four people on the sofa."""
+        _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="talk", why="a talk")],
+                                *self.to_moment()[1:], [call("make_clip", moment=1, layout="subject", why="the talk")],
+                                [call("decide_people", others="blur", why="people on the sofa")],
+                                [call("decide_people", others="blur", why="the person asked")], "Done.")
+        refused, blurred = steps[-2:]
+        self.assertTrue(refused["refused"], refused["result"])
+        self.assertTrue(refused["result"].startswith("Not blurred. A talk is its people"), refused["result"])
+        self.assertFalse(blurred["refused"], blurred["result"])
+        self.assertIn("Person 1 is blurred", blurred["result"])
 
     def test_muse_decides_who_is_blurred_and_a_blurred_face_is_followed_in_clip_seconds(self):
         brain, steps = self.run_job(
@@ -3219,6 +3258,34 @@ class Tools(unittest.TestCase):
         parts = self.chat.project.state()["clip"]["layout"]["parts"]
         self.assertEqual([p["name"] for p in parts], ["card"], "a face the finder sees stays in the picture")
 
+    def test_a_talk_far_under_its_length_is_told_once_a_job_and_the_second_answer_stands(self):
+        """Lane 4 10-31: 054011-5f01 sent 18:21 back unchanged, and 043921-4388 kept 25:58 with its look open to 26:29."""
+        tools.EDGE_RECIPES, tools.SHORT_RECIPES = self.edge_recipes, self.short_recipes
+        short = [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the end", "start": "0:34",
+                                                                   "end": "0:46"}])]
+        _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="talk", why="a talk")],
+                                self.to_moment()[1], short, short, "Done.")
+        told, again = steps[3], steps[4]
+        self.assertTrue(told["result"].startswith("Not proposed yet: moment 1 runs 12 s of the 60 s this clip can hold."),
+                        told["result"])
+        self.assertTrue(again["result"].startswith("Proposed 1 moment"), again["result"])
+
+    def test_only_a_talk_or_a_vlog_far_under_its_length_is_told_and_once_a_look_is_done_it_still_is(self):
+        tools.EDGE_RECIPES, tools.SHORT_RECIPES = self.edge_recipes, self.short_recipes
+        job = mock.Mock()
+        job.chat.events = []
+        look = {"n": 1, "start": 0.0, "end": 60.0, "seen_past": True}
+
+        def told(recipe, seconds, length=60):
+            job.chat.clip = {"recipe": recipe, "length_s": length}
+            job.chat.events = []
+            return tools._seen_past(job, "why", {"seconds": 60.0}, 1, {}, look, 10.0, 10.0 + seconds)
+
+        self.assertIn("runs 35 s of the 60 s", told("talk", 35))
+        self.assertIn("runs 19 s of the 40 s", told("vlog", 19, 40))
+        self.assertIsNone(told("talk", 37), "at 60% of its length it is left alone")
+        self.assertIsNone(told("explain", 12))
+
     def test_a_moment_at_its_looks_end_is_seen_past_it_once_and_the_second_answer_stands(self):
         """Lane 4 10-30: 94 of 127 moments ended within 3 s of the look's end."""
         tools.EDGE_RECIPES = self.edge_recipes
@@ -3715,8 +3782,8 @@ class Tools(unittest.TestCase):
             [call("add_captions", why="say what he says")],
             "Done.")
         looked = [s for s in steps if s.get("look")][-1]
-        self.assertIn("0:35 bxo noqa mumble (not sure)", looked["result"])
-        self.assertIn("0:32 this is the moment\n", looked["result"])
+        self.assertIn("0:35-0:38 bxo noqa mumble (not sure)", looked["result"])
+        self.assertIn("0:32-0:34 this is the moment\n", looked["result"])
         caps = steps[-1]
         self.assertFalse(caps["refused"], caps["result"])
         self.assertIn('1 line the hearing was not sure of is under the clip as a draft, not on the video, because a '
@@ -4052,6 +4119,17 @@ class Tools(unittest.TestCase):
         self.assertEqual(tools._not_said("ลด 75 บาท ห้อง 50-75 m²", said), [])
         self.assertEqual(tools._not_said("ราคา 1,990 บาท ลด 75", said), ["1,990"])
         self.assertEqual(tools._not_said("ลด 20%", []), ["20"])
+        self.assertEqual(tools._not_said("จอย PlayStation 5 ราคา 3,000 บาท", ["ราคา 3,000 บาท"]), [],
+                         "a number in a product's name is no price")
+        for name in ("Galaxy S24", "PS5", "A55", "iPhone 16", "iPad 11"):
+            self.assertEqual(tools._not_said(name, []), [], name)
+        for claim, numbers in (("Samsung 3,500 บาท", ["3,500"]), ("Redmi 200", ["200"]), ("Redmi 90 บาท", ["90"]),
+                               ("iPad 90 บาท", ["90"]), ("iPad 90 Baht", ["90"]), ("iPhone 50%", ["50"]),
+                               ("iPad 5000", ["5000"]), ("iPad 5,000", ["5,000"]),
+                               ("Flash Sale 50%", ["50"]), ("Only 5 left", ["5"]), ("Just 99", ["99"]),
+                               ("Buy 1 Get 1", ["1", "1"]), ("Top 3 picks", ["3"]), ("2 for 90", ["2", "90"]),
+                               ("Pixel 9", ["9"]), ("Note 20", ["20"]), ("buy2", ["2"]), ("SALE50", ["50"])):
+            self.assertEqual(tools._not_said(claim, []), numbers, claim)
         self.assertEqual(tools._not_said("75 sqm for 1,990", ["covers seventy-five square metres",
                                                             "one thousand nine hundred and ninety baht"]), [])
         self.assertEqual(tools._not_said("๗๕ ตร.ม.", ["เจ็ดสิบห้า"]), [])

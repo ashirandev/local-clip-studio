@@ -390,6 +390,34 @@ class Arrange(unittest.TestCase):
         self.assertIn("clip 2: no seconds were given, so its piece starts at 0.5 s, by the middle picture of its strip "
                       "(1.5 s)", said)
 
+    def test_the_close_given_no_seconds_is_cut_by_its_closing_picture(self):
+        """10-31: Glimmer named clip 7 as the close 3 of 3 with no seconds, and its piece came from the middle of the clip."""
+        self.run_job(*self.opened(), "Done.")
+        self.chat.clips["clips"][2]["stills"] = []
+        with mock.patch.object(tools, "LONGEST_PIECE", 2.0):
+            steps = self.run_job([call(
+                "arrange_clips", story="the day", why="order", left_out=[],
+                clips=[{"clip": 1, "words": "We arrive", "why": "where we are"}, {"clip": 2, "why": "what we did"},
+                       {"clip": 3, "why": "the last thing seen"}])], "Done.")
+        said = steps[-1]["result"]
+        self.assertFalse(steps[-1]["refused"], said)
+        self.assertIn("4 s: clip 3, 2-4 s of it", said)
+        self.assertIn("clip 3: no seconds were given, so its piece starts at 2 s, by the closing picture of its strip "
+                      "(3.68 s)", said)
+
+    def test_the_clip_shot_last_is_cut_by_its_closing_picture_only_as_the_last_piece(self):
+        self.run_job(*self.opened(), "Done.")
+        self.chat.clips["clips"][2]["stills"] = []
+        with mock.patch.object(tools, "LONGEST_PIECE", 2.0):
+            steps = self.run_job([call(
+                "arrange_clips", story="the day", why="order", left_out=[],
+                clips=[{"clip": 3, "words": "We arrive", "why": "where we are"}, {"clip": 1, "why": "what we did"},
+                       {"clip": 2, "why": "the end of it"}])], "Done.")
+        said = steps[-1]["result"]
+        self.assertFalse(steps[-1]["refused"], said)
+        self.assertIn("0 s: clip 3, 1-3 s of it", said)
+        self.assertIn("4 s: clip 2, 0.5-2.5 s of it", said, "the last piece is not on the clip shot last")
+
     def test_pieces_given_no_seconds_share_the_length_asked(self):
         self.run_job(*self.opened(), "Done.")
         self.chat.clip["length_s"] = 6

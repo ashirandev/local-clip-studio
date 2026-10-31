@@ -91,6 +91,7 @@ class Refusals(unittest.TestCase):
             effects.blur_box((10, 10, 0, 5), 0, 1)
         with self.assertRaisesRegex(ValueError, "end 1 is not after start 2"):
             effects.blur_box((0, 0, 10, 10), 2, 1)
+        effects._track([(31.74, 0, 0, 10, 10), (32.24, 0, 0, 10, 10)], 0)
         with self.assertRaisesRegex(ValueError, r"points 1 and 2 are 0.60 s apart \(0.2 to 0.8 s\), more than 0.5 s: "
                                                 "split the track"):
             effects.blur_track([(0, 0, 0, 10, 10), (0.2, 0, 0, 10, 10), (0.8, 0, 0, 10, 10)])

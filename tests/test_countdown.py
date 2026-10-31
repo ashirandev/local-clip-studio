@@ -298,6 +298,8 @@ class MakeCountdown(unittest.TestCase):
         self.assertFalse(read["refused"], read["result"])
         self.assertTrue(read["result"].startswith("Not proposed yet: your looks saw little of the match"), read["result"])
         self.assertRegex(read["result"], r"8 pictures across the whole match come next, one every 0:0[78]\.")
+        self.assertIn("look at that whole stretch, from the earlier picture on, until you see it", read["result"])
+        self.assertIn("The last picture's score says how many goals there are: propose every one.", read["result"])
         self.assertTrue(again["result"].startswith("Proposed 1 moment"), again["result"])
 
     def test_a_match_seen_widely_a_short_one_and_a_game_are_proposed_at_once(self):
@@ -314,6 +316,30 @@ class MakeCountdown(unittest.TestCase):
         self.assertIsNone(told("sport", seen=250.0), "a quarter of it seen")
         self.assertIsNone(told("sport", seconds=120.0, seen=10.0), "a clip, not a match")
 
+    def test_a_goal_before_its_moment_stands_when_a_look_saw_it_and_its_words_come_from_that_look(self):
+        """10-31 061848-14cb: Muse's moment was 3:30-3:50, past the goal; it looked back and gave 3:12-3:35, and the piece
+        was brought to 3:30-3:35, the celebration with no goal."""
+        self.worker.phrases = [{"from": 3.0, "to": 5.0, "text": "ยิงเข้าไปแล้ว"}]
+        late = [{"look": 1, "start": "0:30", "end": "0:40", "reason": "first"},
+                {"look": 1, "start": "0:40", "end": "0:50", "reason": "second"}]
+        back = [{"moment": 1, "words": "0-1", "start": "0:08", "end": "0:18"},
+                {"moment": 2, "words": "0-2", "start": "0:41", "end": "0:49"}]
+        brain = ScriptedMind([call("open_recording", path=self.clip, why="open it")],
+                             [call("load_recipe", type="sport", why="a match")],
+                             [call("look_at_piece", start="0:30", end="0:50", why="loud")],
+                             [call("propose_moments", why="the goals", moments=late)],
+                             [call("look_at_piece", start="0:06", end="0:24", why="what led to it")],
+                             self.counted(back), "Done.")
+        self.chat.jobs += 1
+        self.chat.emit("person", job=self.chat.jobs, text="ทำคลิปไฮไลท์")
+        job = self.chat.job = agent.Job(self.chat, brain, "ทำคลิปไฮไลท์")
+        job.run()
+        made = [e for e in self.chat.events if e.get("job") == job.n and e["kind"] == "step"][-1]
+        self.assertFalse(made["refused"], made["result"])
+        self.assertIn("moment 1, 0:08-0:1", made["result"])
+        self.assertEqual([s["text"] for s in self.chat.looks[-1]["said"]], ["ยิงเข้าไปแล้ว"],
+                         "the words of the look that saw the piece")
+
     def test_a_goal_is_kept_to_its_moment_and_one_too_long_is_told_what_works(self):
         """10-31 023845-9147: a start the clock showed as the moment's was refused by a part of a second, then Muse was
         told to leave the seconds out, which a match refuses: 6 tries for 2 goals."""
@@ -324,7 +350,7 @@ class MakeCountdown(unittest.TestCase):
         fixed = [over[0], dict(over[1], end="0:40")]
         steps = self.run_job("ทำคลิปไฮไลท์", self.counted(over), self.counted(fixed), recipe="sport", moments=wide)
         said = steps[-2]["result"]
-        self.assertIn("is 28 s long, and a piece is 3 to 20 s; give it a start and an end inside the moment.", said)
+        self.assertIn("is 28 s long, and a piece is 3 to 20 s; give it a start and an end around the goal.", said)
         self.assertNotIn("Moment 1", said, "a start before the moment is brought to it")
         self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
         self.assertIn("Joined 2 moments", steps[-1]["result"])

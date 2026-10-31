@@ -216,7 +216,7 @@ def _track(points, margin):
         if track and t <= track[-1][0]:
             raise ValueError("point %d is at %s s, not after point %d at %s s: give the points in time order."
                              % (k, _f(t), k - 1, _f(track[-1][0])))
-        if track and t - track[-1][0] > MOST_GAP:
+        if track and round(t - track[-1][0], 3) > MOST_GAP:
             raise ValueError("points %d and %d are %.2f s apart (%s to %s s), more than %s s: split the track at "
                              "the gap." % (k - 1, k, t - track[-1][0], _f(track[-1][0]), _f(t), MOST_GAP))
         track.append((t, x + w / 2, y + h / 2, w, h))
