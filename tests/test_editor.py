@@ -3313,6 +3313,26 @@ class Tools(unittest.TestCase):
         self.assertEqual(state["clip"]["layout"]["thing"]["what"], "white game controller", "the first clip is shown")
         self.assertEqual(state["backdrop"]["about"], "a calm shop shelf")
 
+    def test_one_clip_that_breaks_leaves_the_others_of_the_batch(self):
+        """025525-3e8e on 11-01: one line of one clip raised, and the whole batch of 5 was lost, twice."""
+        from unittest import mock
+        real, calls = tools._one_clip, []
+
+        def one_clip(job, rec, k, c, layout, blur, opened=None):
+            calls.append(k)
+            if k == 1:
+                with mock.patch.object(tools, "make_clip", side_effect=ValueError("a line that cannot be cut")):
+                    return real(job, rec, k, c, layout, blur, opened)
+            return real(job, rec, k, c, layout, blur, opened)
+
+        with mock.patch.object(tools, "_one_clip", one_clip):
+            _, steps = self.batch()
+        made = steps[-1]["result"]
+        self.assertFalse(steps[-1]["refused"], made)
+        self.assertEqual(calls, [1, 2])
+        self.assertIn("Clip 1 (moment 1): broke (a line that cannot be cut)", made)
+        self.assertIn("Made 2 clips, 1 handed over", made)
+
     def test_a_sellers_title_helps_fix_a_name_the_hearing_got_wrong(self):
         """020751-cdcd on 11-01: "Let me" where he says Redmi, under the title Redmi."""
         from unittest import mock

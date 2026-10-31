@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import time
+import traceback
 import types
 
 import numpy as np
@@ -6169,6 +6170,9 @@ def _one_clip(job, rec, k, c, layout, blur, opened=None):
             return "%s: not handed over, the person pressed Stop." % head
     except Refused as e:
         return "%s: not handed over: %s" % (head, e)
+    except Exception as e:
+        traceback.print_exc()
+        return "%s: broke (%s), a fault in the studio: make this clip by hand with make_clip." % (head, e)
     due = [ch for ch in checks if ch["ok"] is not None]
     return "%s: handed over, %d of %d checks passed%s." % (head, len(due), len(due),
                                                            "; " + "; ".join(notes) if notes else "")

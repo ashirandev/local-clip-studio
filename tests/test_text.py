@@ -501,12 +501,15 @@ class CaptionLines(unittest.TestCase):
         self.assertEqual(text._letters("ราคา"), 4)
         self.assertEqual(text._letters(" ok "), 2)
 
-    def test_a_long_word_is_cut_but_a_long_number_is_refused(self):
+    def test_a_long_word_is_cut_but_a_long_number_stands_whole(self):
         lines = text.caption_lines([{"from": 0, "to": 2, "text": "supercalifragilisticexpialidocious"}], most=10)
         self.assertTrue(all(text._letters(line["text"]) <= 10 for line in lines))
         self.assertEqual("".join(line["text"] for line in lines), "supercalifragilisticexpialidocious")
-        with self.assertRaisesRegex(ValueError, r"most 6 is fewer letters than the number '1,000,000' \(9 letters\)"):
-            text.caption_lines([{"from": 0, "to": 2, "text": "ราคา 1,000,000 บาท"}], most=6)
+        for said, most, number in (("ราคา 1,000,000 บาท", 6, "1,000,000"), ("ราคาสามสามพันห้าร้อยบาท", 12, "สามสามพันห้าร้อย"),
+                                   ("1,000,000", 6, "1,000,000")):
+            lines = [line["text"] for line in text.caption_lines([{"from": 0, "to": 2, "text": said}], most=most)]
+            self.assertEqual("".join(lines), said)
+            self.assertIn(number, [line.strip() for line in lines], "a number is never split")
 
     def test_phrase_refusals(self):
         with self.assertRaisesRegex(ValueError, "phrase 0's to 1 is not after its from 2"):

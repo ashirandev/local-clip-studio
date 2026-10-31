@@ -1095,7 +1095,8 @@ def _pieces(said, most):
     whole when only the particles take it past `most`, by at most PARTICLE_ROOM letters; else it is cut before a
     particle rather than inside a word. The yeti review (10-29) captioned ไมโครโฟนนะครับ, 13 letters on lines of 12,
     as ไมโครโฟนนะครั and บแล้วก็มีคู่มือ. Only a word longer than `most` is cut inside, between its letters, and never
-    inside a number."""
+    inside a number: one longer than `most` stands whole, as สามสามพันห้าร้อย, 13 letters on lines of 12, lost a batch of 5 to
+    an error (11-01, 025525-3e8e)."""
     locked = set()
     for m in thai.NUMBER.finditer(said):
         locked.update(range(m.start() + 1, m.end()))
@@ -1112,10 +1113,10 @@ def _pieces(said, most):
                     and _letters(said[s:k]) <= most]
             breaks = [k for k in fits if k in words] or near or fits
             if not breaks:
-                number = next(m.group(0) for m in thai.NUMBER.finditer(said) if m.start() < e and m.end() > s)
-                raise ValueError("most %d is fewer letters than the number %r (%d letters), and a number is never "
-                                 "split: use most of at least %d." % (most, number, _letters(number),
-                                                                     _letters(number)))
+                end = next(m.end() for m in thai.NUMBER.finditer(said) if m.start() < e and m.end() > s)
+                if end >= e:
+                    break
+                breaks = [end]
             pieces.append((s, breaks[-1]))
             s = breaks[-1]
         pieces.append((s, e))
