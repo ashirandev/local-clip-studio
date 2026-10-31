@@ -484,6 +484,17 @@ class Loop(unittest.TestCase):
                       self.chat.messages[-2]["content"])
         self.assertEqual(events[-1]["why"], "answered")
 
+    def test_a_step_passed_over_stays_open_and_gets_the_reminder(self):
+        """EP0 10-31: step 5 was SAM, Muse named step 6, and the page ticked all 6 with no cut-out made."""
+        brain = ScriptedMind([call("set_plan", steps=["a", "b", "c"], why="plan")],
+                             [call("find_recordings", why="look", plan_step=1)],
+                             [call("find_recordings", words="sifu", why="on to the last", plan_step=3)],
+                             "All done.", "b was not needed.")
+        job, events = self.run_job(brain)
+        plans = [e for e in events if e["kind"] == "plan"]
+        self.assertEqual([p["state"] for p in plans[-1]["items"]], ["done", "todo", "done"])
+        self.assertIn("[studio] Your plan has steps no call has named yet: 2. b.", self.chat.messages[-2]["content"])
+
     def test_an_answer_that_speaks_of_a_cover_none_made_is_asked_again_once(self):
         """Beat 1, 10-29: make_cover was refused, and the answer still said "และปกพร้อมโพสต์ให้แล้ว"."""
         brain = ScriptedMind("คลิปและปกพร้อมโพสต์ให้แล้ว", "คลิปพร้อมแล้ว ยังไม่มีหน้าปก", "")

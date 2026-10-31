@@ -55,7 +55,7 @@ WORK = os.environ.get("LCS_WORK") or os.path.join(ROOT, "work")
 AGENT_TEMPERATURE = 0.5
 AGENT_MAX_TOKENS = 4096
 SPELL_TOKENS = 8192
-MAX_STEPS = 30
+MAX_STEPS = 40
 STEPS_WARNED = 6
 FINISH_STEPS = 4
 FINISH_TOOLS = ("check_clip", "hand_over")
@@ -1964,9 +1964,11 @@ class Job:
         self.show_plan(why=why, changed=changed)
 
     def tick(self, step):
+        """Step is being worked on. One before it is done only when a call on it went through: EP0 10-31, 20:41, the
+        step for SAM was passed over, the next one ticked it, and the page showed all 6 done with no cut-out made."""
         for i, item in enumerate(self.plan, 1):
             if i < step:
-                item["state"] = "done"
+                item["state"] = "done" if i in self.worked else "todo"
             elif i == step:
                 item["state"] = "now"
             elif item["state"] == "now":

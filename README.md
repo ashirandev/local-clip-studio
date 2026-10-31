@@ -264,7 +264,7 @@ Detailed steps the input, the result and the engine numbers.
 
 - **The loop keeps the rules, not Muse.** Wrong input is refused with a sentence that says what to send instead. A
   call that already got the same result twice is refused until something changes, so a fixed retry always runs.
-  Plan steps left open get one reminder. A job stops after 30 steps.
+  Plan steps left open get one reminder. A job stops after 40 steps.
 - **The conversation only grows at its end.** The system message and the tool list never change, so llama-server
   reuses everything it has already read and reads only the newest messages.
 - **You can steer it while it works.** Muse's thinking shows on the page as it is written. Type at any time: the
