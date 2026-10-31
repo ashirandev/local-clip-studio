@@ -1655,7 +1655,7 @@ function drawFrame() {
   framePick.style.aspectRatio = f.size[0] + " / " + f.size[1];
   frameWindow.style.left = (100 * x) / f.size[0] + "%";
   frameWindow.style.width = (100 * f.width) / f.size[0] + "%";
-  frameSays.textContent = moved ? "New: the clip shows " + share(x) + "% to " + share(x + f.width) + "% of your video's width" + (f.follows ? ", held there instead of following the product." : ".") : f.follows ? "The frame follows the product now. Drag it, or tap Left, Middle or Right, to hold it in one place." : "Drag the frame over your video, or tap Left, Middle or Right, to choose what the clip shows.";
+  frameSays.textContent = moved ? "New: the clip shows " + share(x) + "% to " + share(x + f.width) + "% of your video's width" + (f.follows ? ", held there instead of following." : ".") : f.follows ? "The frame follows by itself now. Drag it, or tap Left, Middle or Right, to hold it in one place." : "Drag the frame over your video, or tap Left, Middle or Right, to choose what the clip shows.";
   $("frameLeft").disabled = x <= 0;
   $("frameRight").disabled = x >= f.size[0] - f.width;
   frameGo.disabled = !moved;

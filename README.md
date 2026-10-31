@@ -408,7 +408,10 @@ Detailed steps the input, the result and the engine numbers.
   puts the old ends back.
 - **Move the upright frame by hand.** When a wide video fills the upright frame, the Frame tab shows the whole video
   with the frame over it: drag it, or tap Left, Middle or Right, then Apply. The frame holds there through the clip
-  (a frame that followed the product stops following), and Undo puts it back.
+  (a frame that followed stops following), and Undo puts it back.
+- **A football game close up.** Tap Fill on a match in the Layout tab and the upright frame follows the play, by the
+  mark the game draws over the player in control, leaning to the goal the attack ends at; a close-up or a replay holds
+  the middle. A game with no such mark, or a real match, stays best as the card: the frame would hold one place.
 - **The preview changes at once.** The page plays the clip without its words (a base video, made once for each
   picture) and lays the words over it, drawn as see-through pictures by the same libass as the export. A change of
   words shows in about a second (0.55 s measured on the test clip, 10-28); only a change to the picture or the sound

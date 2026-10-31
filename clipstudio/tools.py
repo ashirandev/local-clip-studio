@@ -20,7 +20,7 @@ import types
 import numpy as np
 
 from . import (channels, cover, cutout, effects, faces, focus, green, hearing, layouts, maps, mind, montage, pauses,
-               person, picture,
+               person, picture, pitch,
                countdown, previews,
                project, recording, render, review, sends, voices,
                screen, spoken, takes, talk, text, thai, tracks, watch, words)
@@ -2234,6 +2234,8 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     following = ground = ""
     if lay["kind"] == "card" and follow and not crop and not trim and _reads_screen(job):
         lay, following = _follow(rec, lay, pieces, [a, b])
+    if lay["kind"] == "subject" and recipe == "sport" and follow and not crop:
+        lay, following = _follow_play(job, rec, lay, pieces)
     if lay["kind"] == "card" and _reads_screen(job):
         lay, ground = _plain(job, rec, lay, a, b)
     item = [round(v) for v in _pixels("product", product, rec)] if product else None
@@ -2333,7 +2335,8 @@ def _frame_kept(job, rec, old, new):
                   "layout": dict(layouts.followed(after, plan, "whole"), thing=thing)})
         return "The frame follows the %s again over the new ends, from SAM's first pass." % thing["what"]
     if whole.get("follow"):
-        return "The frame no longer follows what it followed: call follow_product again if it should."
+        return None if any(p.get("follow") for p in after["parts"]) else (
+            "The frame no longer follows what it followed: call follow_product again if it should.")
     parts = [dict(p, src=list(whole["src"])) if p["name"] == "whole" else p for p in after["parts"]]
     if parts == after["parts"]:
         return None
@@ -2460,6 +2463,22 @@ def _tenth(t):
     t = round(t, 1)
     h, rest = divmod(t, 3600)
     return ("%d:%02d:%04.1f" % (h, rest // 60, rest % 60)) if h else "%d:%04.1f" % (rest // 60, rest % 60)
+
+
+def _follow_play(job, rec, lay, pieces):
+    """(the upright frame following a match's play, the sentence for Muse), or the layout as it was (pitch.follow)."""
+    whole = next(p for p in lay["parts"] if p["name"] == "whole")
+    job.working("Following the play")
+    try:
+        plan = pitch.follow(rec, pieces, whole["src"][2], whole["src"][1])
+    finally:
+        job.done_working()
+    if not plan:
+        return lay, ("The frame holds the middle of the picture: only a game that marks the player in control can be "
+                     "followed, and a fixed frame misses what happens at either end. The card shows the whole pitch.")
+    plan["size"] = list(whole["src"][2:])
+    return layouts.followed(lay, plan, "whole"), ("The frame follows the play: the game's mark over the player in control "
+                                                  "is in %d%% of the match's pictures." % round(plan["seen"] * 100))
 
 
 def _follow(rec, lay, pieces, span):

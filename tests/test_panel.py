@@ -719,7 +719,7 @@ class Frame(Clip):
         self.assertNotIn("thing", self.chat.project.state()["clip"]["layout"],
                          "lane 5: the check would time the product against the follow the person left")
         self.assertFalse(self.chat.panel()["frame"]["follows"])
-        self.assertTrue(self.chat.told[-1].endswith("(it no longer follows the product)"))
+        self.assertTrue(self.chat.told[-1].endswith("(it no longer follows anything)"))
 
     def test_a_frame_the_person_placed_stays_when_the_ends_move(self):
         self.make()

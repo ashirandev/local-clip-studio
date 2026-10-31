@@ -44,7 +44,8 @@ in and the celebration, and knows what it did to the score.
   words over each piece: what happened and the score after it, as "วอลเลย์เข้าไกล 2-0". Give each piece the start where the
   attack starts and the end when the celebration ends, at most 20 s, so all of them fit. Asked for one goal, make one.
 - Layout: the whole pitch as a card. The ball and the players move across the whole width, so the sides are never
-  cut. When there is a face camera, the face goes in a circle above the card.
+  cut. When there is a face camera, the face goes in a circle above the card. When the person asks for it close up or
+  filling the screen, use the subject layout: the frame then follows the play, in a game that marks the player in control.
 - The title says how the match went, in the clip's language: "นำ 2-0 แต่โดนพลิกแพ้ 2-3" gives a reason to watch;
   "ไฮไลท์นัดนี้" gives none.
 - Look: vivid.

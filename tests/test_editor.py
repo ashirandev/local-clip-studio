@@ -1541,6 +1541,49 @@ class Tools(unittest.TestCase):
         p.entries[-1] = dict(clip, moved=True)
         self.assertEqual([x["blur"] for x in p.state()["people"]], [None, True, None], "made again, the face keeps it")
 
+    PLAY = {"size": [100, 180], "seen": 0.73, "shots": [{"from": 0.0, "x": 10, "y": 0, "line": True},
+                                                        {"from": 5.0, "x": 150, "y": 0, "line": True}]}
+
+    def a_match(self, recipe="sport", **made):
+        return self.run_job(self.to_moment()[0], [call("load_recipe", type=recipe, why="a match")], self.to_moment()[1],
+                            self.to_moment()[2], [call("make_clip", moment=1, layout="subject", why="close up", **made)], "Done.")[1]
+
+    def whole(self):
+        return next(p for p in self.chat.project.state()["clip"]["layout"]["parts"] if p["name"] == "whole")
+
+    def test_a_match_in_the_upright_frame_follows_the_play(self):
+        """Tarm 10-31: "คลิปบอล ผมว่า fix กลางจอ ไม่ดี ควรตามลูกบอล"."""
+        asked = []
+        with mock.patch.object(tools.pitch, "follow", lambda *a: asked.append(a) or self.PLAY):
+            steps = self.a_match()
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertEqual(self.whole()["follow"], self.PLAY["shots"])
+        self.assertEqual(asked[0][2:], tuple(self.whole()["src"][2:3]) + (0,), "the frame's width and its top")
+        self.assertIn("The frame follows the play: the game's mark over the player in control is in 73%", steps[-1]["result"])
+        self.assertTrue(self.chat.framing(self.chat.project.state())["follows"], "and the Frame tab says so")
+
+    def test_a_match_with_no_mark_holds_the_middle_and_says_so(self):
+        with mock.patch.object(tools.pitch, "follow", lambda *a: None):
+            steps = self.a_match()
+        self.assertNotIn("follow", self.whole())
+        self.assertIn("The frame holds the middle of the picture", steps[-1]["result"])
+
+    def test_only_a_match_follows_the_play_and_a_crop_or_no_follow_stay_as_asked(self):
+        def never(*a):
+            raise AssertionError("not asked")
+
+        with mock.patch.object(tools.pitch, "follow", never):
+            self.assertFalse(self.a_match("game")[-1]["refused"])
+            self.assertFalse(self.a_match(follow=False)[-1]["refused"])
+            self.assertFalse(self.a_match(crop=[100, 0, 400, 1000])[-1]["refused"])
+
+    def test_new_ends_follow_the_play_again_with_nothing_to_say(self):
+        old = {"layout": {"kind": "subject", "parts": [{"name": "whole", "src": [0, 0, 9, 16], "follow": self.PLAY["shots"]}]}}
+        new = {"layout": {"kind": "subject", "parts": [{"name": "whole", "src": [0, 0, 9, 16], "follow": self.PLAY["shots"]}]}}
+        self.assertIsNone(tools._frame_kept(None, None, old, new))
+        new["layout"]["parts"][0].pop("follow")
+        self.assertIn("no longer follows", tools._frame_kept(None, None, old, new))
+
     def test_a_match_keeps_its_faces_as_any_event_does(self):
         """Lane 5 10-31: 318 faces in a match, and Muse's steps went on them."""
         _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="sport", why="a match")], self.to_moment()[1],

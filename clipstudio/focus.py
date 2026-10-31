@@ -417,7 +417,11 @@ def readable(height, shown):
 
 
 def at(shots, t):
-    """(x, y) of the window at clip second t: held through each shot, panning for PAN seconds into the next."""
+    """(x, y) of the window at clip second t: held through each shot, panning for PAN seconds into the next; with
+    "line" on the shots (pitch.follow), a straight line from each to the next, as a pan that eased in and out at every
+    point of a long path would stop and start twice a second."""
+    if shots[0].get("line"):
+        return float(np.interp(t, [s["from"] for s in shots], [s["x"] for s in shots])), shots[0]["y"]
     x, y = shots[0]["x"], shots[0]["y"]
     for before, s in zip(shots, shots[1:]):
         if t < s["from"]:
@@ -430,12 +434,24 @@ def at(shots, t):
 
 def expression(shots, axis):
     """The window's x or y as an FFmpeg expression of t, the same path at() gives."""
+    if shots[0].get("line"):
+        return _line(shots, 0, len(shots) - 1) if axis == "x" else "%d" % shots[0][axis]
     text = "%d" % shots[-1][axis]
     for before, s in reversed(list(zip(shots, shots[1:]))):
         u = "((t-%.3f)/%.3f)" % (s["from"], PAN)
         text = "if(lt(t,%.3f),%d,if(lt(t,%.3f),%d+(%d)*%s*%s*(3-2*%s),%s))" % (
             s["from"], before[axis], s["from"] + PAN, before[axis], s[axis] - before[axis], u, u, u, text)
     return text
+
+
+def _line(shots, lo, hi):
+    """x over shots lo to hi on a straight-line path, halved at each step: a path of 160 points read one after the other
+    goes deeper than FFmpeg's parser does, and a sum of about 100 terms already fails it (effects._sum)."""
+    if hi - lo > 1:
+        mid = (lo + hi) // 2
+        return "if(lt(t,%.3f),%s,%s)" % (shots[mid]["from"], _line(shots, lo, mid), _line(shots, mid, hi))
+    a, b = shots[lo], shots[hi]
+    return "%d+(%d)*(t-%.3f)/%.3f" % (a["x"], b["x"] - a["x"], a["from"], b["from"] - a["from"])
 
 
 # ---- following a thing SAM followed ------------------------------------------------------------------------------

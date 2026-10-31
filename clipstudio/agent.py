@@ -717,7 +717,7 @@ class Chat:
     def framing(self, state):
         """Where the upright frame sits over a lying recording, for the Frame tab: {"picture": a frame of the clip's
         middle (recording.frame), "size": the recording's [w, h], "x" and "width": the frame's left edge and width in
-        its pixels, "follows": True while it moves with the product, "why": None}, or {"why": the sentence} when there
+        its pixels, "follows": True while it moves by itself, "why": None}, or {"why": the sentence} when there
         is no frame to move. Tarm 10-30: "ซูมเป็นแนวตั้ง แต่ขยับกรอบไปชิดซ้าย"."""
         clip, rec = state["clip"], self.recording or {}
         whole = next((p for p in clip["layout"]["parts"] if p["name"] == "whole"), None)
@@ -751,7 +751,7 @@ class Chat:
         w = float(self.recording["width"])
         self._tell("the person moved the upright frame on the page: it now shows %d%% to %d%% of the recording's "
                    "width, and holds there%s" % (round(100 * x / w), round(100 * (x + now["width"]) / w),
-                                                 " (it no longer follows the product)" if now["follows"] else ""))
+                                                 " (it no longer follows anything)" if now["follows"] else ""))
         return None
 
     def has_sound(self):
