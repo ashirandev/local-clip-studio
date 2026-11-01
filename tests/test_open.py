@@ -39,7 +39,7 @@ def snapshot(folder):
 
 
 class EveryDrive(unittest.TestCase):
-    """With no folder named, Muse finds recordings on every drive, as Eaglet finds files (Tarm 10-28: his brother
+    """With no folder named, Muse finds recordings on every drive, as Elmoro finds files (Tarm 10-28: his brother
     should not have to set anything)."""
 
     def setUp(self):

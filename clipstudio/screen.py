@@ -10,8 +10,8 @@ alone, so READERS of them are read at once (measured 10-27 on 28 processor threa
 The proposed moments are read ahead, one at a time in a thread of their own, while Muse goes on working: a clip made
 from one of them finds it read, or waits for the reading under way instead of starting another.
 
-The words a stretch shows are also what names are checked against: a speech recogniser mishears a name such as
-Eaglet, and the screen has it written. Only words from lines that hold nothing private are given out, so a private
+The words a stretch shows are also what names are checked against: a speech recogniser mishears a name, and the
+screen has it written. Only words from lines that hold nothing private are given out, so a private
 word never reaches Muse.
 
 A private line is hidden whole: the reader gives a box per line, not per letter, and the whole line is the box that is
@@ -374,7 +374,7 @@ def words(rec, a, b):
 
 
 def _site(word):
-    """Whether word is written as a web address, labels joined by dots that end in a known ending (ashiran.com,
+    """Whether word is written as a web address, labels joined by dots that end in a known ending (example.com,
     th.jobsdb.com); not a file name (CV.pdf, llama.cpp)."""
     parts = word.lower().split(".")
     return len(parts) >= 2 and parts[-1] in ENDINGS and all(parts)
@@ -411,8 +411,8 @@ def _keep_sites(rec, found):
 
 
 def sites(rec):
-    """The web addresses read on the screen anywhere in the recording so far, each followed by its names (ashiran.com,
-    ashiran): an address is spelled one way, so a name said in a moment is written as the screen writes it even when
+    """The web addresses read on the screen anywhere in the recording so far, each followed by its names (example.com,
+    example): an address is spelled one way, so a name said in a moment is written as the screen writes it even when
     the address shows at another second. Only addresses: measured 10-28 against every word read on every screen, the
     plain words (Content, Company, roles) would have changed Context, Compact and homes; the addresses changed 7 words,
     all rightly (ashilan.do.com, Achilan, JobDB)."""

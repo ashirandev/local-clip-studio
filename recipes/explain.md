@@ -31,7 +31,7 @@ After the clip, the viewer has learned one thing they can use: one tip, one step
   customer's name and blur it.
 - Captions are the person's own words.
 - A name (a program, a site, a product) is written as the screen shows it, even where it was heard as another word:
-  the screen says Eaglet, so it is Eaglet, never the "Egret" that was heard. Never offer to change a name the screen
+  the screen says Elmoro, so it is Elmoro, never the "Elmero" that was heard. Never offer to change a name the screen
   shows.
 
 ## The clip

@@ -1006,7 +1006,7 @@ class Tools(unittest.TestCase):
                       'kept: "It costs 99 baht." for "ราคา 990 บาท"; put the captions on again and those lines are '
                       'translated again)', wrong["result"])
         self.assertIn("- passed: Translated captions keep the numbers (2 of 2 sentences keep every number said)",
-                      fixed[-1]["result"], "Eaglet 10-28: the same translation was kept and the clip was never handed "
+                      fixed[-1]["result"], "Elmoro 10-28: the same translation was kept and the clip was never handed "
                                            "over")
         captions = self.chat.project.state()["captions"]
         self.assertEqual(captions["language"], "English")
@@ -1356,7 +1356,7 @@ class Tools(unittest.TestCase):
         self.assertIn("numbers kept but in 1 where you were shown the number and left it out", caps["result"])
         self.assertIn('- passed: Translated captions keep the numbers (1 of 2 sentences keep every number said; Muse was '
                       'shown the number and wrote it as no number, which the person can check: "You can go see it." '
-                      'for "นะครับสามก่อนเข้าไปดู")', checked["result"], "Eaglet 10-28: four renders, then a red check")
+                      'for "นะครับสามก่อนเข้าไปดู")', checked["result"], "Elmoro 10-28: four renders, then a red check")
         self.assertFalse(lit["refused"], lit["result"])
         self.assertEqual(len([m for m in brain.sent if "English subtitle" in m[0]["content"]]), 2,
                          "a tap keeps the lines Muse already looked at twice")
@@ -1412,7 +1412,7 @@ class Tools(unittest.TestCase):
     def test_a_translated_line_keeps_the_numbers_said_as_a_thai_speaker_says_them(self):
         differ = tools._numbers_differ
         self.assertFalse(differ("กลับมาเป็นแสนหนึ่งและนะครับ", "It's back to one hundred thousand now."),
-                         "Eaglet 10-28: แสนหนึ่ง is said for 100,000")
+                         "Elmoro 10-28: แสนหนึ่ง is said for 100,000")
         self.assertFalse(differ("นะครับ สามารถเข้าไปดูได้ใน", "Okay, you can go check it in"), "สามารถ holds no three")
         self.assertFalse(differ("ราคา 990 บาท", "It costs 990 baht."))
         self.assertFalse(differ("ได้สามสิบห้าคน หนึ่งวัน", "35 people in a day."))
@@ -3421,41 +3421,41 @@ class Tools(unittest.TestCase):
             make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
             return out
 
-        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "ดู egret", "sure": 0.7}]
+        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "ดู elmero", "sure": 0.7}]
         had = hearing.fix, screen.words, screen.readings, getattr(render, "export", None)
         hearing.fix, render.export = fix, export
-        screen.words = lambda rec, a, b: ["Eaglet", "Settings"]
+        screen.words = lambda rec, a, b: ["Elmoro", "Settings"]
         screen.readings = lambda rec, a, b, on_start=None: [{"at": a, "lines": []}]
         try:
             _, steps = self.run_job(
                 [call("open_recording", path=self.clip, why="open it")],
                 [call("load_recipe", type="explain", why="a tutorial")],
                 [call("look_at_piece", start="0:30", end="0:50", why="the top stretch")],
-                [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "สาธิต Egret Settings"}])],
-                '{"lines": ["ดู Eaglet"]}',
+                [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "สาธิต Elmero Settings"}])],
+                '{"lines": ["ดู Elmoro"]}',
                 [call("make_clip", moment=1, layout="card", why="the screen")],
                 [call("decide_people", keep=[1], why="it is him")],
                 [call("add_captions", why="the words")],
-                [call("add_title", words="Egret on your PC", start=0, end=5, place="top", why="the name")],
+                [call("add_title", words="Elmero on your PC", start=0, end=5, place="top", why="the name")],
                 [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
-                [call("hand_over", title="Egret", caption="c", hashtags=["#Egret"], why="post")],
-                [call("hand_over", title="Egret", caption="c", hashtags=["#Egret"], why="as said")], "Done.")
+                [call("hand_over", title="Elmero", caption="c", hashtags=["#Elmero"], why="post")],
+                [call("hand_over", title="Elmero", caption="c", hashtags=["#Elmero"], why="as said")], "Done.")
         finally:
             hearing.fix, screen.words, screen.readings, render.export = had
         titled = next(s for s in steps if s["tool"] == "add_title")
         proposed = next(s for s in steps if s["tool"] == "propose_moments")
         refused, ready = steps[-2], steps[-1]
-        self.assertIn("(20 s, from look 1): สาธิต Eaglet Settings\n", proposed["result"])
-        self.assertIn('The program wrote the names in your reasons as the screen writes them: "Egret" as "Eaglet".',
+        self.assertIn("(20 s, from look 1): สาธิต Elmoro Settings\n", proposed["result"])
+        self.assertIn('The program wrote the names in your reasons as the screen writes them: "Elmero" as "Elmoro".',
                       proposed["result"])
-        self.assertEqual(self.chat.moments[0]["reason"], "สาธิต Eaglet Settings", "2de1 10-28: the card said Egret")
-        self.assertTrue(names and all(n == ["Eaglet", "Settings"] for n in names), names)
-        self.assertEqual([line["text"] for line in self.chat.project.state()["captions"]["lines"]], ["ดู Eaglet"],
+        self.assertEqual(self.chat.moments[0]["reason"], "สาธิต Elmoro Settings", "2de1 10-28: the card said Elmero")
+        self.assertTrue(names and all(n == ["Elmoro", "Settings"] for n in names), names)
+        self.assertEqual([line["text"] for line in self.chat.project.state()["captions"]["lines"]], ["ดู Elmoro"],
                          "heard unsure, but the screen wrote the name, so it is captioned")
-        self.assertIn('Spelled as the screen writes it? "Egret" is not on the screen, which shows "Eaglet". If the '
+        self.assertIn('Spelled as the screen writes it? "Elmero" is not on the screen, which shows "Elmoro". If the '
                       'speaker meant the screen\'s words, put the title on again.', titled["result"])
         self.assertTrue(refused["refused"])
-        self.assertIn('"Egret" is not on the screen, which shows "Eaglet"', refused["result"])
+        self.assertIn('"Elmero" is not on the screen, which shows "Elmoro"', refused["result"])
         self.assertIn("hand over again unchanged", refused["result"])
         self.assertFalse(ready["refused"], ready["result"])
 
@@ -3532,7 +3532,7 @@ class Tools(unittest.TestCase):
         finally:
             screen.readings = had
 
-    def several(self, *clips_calls, black=False, recipe="explain", quiet=0, shown=("Eaglet",)):
+    def several(self, *clips_calls, black=False, recipe="explain", quiet=0, shown=("Elmoro",)):
         """A tutorial with two moments proposed, then the given calls; screen and render are faked (the screen shows
         the words in shown), the render black and silent at its start when black, and moment 2's first render silent
         for its first quiet seconds."""
@@ -3579,8 +3579,8 @@ class Tools(unittest.TestCase):
         for p in self.green_cloth():
             p.start()
             self.addCleanup(p.stop)
-        bare = [{"moment": 1, "title": "Eaglet pad", "caption": "a pad", "hashtags": ["#pad"]},
-                {"moment": 2, "title": "Eaglet balm", "caption": "a balm", "hashtags": ["#balm"]}]
+        bare = [{"moment": 1, "title": "Elmoro pad", "caption": "a pad", "hashtags": ["#pad"]},
+                {"moment": 2, "title": "Elmoro balm", "caption": "a balm", "hashtags": ["#balm"]}]
         box = {"product": [600, 200, 900, 800]}
         named = [dict(bare[0], what="white game controller", **box), dict(bare[1], what="yellow balm jar", **box)]
         dressed = [dict(c, background="a calm shop shelf") for c in named]
@@ -3663,7 +3663,7 @@ class Tools(unittest.TestCase):
         for p in self.green_cloth():
             p.start()
             self.addCleanup(p.stop)
-        copied = [{"moment": 1, "title": "Eaglet pad", "caption": "a pad", "hashtags": ["#pad"], "product": [600, 200, 900, 800],
+        copied = [{"moment": 1, "title": "Elmoro pad", "caption": "a pad", "hashtags": ["#pad"], "product": [600, 200, 900, 800],
                    "what": "white game controller", "background": "A tidy gaming desk with soft blue light."}]
         with mock.patch.object(tools.person, "cut_out", cut_out):
             _, steps = self.several([call("make_clips", clips=copied + [dict(copied[0], moment=2)], why="two")], "Done.", recipe="seller")
@@ -3750,7 +3750,7 @@ class Tools(unittest.TestCase):
                     "size": [320, 180], "from": a, "to": b}
 
         def clip(n, what):
-            return {"moment": n, "title": "Eaglet pad", "caption": "a pad", "hashtags": ["#pad"], "what": what,
+            return {"moment": n, "title": "Elmoro pad", "caption": "a pad", "hashtags": ["#pad"], "what": what,
                     "product": [200, 200, 800, 800], "background": "a calm shop shelf"}
 
         broken = [clip(1, "a broken thing"), clip(2, "a stopped thing")]
@@ -3767,14 +3767,14 @@ class Tools(unittest.TestCase):
         self.assertIn("Clip 2 (moment 2, 0:40-0:50, 10 s, subject layout): not made, the person pressed Stop.", made)
 
     def batch(self, *more):
-        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
-                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        clips = [{"moment": 1, "title": "Elmoro one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Elmoro two", "caption": "c2", "hashtags": ["#b"]}]
         return self.several([call("make_clips", clips=clips, why="both")], *more, "Done.")
 
     def test_a_clip_this_job_handed_over_is_not_made_again_in_one_go(self):
         """082547-8596 on 11-01: 13 minutes on 5 clips again, for the 1 held back."""
-        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
-                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        clips = [{"moment": 1, "title": "Elmoro one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Elmoro two", "caption": "c2", "hashtags": ["#b"]}]
         one = [call("make_clip", moment=1, layout="card", why="one")]
         _, steps = self.batch([call("make_clips", clips=clips, why="again")], [call("make_clips", clips=clips[1:], why="the second")], one)
         made = [s for s in steps if s["tool"] in ("make_clips", "make_clip")]
@@ -3786,7 +3786,7 @@ class Tools(unittest.TestCase):
 
     def test_one_clip_goes_through_make_clips_only_when_an_album_holds_the_others(self):
         """082547-8596 on 11-01: make_clips asked for two, so Glimmer sent the Samsung with a clip already handed over."""
-        one = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]}]
+        one = [{"moment": 1, "title": "Elmoro one", "caption": "c1", "hashtags": ["#a"]}]
         _, steps = self.several([call("make_clips", clips=one, why="one")], "Done.")
         self.assertTrue(steps[-1]["refused"], steps[-1]["result"])
         self.assertIn("clips must have 2 to", steps[-1]["result"])
@@ -3813,8 +3813,8 @@ class Tools(unittest.TestCase):
     def test_a_job_that_ends_with_its_memory_full_says_which_clips_were_not_handed_over(self):
         """082547-8596 on 11-01: the Samsung held back and the person told nothing about it."""
         self.batch()
-        self.chat.album_now = lambda: {"clips": [{"title": "Eaglet one", "state": "ready"}, {"title": "Samsung", "state": "unfinished"},
-                                                 {"title": "Eaglet two", "state": "ready"}]}
+        self.chat.album_now = lambda: {"clips": [{"title": "Elmoro one", "state": "ready"}, {"title": "Samsung", "state": "unfinished"},
+                                                 {"title": "Elmoro two", "state": "ready"}]}
 
         class Full:
             label = "Muse"
@@ -3835,14 +3835,14 @@ class Tools(unittest.TestCase):
         album = self.chat.album_now()
         self.assertEqual(album["at"], 0)
         self.assertEqual([(c["title"], c["state"]) for c in album["clips"]],
-                         [("Eaglet one", "ready"), ("Eaglet two", "ready")])
+                         [("Elmoro one", "ready"), ("Elmoro two", "ready")])
         self.assertTrue(all(c["file"].endswith(".mp4") for c in album["clips"]))
         self.assertEqual(self.chat.project.state()["clip"]["moment"], 1)
         self.assertIsNone(self.chat.pick_clip(1))
         self.assertEqual(self.chat.project.state()["clip"]["moment"], 2, "clips after the first can be edited too")
         picked = [e for e in self.chat.events if e["kind"] == "picked"][-1]
         self.assertEqual((picked["at"], picked["ready"]["title"], picked["file"]["name"], picked["title"]),
-                         (1, "Eaglet two", album["clips"][1]["file"], "Eaglet two"))
+                         (1, "Elmoro two", album["clips"][1]["file"], "Elmoro two"))
         self.assertEqual(picked["clip"]["moment"], 2)
         self.assertTrue(self.chat.told[-1].startswith("the person opened clip 2 of the album"))
         self.assertIn("clip 2 of 2 in the album", self.chat.clip_line())
@@ -4033,8 +4033,8 @@ class Tools(unittest.TestCase):
         self.assertEqual((back.album_at, len(back.album), back.album[2]["moment"]), (2, 3, 9))
 
     def test_a_second_batch_takes_its_moments_places_and_leaves_the_others_clean(self):
-        clips = [{"moment": 1, "title": "Eaglet again", "caption": "c1", "hashtags": ["#a"]},
-                 {"moment": 2, "title": "Eaglet too", "caption": "c2", "hashtags": ["#b"]}]
+        clips = [{"moment": 1, "title": "Elmoro again", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Elmoro too", "caption": "c2", "hashtags": ["#b"]}]
         self.batch()
         self.chat.album_to(9)
         since = self.chat.events[-1]["id"]
@@ -4044,7 +4044,7 @@ class Tools(unittest.TestCase):
         self.assertEqual([p["moment"] for p in self.chat.album], [1, 2, 9], "the same moments keep their places")
         self.assertEqual(self.chat.album_at, 0)
         self.assertEqual(self.chat.album[2]["project"].entries, [], "no edit of the batch went to another place")
-        self.assertEqual([c["title"] for c in self.chat.album_now()["clips"][:2]], ["Eaglet again", "Eaglet too"])
+        self.assertEqual([c["title"] for c in self.chat.album_now()["clips"][:2]], ["Elmoro again", "Elmoro too"])
         back = agent.Chat.load(self.chat.id)
         self.assertEqual([p["project"].entries for p in back.album], [p["project"].entries for p in self.chat.album])
 
@@ -4088,8 +4088,8 @@ class Tools(unittest.TestCase):
         put, so it could land inside a word."""
         takes.heard_level = self.level
         make_moment(self.clip, loud=(32, 46))
-        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
-                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        clips = [{"moment": 1, "title": "Elmoro one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Elmoro two", "caption": "c2", "hashtags": ["#b"]}]
         _, steps = self.several([call("make_clips", clips=clips, why="both")],
                                 [call("change_ends", start="0:32.5", end="0:45", why="into the first word")],
                                 [call("change_ends", start="0:35", why="in the middle of the sound")], "Done.")
@@ -4134,8 +4134,8 @@ class Tools(unittest.TestCase):
         last line. Here the line is said at 32-34 s and the sound goes on as loud to 40 s, then the room is quiet."""
         takes.heard_level = self.level
         make_moment(self.clip, loud=(32, 40))
-        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
-                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        clips = [{"moment": 1, "title": "Elmoro one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Elmoro two", "caption": "c2", "hashtags": ["#b"]}]
         _, steps = self.several([call("make_clips", clips=clips, why="both")], "Done.")
         self.assertIn("Clip 1 (moment 1, 0:32-0:40, 8.62 s, card layout): handed over, ", steps[-1]["result"],
                       "from 0.3 s before the line to 0.3 s after the sound, which runs to the moment's end")
@@ -4145,8 +4145,8 @@ class Tools(unittest.TestCase):
         channels.save({"name": "Mine", "captions": "off", "layouts": {"explain": "subject", "talk": "split"},
                        "lengths": {"explain": 25}})
         channels.use("Mine")
-        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
-                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        clips = [{"moment": 1, "title": "Elmoro one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Elmoro two", "caption": "c2", "hashtags": ["#b"]}]
         _, steps = self.several([call("make_clips", clips=clips, why="both")],
                                 [call("add_captions", why="the recipe has them")],
                                 [call("add_captions", why="the person asked")], "Done.")
@@ -4168,8 +4168,8 @@ class Tools(unittest.TestCase):
         self.assertIsNone(tools._layout_unasked(job, "seller", ["card"]), "the layout the person saved is their choice")
 
     def test_several_clips_are_made_in_one_go_and_each_is_reported_on_its_own(self):
-        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
-                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        clips = [{"moment": 1, "title": "Elmoro one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Elmoro two", "caption": "c2", "hashtags": ["#b"]}]
         brain, steps = self.several([call("make_clips", clips=clips, why="the person asked for both")], "Done.")
         made = steps[-1]
         self.assertFalse(made["refused"], made["result"])
@@ -4179,7 +4179,7 @@ class Tools(unittest.TestCase):
         self.assertIn("Clip 2 (moment 2, 0:40-0:50, 10 s, card layout): handed over, ", made["result"])
         self.assertIn("no captions: Nothing was heard clearly", made["result"], "clip 2 has no words")
         ready = [e for e in self.chat.events if e["kind"] == "ready"]
-        self.assertEqual([e["title"] for e in ready], ["Eaglet one", "Eaglet two"])
+        self.assertEqual([e["title"] for e in ready], ["Elmoro one", "Elmoro two"])
         self.assertEqual(len({e["file"] for e in ready}), 2, "two files")
         self.assertEqual(self.chat.project.state()["clip"]["moment"], 1, "the page shows the first clip")
         self.assertEqual(self.chat.finished()["name"], ready[0]["file"])
@@ -4190,8 +4190,8 @@ class Tools(unittest.TestCase):
         self.assertNotIn("The clip at", str(brain.sent[-1]), "no picture of each clip is sent to Muse")
 
     def test_a_game_streams_clips_each_hide_the_chat_box_muse_gives_once(self):
-        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
-                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        clips = [{"moment": 1, "title": "Elmoro one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Elmoro two", "caption": "c2", "hashtags": ["#b"]}]
         _, steps = self.several([call("make_clips", clips=clips, why="both")],
                                 [call("make_clips", clips=clips, blur=[[600, 0, 1000, 300]], why="both")], "Done.",
                                 recipe="game")
@@ -4206,8 +4206,8 @@ class Tools(unittest.TestCase):
             self.assertIn(("No viewer's name can be read", True), [(c["name"], c["ok"]) for c in e["checks"]])
 
     def test_a_title_that_would_cover_a_face_goes_up_where_no_face_is(self):
-        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
-                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        clips = [{"moment": 1, "title": "Elmoro one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Elmoro two", "caption": "c2", "hashtags": ["#b"]}]
         had = tools._face_times
         tools._face_times = lambda state, rec: ([(t / 4, [[0, 0, 1080, 1920]]) for t in range(1, 6)], 0.5)
         try:
@@ -4221,7 +4221,7 @@ class Tools(unittest.TestCase):
 
     def test_each_clips_words_are_proofread_together_before_its_title_goes_on(self):
         clips = [{"moment": 1, "title": "ต้อสู้หนึ่ง", "caption": "ต่อสู้ในโกดัง", "hashtags": ["#a"]},
-                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+                 {"moment": 2, "title": "Elmoro two", "caption": "c2", "hashtags": ["#b"]}]
         brain, _ = self.several([call("make_clips", clips=clips, why="both")],
                                 '{"texts": ["ต่อสู้หนึ่ง", "ต่อสู้ในโกดัง"]}', "Done.")
         ready = [e for e in self.chat.events if e["kind"] == "ready"]
@@ -4232,8 +4232,8 @@ class Tools(unittest.TestCase):
         self.assertIn("ต่อสู้ในโกดัง", spelling[0][0]["content"], "with the post text beside the title")
 
     def test_a_clip_that_fails_a_check_is_not_handed_over(self):
-        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
-                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        clips = [{"moment": 1, "title": "Elmoro one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Elmoro two", "caption": "c2", "hashtags": ["#b"]}]
         _, steps = self.several([call("make_clips", clips=clips, why="both")], "Done.", black=True)
         made = steps[-1]
         self.assertIn("Made 2 clips, 0 handed over", made["result"])
@@ -4242,8 +4242,8 @@ class Tools(unittest.TestCase):
         self.assertEqual([e for e in self.chat.events if e["kind"] == "ready"], [])
 
     def test_a_clip_that_opens_on_silence_is_started_at_its_first_sound(self):
-        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
-                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        clips = [{"moment": 1, "title": "Elmoro one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Elmoro two", "caption": "c2", "hashtags": ["#b"]}]
         _, steps = self.several([call("make_clips", clips=clips, why="both")], "Done.", quiet=2)
         made = steps[-1]["result"]
         self.assertIn("Made 2 clips, 2 handed over", made)
@@ -4267,27 +4267,27 @@ class Tools(unittest.TestCase):
         self.assertAlmostEqual(tools._first_sound(path), 3.0, delta=0.05)
 
     def test_a_name_spelled_another_way_is_written_as_the_screen_writes_it(self):
-        clips = [{"moment": 1, "title": "Egret one", "caption": "Egret's c1", "hashtags": ["#Egret", "#a"]},
-                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        clips = [{"moment": 1, "title": "Elmero one", "caption": "Elmero's c1", "hashtags": ["#Elmero", "#a"]},
+                 {"moment": 2, "title": "Elmoro two", "caption": "c2", "hashtags": ["#b"]}]
         _, steps = self.several([call("make_clips", clips=clips, why="both")],
                                 [call("make_clips", clips=[clips[1], dict(clips[1], title="again")], why="twice")],
                                 "Done.")
         made, twice = steps[-2], steps[-1]
         self.assertFalse(made["refused"], made["result"])
-        self.assertIn('The program wrote names as the screen shows them: clip of moment 1: "Egret" as "Eaglet".',
+        self.assertIn('The program wrote names as the screen shows them: clip of moment 1: "Elmero" as "Elmoro".',
                       made["result"])
         ready = [e for e in self.chat.events if e["kind"] == "ready"]
-        self.assertEqual(ready[0]["title"], "Eaglet one")
-        self.assertIn("Eaglet's c1", ready[0]["caption"])
-        self.assertIn("#Eaglet", ready[0]["hashtags"])
+        self.assertEqual(ready[0]["title"], "Elmoro one")
+        self.assertIn("Elmoro's c1", ready[0]["caption"])
+        self.assertIn("#Elmoro", ready[0]["hashtags"])
         self.assertTrue(twice["refused"])
         self.assertIn("Each moment makes one clip; moment 2 is given twice.", twice["result"])
 
     def test_clips_made_in_a_channel_look_get_its_style_captions_name_and_hashtag(self):
         channels.use(channels.save({"name": "Sample Channel", "handle": "@samplechannel", "look": "warm",
                                     "style": {"name": "pop", "font": None}, "captions": "lit"})["name"])
-        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
-                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        clips = [{"moment": 1, "title": "Elmoro one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Elmoro two", "caption": "c2", "hashtags": ["#b"]}]
         _, steps = self.several([call("make_clips", clips=clips, why="both")],
                                 [call("save_channel_look", channel="Travel", why="the person asked")],
                                 [call("use_channel_look", channel="", why="the person asked for none")], "Done.")
@@ -4338,19 +4338,19 @@ class Tools(unittest.TestCase):
         self.assertEqual(names, ["ASTI", "PDRN"], "lane 5 10-30: iPad was heard as ipd and its title refused")
 
     def test_a_tutorial_is_a_card_unless_muse_says_again_the_person_asked_for_their_face(self):
-        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"], "layout": "face"},
-                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        clips = [{"moment": 1, "title": "Elmoro one", "caption": "c1", "hashtags": ["#a"], "layout": "face"},
+                 {"moment": 2, "title": "Elmoro two", "caption": "c2", "hashtags": ["#b"]}]
         _, steps = self.several([call("make_clips", clips=clips, why="a clip of me talking")],
                                 [call("make_clips", clips=clips, why="the person said: only my face")], "Done.")
         asked, made = steps[-2:]
-        self.assertTrue(asked["refused"], "lane 5 10-28: 'a clip of me talking' on the Eaglet tutorial lost the page")
+        self.assertTrue(asked["refused"], "lane 5 10-28: 'a clip of me talking' on the Elmoro tutorial lost the page")
         self.assertEqual(asked["result"], "Nothing was made. A tutorial's clip shows the screen being explained: the "
                                           "card layout keeps the screen and puts the face in a circle above it. Use "
                                           "face only when the person asked for their face to fill the frame, in words "
                                           "such as 'only my face' or 'just me, big', or the recording has no screen to "
                                           "show; then make it again unchanged.")
         self.assertFalse(made["refused"], made["result"])
-        self.assertEqual([e["title"] for e in self.chat.events if e["kind"] == "ready"], ["Eaglet one", "Eaglet two"])
+        self.assertEqual([e["title"] for e in self.chat.events if e["kind"] == "ready"], ["Elmoro one", "Elmoro two"])
 
     def test_a_talk_is_faces_unless_muse_says_again_the_person_asked_for_the_screen(self):
         _, steps = self.run_job(self.to_moment()[0], [call("load_recipe", type="talk", why="two people talking")], *self.to_moment()[1:],
@@ -4771,16 +4771,16 @@ class Tools(unittest.TestCase):
         self.assertTrue(tools._blurs_the_picture([0, 0, 501, 1000], {"width": 1000, "height": 1000}))
 
     def test_a_blur_over_the_whole_picture_makes_no_clips(self):
-        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
-                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        clips = [{"moment": 1, "title": "Elmoro one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Elmoro two", "caption": "c2", "hashtags": ["#b"]}]
         _, steps = self.several([call("make_clips", clips=clips, blur=[[0, 0, 1000, 1000]], why="both")], "Done.",
                                 recipe="game")
         self.assertTrue(steps[-1]["refused"])
         self.assertIn("Nothing was made. That blur covers most of the picture", steps[-1]["result"])
 
     def test_a_game_with_no_chat_box_says_so_and_its_clips_are_made_and_pass(self):
-        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
-                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        clips = [{"moment": 1, "title": "Elmoro one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Elmoro two", "caption": "c2", "hashtags": ["#b"]}]
         _, steps = self.several([call("no_chat_box", why="a console game, no stream")],
                                 [call("make_clips", clips=clips, why="both")], "Done.", recipe="game")
         self.assertFalse(steps[-1]["refused"], steps[-1]["result"])

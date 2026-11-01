@@ -133,23 +133,23 @@ class Words(unittest.TestCase):
 
     def test_words_come_from_the_readings_kept(self):
         screen._keep(self.rec, 10.0, 20.0, [
-            {"at": 10.0, "lines": self.lines(("Get Eaglet", 0.99), ("ashiran.com", 0.99), ("luuatiuwhn", 0.6))},
-            {"at": 12.0, "lines": self.lines(("Eaglet Local AI", 0.95), ("write to me@example.com Secret", 0.99))}])
-        self.assertEqual(screen.words(self.rec, 10.0, 20.0), ["Eaglet", "Get", "Local", "ashiran.com"])
+            {"at": 10.0, "lines": self.lines(("Get Elmoro", 0.99), ("ashiran.com", 0.99), ("luuatiuwhn", 0.6))},
+            {"at": 12.0, "lines": self.lines(("Elmoro Local AI", 0.95), ("write to me@example.com Secret", 0.99))}])
+        self.assertEqual(screen.words(self.rec, 10.0, 20.0), ["Elmoro", "Get", "Local", "ashiran.com"])
         os.remove(os.path.join(self.tmp, "screen", screen._key(self.rec, 10.0, 20.0) + ".json"))
-        self.assertEqual(screen.words(self.rec, 10.0, 20.0), ["Eaglet", "Get", "Local", "ashiran.com"], "kept")
+        self.assertEqual(screen.words(self.rec, 10.0, 20.0), ["Elmoro", "Get", "Local", "ashiran.com"], "kept")
 
     def test_a_web_address_read_at_one_second_spells_a_name_said_at_another(self):
         from clipstudio import tools
         screen._keep(self.rec, 10.0, 20.0, [{"at": 10.0, "lines": self.lines(
-            ("Get Eaglet at ashiran.com", 0.99), ("Ashiran-CV.pdf llama.cpp th.jobsdb.com", 0.99))}])
+            ("Get Elmoro at ashiran.com", 0.99), ("Ashiran-CV.pdf llama.cpp th.jobsdb.com", 0.99))}])
         self.assertEqual(screen.sites(self.rec), [])
         screen.words(self.rec, 10.0, 20.0)
         self.assertEqual(screen.sites(self.rec), ["ashiran.com", "ashiran", "th.jobsdb.com", "jobsdb"],
                          "addresses and their names; not a file name")
         screen.words(self.rec, 10.0, 20.0)
         self.assertEqual(len(screen.sites(self.rec)), 4, "kept once")
-        shown = ["Eaglet"] + screen.sites(self.rec)
+        shown = ["Elmoro"] + screen.sites(self.rec)
         self.assertEqual(tools._misspelled("ดูที่ ashilan.do.com กับ Achilan แล้วหางานบน JobDB", shown),
                          [("ashilan.do.com", "ashiran.com"), ("Achilan", "Ashiran"), ("JobDB", "Jobsdb")])
 
@@ -158,10 +158,10 @@ class Words(unittest.TestCase):
 
         def pictures(rec, times):
             asked.extend(times)
-            return [{"at": t, "lines": self.lines(("Eaglet", 0.99))} for t in times]
+            return [{"at": t, "lines": self.lines(("Elmoro", 0.99))} for t in times]
 
         screen._pictures = pictures
-        self.assertEqual(screen.words(self.rec, 30.0, 60.0), ["Eaglet"])
+        self.assertEqual(screen.words(self.rec, 30.0, 60.0), ["Elmoro"])
         self.assertEqual(asked, [35.0, 45.0, 55.0])
 
 
@@ -300,15 +300,15 @@ class OwnWords(unittest.TestCase):
 class Misspelled(unittest.TestCase):
     def test_a_name_written_another_way_than_on_the_screen_is_found(self):
         from clipstudio import tools
-        shown = ["Eaglet", "ashiran.com", "Ashiran", "Models", "Settings", "com", "Your"]
-        self.assertEqual(tools._misspelled("ดูข้อมูล Egret บน Achilan.com #Achilan", shown),
-                         [("Egret", "Eaglet"), ("Achilan.com", "ashiran.com"), ("Achilan", "Ashiran")])
-        for fine in ("Choose the right Model", "Eaglet on ashiran.com", "Your machine", "Gemma"):
+        shown = ["Elmoro", "ashiran.com", "Ashiran", "Models", "Settings", "com", "Your"]
+        self.assertEqual(tools._misspelled("ดูข้อมูล Elmero บน Achilan.com #Achilan", shown),
+                         [("Elmero", "Elmoro"), ("Achilan.com", "ashiran.com"), ("Achilan", "Ashiran")])
+        for fine in ("Choose the right Model", "Elmoro on ashiran.com", "Your machine", "Gemma"):
             self.assertEqual(tools._misspelled(fine, shown), [], fine)
 
     def test_a_made_up_tag_half_like_a_screen_word_is_left_as_written(self):
         from clipstudio import tools
-        self.assertEqual(tools._misspelled("#Eaglet #AutoApply", ["Eaglet", "Automation"]), [],
+        self.assertEqual(tools._misspelled("#Elmoro #AutoApply", ["Elmoro", "Automation"]), [],
                          "round 8: #AutoApply became #Automation")
 
 

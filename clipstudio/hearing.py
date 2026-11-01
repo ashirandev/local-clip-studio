@@ -20,7 +20,7 @@ at. Without the switch no sound leaves for Meta by itself. It is told the langua
 talk in Vietnamese or Chinese, on laughs and game noise (lane 5, 10-30), and a caption check against the same
 hearing passed them.
 
-Names: a recogniser mishears a name it never learned (Eaglet came out as "egret"). When the screen shows words at
+Names: a recogniser mishears a name it never learned. When the screen shows words at
 the time, they are given with the question, and a line may change by as much more as the names it takes from them.
 
 The fix: Muse is asked, apart from the job's conversation (llama-server keeps that conversation's cache, measured

@@ -15,7 +15,7 @@ the one meant.
 Claps: Tarm, 10-28, on a folder of his review takes: "มันไม่รู้ว่าผมพูดซ้ำ แถมผมปรบมือเพื่อให้เกิดจังหวะในการคัท slate". He
 gives a take up, claps, and starts again. claps() finds the crack of a clap in the sound, and at_claps() cuts the
 take before it, the clap, and up to AFTER_CLAP s after it. Only on evidence from the words, because a key pressed on
-a keyboard cracks as loud and as sharp (his Eaglet screen recording: 39 in 14.5 min, peaks of -20 to -39 dB against
+a keyboard cracks as loud and as sharp (his screen recording: 39 in 14.5 min, peaks of -20 to -39 dB against
 his claps' -15 to -29). Keys come in runs and a clap comes alone, so a clap counts as said again only when no other
 crack is heard within ALONE s of it and what follows says the take again at CLAP_ALIKE or more (his three retakes at
 a clap: 0.35, 0.63, 0.71; at 34 stops with no clap, 12% reach 0.35). Of his 10 claps 7 are alone, of the 39 keys

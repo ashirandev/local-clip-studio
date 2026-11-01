@@ -2941,7 +2941,7 @@ def _screen_words(job, rec, state):
 
 def _misspelled(words, shown):
     """[(a word in words, the screen's word it looks like)]: a name of five letters or more that the screen writes
-    another way, such as "Egret" where the screen shows "Eaglet"."""
+    another way, such as "Elmero" where the screen shows "Elmoro"."""
     out, long_ = [], {}
     for s in shown:
         if len(s) >= 5:
@@ -3086,7 +3086,7 @@ LAYOUT_RULES = {
 def _layout_unasked(job, recipe, kinds):
     """The sentence refusing, once a job, a layout the recipe's kind of video does not take by default (Tarm 10-28: a
     tutorial with a screen is a card, a talk or a story is faces, unless the person says otherwise; lane 5 asked for 'a
-    clip of me talking' on the Eaglet tutorial and the face filled the frame, the page it explained gone), or None. A
+    clip of me talking' on a software tutorial and the face filled the frame, the page it explained gone), or None. A
     tap on the page is the person's own choice, and so is the layout their saved look keeps for this kind."""
     rule = LAYOUT_RULES.get(recipe)
     if not rule or job.n is None or not set(kinds) & set(rule[0]) - {_saved(recipe)[0]}:
@@ -4222,7 +4222,7 @@ def _translated(job, rec, state, units, language, said_in):
     """(Muse's subtitle in language for each unit, the units whose line leaves out a number Muse was shown), asked
     apart from the job, or None when twice the lines it wrote did not line up one for one with the units. A line
     that leaves out a number said is asked for once more with the number named, since the hearing can mishear a
-    word as a number (Eaglet 10-28: "นะครับสามก่อนเข้าไปดู", where สามารถ, can, was heard as สาม, three, and four
+    word as a number (a tutorial, 10-28: "นะครับสามก่อนเข้าไปดู", where สามารถ, can, was heard as สาม, three, and four
     lines translated it rightly as "you can go see it" and failed the check each time). What Muse writes then
     stands, and check_clip names the line for the person. When the clip's captions already hold each sentence in
     language, translated from the same words, they are kept: a tap on the page (Plain, Lit, Pop) never asks Muse,
@@ -4280,7 +4280,7 @@ def _subtitle_lines(job, talk, count, language, tries):
 def _said_numbers(said):
     """[{the values one number may be}] for each number said, leaving out 1, which one language says as a number
     and another as "a". A Thai number word counts only where it stands as a word of its own, and one that ends in
-    หนึ่ง after a unit is said for both readings. Eaglet 10-28: the check failed two right translations, "Okay, you can
+    หนึ่ง after a unit is said for both readings. A tutorial, 10-28: the check failed two right translations, "Okay, you can
     go check it in" for สามารถ... (สามารถ, can, starts with สาม, three) and "It's back to one hundred thousand now" for
     แสนหนึ่ง (said for 100,000 as often as for 100,001)."""
     from pythainlp.tokenize import word_tokenize

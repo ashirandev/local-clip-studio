@@ -28,7 +28,7 @@ showing the whole screen because nothing moved put 10 px words on Tarm's phone w
 When the lines carry the second they were read at, the card leaves a place once a reading finds in it under FEW of
 what the busiest place holds then, for where the most lines are then (no sooner than HOLD after its last move): held
 on the most lines of the whole clip, a model dialog, the card showed the blank page under it for 27 of 40 s when the
-dialog closed (Eaglet, 10-28 round 8); and with "no line left" as the test, it held 7 s on two small chips left on an
+dialog closed (a software tutorial, 10-28 round 8); and with "no line left" as the test, it held 7 s on two small chips left on an
 empty page (round 9). With FEW, that clip's card moves three more times and is near blank 2 s; the three other
 clips of that run, which never went blank, do not move more.
 The card still follows a change only where the change is one part of the screen, as above: followed at the readable
@@ -67,8 +67,8 @@ TOP_NEAR = 0.95
 SURE = 0.9
 FEW = 0.25
 # A screen whose lines are read surely under READ_SHARE of the time is written in a script the reader does not know
-# (Thai on RapidOCR: 4 of 17 and 8 of 29 lines on the gold lesson's slides, 774 of 911 and 834 of 1154 on Eaglet's
-# own screen, 10-30), so its lines say nothing of the letters' size: from them the card zoomed to 874 of 1920 px and
+# (Thai on RapidOCR: 4 of 17 and 8 of 29 lines on the gold lesson's slides, 774 of 911 and 834 of 1154 on a
+# program's own screen, 10-30), so its lines say nothing of the letters' size: from them the card zoomed to 874 of 1920 px and
 # cut the slide's lines in half, and Muse turned following off. Such a screen, when it is a slide, shows the part
 # that is written on instead: what is not the colour of its border (the picture's edge, FLAT_EDGE of it one colour),
 # the marks grown by SPREAD of the width so a line's letters join, a mark under SPECK of the picture left out (the

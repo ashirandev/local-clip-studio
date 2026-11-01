@@ -52,11 +52,11 @@ def sound(seconds, voices=(), claps=(), keys=()):
 # Tarm's own retake, 10-27 (12:03-12:29 of a tutorial), as the hearing heard it: the line at 726.4 is said again
 # from 738.5 after an 7 s stop, with a name heard two ways.
 RETAKE = [line(722.9, 723.5, "และนี่แหละคือ"), line(723.9, 724.2, "ai"), line(724.3, 724.5, "นะครับ"),
-          line(724.8, 725.0, "egret"), line(725.3, 725.4, "นะ"),
+          line(724.8, 725.0, "elmero"), line(725.3, 725.4, "นะ"),
           line(726.4, 728.4, "สำหรับใครที่สนใจอยากจะดูข้อมูลของ"), line(728.5, 728.7, "eกret"),
           line(728.8, 730.2, "นะครับเข้าไปดูได้ก่อนใน"), line(730.4, 730.7, "aชhilan"), line(730.8, 731.3, "dot com เลย"),
           line(738.5, 741.0, "สำหรับใครที่อยากจะดูข้อมูลของโลขol"), line(741.1, 741.3, "ai"),
-          line(741.4, 741.7, "egret"), line(741.7, 742.8, "นะครับสามารถเข้าไปดูได้ใน"), line(743.5, 743.8, "achilan"),
+          line(741.4, 741.7, "elmero"), line(741.7, 742.8, "นะครับสามารถเข้าไปดูได้ใน"), line(743.5, 743.8, "achilan"),
           line(743.9, 744.2, "dot com"), line(744.3, 744.7, "นะครับแล้วก็")]
 
 
