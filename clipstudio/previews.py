@@ -23,6 +23,7 @@ CUT_SECONDS = 300
 _todo = queue.Queue()
 _worker = []
 _lock = threading.Lock()
+_small_lock = threading.Lock()
 
 
 def folder():
@@ -59,6 +60,17 @@ def _work():
                       seconds=round(time.time() - started, 1))
         except Exception as e:
             print("previews: %s could not be told about (%s)" % (preview, e), file=sys.stderr, flush=True)
+
+
+def small(path, name):
+    """(the folder, the file name) of a finished clip's copy at a preview's size, made the first time it is asked for, for a
+    phone that reviews it over the network; None when it could not be made. Tarm 11-01: 1080 by 1920 is too much on his
+    phone even on Wi-Fi."""
+    little = "small-" + name
+    with _small_lock:
+        if os.path.isfile(os.path.join(folder(), little)) or not _cut({"path": path}, 0.0, CUT_SECONDS, os.path.join(folder(), little)):
+            return folder(), little
+    return None
 
 
 def _cut(rec, start, end, target):

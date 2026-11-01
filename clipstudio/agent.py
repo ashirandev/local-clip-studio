@@ -2449,7 +2449,8 @@ def earlier(limit=CHATS_LISTED):
     """The newest chats on disk that have at least one message: [{id, when, first, messages, recording, title,
     minds, clips, usd}], title being the name Muse gave the chat (Job.name_chat), else the title of its newest finished
     clip, else "", minds each Muse that answered in it, [{label, local}], local when it runs on this computer (no key),
-    clips each finished clip it handed over, oldest first, [{file, title, length}], and usd what its answers cost on a
+    clips each finished clip it handed over, oldest first, [{file, title, length}], an album's clip once however many
+    times it was made again (Tarm 11-01: the card said 7 and the album held 4), and usd what its answers cost on a
     mind that is not on this computer: 0 when it used none, None when it did but its answers were never priced. Tarm
     10-28: the list read "yeti-c149d0193c.mp4" eight times over; 10-29: say which chat made which clip, and its cost."""
     folder = os.path.join(WORK, "chats")
@@ -2470,11 +2471,12 @@ def earlier(limit=CHATS_LISTED):
                 e["title"] for e in events if e["kind"] == "ready" and e.get("title")]
             listed = [{"label": m, "local": not any(x.label == m and x.key_env for x in mind.MINDS.values())}
                       for m in minds]
-            clips, seen = [], set()
+            album, clips = any(e["kind"] == "album" for e in events), {}
             for e in events:
-                if e["kind"] == "ready" and e.get("file") and e["file"] not in seen:
-                    seen.add(e["file"])
-                    clips.append({"file": e["file"], "title": e.get("title") or "", "length": e.get("length")})
+                if e["kind"] == "ready" and e.get("file"):
+                    clips[e.get("moment") if album else e["file"]] = {"file": e["file"], "title": e.get("title") or "",
+                                                                      "length": e.get("length")}
+            clips = list(clips.values())
             cid = name[:-13]
             paid = any(not m["local"] for m in listed)
             out.append({"id": cid, "when": round(os.path.getmtime(os.path.join(folder, name))),

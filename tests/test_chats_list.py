@@ -41,6 +41,24 @@ class Earlier(unittest.TestCase):
         self.assertEqual((got["20261028-220043-e01b"]["title"], got["20261028-220043-e01b"]["first"]),
                          ("", "ทำคลิปจากไลฟ์"), "before a clip is finished, the page names it by what was typed")
 
+    def test_a_clip_of_an_album_made_again_counts_once_with_its_newest_file(self):
+        """Tarm 11-01: the home card said 7 and the album inside held 4, as each clip made again was counted."""
+        self.chat("20261031-212136-cdc1", [
+            {"kind": "person", "text": "ทำคลิปสินค้า"}, {"kind": "job", "mind": "Muse Spark"}, {"kind": "album"},
+            {"kind": "ready", "file": "a.mp4", "moment": 1, "title": "จอย", "length": 20.0},
+            {"kind": "ready", "file": "b.mp4", "moment": 2, "title": "ยาหม่อง", "length": 21.0},
+            {"kind": "ready", "file": "c.mp4", "moment": 1, "title": "จอย", "length": 22.0}])
+        got = {c["id"]: c for c in agent.earlier()}["20261031-212136-cdc1"]["clips"]
+        self.assertEqual(got, [{"file": "c.mp4", "title": "จอย", "length": 22.0}, {"file": "b.mp4", "title": "ยาหม่อง", "length": 21.0}])
+
+    def test_with_no_album_two_clips_of_a_moment_are_two_clips(self):
+        self.chat("20261029-003136-20b0", [
+            {"kind": "person", "text": "ทำคลิป"}, {"kind": "job", "mind": "Muse Spark"},
+            {"kind": "ready", "file": "a.mp4", "moment": 1, "title": "แรก", "length": 20.0},
+            {"kind": "ready", "file": "b.mp4", "moment": 1, "title": "สอง", "length": 21.0}])
+        got = {c["id"]: c for c in agent.earlier()}["20261029-003136-20b0"]["clips"]
+        self.assertEqual([c["file"] for c in got], ["a.mp4", "b.mp4"])
+
     def test_each_chat_says_which_clips_it_made_and_what_it_cost(self):
         """Tarm 10-29: the list of clips says which chat made which clip, and what it cost."""
         self.chat("20261029-003136-20b0", [

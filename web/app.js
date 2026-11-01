@@ -746,12 +746,16 @@ function showClip(e) {
   updatePlayer();
 }
 
+function clipUrl(name) {
+  return "/api/clip/" + name + (document.body.classList.contains("away") ? "?small=1" : "");
+}
+
 function showFinished(file) {
   room.made = null;
   room.showing = null;
   leaveBase();
   const v = el("video");
-  v.src = "/api/clip/" + file.name;
+  v.src = clipUrl(file.name);
   v.poster = "/api/clip/" + file.name.replace(/\.mp4$/, ".jpg");
   v.playsInline = true;
   v.preload = "metadata";
@@ -904,7 +908,7 @@ function openClip(e) {
 }
 
 function watch(e) {
-  watchVideo.src = "/api/clip/" + e.file;
+  watchVideo.src = clipUrl(e.file);
   watchVideo.poster = "/api/clip/" + e.file.replace(/\.mp4$/, ".jpg");
   watchVideo.setAttribute("aria-label", "Your clip: " + e.title);
   watchBox.hidden = false;

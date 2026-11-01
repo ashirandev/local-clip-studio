@@ -177,8 +177,10 @@ class Handler(BaseHTTPRequestHandler):
         elif PREVIEW.match(path):
             self.send_video(previews.folder(), PREVIEW.match(path).group(1), "preview")
         elif CLIP.match(path):
-            self.send_video(render.folder("clips"), CLIP.match(path).group(1), "clip",
-                            download=query.get("download") == "1")
+            name = CLIP.match(path).group(1)
+            whole = render.folder("clips"), name
+            little = query.get("small") == "1" and previews.small(os.path.join(*whole), name)
+            self.send_video(*(little or whole), "clip", download=query.get("download") == "1")
         elif POSTER.match(path):
             self.send_poster(POSTER.match(path).group(1))
         elif STICKER.match(path):

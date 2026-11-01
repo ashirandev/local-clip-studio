@@ -15,7 +15,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, mind, montage, recording, server  # noqa: E402
+from clipstudio import agent, mind, montage, previews, recording, render, server  # noqa: E402
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
@@ -145,6 +145,42 @@ class Open(unittest.TestCase):
             recording.locate("notes.txt", 1234)
         self.assertNotIsInstance(e.exception, recording.NotSeen)
         self.assertIn("notes.txt is not a video the studio reads (.mp4,", str(e.exception))
+
+    def test_a_phone_gets_a_small_copy_of_a_finished_clip_and_a_save_gets_the_whole_file(self):
+        """Tarm 11-01: 1080 by 1920 does not load on his phone, even on Wi-Fi."""
+        clips = render.folder("clips")
+        os.makedirs(clips, exist_ok=True)
+        name, full = "0123456789abcdef.mp4", os.path.join(clips, "0123456789abcdef.mp4")
+        make_video(full, seconds=2, size="1080x1920")
+        served = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=served.serve_forever, daemon=True).start()
+        try:
+            def size(tail):
+                conn = http.client.HTTPConnection("127.0.0.1", served.server_port, timeout=60)
+                conn.request("GET", "/api/clip/" + name + tail)
+                r = conn.getresponse()
+                got = len(r.read())
+                conn.close()
+                return r.status, got
+            whole = os.path.getsize(full)
+            self.assertEqual(size(""), (200, whole), "the computer's page plays the file itself")
+            self.assertEqual(size("?download=1"), (200, whole))
+            status, little = size("?small=1")
+            self.assertEqual(status, 200)
+            self.assertLess(little, whole)
+            made = recording.probe(os.path.join(previews.folder(), "small-" + name))
+            self.assertEqual((made["width"], made["height"]), (480, 854))
+            self.assertAlmostEqual(made["seconds"], 2, delta=0.2)
+            with mock.patch.object(previews, "_cut", lambda *a: self.fail("made once")):
+                self.assertEqual(size("?small=1"), (200, little))
+            os.remove(os.path.join(previews.folder(), "small-" + name))
+            with mock.patch.object(previews, "_cut", lambda *a: "ffmpeg could not"):
+                self.assertEqual(size("?small=1"), (200, whole), "a clip with no small copy still plays")
+            os.remove(full)
+            self.assertEqual(size("?small=1")[0], 404)
+        finally:
+            served.shutdown()
+            served.server_close()
 
     def test_a_camera_file_is_a_recording(self):
         camera = os.path.join(self.videos, "card", "00001.MTS")
