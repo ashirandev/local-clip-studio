@@ -6624,11 +6624,28 @@ def undo(job, why):
     return "Took back %s." % describe(entry)
 
 
+# 072526-70cc on 11-01: the ask said ให้ทุกคนคงสีไว้, Glimmer left everyone out, and one man stood in colour among grey people,
+# as in the take Tarm withdrew (193425-85fa). It is set, not refused: a refusal after a local SAM run would cost about 20 min.
+COLOUR_SAID = re.compile(r"สี|colou?r", re.I)
+ALL_IN_COLOUR = re.compile(r"(?<!ไม่ให้)(?<!ไม่ต้องให้)(?<!อย่าให้)ทุกคน[^\n.]{0,16}?สี(?!ขาว|ดำ|เทา)|(?:คง|เก็บ|มี)สี[^\n.]{0,8}?ทุกคน|"
+                           r"(?<!not )\b(?:everyone|everybody)\b[^.!?\n]{0,30}(?<!no )(?<!without )\bcolou?r\b|"
+                           r"(?<!no )(?<!without )\bcolou?r\b[^.!?\n]{0,30}(?<!not )\b(?:everyone|everybody)\b", re.I)
+
+
+def _all_in_colour(job):
+    """True when the person's newest words about colour say everyone keeps theirs. Reads their messages, not the screen."""
+    for e in reversed(job.chat.events):
+        if e["kind"] == "person" and COLOUR_SAID.search(e["text"]):
+            return bool(ALL_IN_COLOUR.search(e["text"]))
+    return False
+
+
 def cut_out(job, why, look=None, start=None, end=None, everyone=False):
     """Finds the person through the clip with SAM 3.1 (person.cut_out), once for the clip's stretch of the recording,
     so titles can go behind them and the clip can take a cut-out look. The mask is kept: asking again with another
     look or time does not run SAM again."""
     rec = _open(job, "cut the person out of")
+    everyone = everyone or (look == "grey" and _all_in_colour(job))
     state = _clip_state(job)
     clip, length = state["clip"], state["length"]
     a, b = min(p[0] for p in clip["pieces"]), max(p[1] for p in clip["pieces"])

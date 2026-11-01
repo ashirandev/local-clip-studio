@@ -1280,6 +1280,23 @@ class Tools(unittest.TestCase):
                                     "Done.")
         self.assertIn("everyone keeps their colour, as the person asked", asked_for[-1]["result"])
         self.assertTrue(self.chat.project.state()["cutouts"][-1]["everyone"])
+        self.chat.emit("person", text="ตัดตัวคนออกจากฉากด้วย SAM ให้ทุกคนคงสีไว้ ฉากรอบข้างเป็นขาวดำ")
+        _, set_for = self.run_job([call("cut_out", look="grey", why="the grey look")], "Done.")
+        self.assertIn("everyone keeps their colour, as the person asked", set_for[-1]["result"], "072526-70cc on 11-01")
+        self.assertTrue(self.chat.project.state()["cutouts"][-1]["everyone"])
+        self.run_job([call("cut_out", look="outline", why="an edge")], "Done.")
+        self.assertFalse(self.chat.project.state()["cutouts"][-1]["everyone"], "colour words say nothing about an edge")
+        self.chat.emit("person", text="เอาคนพูดคนเดียวที่มีสี")
+        self.run_job([call("cut_out", look="grey", why="the speaker alone")], "Done.")
+        self.assertFalse(self.chat.project.state()["cutouts"][-1]["everyone"], "the newest words about colour win")
+
+    def test_everyone_in_colour_is_read_from_the_persons_words(self):
+        for words in ("ให้ทุกคนคงสีไว้", "ทุกคนในคลิปมีสี ฉากขาวดำ", "คงสีทุกคน", "keep everyone in colour",
+                      "everyone keeps their color", "colour on everyone, grey room"):
+            self.assertTrue(tools.ALL_IN_COLOUR.search(words), words)
+        for words in ("ทุกคนเป็นสีขาวดำ", "ไม่ให้ทุกคนมีสี", "อย่าให้ทุกคนมีสี", "คนพูดคงสีคนเดียว", "not everyone keeps colour",
+                      "only the speaker keeps colour, not everyone", "everyone in black and white, no colour"):
+            self.assertIsNone(tools.ALL_IN_COLOUR.search(words), words)
 
     def test_a_line_that_leaves_out_a_number_is_asked_once_with_the_number_then_stands_and_is_named(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "นะครับสามก่อนเข้าไปดู"},
