@@ -6242,21 +6242,24 @@ def open_clip(job, why, clip):
 TITLE_HOLDS = 3.0
 
 
-def _title_order(stretches):
+def _title_order(stretches, last=()):
     """stretches ([(from, to, place)]) in the order to try them: the earliest of those a viewer can read a title in,
-    TITLE_HOLDS s or more, then the longer of the others."""
-    return sorted(stretches, key=lambda s: (s[1] - s[0] < TITLE_HOLDS, s[0] if s[1] - s[0] >= TITLE_HOLDS else s[0] - s[1]))
+    TITLE_HOLDS s or more, then the longer of the others; the places in last after the others of their kind."""
+    return sorted(stretches, key=lambda s: (s[1] - s[0] < TITLE_HOLDS, s[2] in last,
+                                            s[0] if s[1] - s[0] >= TITLE_HOLDS else s[0] - s[1]))
 
 
 def _title_where_clear(job, rec, words):
     """Puts the title up in a stretch of a layout place that covers no face (_title_order), and says where and when;
     None when no stretch takes it. Seen 10-28 on a Q&A where both talkers fill the frame in turn: two of three clips went
-    out with no title, as no place was clear for the whole clip."""
+    out with no title, as no place was clear for the whole clip. A seller's clip has its product in the middle: 073756-0c52
+    on 11-01 put the iPad's title on the iPad's screen, so the middle comes after any stretch at the top a viewer can read."""
     state = _clip_state(job)
     lay, length = state["clip"]["layout"], state["length"]
     times, every = _face_times(state, rec)
     stretches = _title_order([(a, b, name) for name, box in lay["places"].items()
-                              for a, b in _clear(_covered(box, times, every, 0, length), 0, length)])
+                              for a, b in _clear(_covered(box, times, every, 0, length), 0, length)],
+                             ("middle",) if (job.chat.clip or {}).get("recipe") == "seller" else ())
     for a, b, name in stretches:
         start, end = math.ceil(a * 10) / 10, math.floor(b * 10) / 10
         try:

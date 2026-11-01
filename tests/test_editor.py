@@ -2764,8 +2764,31 @@ class Tools(unittest.TestCase):
 
     def test_a_title_takes_a_stretch_it_can_be_read_in(self):
         """Tarm's seller 10-31: the earliest stretch was under 2 s, with 8 s free later."""
+        two = [(3.8, 6.8, "middle"), (11.0, 14.0, "top"), (0.5, 2.0, "top")]
+        self.assertEqual(tools._title_order(two, ("middle",))[:2], [(11.0, 14.0, "top"), (3.8, 6.8, "middle")], "a seller's product")
+        self.assertEqual(tools._title_order([(3.8, 6.8, "middle"), (0.5, 2.0, "top")], ("middle",))[0], (3.8, 6.8, "middle"),
+                         "the middle still beats a stretch nobody can read")
+        self.assertEqual(tools._title_order(two)[0], (3.8, 6.8, "middle"), "else the earliest")
         got = tools._title_order([(3.7, 5.6, "middle"), (9.0, 17.0, "top"), (6.0, 10.0, "middle"), (0.5, 2.0, "top")])
         self.assertEqual([s[0] for s in got], [6.0, 9.0, 3.7, 0.5], "the earliest long one, then the longer of the rest")
+
+    def test_a_sellers_title_leaves_the_middle_where_the_product_is_for_last(self):
+        """073756-0c52 on 11-01: the iPad's title on the iPad's screen, with a stretch at the top to read it in."""
+        places = {"top": [0, 0, 10, 10], "middle": [0, 20, 10, 10]}
+        state = {"clip": {"layout": {"places": places}}, "length": 20.0}
+
+        def placed(recipe):
+            job = mock.Mock()
+            job.chat.clip = {"recipe": recipe}
+            with mock.patch.object(tools, "_clip_state", return_value=state), \
+                    mock.patch.object(tools, "_face_times", return_value=([], 1.0)), \
+                    mock.patch.object(tools, "_covered", side_effect=lambda box, *_: box), \
+                    mock.patch.object(tools, "_clear", side_effect=lambda box, a, b: [(4.0, 7.0)] if box == places["middle"] else [(11.0, 14.0)]), \
+                    mock.patch.object(tools, "add_title"):
+                return tools._title_where_clear(job, {}, "iPad 5,000 บาท")
+
+        self.assertEqual(placed("seller"), "at the top from 11 to 14 s")
+        self.assertEqual(placed("talk"), "at the middle from 4 to 7 s", "else the earliest")
 
     def test_on_a_frame_that_follows_the_product_it_stands_in_the_frames_middle(self):
         """Its box at every place the frame went filled both places for words (Tarm's seller, 10-31)."""
