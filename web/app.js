@@ -539,12 +539,15 @@ function drawMoments(j, moments) {
   moments.forEach((m) => {
     const tile = el("div", "moment");
     tile.dataset.preview = m.preview;
-    const media = el("div", "moment-media");
+    const media = el("button", "moment-media");
+    media.type = "button";
+    media.setAttribute("aria-label", "Watch moment " + m.n);
     const img = el("img");
     img.src = "/api/frame/" + m.frame;
     img.alt = "A picture from moment " + m.n + ", at " + clock(m.t);
     media.append(img, el("span", "moment-wait", "Cutting a preview…"));
     const why = el("p", "moment-why", m.reason);
+    m.why = why;
     reasons.push(why);
     tile.append(media, el("p", "moment-head", m.n + " · " + span(m) + " · " + Math.round(m.end - m.start) + " s"), why);
     if (m.said && m.said.length) {
@@ -556,32 +559,80 @@ function drawMoments(j, moments) {
     const b = el("button", "chip", "Use this one");
     b.type = "button";
     b.hidden = m.n === 1 && !j.cards;
-    b.addEventListener("click", () => {
-      showMoment(m);
-      say("(tapped) Use moment " + m.n + " (" + clock(m.start) + "-" + clock(m.end) + ") instead.");
-    });
+    b.addEventListener("click", () => useMoment(m));
     tile.appendChild(b);
+    tile.addEventListener("click", (e) => {
+      if (!e.target.closest(".chip")) watchMoment(m);
+    });
     box.appendChild(tile);
     if (room.cut[m.preview]) fillPreview(tile, room.cut[m.preview]);
   });
+  room.basket = { j, moments };
   showMoment(moments[0]);
   return reasons;
 }
 
+function useMoment(m) {
+  clipBox.classList.remove("basket-on");
+  showMoment(m);
+  say("(tapped) Use moment " + m.n + " (" + clock(m.start) + "-" + clock(m.end) + ") instead.");
+}
+
+function watchMoment(m) {
+  showMoment(m);
+  openBasket();
+  if (getComputedStyle(clipBox).display === "none") setScreen("clip");
+  const v = playerVideo();
+  if (v) v.play().catch(() => {});
+}
+
+function openBasket() {
+  const b = room.basket;
+  if (!b) return;
+  clipBox.classList.add("basket-on");
+  $("basketSays").textContent = plural(b.moments.length, "clip") + " to choose from. Tap one to watch it.";
+  $("basketBack").hidden = !room.made && !room.finished;
+  $("basketRow").replaceChildren(...b.moments.map((m) => {
+    const tile = el("div", "basket-clip" + (m === room.showing ? " on" : ""));
+    const look = el("button", "basket-look");
+    look.type = "button";
+    const img = el("img");
+    img.src = "/api/frame/" + m.frame;
+    img.alt = "";
+    look.append(img, el("span", "basket-head", m.n + " · " + span(m) + " · " + Math.round(m.end - m.start) + " s"), el("span", "basket-why", m.why.textContent));
+    look.addEventListener("click", () => watchMoment(m));
+    const use = el("button", "pill go", "Use this one");
+    use.type = "button";
+    use.hidden = m.n === 1 && !b.j.cards;
+    use.addEventListener("click", () => useMoment(m));
+    tile.append(look, use);
+    return tile;
+  }));
+}
+
+function leaveBasket() {
+  clipBox.classList.remove("basket-on");
+  if (room.made) {
+    showClip({ clip: room.made.clip, id: room.made.version });
+  } else if (room.finished) {
+    clipTitle.textContent = room.ready ? room.ready.title : room.clipName || "Your clip";
+    showFinished({ name: room.finished });
+  }
+  loadPanel();
+}
+
+$("basketBack").addEventListener("click", leaveBasket);
+
 function fillPreview(tile, e) {
   const media = tile.querySelector(".moment-media");
+  const wait = media.querySelector(".moment-wait");
+  if (!wait) return;
   if (!e.ok) {
-    const wait = media.querySelector(".moment-wait");
-    if (wait) wait.textContent = "No preview: " + e.error;
+    wait.textContent = "No preview: " + e.error;
     return;
   }
-  const v = el("video");
-  v.src = "/api/preview/" + e.name;
-  v.poster = media.querySelector("img").src;
-  v.controls = true;
-  v.preload = "metadata";
-  v.playsInline = true;
-  media.replaceChildren(v);
+  wait.remove();
+  media.appendChild(ico("play", "moment-play"));
 }
 
 function showMoment(m) {
@@ -739,6 +790,7 @@ function showClip(e) {
   room.made = { clip, version: e.id };
   room.showing = null;
   room.wantBase = true;
+  clipBox.classList.remove("basket-on");
   clipAt.max = clip.length;
   const entry = e.kind === "edit" ? e.entry : null;
   if (entry && entry.do === "title") clipAt.value = (entry.start + entry.end) / 2;
@@ -3144,6 +3196,7 @@ function on(e) {
     endJob(j, e);
     room.endSaid = endLine(j, e);
     room.open.delete(e.job);
+    if (j.cards && !room.made) openBasket();
     setBusy();
     refreshCost();
   }
@@ -3472,6 +3525,8 @@ function show(chatId) {
   room.paid = false;
   room.work = { video: false, preview: false, ends: false, layout: false, premiere: false };
   room.wantPremiere = false;
+  room.basket = null;
+  clipBox.classList.remove("basket-on");
   const known = listed(chatId);
   room.title = known ? known.title || known.first : "";
   chatName.textContent = room.title || "New clip";

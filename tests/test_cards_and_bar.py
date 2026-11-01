@@ -42,12 +42,14 @@ class Node {
   getAttribute(k) { return this.attrs[k] === undefined ? null : this.attrs[k]; }
   removeAttribute(k) { delete this.attrs[k]; }
   append(...kids) { kids.forEach((k) => this.appendChild(k)); }
-  appendChild(k) { if (k instanceof Node) this.children.push(k); return k; }
+  appendChild(k) { if (k instanceof Node) { k.up = this; this.children.push(k); } return k; }
   click() { this.clicked = (this.clicked || 0) + 1; }
+  press(target) { (this.heard.click || []).forEach((fn) => fn({ target: target || this })); }
+  play() { this.played = true; return Promise.resolve(); }
   prepend(...kids) { this.children.unshift(...kids.filter((k) => k instanceof Node)); }
   replaceChildren(...kids) { this.children = kids.filter((k) => k instanceof Node); }
-  remove() {}
-  closest() { return null; }
+  remove() { if (this.up) this.up.children = this.up.children.filter((k) => k !== this); }
+  closest(q) { return this.closeTo === q ? this : null; }
   focus() {}
   scrollIntoView() {}
   getBoundingClientRect() { return { left: 0, top: 0, width: 100, height: 100, bottom: 100, right: 100 }; }
@@ -104,7 +106,7 @@ function load(page, answer) {
     Intl: any(), URL: any(), Image: function () { return any(); }, FormData: function () { return any(); }, CSS: any(), performance: any({ now: () => 0 }), innerWidth: 1200, innerHeight: 800,
   };
   vm.createContext(box);
-  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere };", box);
+  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview };", box);
   const t = box.t;
   t.room.chat = "c";
   let id = 0;
@@ -215,6 +217,88 @@ each("open", (p) => {
   p.t.chatView.scrollHeight = 900;
   p.t.setScreen("clip");
   return { top: p.t.chatView.scrollTop };
+});
+const stopAtCards = (p) => {
+  p.event("job", { mind: "Muse Spark" });
+  const j = p.t.job(1);
+  p.event("waiting");
+  p.t.drawMoments(j, MOMENTS.map((m) => Object.assign({}, m)));
+  p.event("end", { why: "answered", steps: 5, seconds: 60 });
+  return j;
+};
+const strip = (p) => p.element("basketRow").children;
+const stripOn = (p) => p.element("clip").classList.contains("basket-on");
+each("stripOpens", (p) => {
+  const j = stopAtCards(p);
+  return { on: stripOn(p), n: strip(p).length, says: p.element("basketSays").textContent, back: p.element("basketBack").hidden,
+    uses: strip(p).map((t) => t.children[1].hidden), first: strip(p)[0].className };
+});
+each("stripOverClip", (p) => {
+  p.t.room.made = { clip: { length: 10, parts: [] }, version: 2 };
+  stopAtCards(p);
+  return { on: stripOn(p) };
+});
+each("stripWatch", (p) => {
+  const j = stopAtCards(p);
+  p.t.room.cut["p2.mp4"] = { ok: true, name: "p2.mp4" };
+  strip(p)[1].children[0].press();
+  const videos = p.made.filter((n) => n.tag === "video");
+  return { on: stripOn(p), showing: p.t.room.showing.n, picked: strip(p).map((t) => t.className), played: videos[videos.length - 1].played === true };
+});
+each("stripUse", (p) => {
+  const j = stopAtCards(p);
+  strip(p)[2].children[1].press();
+  return { on: stripOn(p), showing: p.t.room.showing.n };
+});
+each("stripClip", (p) => {
+  stopAtCards(p);
+  p.t.showClip({ clip: { length: 10, parts: [], people: false }, id: 9 });
+  return { on: stripOn(p) };
+});
+each("chatTile", (p) => {
+  p.event("job", { mind: "Muse Spark" });
+  const j = p.t.job(1);
+  p.t.drawMoments(j, MOMENTS.map((m) => Object.assign({}, m)));
+  const before = stripOn(p);
+  const tiles = j.momentsBox.children;
+  tiles[1].press();
+  const after = stripOn(p);
+  const showing = p.t.room.showing.n;
+  p.element("clip").classList.remove("basket-on");
+  const chip = tiles[2].querySelector(".chip");
+  chip.closeTo = ".chip";
+  tiles[2].press(chip);
+  return { before, after, showing, chipOpened: stripOn(p) };
+});
+each("stripBack", (p) => {
+  stopAtCards(p);
+  const none = p.element("basketBack").hidden;
+  p.t.room.made = { clip: { length: 10, parts: [], people: false }, version: 3 };
+  p.t.room.basket && p.element("clip").classList.add("basket-on");
+  strip(p)[1].children[0].press();
+  const shown = p.element("basketBack").hidden;
+  (p.element("basketBack").heard.click || []).forEach((fn) => fn({}));
+  return { none, shown, on: stripOn(p), showing: p.t.room.showing };
+});
+each("spelled", (p) => {
+  p.event("job", { mind: "Muse Spark" });
+  const j = p.t.job(1);
+  const moments = MOMENTS.map((m) => Object.assign({}, m));
+  p.t.drawMoments(j, moments);
+  moments[0].why.textContent = "fixed";
+  p.event("waiting");
+  p.event("end", { why: "answered", steps: 5, seconds: 60 });
+  return { why: strip(p)[0].children[0].children[2].textContent };
+});
+each("tileReady", (p) => {
+  p.event("job", { mind: "Muse Spark" });
+  const j = p.t.job(1);
+  p.t.drawMoments(j, MOMENTS.map((m) => Object.assign({}, m)));
+  const tile = j.momentsBox.children[0];
+  p.t.fillPreview(tile, { ok: true, name: "p1.mp4" });
+  p.t.fillPreview(tile, { ok: true, name: "p1.mp4" });
+  const media = tile.children[0];
+  return { wait: media.querySelectorAll(".moment-wait").length, kids: media.children.map((n) => n.tag), inline: p.made.some((n) => n.tag === "video" && n.controls) };
 });
 each("premiereBar", (p) => {
   p.t.pageWork("premiere", true);
@@ -363,6 +447,55 @@ class Page(unittest.TestCase):
         self.assertFalse(self.said["pressRefused"]["work"])
 
 
+    def test_a_run_stopped_at_the_cards_has_them_where_the_timeline_goes(self):
+        s = self.said["stripOpens"]
+        self.assertTrue(s["on"])
+        self.assertEqual(s["n"], 3)
+        self.assertEqual(s["says"], "3 clips to choose from. Tap one to watch it.")
+        self.assertTrue(s["back"], "no timeline to go back to yet")
+        self.assertEqual(s["uses"], [False, False, False])
+        self.assertIn(" on", s["first"], "the one on the big player is marked")
+
+    def test_a_clip_on_the_timeline_stays_there_until_the_cards_are_pressed(self):
+        self.assertFalse(self.said["stripOverClip"]["on"])
+
+    def test_a_card_there_plays_on_the_big_player_and_the_cards_stay(self):
+        s = self.said["stripWatch"]
+        self.assertTrue(s["on"])
+        self.assertEqual(s["showing"], 2)
+        self.assertTrue(s["played"])
+        self.assertEqual([" on" in c for c in s["picked"]], [False, True, False])
+
+    def test_using_a_card_brings_the_timeline_back(self):
+        self.assertEqual(self.said["stripUse"], {"on": False, "showing": 3})
+
+    def test_a_new_clip_brings_the_timeline_back(self):
+        self.assertFalse(self.said["stripClip"]["on"])
+
+    def test_a_press_on_the_cards_in_the_chat_opens_them_but_not_on_use_this_one(self):
+        s = self.said["chatTile"]
+        self.assertFalse(s["before"], "a run that goes on to make its clip keeps the timeline's place empty for it")
+        self.assertTrue(s["after"])
+        self.assertEqual(s["showing"], 2)
+        self.assertFalse(s["chipOpened"])
+
+    def test_back_goes_to_the_timeline_only_when_there_is_one(self):
+        s = self.said["stripBack"]
+        self.assertTrue(s["none"])
+        self.assertFalse(s["shown"])
+        self.assertFalse(s["on"])
+        self.assertIsNone(s["showing"], "the clip is back on the big player")
+
+    def test_the_words_fixed_on_a_card_are_the_words_there(self):
+        self.assertEqual(self.said["spelled"]["why"], "fixed")
+
+    def test_a_card_in_the_chat_is_a_picture_to_press_and_the_big_player_has_the_sound(self):
+        s = self.said["tileReady"]
+        self.assertEqual(s["wait"], 0)
+        self.assertEqual(s["kids"], ["img", "svg"], "one play mark, however many times it is told")
+        self.assertFalse(s["inline"], "a player in the card as well would be two ways to watch and two sounds")
+
+
 class Button(unittest.TestCase):
     def test_update_video_is_the_strong_colour_and_grey_only_while_it_cannot_be_pressed(self):
         with open(os.path.join(WEB, "index.html"), encoding="utf-8") as f:
@@ -372,6 +505,15 @@ class Button(unittest.TestCase):
         self.assertRegex(page, r'class="pill dark again go" id="againButton"')
         self.assertIn(".clip .pill.go { background: var(--st-accent);", style)
         self.assertRegex(style, r"\.clip \.pill\.again:disabled \{[^}]*background: var\(--st-raise\)")
+
+    def test_the_cards_have_a_scrollbar_and_take_the_timelines_place(self):
+        with open(os.path.join(WEB, "style.css"), encoding="utf-8") as f:
+            style = f.read()
+        self.assertRegex(re.search(r"\.basket-row \{[^}]*\}", style).group(0), r"overflow-x: scroll")
+        self.assertRegex(re.search(r"\.moments \{[^}]*\}", style).group(0), r"scrollbar-width: auto; scrollbar-color")
+        self.assertIn(".clip.basket-on .timeline, .clip.basket-on .pick-bar { display: none; }", style)
+        self.assertRegex(re.search(r"\.basket \{[^}]*\}", style).group(0), r"display: none")
+        self.assertIn(".clip.basket-on .basket { display: grid; }", style)
 
     def test_last_means_last_on_the_screen(self):
         with open(os.path.join(WEB, "style.css"), encoding="utf-8") as f:
