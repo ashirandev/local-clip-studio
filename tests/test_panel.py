@@ -429,19 +429,19 @@ class Words(Clip):
                   call("add_captions", lit=True, why="lit"),
                   call("add_title", words="Boss down", start=0, end=3, place="top", why="the hook"))
         self.assertEqual(self.chat.save_channel("", ""), "Give the channel a name of 1 to 40 letters.")
-        self.assertIsNone(self.chat.save_channel("Siney Society", "@sineysociety"))
+        self.assertIsNone(self.chat.save_channel("Sample Channel", "@samplechannel"))
         look = channels.in_use()
         self.assertEqual((look["name"], look["handle"], look["style"]["name"], look["look"], look["captions"],
-                          look["title_place"]), ("Siney Society", "@sineysociety", "pop", "warm", "lit", "top"))
-        self.assertEqual(self.chat.project.state()["channel"]["name"], "@sineysociety", "drawn on this clip at once")
+                          look["title_place"]), ("Sample Channel", "@samplechannel", "pop", "warm", "lit", "top"))
+        self.assertEqual(self.chat.project.state()["channel"]["name"], "@samplechannel", "drawn on this clip at once")
         self.assertEqual(self.chat.set_channel_spot("top"), "Choose where the name goes: bottom left, bottom middle, "
                                                             "bottom right.")
         self.assertIsNone(self.chat.set_channel_spot("bottom right"))
         shown = self.chat.panel()["channels"]
         self.assertEqual((shown["in_use"], shown["handle"], [s["name"] for s in shown["spots"] if s["now"]]),
-                         ("Siney Society", "@sineysociety", ["bottom right"]))
+                         ("Sample Channel", "@samplechannel", ["bottom right"]))
         self.assertEqual("the pop style, the warm colour look, lit captions, titles at the top, the name "
-                         "@sineysociety drawn on the clip", shown["saved"][0]["says"], "no tool names for the person")
+                         "@samplechannel drawn on the clip", shown["saved"][0]["says"], "no tool names for the person")
         self.assertEqual(channels.in_use()["spot"], "bottom right", "the spot is kept with the look")
 
         self.chat = agent.Chat()
@@ -449,9 +449,9 @@ class Words(Clip):
         made = self.make(SAID)[-1]
         state = self.chat.project.state()
         self.assertEqual((state["style"]["name"], state["look"], state["channel"]),
-                         ("pop", "warm", {"do": "channel", "name": "@sineysociety", "spot": "bottom right"}),
+                         ("pop", "warm", {"do": "channel", "name": "@samplechannel", "spot": "bottom right"}),
                          "a new clip in a new chat starts in the look by itself")
-        self.assertIn('The clip is in the "Siney Society" channel look the person saved:', made["result"])
+        self.assertIn('The clip is in the "Sample Channel" channel look the person saved:', made["result"])
         self.assertIsNone(self.chat.set_style("clean"))
         _, again = self.run_job([call("make_clip", moment=1, layout="subject", why="again")], "Done.")
         self.assertFalse(again[-1]["refused"], again[-1]["result"])
@@ -460,8 +460,8 @@ class Words(Clip):
         self.assertIsNone(channels.in_use())
         self.assertIsNone(self.chat.project.state()["channel"], "None takes the drawn name off this clip")
         self.assertEqual(self.chat.use_channel("Nobody"), "There is no channel look called Nobody. Saved looks: "
-                                                          "Siney Society.")
-        self.assertIsNone(self.chat.use_channel("Siney Society"))
+                                                          "Sample Channel.")
+        self.assertIsNone(self.chat.use_channel("Sample Channel"))
         self.assertEqual(self.chat.project.state()["style"]["name"], "pop", "picking a look puts all of it on")
 
     def test_a_channel_name_the_clip_cannot_draw_is_refused_before_anything_is_kept_and_the_clip_still_renders(self):
@@ -983,8 +983,8 @@ class Frame(Clip):
         self.assertEqual(self.chat.panel()["ends"]["start"], 33.0, "the Trim tab's grip reads where it landed")
         moved = [e for e in self.chat.events if e["kind"] == "moved"][-1]
         self.assertEqual(moved["said"], "The program moved 1 cut, at most 1.8 s, into the nearest quiet sound, so none "
-                                        "falls inside a word. Nothing is quiet within 1 s of the cut at 0:49.0: it is "
-                                        "on sound as loud as the talk.")
+                                        "falls inside a word. The cut at 0:49.0 lands on loud sound: nothing is quiet "
+                                        "within 1 s.")
 
     def test_a_clip_without_an_upright_frame_says_why_and_is_not_changed(self):
         self.make()

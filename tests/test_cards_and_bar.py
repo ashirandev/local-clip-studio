@@ -97,21 +97,22 @@ function load(page, answer) {
     querySelectorAll: (q) => element("log").querySelectorAll(q),
     querySelector: (q) => element("log").querySelector(q),
   };
+  const asked = [];
   const box = {
     console, Math, Number, String, Object, Array, JSON, Promise, Date, Set, Map, RegExp, Infinity, NaN, parseInt, parseFloat, isNaN, encodeURIComponent, decodeURIComponent, document,
-    window: any({ addEventListener: () => {}, matchMedia: () => any({ matches: false }) }),
+    window: any({ lcsReplay: false, addEventListener: () => {}, matchMedia: () => any({ matches: false }) }),
     history: any(), navigator: any(), localStorage: any({ getItem: () => null }), sessionStorage: any({ getItem: () => null }),
-    fetch: () => (answer ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(answer) }) : new Promise(() => {})), EventSource: function () { return any(); }, ResizeObserver: function () { return any(); }, IntersectionObserver: function () { return any(); }, MutationObserver: function () { return any(); },
+    fetch: (u) => (asked.push(u), answer ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(answer) }) : new Promise(() => {})), EventSource: function () { return any(); }, ResizeObserver: function () { return any(); }, IntersectionObserver: function () { return any(); }, MutationObserver: function () { return any(); },
     getComputedStyle: () => ({ overflowY: "auto", display: "block" }), matchMedia: () => any({ matches: false }), requestAnimationFrame: () => 0, cancelAnimationFrame: () => {}, setTimeout: () => 0, clearTimeout: () => {}, setInterval: () => 0, clearInterval: () => {},
     Intl: any(), URL: any(), Image: function () { return any(); }, FormData: function () { return any(); }, CSS: any(), performance: any({ now: () => 0 }), innerWidth: 1200, innerHeight: 800,
   };
   vm.createContext(box);
-  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview };", box);
+  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey };", box);
   const t = box.t;
   t.room.chat = "c";
   let id = 0;
   const event = (kind, over) => t.on(Object.assign({ id: id++, kind, job: 1 }, over));
-  return { t, element, made, event };
+  return { t, element, made, event, asked };
 }
 
 const page = fs.readFileSync(process.argv[2], "utf8");
@@ -128,6 +129,44 @@ const plan = (done, now, todo) => ({ items: [
   ...Array(todo).fill(0).map((_, k) => ({ text: "Later " + k, state: "todo" })),
 ] });
 
+const MINDS = [["local", "Muse Glimmer", true, false], ["spark", "Muse Spark", false, true], ["wonder", "Muse Wonder", false, true],
+  ["modal", "Muse Spark Open", false, false], ["baseten", "Muse Spark Open (Baseten)", false, false], ["fireworks", "Muse Spark Open (Fireworks)", false, false]]
+  .map(([key, label, local, ok]) => ({ key, label, local, ok, name: label, where: "on servers", why: "no key", url: "u" }));
+each("faces", (p) => {
+  p.t.room.made = { version: 1, clip: { people: 2, length: 10 } };
+  const faces = () => p.asked.filter((u) => String(u).includes("/api/faces")).length;
+  p.t.drawFaces(2, p.t.room.made, "a");
+  const closed = faces();
+  p.t.setBlur(true);
+  const open = faces();
+  return { closed, open, wide: p.element("sheet").classList.contains("canvas") };
+});
+each("blurTab", (p) => {
+  p.t.showClip({ id: 1, clip: { people: 2, length: 10, lanes: [] } });
+  const people = p.element("blurTab").hidden;
+  p.t.showClip({ id: 2, clip: { people: 0, length: 10, lanes: [] } });
+  return { people, nobody: p.element("blurTab").hidden, line: p.element("clipLine").textContent };
+});
+each("options", (p) => {
+  p.t.room.minds = MINDS;
+  p.t.drawMinds();
+  const folded = p.element("minds").children.length;
+  const machine = p.element("machine").children.length;
+  p.element("apiOther").press();
+  return { folded, machine, opened: p.element("minds").children.length, button: p.element("apiOther").hidden, tiles: p.element("apiSeg").hidden };
+});
+each("readyStays", (p) => {
+  p.t.room.minds = MINDS.map((m) => (m.key === "modal" ? Object.assign({}, m, { ok: true }) : m));
+  p.t.drawMinds();
+  return p.element("minds").children.length;
+});
+each("cost", (p) => {
+  p.t.room.minds = MINDS;
+  const box = p.element("costBox");
+  p.t.drawCost({ jobs: [], chat: 0, today: 0, month: 1, minds: { "Muse Spark": 1 }, prices: "the list", rate: {} }, box);
+  const names = box.children.map((c) => (c.children[0] ? c.children[0].textContent : ""));
+  return { names, note: box.children[box.children.length - 1].textContent };
+});
 each("order", (p) => {
   p.event("job", { mind: "Muse Spark" });
   const j = p.t.job(1);
@@ -332,6 +371,10 @@ const press = async (answer) => {
   return { saved: saved(p), want: p.t.room.wantPremiere, work: Boolean(p.t.room.work.premiere) };
 };
 (async () => {
+  const keyed = load(page, { here: true, url: "", minds: MINDS, apis: [{ name: "meta", label: "Meta", saved: false, key: "k", page: "p", icon: "spark" }, { name: "modal", label: "Modal", saved: true, key: "k", page: "p", icon: "stack" }] });
+  keyed.t.room.minds = MINDS;
+  await keyed.t.loadKey();
+  said.otherSaved = { tiles: keyed.element("apiSeg").hidden, minds: keyed.element("minds").children.length };
   said.pressReady = await press({ ok: true, ready: true });
   said.pressMaking = await press({ ok: true, making: true });
   said.pressRefused = await press({ ok: false, error: "No." });
@@ -494,6 +537,49 @@ class Page(unittest.TestCase):
         self.assertEqual(s["wait"], 0)
         self.assertEqual(s["kids"], ["img", "svg"], "one play mark, however many times it is told")
         self.assertFalse(s["inline"], "a player in the card as well would be two ways to watch and two sounds")
+
+
+class Plain(unittest.TestCase):
+    def test_faces_are_asked_for_only_under_blur(self):
+        s = Page.said["faces"]
+        self.assertEqual(s["closed"], 0, "a clip on the player has no boxes on its faces")
+        self.assertEqual(s["open"], 1)
+        self.assertTrue(s["wide"], "the sheet leaves the picture in sight, as on Layout")
+
+    def test_the_blur_tab_shows_when_the_clip_has_people(self):
+        s = Page.said["blurTab"]
+        self.assertEqual((s["people"], s["nobody"], s["line"]), (False, True, ""))
+
+    def test_options_show_the_muses_meta_gives_and_the_rest_one_press_on(self):
+        s = Page.said["options"]
+        self.assertEqual(s["folded"], 3)
+        self.assertEqual(s["machine"], 6, "About this computer still says all of them")
+        self.assertEqual((s["opened"], s["button"], s["tiles"]), (6, True, False))
+
+    def test_a_muse_that_is_ready_is_never_folded_away(self):
+        self.assertEqual(Page.said["readyStays"], 4)
+
+    def test_a_saved_key_for_another_api_opens_them(self):
+        self.assertEqual(Page.said["otherSaved"], {"tiles": False, "minds": 6})
+
+    def test_the_cost_sheet_lists_only_what_was_used_and_this_computer(self):
+        s = Page.said["cost"]
+        self.assertIn("Muse Glimmer", s["names"], "this computer stays: it is free")
+        self.assertIn("Muse Spark", s["names"])
+        self.assertEqual(sum("Open" in n for n in s["names"]), 0)
+        self.assertEqual(s["note"], "Priced by the list. An answer cut short by Stop or by new words is not counted.")
+
+    def test_no_sentence_on_the_page_runs_past_25_words(self):
+        with open(os.path.join(WEB, "app.js"), encoding="utf-8") as f:
+            page = f.read()
+        long = [s for s in re.findall(r'"((?:[^"\\\n]|\\.)*)"', page) if len(s.split()) > 25]
+        self.assertEqual(long, [])
+
+    def test_every_face_box_and_icon_button_gets_its_name_on_hover(self):
+        with open(os.path.join(WEB, "app.js"), encoding="utf-8") as f:
+            page = f.read()
+        self.assertIn('document.addEventListener("pointerover"', page)
+        self.assertIn('if (b && !b.textContent.trim()) b.title = b.getAttribute("aria-label");', page)
 
 
 class Button(unittest.TestCase):

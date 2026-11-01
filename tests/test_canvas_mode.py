@@ -412,7 +412,7 @@ class Canvas(unittest.TestCase):
         self.assertEqual(s["again"], {"drag": "true", "pan": "false"}, "each time Layout opens")
         self.assertIn("corner", s["dragging"]["says"])
         self.assertTrue(s["dragging"]["row"])
-        self.assertIn("It stays where you let go, and Undo takes it back.", s["panning"]["says"])
+        self.assertIn("Drag the picture", s["panning"]["says"])
         self.assertFalse(s["panning"]["row"], "Bigger and Up move the part, not its picture")
 
     def test_a_layout_with_nothing_to_pan_says_so_and_the_button_is_off(self):

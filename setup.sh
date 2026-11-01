@@ -5,6 +5,7 @@ set -e
 cd "$(dirname "$0")"
 echo
 echo " Local Clip Studio: setting up this computer for Muse through an API (no graphics card needed)."
+echo " Keep your key until this window asks for it. Pasted any sooner, it shows on the screen."
 echo
 
 if [ "$(uname -s)" = Darwin ]; then
@@ -47,4 +48,4 @@ echo " [3/3] Your API endpoint and key, and the hearing model (about 1 GB the fi
 .venv/bin/python -m clipstudio.parts
 
 echo
-echo " Done. Start the studio with ./start.sh"
+echo " Done. Start the studio with: sh start.sh"

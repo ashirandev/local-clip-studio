@@ -1489,7 +1489,7 @@ PICTURE_ENDS = ("game", "sport")
 EDGE_BED = 6.0
 EDGE_FILE = 0.05
 MOVED_CUTS = "The program moved %d cut%s, at most %g s, into the nearest quiet sound, so none falls inside a word."
-LOUD_CUT = "Nothing is quiet within %g s of the cut at %s: it is on sound as loud as the talk."
+LOUD_CUT = "The cut at %s lands on loud sound: nothing is quiet within %g s."
 
 
 def _quiet_under(level):
@@ -1547,7 +1547,7 @@ def _on_quiet(rec, made, level, last_end=False):
             loud.remove(end)
             moved.append(past - end)
     told = ([MOVED_CUTS % (len(moved), "" if len(moved) == 1 else "s", round(max(moved), 2))] if moved else []) + [
-        LOUD_CUT % (EDGE_REACH, _tenth(t)) for t in loud]
+        LOUD_CUT % (t, EDGE_REACH) for t in dict.fromkeys(_tenth(t) for t in loud)]
     return landed, " ".join(([said] if said else []) + told) or None
 
 
@@ -2576,7 +2576,8 @@ def change_ends(job, why, start=None, end=None):
     if shifted:
         lines.append(MOVED_CUTS % (len(shifted), "" if len(shifted) == 1 else "s", max(shifted)))
     level = takes.heard_level(rec, a, b)
-    lines += [LOUD_CUT % (EDGE_REACH, tenth(t)) for t in (_loud_cuts(rec, [a, b], level) if level else [])]
+    loud = _loud_cuts(rec, [a, b], level) if level else []
+    lines += [LOUD_CUT % (t, EDGE_REACH) for t in dict.fromkeys(tenth(t) for t in loud)]
     framed = _frame_kept(job, rec, clip, job.chat.project.state()["clip"])
     if framed:
         lines.append(framed)
@@ -7739,7 +7740,7 @@ TOOLS = {t.name: t for t in [
          {"channel": {"type": "string", "maxLength": channels.LONGEST_NAME,
                       "description": "The channel's name, as the person says it, such as Siney Society."},
           "handle": {"type": "string", "maxLength": channels.LONGEST_HANDLE,
-                     "description": "The name to draw small on every clip, such as @sineysociety, when the person "
+                     "description": "The name to draw small on every clip, such as @yourchannel, when the person "
                                     "gives one. Leave it out for none."}},
          ["channel"], save_channel_look, changes=True),
     Tool("use_channel_look", "Chose the channel look",

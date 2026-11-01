@@ -68,8 +68,8 @@ class Quiet(unittest.TestCase):
         pieces, said = self.land([[10.0, 20.0]], {10.0: [9.4, 9.8]}, "The program cut 2 s.")
         self.assertEqual(pieces, [[9.5, 20.0]])
         self.assertEqual(said, "The program cut 2 s. The program moved 1 cut, at most 0.5 s, into the nearest quiet "
-                               "sound, so none falls inside a word. Nothing is quiet within 1 s of the cut at 0:20.0: "
-                               "it is on sound as loud as the talk.")
+                               "sound, so none falls inside a word. The cut at 0:20.0 lands on loud sound: nothing is "
+                               "quiet within 1 s.")
 
     def test_a_last_end_on_loud_sound_looks_further_for_a_real_pause(self):
         """EP 22: a line ended at 26:19.30 with its last word in its text, the sound at talk level to 26:22.36."""
@@ -83,20 +83,24 @@ class Quiet(unittest.TestCase):
         pieces, said = self.land([[10.0, 20.0], [30.0, 40.0]], {10.0: [9.9, 10.1], 30.0: [29.9, 30.1], 40.0: [40.2, 40.5]},
                                  far={20.0: [22.0, 23.0], 40.0: [42.0, 43.0]})
         self.assertEqual(pieces, [[10.0, 20.0], [30.0, 40.5]], "the piece before the last stays")
-        self.assertIn("Nothing is quiet within 1 s of the cut at 0:20.0", said)
+        self.assertIn("The cut at 0:20.0 lands on loud sound", said)
         self.assertEqual(self.land([[10.0, 20.0]], {10.0: [9.9, 10.1], 20.0: [20.2, 20.5]}, far={20.0: [22.0, 23.0]})[0],
                          [[10.0, 20.5]])
 
     def test_a_last_end_with_no_pause_stays_and_is_said(self):
         pieces, said = self.land([[10.0, 20.0]], {10.0: [9.9, 10.1]}, far={})
         self.assertEqual(pieces, [[10.0, 20.0]])
-        self.assertIn("Nothing is quiet within 1 s of the cut at 0:20.0", said)
+        self.assertIn("The cut at 0:20.0 lands on loud sound", said)
+
+    def test_two_cuts_at_one_spot_are_said_once(self):
+        said = self.land([[10.0, 20.01], [20.03, 30.0]], {10.0: [9.9, 10.1], 30.0: [29.9, 30.1]}, far={})[1]
+        self.assertEqual(said.count("The cut at 0:20.0 lands on loud sound"), 1)
 
     def test_a_pause_that_would_take_a_clip_past_its_longest_is_left(self):
         end = 10.0 + tools.LONGEST - 1.0
         pieces, said = self.land([[10.0, end]], {10.0: [9.4, 9.8]}, far={end: [end + 2.0, end + 3.0]})
         self.assertEqual(pieces, [[9.5, end]], "the clip keeps its other cut")
-        self.assertIn("Nothing is quiet within 1 s of the cut", said)
+        self.assertIn("lands on loud sound", said)
 
     def test_the_picture_or_the_person_may_end_a_clip_and_then_it_stays(self):
         self.assertTrue(tools._reaches_on("vlog", {}))

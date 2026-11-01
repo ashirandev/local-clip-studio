@@ -15,6 +15,7 @@ set "PIPSHA=3790624780082365f47549d032f3770eeb2b1e8bd1f7b2e02dace1afa361b4ed"
 echo.
 echo  Local Clip Studio: setting up this computer.
 echo  Each file is checked before it is used. If anything stops, run setup.bat again: it carries on.
+echo  Keep your key until this window asks for it. Pasted any sooner, it shows on the screen.
 echo.
 if exist "%PY%" goto pip
 if exist "%HERE%parts\one_key.txt" goto placed

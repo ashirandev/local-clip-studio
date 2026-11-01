@@ -4098,7 +4098,7 @@ class Tools(unittest.TestCase):
         self.assertIn("it now runs from 0:31.7 to 0:45.0", lands["result"], "0.3 s before the sound, not 0:32.5")
         self.assertIn("The program moved 1 cut, at most 0.78 s, into the nearest quiet sound", lands["result"])
         self.assertIn("it now runs from 0:35.0 to", stays["result"])
-        self.assertIn("Nothing is quiet within 1 s of the cut at 0:35.0: it is on sound as loud as the talk.",
+        self.assertIn("The cut at 0:35.0 lands on loud sound: nothing is quiet within 1 s.",
                       stays["result"])
         self.assertEqual(self.chat.project.state()["clip"]["pieces"][0][0], 35.0)
         checked = [c for checks in self.chat.checks.values() for c in checks if c["name"] == "The cuts are in quiet sound"]
@@ -4284,7 +4284,7 @@ class Tools(unittest.TestCase):
         self.assertIn("Each moment makes one clip; moment 2 is given twice.", twice["result"])
 
     def test_clips_made_in_a_channel_look_get_its_style_captions_name_and_hashtag(self):
-        channels.use(channels.save({"name": "Siney Society", "handle": "@sineysociety", "look": "warm",
+        channels.use(channels.save({"name": "Sample Channel", "handle": "@samplechannel", "look": "warm",
                                     "style": {"name": "pop", "font": None}, "captions": "lit"})["name"])
         clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
                  {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
@@ -4293,14 +4293,14 @@ class Tools(unittest.TestCase):
                                 [call("use_channel_look", channel="", why="the person asked for none")], "Done.")
         made, saved, none = steps[-3:]
         self.assertFalse(made["refused"], made["result"])
-        self.assertIn('Every clip is in the "Siney Society" channel look the person saved: the pop style, the warm '
-                      'colour look, lit captions (add_captions with lit true), the name @sineysociety drawn on the '
+        self.assertIn('Every clip is in the "Sample Channel" channel look the person saved: the pop style, the warm '
+                      'colour look, lit captions (add_captions with lit true), the name @samplechannel drawn on the '
                       'clip.', made["result"])
         state = self.chat.project.state()
         self.assertEqual((state["style"]["name"], state["look"], state["captions"]["lit"]), ("pop", "warm", True))
-        self.assertIn({"do": "channel", "name": "@sineysociety", "spot": None}, self.chat.project.entries)
+        self.assertIn({"do": "channel", "name": "@samplechannel", "spot": None}, self.chat.project.entries)
         ready = [e for e in self.chat.events if e["kind"] == "ready"][0]
-        self.assertEqual(ready["hashtags"], ["#a", "#sineysociety"], "the channel's name joins the post's hashtags")
+        self.assertEqual(ready["hashtags"], ["#a", "#samplechannel"], "the channel's name joins the post's hashtags")
         self.assertFalse(saved["refused"], saved["result"])
         self.assertIn('Saved the "Travel" channel look: the pop style, the warm colour look, lit captions',
                       saved["result"])

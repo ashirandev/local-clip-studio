@@ -200,6 +200,7 @@
       <button type="button" class="tool" data-show="look" aria-pressed="false"><svg class="ico"><use href="#i-drop"/></svg>Colour</button>
       <button type="button" class="tool" data-show="fx" aria-pressed="false" hidden><svg class="ico"><use href="#i-spark"/></svg>Effects</button>
       <button type="button" class="tool" data-show="sound" aria-pressed="false"><svg class="ico"><use href="#i-sound"/></svg>Sound</button>
+      <button type="button" class="tool" id="blurTab" data-show="blur" aria-pressed="false" hidden><svg class="ico"><use href="#i-blur"/></svg>Blur</button>
       <button type="button" class="tool" data-show="words" aria-pressed="false"><svg class="ico"><use href="#i-words"/></svg>Words</button>
       <button type="button" class="tool" data-show="channel" aria-pressed="false"><svg class="ico"><use href="#i-at"/></svg>Channel</button>
       <button type="button" class="tool" data-show="album" aria-pressed="false" hidden><svg class="ico"><use href="#i-film"/></svg>Album</button>
@@ -336,6 +337,9 @@
       </div>
       <p class="panel-why" id="frameWhy" role="status" hidden></p>
     </div>
+    <div class="panel-group" data-part="blur">
+      <p class="channel-says">Tap a face on the picture to blur it. Tap it again to show it.</p>
+    </div>
     <div class="panel-group" data-part="words">
       <div class="word-list" id="wordList"></div>
       <form class="word-edit" id="wordEdit" hidden>
@@ -367,6 +371,7 @@
         </div>
         <div class="api-row">
           <button type="submit" class="pill go"><svg class="ico sm"><use href="#i-check"/></svg>Save</button>
+          <button type="button" class="api-more" id="apiOther">Other APIs</button>
           <button type="button" class="api-more" id="apiMore">Change address</button>
         </div>
         <p class="setup-line" id="apiNote" role="status"></p>
@@ -403,7 +408,7 @@
 </section>
 <input type="file" id="file" accept="video/*,.mkv,.mov,.ts,.flv,.mts,.m2ts,.mxf,.mpg,.mpeg,.wmv,.3gp,.avi" hidden>
 <input type="file" id="phoneFiles" accept="video/*,image/*" multiple hidden>
-<div class="drop-cover" id="dropCover" hidden><p>Drop the video to open it. One on a card or a network drive is copied into the studio first.</p></div>
+<div class="drop-cover" id="dropCover" hidden><p>Drop the video to open it.</p></div>
 <script src="app.js"></script>
 </body>
 </html>

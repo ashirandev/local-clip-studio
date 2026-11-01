@@ -55,6 +55,7 @@ LATER = ("engine", "glimmer")
 CHUNK = 1 << 20
 TIMEOUT = 60
 AGENT = "local-clip-studio-setup"
+PASTE = {"win32": " with one right-click", "darwin": " with Cmd+V"}.get(sys.platform, "")
 LLAMA = "https://github.com/ggml-org/llama.cpp/releases/download/b11716/"
 FFMPEG = "https://github.com/GyanD/codexffmpeg/releases/download/8.1.1/"
 GLIMMER = "https://huggingface.co/unsloth/Muse-Glimmer-30B-GGUF/resolve/faa5b025c584459c13febfa5c59883516710ae39/"
@@ -465,7 +466,7 @@ def ask_key(read=input, read_secret=None):
         print("  A key is saved. Press Enter to keep it, or paste another.")
     while True:
         try:
-            key = read_secret("  Paste your Meta API key with one right-click, then press Enter (it does not show): ")
+            key = read_secret("  Paste your Meta API key%s, then press Enter (it does not show): " % PASTE)
         except EOFError:
             print()
             return False
@@ -554,5 +555,12 @@ def main(argv=None):
     return 0
 
 
+def leave(code):
+    """Ends setup at once. The hearing worker setup starts prints from a daemon thread, and Python aborts when one
+    prints while it closes, which reads as a failed setup when everything was set up."""
+    sys.stdout.flush()
+    os._exit(code)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    leave(main())

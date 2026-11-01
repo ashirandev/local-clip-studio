@@ -2,7 +2,7 @@
 # Starts Local Clip Studio and opens it in the browser. Stop it with Ctrl+C.
 cd "$(dirname "$0")"
 if [ ! -x .venv/bin/python ]; then
-  echo " The studio is not set up yet. Run ./setup.sh first."
+  echo " The studio is not set up yet. Run sh setup.sh first."
   exit 1
 fi
 # The studio finds FFmpeg on the PATH, and Homebrew's ffmpeg-full (the one with libass) is not put there.

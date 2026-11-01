@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -370,6 +371,37 @@ class Page(unittest.TestCase):
         with mock.patch.object(parts, "set_up", lambda: "Everything that can be set up here is set up."):
             self.assertEqual(self.ask("POST", "{}"),
                              (200, {"ok": False, "error": "Everything that can be set up here is set up."}))
+
+
+class Leaving(unittest.TestCase):
+    """A Mac ended setup with Abort trap 6 after everything was set up: the hearing worker printed from a daemon thread
+    while Python closed."""
+
+    def test_setup_ends_cleanly_while_a_daemon_thread_prints(self):
+        script = ("import threading, time\nfrom clipstudio import parts\n"
+                  "def talk():\n    while True:\n        print('hearing' * 400, flush=True)\n"
+                  "threading.Thread(target=talk, daemon=True).start()\ntime.sleep(0.2)\nparts.leave(0)\n")
+        run = subprocess.run([sys.executable, "-X", "utf8", "-c", script], capture_output=True, text=True,
+                             encoding="utf-8", timeout=120,
+                             cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        self.assertEqual(run.returncode, 0, run.stderr[-400:])
+        self.assertNotIn("Fatal", run.stderr)
+
+    def test_setup_leaves_that_way(self):
+        with open(parts.__file__, encoding="utf-8") as f:
+            self.assertIn("leave(main())", f.read())
+
+    def test_the_key_question_says_how_to_paste_on_this_computer(self):
+        heard = []
+
+        def answer(question):
+            heard.append(question)
+            raise EOFError
+
+        with mock.patch.object(parts.mind, "load_keys"), mock.patch.object(parts.mind, "saved_api", return_value=("", "")):
+            parts.ask_key(read=lambda q: "", read_secret=answer)
+        self.assertIn("Paste your Meta API key%s, then" % parts.PASTE, heard[0])
+        self.assertEqual(parts.PASTE, {"win32": " with one right-click", "darwin": " with Cmd+V"}.get(sys.platform, ""))
 
 
 if __name__ == "__main__":

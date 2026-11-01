@@ -88,6 +88,8 @@ const apiNote = $("apiNote");
 const apiSeg = $("apiSeg");
 const apiGet = $("apiGet");
 const apiMore = $("apiMore");
+const apiOther = $("apiOther");
+const blurTab = $("blurTab");
 let apis = [];
 let apiNow = "";
 const phoneBox = $("phoneBox");
@@ -99,8 +101,8 @@ const phoneFiles = $("phoneFiles");
 const attached = $("attached");
 const idle = text.placeholder;
 
-const SHEETS = { fx: ["spark", "Effects"], album: ["film", "Album"], layout: ["stack", "Layout"], trim: ["cut", "Trim"], frame: ["move", "Frame"], caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
-const EDITS = ["layout", "trim", "frame", "caps", "style", "look", "fx", "sound", "words", "channel", "album"];
+const SHEETS = { fx: ["spark", "Effects"], blur: ["blur", "Blur"], album: ["film", "Album"], layout: ["stack", "Layout"], trim: ["cut", "Trim"], frame: ["move", "Frame"], caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
+const EDITS = ["layout", "trim", "frame", "caps", "style", "look", "fx", "sound", "blur", "words", "channel", "album"];
 const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_ends: "cut", change_effect: "sticker", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", match_album: "film", move_part: "move", mute_sound: "mute", no_chat_box: "blur", open_clip: "film", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_album: "gear", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", set_tagline: "at", show_people: "people", slow_push: "move", undo: "undo", undo_album: "undo", use_channel_look: "at", watch_piece: "eye" };
 
 const room = { canvas: false, tool: "drag", workLine: "", endSaid: "", mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false, layout: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null, sends: false };
@@ -253,8 +255,8 @@ function drawCost(d, box, job) {
     d.jobs.forEach((j) => rows.push(costRow("Message " + j.job, j.usd, j.minds.join(", ") + " · " + plural(j.answers, "answer"))));
   }
   rows.push(el("p", "pop-head", "Each Muse, in all"));
-  room.minds.forEach((m) => rows.push(costRow(m.label, d.minds[m.label] || 0, m.key === "local" ? "On your own graphics card: free" : m.where.charAt(0).toUpperCase() + m.where.slice(1))));
-  const notes = ["Each answer is priced by " + d.prices + ". A question cut short by Stop or by new words is not counted: the provider says what an answer cost only at its end."];
+  room.minds.filter((m) => m.local || d.minds[m.label]).forEach((m) => rows.push(costRow(m.label, d.minds[m.label] || 0, m.key === "local" ? "On your own graphics card: free" : m.where.charAt(0).toUpperCase() + m.where.slice(1))));
+  const notes = ["Priced by " + d.prices + ". An answer cut short by Stop or by new words is not counted."];
   if (d.unpriced) notes.push(plural(d.unpriced, "answer") + " had no known price and " + (d.unpriced === 1 ? "is" : "are") + " not counted.");
   if (d.rate.source) notes.push(d.rate.currency + " at " + d.rate.per_usd.toFixed(2) + " to the US dollar, the rate of " + d.rate.day + " from " + d.rate.source + ".");
   else if (d.rate.why) notes.push(d.rate.why);
@@ -751,6 +753,7 @@ function clearClip() {
   room.pinned = null;
   frameBox.replaceChildren(...[...emptyFrame].map((n) => n.cloneNode(true)));
   clipLine.textContent = "";
+  blurTab.hidden = true;
   clipTitle.textContent = "Your clip";
   room.made = null;
   room.panel = null;
@@ -803,7 +806,8 @@ function showClip(e) {
   }
   drawClipFrame();
   clipTitle.textContent = room.ready ? room.ready.title : room.clipName || "Your clip";
-  clipLine.textContent = clip.people ? "Tap a face to blur it, and tap it again to show it." : "";
+  clipLine.textContent = "";
+  blurTab.hidden = !clip.people;
   thumb("/api/clipframe?chat=" + encodeURIComponent(room.chat) + "&t=" + (clip.length / 2).toFixed(1) + "&width=120&v=" + e.id);
   updatePlayer();
 }
@@ -1164,6 +1168,7 @@ function drawClipFrame() {
 }
 
 async function drawFaces(t, made, asked) {
+  if (!room.blur) return;
   let d;
   try {
     const r = await fetch("/api/faces?chat=" + encodeURIComponent(room.chat) + "&t=" + t.toFixed(2), { cache: "no-store" });
@@ -1171,7 +1176,7 @@ async function drawFaces(t, made, asked) {
   } catch (err) {
     return;
   }
-  if (!d.ok || !d.faces.length || room.made !== made || room.facesAt !== asked) return;
+  if (!d.ok || !d.faces.length || !room.blur || room.made !== made || room.facesAt !== asked) return;
   const layer = el("div", "faces");
   d.faces.forEach((f) => {
     const b = el("button", "face" + (f.blur ? " blurred" : ""));
@@ -1186,9 +1191,9 @@ async function drawFaces(t, made, asked) {
       b.disabled = true;
       try {
         const res = await post("/api/person", { chat: room.chat, n: f.n, blur: !f.blur });
-        if (!res.ok) clipLine.textContent = res.error || "That face could not be changed.";
+        panelNote.textContent = res.ok ? "" : res.error || "That face could not be changed.";
       } catch (err) {
-        clipLine.textContent = "The studio is not answering. Open Local Clip Studio again.";
+        panelNote.textContent = "The studio is not answering. Open Local Clip Studio again.";
       }
       b.disabled = false;
     });
@@ -1377,6 +1382,23 @@ function showPart(name) {
   partTabs.querySelectorAll(".tool[data-show]").forEach((b) => b.setAttribute("aria-pressed", String(!sheet.hidden && b.dataset.show === name)));
   document.querySelectorAll("#panel [data-part]").forEach((e) => e.classList.toggle("part-off", e.dataset.part !== name));
   setCanvas(!sheet.hidden && name === "layout");
+  setBlur(!sheet.hidden && name === "blur");
+}
+
+function setBlur(on) {
+  if (on) {
+    clipBox.classList.add("canvas");
+    sheet.classList.add("canvas");
+  }
+  if (on === Boolean(room.blur)) return;
+  room.blur = on;
+  frameBox.querySelectorAll(".faces").forEach((f) => f.remove());
+  if (!on) return;
+  stopWatching();
+  const v = playerVideo();
+  if (!v) return drawClipFrame();
+  if (v.paused) baseFaces(v);
+  else v.pause();
 }
 
 function setCanvas(on) {
@@ -1617,7 +1639,7 @@ function drawTrim() {
   if (moved && t.start > e.start) parts.push("cuts " + (t.start - e.start).toFixed(1) + " s off the start");
   if (moved && t.end > e.end) parts.push("ends " + (t.end - e.end).toFixed(1) + " s later");
   if (moved && t.end < e.end) parts.push("cuts " + (e.end - t.end).toFixed(1) + " s off the end");
-  trimSays.textContent = moved ? "New: " + tenths(t.start) + " to " + tenths(t.end) + " of your video (" + (t.end - t.start).toFixed(1) + " s): " + parts.join(", ") + "." : "The clip plays " + tenths(e.start) + " to " + tenths(e.end) + " of your video. Tap the timeline to choose a spot, then start or end the clip there, or take in " + TRIM_STEP + " s more at a time.";
+  trimSays.textContent = moved ? "New: " + tenths(t.start) + " to " + tenths(t.end) + " of your video (" + (t.end - t.start).toFixed(1) + " s): " + parts.join(", ") + "." : "Plays " + tenths(e.start) + " to " + tenths(e.end) + " of your video. Tap the timeline to pick a spot.";
   const off = Boolean(e.why) || room.work.ends;
   $("trimStart").disabled = $("trimEnd").disabled = off;
   $("trimEarlier").disabled = off || t.start <= 0;
@@ -2001,7 +2023,7 @@ function drawFrame() {
   framePick.style.aspectRatio = f.size[0] + " / " + f.size[1];
   frameWindow.style.left = (100 * x) / f.size[0] + "%";
   frameWindow.style.width = (100 * f.width) / f.size[0] + "%";
-  frameSays.textContent = moved ? "New: the clip shows " + share(x) + "% to " + share(x + f.width) + "% of your video's width" + (f.follows ? ", held there instead of following." : ".") : f.follows ? "The frame follows by itself now. Drag it, or tap Left, Middle or Right, to hold it in one place." : "Drag the frame over your video, or tap Left, Middle or Right, to choose what the clip shows.";
+  frameSays.textContent = moved ? "New: the clip shows " + share(x) + "% to " + share(x + f.width) + "% of your video's width" + (f.follows ? ", held there instead of following." : ".") : f.follows ? "The frame follows by itself. Drag it to hold it still." : "Drag the frame to choose what the clip shows.";
   $("frameLeft").disabled = x <= 0;
   $("frameRight").disabled = x >= f.size[0] - f.width;
   frameGo.disabled = !moved;
@@ -2320,16 +2342,15 @@ function pansNow() {
 
 function canvasLine(parts, pans) {
   const f = room.panel.frame;
-  const stays = " It stays where you let go, and Undo takes it back.";
   if (room.work.layout) return "The clip is being made in the new layout.";
   if (!parts.length && !pans.length) return f && f.shots ? "This shot shows everyone, so it has nothing to drag or pan. A shot of one person can be panned." : "This layout has nothing to drag or pan.";
   if (room.tool === "pan") {
     const moving = pans.find((p) => p.follows);
     const whole = parts.filter((p) => !pans.some((q) => q.name === p.name));
-    if (pans[0].shot) return "Drag the picture to choose what this shot shows, from " + clock(pans[0].shot.from) + " to " + clock(pans[0].shot.to) + "." + stays;
-    return "Drag the picture in a part to choose what it shows." + stays + (moving ? " " + partLabel(moving) + " moves by itself now, and holds still once you pan it." : "") + (whole.length ? " " + whole.map(partLabel).join(" and ") + " already shows the whole picture." : "");
+    if (pans[0].shot) return "Drag the picture to choose what this shot shows, from " + clock(pans[0].shot.from) + " to " + clock(pans[0].shot.to) + ".";
+    return "Drag the picture in a part to choose what it shows." + (moving ? " " + partLabel(moving) + " moves by itself now, and holds still once you pan it." : "") + (whole.length ? " " + whole.map(partLabel).join(" and ") + " already shows the whole picture." : "");
   }
-  return "Drag a part to move it, or its corner to size it." + stays + (pans.length ? "" : " Every part already shows the whole picture, so there is nothing to pan.");
+  return "Drag a part to move it, or its corner to size it." + (pans.length ? "" : " Every part already shows the whole picture, so there is nothing to pan.");
 }
 
 function drawCanvas() {
@@ -2580,7 +2601,7 @@ function drawChannels(c) {
   const looks = [{ name: "", label: "None", now: !c.in_use, why: null }].concat(c.saved.map((s) => ({ name: s.name, label: s.name, now: s.name === c.in_use, why: null })));
   drawChoices(row, $("channelWhy"), looks, (x) => choose(row, "/api/channel", { name: x.name }), false);
   const using = c.saved.find((s) => s.name === c.in_use);
-  $("channelSays").textContent = using ? "New clips start in this look: " + using.says + "." : c.saved.length ? "No channel look is in use: new clips start in Muse's guesses." : "No channel look yet. Make a clip look the way your channel does, then save it here.";
+  $("channelSays").textContent = using ? "New clips start in this look: " + using.says + "." : c.saved.length ? "No channel look is in use: new clips start in Muse's guesses." : "Style a clip the way you like, then save the look here.";
   spots.hidden = !c.handle;
   drawChoices(spots, $("spotWhy"), c.spots.map((s) => Object.assign({ why: null }, s)), (x) => choose(spots, "/api/channel", { spot: x.name }), false);
   if (using && document.activeElement !== channelName && document.activeElement !== channelHandle && !channelName.value) {
@@ -2892,7 +2913,7 @@ function openWords(b) {
   seek(b.start);
   room.editing = { kind: b.kind, n: b.n, was: b.text };
   if (sheet.hidden || room.part !== "words") openSheet("words");
-  wordLabel.textContent = wordName(b) + ", " + b.start.toFixed(1) + " to " + b.end.toFixed(1) + " s" + (b.kind === "draft" ? " · the hearing was not sure, so it is not on the video: Save puts it on, as it is or as you change it" : b.typed ? " · your own words" : "");
+  wordLabel.textContent = wordName(b) + ", " + b.start.toFixed(1) + " to " + b.end.toFixed(1) + " s" + (b.kind === "draft" ? " · not sure of this line, so it is off the video. Save puts it on" : b.typed ? " · your own words" : "");
   wordText.value = b.text;
   wordNote.textContent = "";
   wordEdit.hidden = false;
@@ -2935,7 +2956,7 @@ function drawAgain(d) {
   againButton.hidden = !(d.again || d.making);
   againButton.disabled = d.making;
   if (d.making && !againLine.textContent) againLine.textContent = "Making the video…";
-  if (!d.making && !room.againError) againLine.textContent = d.again ? "You changed the clip after the video was made." : "";
+  if (!d.making && !room.againError) againLine.textContent = d.again ? "Press Update video to see your changes." : "";
 }
 
 againButton.addEventListener("click", async () => {
@@ -3330,10 +3351,12 @@ function drawChip() {
 }
 
 function drawMinds() {
-  mindsBox.textContent = "";
-  machineBox.textContent = "";
+  mindsBox.replaceChildren();
+  machineBox.replaceChildren();
   drawChip();
   room.minds.forEach((m) => {
+    machineBox.appendChild(el("p", null, m.label + ": " + (m.ok ? m.name + " at " + m.url : m.why)));
+    if (!room.moreApis && !m.ok && !m.local && m.key !== "spark" && m.key !== "wonder") return;
     const b = el("button");
     b.type = "button";
     b.setAttribute("role", "radio");
@@ -3350,7 +3373,6 @@ function drawMinds() {
       drawMinds();
     });
     mindsBox.appendChild(b);
-    machineBox.appendChild(el("p", null, m.label + ": " + (m.ok ? m.name + " at " + m.url : m.why)));
   });
   const h = room.hearing;
   if (h) machineBox.appendChild(el("p", null, h.label + ": " + (h.ok ? h.name + " at " + h.url : h.why)));
@@ -3448,6 +3470,11 @@ function closeSheet() {
 
 $("sheetClose").addEventListener("click", closeSheet);
 sheetBack.addEventListener("click", closeSheet);
+
+document.addEventListener("pointerover", (e) => {
+  const b = e.target.closest("button[aria-label]");
+  if (b && !b.textContent.trim()) b.title = b.getAttribute("aria-label");
+});
 
 document.addEventListener("click", (e) => {
   const t = e.target.closest("[data-sheet]");
@@ -3578,12 +3605,18 @@ async function loadKey() {
   apis = d.apis || [];
   const saved = apis.find((a) => a.url && a.url === d.url);
   const now = apis.some((a) => a.name === apiNow) ? apiNow : saved ? saved.name : apis.length ? apis[0].name : "";
+  if (!room.moreApis && apis.some((a, i) => i && (a.saved || a.name === now))) {
+    room.moreApis = true;
+    drawMinds();
+  }
   fillApi(now);
   drawSends(d);
 }
 
 function drawApis() {
   apiSeg.replaceChildren();
+  apiSeg.hidden = !room.moreApis;
+  apiOther.hidden = Boolean(room.moreApis);
   apis.forEach((a) => {
     const b = el("button");
     b.type = "button";
@@ -3604,13 +3637,20 @@ function fillApi(name) {
   apiUrl.placeholder = a.address;
   apiUrl.value = mine;
   apiUrl.hidden = a.own && !mine;
-  apiMore.hidden = !apiUrl.hidden;
+  apiMore.hidden = !apiUrl.hidden || !room.moreApis;
   apiKey.value = "";
   apiKey.placeholder = a.saved ? a.key + " (saved)" : a.key;
   apiGet.href = a.page;
   apiNote.classList.remove("bad");
   apiNote.textContent = "";
 }
+
+apiOther.addEventListener("click", () => {
+  room.moreApis = true;
+  drawApis();
+  fillApi(apiNow);
+  drawMinds();
+});
 
 apiMore.addEventListener("click", () => {
   apiUrl.hidden = false;
@@ -3639,7 +3679,7 @@ function drawSends(d) {
     health();
   });
   sendsLine.classList.remove("bad");
-  sendsLine.textContent = room.sends ? "On: with Muse on this computer, Muse Wonder may watch pieces of up to a minute with their sound and Muse Image may draw a cover from a frame, and Muse Voice Transcribe hears what is said: on Meta's servers, with your key." : "Off: with Muse on this computer, nothing of yours goes to Meta unless you ask for it in your message. The hearing stays on this computer, and it hears Thai less well than Muse Voice Transcribe.";
+  sendsLine.textContent = room.sends ? "Meta's servers hear what is said, watch pieces of up to a minute, and draw covers from frames, with your key." : "With Muse on this computer, nothing goes to Meta unless you ask. Hearing stays here and is weaker in Thai.";
 }
 
 apiForm.addEventListener("submit", async (e) => {
@@ -3697,7 +3737,7 @@ function drawPhone(d) {
   });
   $("phoneSeg").querySelectorAll("button").forEach((b) => { b.disabled = d.fixed; });
   phoneLine.classList.toggle("bad", !!d.why);
-  phoneLine.textContent = d.why || (d.on ? "A phone on the same Wi-Fi or Tailscale opens the studio at an address below: scan its code with the phone's camera. Windows may ask once whether Python may use the network: choose Allow." : "Off: only this computer can use the studio.");
+  phoneLine.textContent = d.why || (d.on ? "Scan a code with your phone's camera. If this computer asks about the network, choose Allow." : "Only this computer can use the studio.");
   const open = d.on ? d.addresses.filter((a) => a.listening) : [];
   const shown = open.map((a) => a.address).join(" ");
   if (phoneCodes.dataset.shown !== shown) {
@@ -4117,7 +4157,7 @@ const MINI = {
   people: { parts: "two who fx", fx: "2" },
   "blur-faces": { parts: "two who" },
   channel: { parts: "who tag" },
-  "channel-switch": { parts: "who tag", tag: "@sineysociety" },
+  "channel-switch": { parts: "who tag", tag: "@yourchannel" },
   render: { parts: "scr bar" },
   check: { parts: "rows" },
   post: { parts: "tag fx", tag: "#reels #game", fx: "📋" },
