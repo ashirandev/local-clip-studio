@@ -31,6 +31,7 @@ SUM_MOST = 50
 SAME_SIZE = 1.5
 MOST_LANES = 16
 STILL = 0.5
+FLASH_LENGTH, FLASH_STRENGTH = 0.15, 0.8
 POP = ((0.0, 0.6), (0.15, 1.1), (0.25, 1.0))
 FADE = 0.15
 PNG_SIGNATURE = bytes((137, 80, 78, 71, 13, 10, 26, 10))
@@ -301,7 +302,7 @@ def _hit(at, length, most=5.0):
     return at, length, "gte(t,%s)*lt(t,%s)" % (_f(at), _f(at + length))
 
 
-def flash(at, length=0.15, strength=0.8):
+def flash(at, length=FLASH_LENGTH, strength=FLASH_STRENGTH):
     """A white flash at `at`: the frame jumps brighter by strength (0 to 1) and fades back over length seconds.
     Outside the window every frame is the input's own."""
     at, length, when = _hit(at, length)
@@ -311,6 +312,13 @@ def flash(at, length=0.15, strength=0.8):
                          % _f(strength))
     fade = "(%s*(1-(t-%s)/%s))" % (_f(strength), _f(at), _f(length))
     return Fragment("[in]eq=brightness='%s':saturation='1-%s':eval=frame:enable='%s'[out]" % (fade, fade, when), [])
+
+
+def flash_alone(length=FLASH_LENGTH):
+    """flash() from second 0 for a track of its own, over nothing: white fading to nothing. flash() adds light and an
+    overlay mixes it, so this starts fully white to come as close (on EP22, at worst 22 of 255 off, against 41 from 0.8)."""
+    return Fragment("color=c=white:s=%dx%d:r=30:d=%s,format=rgba,fade=t=out:st=0:d=%s:alpha=1[_w];"
+                    "[in][_w]overlay=shortest=1:format=auto[out]" % (FRAME_W, FRAME_H, _f(length), _f(length)), [])
 
 
 def shake(at, length=0.4, pixels=18):
@@ -637,13 +645,14 @@ def _path(move, k, count, u, since, inner):
             "%s*%s" % (_f(spin * 2 * math.pi * 0.5), u))
 
 
-def flurry(pngs, at, box, move="burst", count=8, length=None, size=150):
+def flurry(pngs, at, box, move="burst", count=8, length=None, size=150, over="yuv420"):
     """Copies of one to six pictures moving together inside box (x, y, w, h on the 1080x1920 frame) from `at`, by
     one of the MOVES: each copy its own way (its own path, start and spin, and 0.75 to 1.2 times size px on its
     longer side), the same every time, from t only. No copy ever reaches outside box, spinning included. pngs is a
     PNG's path or a list of them; CONFETTI ("confetti") in it stands for paper pieces in six colours, CONFETTI_SIZE
     px whatever size says, which flutter as they move. Copy k is picture k of the list, round and round. length is
-    the move's own when None. Outside at to at + length every frame is the input's own."""
+    the move's own when None. Outside at to at + length every frame is the input's own. over is what it is drawn in:
+    rgb keeps a see-through ground see-through."""
     items = [pngs] if isinstance(pngs, str) else pngs
     if not isinstance(items, (list, tuple)) or not 1 <= len(items) <= FLURRY_PICTURES:
         raise ValueError("pngs %r is not one to %d pictures: give a PNG's path or a list of them, %s for paper pieces."
@@ -714,8 +723,8 @@ def flurry(pngs, at, box, move="burst", count=8, length=None, size=150):
                      "%sfade=t=out:st=%s:d=%s:alpha=1[_q%d]"
                      % (picked[k], angle, wide, grow, fades, _f(end - leave), _f(leave), k))
         after = "out" if k == count - 1 else "_o%d" % k
-        chain.append("[%s][_q%d]overlay=x='%s-w/2':y='%s-h/2':eval=frame:shortest=1:format=yuv420:"
-                     "enable='between(t,%s,%s)'[%s]" % (last, k, px, py, _f(start), _f(end), after))
+        chain.append("[%s][_q%d]overlay=x='%s-w/2':y='%s-h/2':eval=frame:shortest=1:format=%s:"
+                     "enable='between(t,%s,%s)'[%s]" % (last, k, px, py, over, _f(start), _f(end), after))
         last = after
     return Fragment(";".join(parts + chain), files)
 

@@ -658,7 +658,8 @@ class Handler(BaseHTTPRequestHandler):
                            HTTPStatus.NOT_FOUND)
             return
         try:
-            name, body = premiere.bundle(titles[-1] if titles else "", chat.recording, state, made.get("plate"), made.get("captions"))
+            name, body = premiere.bundle(titles[-1] if titles else "", chat.recording, state, made.get("plate"), made.get("clips", ()),
+                                         made.get("stems", ()))
         except premiere.NotExported as e:
             self.send_json({"ok": False, "error": str(e)}, HTTPStatus.NOT_FOUND)
             return

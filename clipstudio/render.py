@@ -34,8 +34,8 @@ LUFS, PEAK, RANGE = -14, -1.5, 11
 PRESET, CRF = "medium", 19
 # the page's video without words (base): veryfast 24 measured as sharp as ultrafast 24 with a file 2 to 4 times smaller
 BASES, BASE_SIZE, BASE_PRESET, BASE_CRF = 1, (540, 960), "veryfast", 24
-PLATES = 1
-NO_CAPTIONS, ONLY_CAPTIONS = "no captions", "only captions"
+PLATES = 2
+PLATE, ONLY_CAPTIONS, ONLY_CHANNEL = "plate", "only captions", "only the channel"
 EXPORT_SECONDS = 600
 MUSIC_LEVEL, MUSIC_LEVELS, MUSIC_DUCK = -6, (-30, 0), -12
 MUSIC_IN, MUSIC_OUT = 0.3, 1.5
@@ -231,12 +231,13 @@ def ass(state, default="clean", behind=False, part=None):
     channel's name (state['channel']: {"name", "spot"}, or None), or None when there are no words on screen. With
     behind=True it holds only the titles and big words that go behind the person ("behind": True), and without it
     everything else. The channel's name is in the captions' letters (text.channel_name), the whole clip long.
-    part NO_CAPTIONS leaves the captions out and ONLY_CAPTIONS leaves out all but them, each in the look it has with
-    the other there (the two layers of a Premiere timeline, premiere.py)."""
-    captions = None if behind or part == NO_CAPTIONS else state.get("captions")
-    titles = [t for t in state["titles"] if bool(t.get("behind")) == behind and part != ONLY_CAPTIONS]
-    words = [h for h in _hits(state) if h["kind"] == "word" and bool(h.get("behind")) == behind and part != ONLY_CAPTIONS]
-    channel = None if behind or part == ONLY_CAPTIONS else state.get("channel")
+    part keeps one thing alone, in the look it has with the others there, for a track of its own on a timeline
+    (premiere.py): ONLY_CAPTIONS, ONLY_CHANNEL, ("title", k) of state["titles"] or ("word", k) of state["hits"]."""
+    captions = state.get("captions") if not behind and part in (None, ONLY_CAPTIONS) else None
+    titles = [t for k, t in enumerate(state["titles"]) if bool(t.get("behind")) == behind and part in (None, ("title", k))]
+    words = [h for k, h in enumerate(_hits(state)) if h["kind"] == "word" and bool(h.get("behind")) == behind
+             and part in (None, ("word", k))]
+    channel = state.get("channel") if not behind and part in (None, ONLY_CHANNEL) else None
     if not (titles or captions or words or channel):
         return None
     st = _styles(state, default)
@@ -338,8 +339,9 @@ def after_source(state, src, out, first_input, default="clean", words=True):
       and big words, one ASS file), so the words hold still while the picture moves and stay on top of a sticker, a
       flurry or a glass box, then the flashes last, so a flash lights the words too.
     With words=False the titles, captions and big words over the picture are left out (the page lays layer.words()
-    over it); the words behind the person and the flashes stay, as they are part of the picture. words=NO_CAPTIONS
-    leaves the captions alone out.
+    over it); the words behind the person and the flashes stay, as they are part of the picture. words=PLATE leaves
+    out all that has a track of its own on a timeline (layer.clips): the pictures, stickers, flurries, words and
+    flashes. A glass box stays, as it reads the frame under it, and so does a picture that shows with one.
     A drawing that cannot be made raises ValueError with the sentence for Muse."""
     blurs = state.get("blurs") or []
     blurs = (effects.blur_tracks([b["track"] for b in blurs if b.get("track")]) +
@@ -351,22 +353,31 @@ def after_source(state, src, out, first_input, default="clean", words=True):
                               state.get("pushes") or [])
     files = files + more
     hits = _hits(state)
+    apart = words == PLATE
     fragments = _backdrop(state) + _cut_out(state, default)
     camera = {"shake": lambda h: effects.shake(h["at"]),
               "punch": lambda h: effects.punch_in(h["at"], centre=h["centre"])}
     fragments += [camera[h["kind"]](h) for h in hits if h["kind"] in camera]
-    fragments += [effects.picture(k["png"], k["at"], k["length"], k["box"]) for k in state.get("pictures") or []]
+    fragments += [effects.picture(k["png"], k["at"], k["length"], k["box"]) for k in state.get("pictures") or []
+                  if not apart or under_glass(state, k)]
     fragments += [layouts.glass(g["box"], g["start"], g["end"], g.get("tint", "light"), g.get("shine", True))
                   for g in state.get("glass") or []]
-    fragments += [effects.sticker(k["png"], k["at"], k["length"], k["box"]) for k in state.get("stickers") or []]
-    fragments += [effects.flurry(f["pngs"], f["at"], f["box"], f.get("move", "burst"), f.get("count", 8),
-                                 f.get("length"), f.get("size", 150)) for f in state.get("flurries") or []]
-    path = ass(state, default, part=None if words is True else words) if words else None
-    if path:
-        fragments.append(text.burn(path, fonts(state, default)))
-    fragments += [effects.flash(h["at"]) for h in hits if h["kind"] == "flash"]
+    if not apart:
+        fragments += [effects.sticker(k["png"], k["at"], k["length"], k["box"]) for k in state.get("stickers") or []]
+        fragments += [effects.flurry(f["pngs"], f["at"], f["box"], f.get("move", "burst"), f.get("count", 8),
+                                     f.get("length"), f.get("size", 150)) for f in state.get("flurries") or []]
+        path = ass(state, default) if words else None
+        if path:
+            fragments.append(text.burn(path, fonts(state, default)))
+        fragments += [effects.flash(h["at"]) for h in hits if h["kind"] == "flash"]
     stage, more = effects.join(fragments, "drawn", out, first_input + len(files))
     return ";".join((seen, lay, stage)), files + more
+
+
+def under_glass(state, picture):
+    """True when the picture shows while a glass box does: the glass reads what is under it, so the two cannot be
+    pulled apart."""
+    return any(picture["at"] < g["end"] and g["start"] < picture["at"] + picture["length"] for g in state.get("glass") or [])
 
 
 CUTOUT_LOOKS = {"grey": cutout.grey, "outline": cutout.outline}
@@ -622,17 +633,26 @@ def _mix(state, voice, length, music_input, music_measured, out):
     last = "mix_s" if music else out
     parts.append(effects.join(sounds, "mix_v", last, 0)[0] if sounds else "[mix_v]anull[%s]" % last)
     if music:
-        if not music_measured:
-            raise ValueError("The music %s is silent from its second %s: choose another file or another start."
-                             % (os.path.basename(music["path"]), music["from"]))
-        fade = min(MUSIC_OUT, length / 3)
-        parts.append("[%d:a:0]%s,aformat=sample_rates=%d:channel_layouts=stereo,afade=t=in:d=%s,"
-                     "afade=t=out:st=%.3f:d=%s,volume=%.2fdB[mix_m]"
-                     % (music_input, _music_part(music, length), RATE, MUSIC_IN, length - fade, fade,
-                        LUFS + music["level"] - float(music_measured["input_i"])))
-        parts.append(effects.join([effects.duck(state["speech"], music["duck"])], "mix_m", "mix_d", 0)[0])
+        parts.append(_played_music(state, music, length, music_input, music_measured))
         parts.append("[mix_s][mix_d]amix=inputs=2:duration=first:normalize=0[%s]" % out)
     return ";".join(parts)
+
+
+def _played_music(state, music, length, music_input, music_measured):
+    """Graph text from the music's input to [mix_d]: the part the clip plays, at its level, faded and ducked."""
+    if not music_measured:
+        raise ValueError("The music %s is silent from its second %s: choose another file or another start."
+                         % (os.path.basename(music["path"]), music["from"]))
+    fade = min(MUSIC_OUT, length / 3)
+    return ("[%d:a:0]%s,aformat=sample_rates=%d:channel_layouts=stereo,afade=t=in:d=%s,afade=t=out:st=%.3f:d=%s,"
+            "volume=%.2fdB[mix_m];%s" % (music_input, _music_part(music, length), RATE, MUSIC_IN, length - fade, fade,
+                                         LUFS + music["level"] - float(music_measured["input_i"]),
+                                         effects.join([effects.duck(state["speech"], music["duck"])], "mix_m", "mix_d", 0)[0]))
+
+
+def _ceiling(gain):
+    """The filters that end the mix: its gain, then the limiter, so a sound landing on a loud word never goes over PEAK."""
+    return "volume=%.2fdB,alimiter=limit=%.4f:level=0:latency=1" % (gain, 10 ** (PEAK / 20))
 
 
 def _mix_gain(rec, state, measured, music_measured):
@@ -686,19 +706,77 @@ def base(rec, state, on_progress=None, on_start=None, default="clean"):
 
 
 def plate(rec, state, on_progress=None, on_start=None, default="clean"):
-    """The finished clip without its captions, for a timeline that has them as a layer of their own (premiere.py), kept
-    in work/plates and named by what it shows. Tarm 11-01: burned in, they show twice once the .srt is on the timeline."""
+    """The bottom of a timeline with a track for each thing (premiere.py): the picture with what cannot come off it and
+    no sound, kept in work/plates and named by what it shows. Tarm 11-02: "อยากให้สามารถ Export ออกมาเป็น Track ของใครของมัน"."""
     clip = state["clip"]
     if not clip:
         raise NotDrawn("There is no clip yet, so there is nothing to make.")
     try:
-        drawn, files = after_source(state, "src", "fin", len(clip["pieces"]), default, NO_CAPTIONS)
+        drawn, files = after_source(state, "src", "fin", len(clip["pieces"]), default, PLATE)
     except ValueError as e:
         raise NotDrawn(str(e))
     path = os.path.join(folder("plates"), _named(PLATES, rec, state, drawn, files) + ".mp4")
     if os.path.isfile(path):
         return path
-    return export(rec, state, path, on_progress, on_start, default, words=NO_CAPTIONS)
+    return export(rec, state, path, on_progress, on_start, default, words=PLATE, silent=True)
+
+
+def stems(rec, state):
+    """The clip's sound as files of their own for a timeline's sound tracks (premiere.py): [{"name", "path"}], a WAV for
+    each of the recording's sound tracks the clip uses, one for the sounds and one for the music, each as long as the
+    clip and as loud as it is in the finished clip, so together they play what export plays. Kept in work/plates.
+    Tarm 11-01: "Track เสียง ต้องแยก track ได้ เพราะอองรีอัดมาหลายแทร็ก"."""
+    clip = state["clip"]
+    if not clip:
+        raise NotDrawn("There is no clip yet, so there is nothing to make.")
+    rec = dict(rec, tracks=state.get("tracks"))
+    pieces, length = clip["pieces"], state["length"]
+    sound = rec.get("sound_tracks")
+    try:
+        music = _music(state)
+        added = bool(music or state.get("sounds"))
+        music_measured = music_loudness(music, length) if music else None
+        muted = _muted(state) if sound else ""
+        measured = loudness(rec, pieces, muted) if sound else None
+        end = _ceiling(_mix_gain(rec, state, measured, music_measured)) if added else "anull"
+        out = []
+        used = (recording.tracks(rec) or [0]) if sound else []
+        # loudnorm drops to riding the level when one gain will not do, and would then ride each track its own way
+        level = ",volume=%.2fdB" % (LUFS - float(measured["input_i"])) if measured and len(used) > 1 else _level(measured)
+        for t in used:
+            voice = _sound(dict(rec, tracks=[t]), pieces, "voice", muted + level + _voice_out(length))
+            out.append(_stem("Sound track %d" % (t + 1), rec, _inputs(rec, pieces, True), "%s;[voice]%s[snd]" % (voice, end)))
+        if state.get("sounds"):
+            hits = [effects.sound(s["kind"], s["at"], s.get("level", 0)) for s in state["sounds"]]
+            out.append(_stem("Sound effects", rec, [], "aevalsrc=exprs=0:s=%d:c=stereo:d=%.3f[quiet];%s;[hits]%s[snd]" % (
+                RATE, length, effects.join(hits, "quiet", "hits", 0)[0], end)))
+        if music:
+            out.append(_stem("Music", rec, _music_input(music), "%s;[mix_d]%s[snd]" % (
+                _played_music(state, music, length, 0, music_measured), end), length))
+    except ValueError as e:
+        raise NotDrawn(str(e))
+    return out
+
+
+def _stem(name, rec, inputs, graph, length=None):
+    """{"name", "path"} of graph's [snd] as a WAV in work/plates, made the first time. length stops an input that loops."""
+    key = hashlib.sha1(json.dumps([PLATES, rec["path"], rec["size"], rec["mtime"], inputs, graph], ensure_ascii=False)
+                       .encode("utf-8")).hexdigest()[:16]
+    path = os.path.join(folder("plates"), key + ".wav")
+    if not os.path.isfile(path):
+        part = _part(path)
+        cmd = [_ffmpeg(), "-hide_banner", "-v", "error", "-y"] + inputs + ["-filter_complex", graph, "-map", "[snd]"] + (
+            ["-t", "%.3f" % length] if length else []) + ["-c:a", "pcm_s16le", "-ar", str(RATE), "-ac", "2", "-f", "wav", part]
+        try:
+            done = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=EXPORT_SECONDS)
+        except (subprocess.SubprocessError, OSError) as e:
+            os.remove(part)
+            raise NotDrawn("FFmpeg could not make the track %s (%s)." % (name, e))
+        if done.returncode != 0:
+            os.remove(part)
+            raise NotDrawn("FFmpeg could not make the track %s: %s" % (name, _fault(done.stderr.strip().splitlines() or ["no reason"])))
+        settle(part, path)
+    return {"name": name, "path": path}
 
 
 def _named(version, rec, state, drawn, files, *more):
@@ -716,7 +794,7 @@ def _fault(lines):
 
 
 def export(rec, state, out_path, on_progress=None, on_start=None, default="clean", words=True, size=None,
-           preset=PRESET, crf=CRF):
+           preset=PRESET, crf=CRF, silent=False):
     """Makes the finished clip at out_path and returns out_path once the file is there: H.264 and AAC, 30 fps,
     1080x1920, the sound at -14 LUFS, the index at the front of the file so it plays while it downloads. The pieces
     are joined, then drawn by the same stages as the preview frame; the sounds (state['sounds']: {"kind", "at",
@@ -725,20 +803,21 @@ def export(rec, state, out_path, on_progress=None, on_start=None, default="clean
     written next to out_path and only replaces it when FFmpeg has finished. on_progress(seconds done) follows FFmpeg;
     on_start(stop) is given a function that ends FFmpeg at once, after which export raises Stopped and leaves no
     file. words=False leaves the words over the picture out (see after_source), size (w, h) scales the finished
-    frame down to that size, and preset / crf are x264's: base() uses all three for the page's video."""
+    frame down to that size, and preset / crf are x264's: base() uses all three for the page's video. silent makes the
+    picture alone."""
     clip = state["clip"]
     if not clip:
         raise NotDrawn("There is no clip yet, so there is nothing to make.")
     rec = dict(rec, tracks=state.get("tracks"))
     pieces, length = clip["pieces"], state["length"]
     count = len(pieces)
-    sound = rec.get("sound_tracks")
+    sound = rec.get("sound_tracks") and not silent
     try:
         drawn, files = after_source(state, "src", "full" if size else "fin", count, default, words)
         if size:
             drawn += ";[full]scale=%d:%d:flags=area[fin]" % tuple(size)
-        music = _music(state)
-        added = bool(music or state.get("sounds"))
+        music = None if silent else _music(state)
+        added = bool(music or state.get("sounds")) and not silent
         music_measured = music_loudness(music, length) if music else None
         mixed = _mix(state, sound, length, count + len(files), music_measured, "mix") if added else ""
         muted = _muted(state) if sound else ""
@@ -753,9 +832,7 @@ def export(rec, state, out_path, on_progress=None, on_start=None, default="clean
         joined += ";[catsnd]aresample=%d%s%s%s[%s]" % (RATE, muted, _level(measured), _voice_out(length),
                                                        "voice" if added else "snd")
     if added:
-        # the limiter, so a sound landing on a loud word never goes over PEAK
-        joined += ";%s;[mix]volume=%.2fdB,alimiter=limit=%.4f:level=0:latency=1[snd]" % (
-            mixed, _mix_gain(rec, state, measured, music_measured), 10 ** (PEAK / 20))
+        joined += ";%s;[mix]%s[snd]" % (mixed, _ceiling(_mix_gain(rec, state, measured, music_measured)))
     graph = joined + ";" + drawn
     work = folder("exports")
     script = os.path.join(work, hashlib.sha1(graph.encode("utf-8")).hexdigest()[:16] + ".graph")

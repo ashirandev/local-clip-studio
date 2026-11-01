@@ -220,17 +220,34 @@ class Finished(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_the_finished_clip_is_the_bottom_track_and_the_sound_with_no_scale_to_go_wrong(self):
+    def test_the_plate_is_the_bottom_track_with_no_scale_to_go_wrong_and_no_sound_of_its_own(self):
         video, audio = tracks(self.xml, "video"), tracks(self.xml, "audio")
         whole = video[0].findall("clipitem")
         self.assertEqual(len(whole), 1)
-        self.assertEqual(whole[0].findtext("name"), "0123456789abcdef.mp4")
+        self.assertEqual(whole[0].findtext("name"), "Your clip")
         self.assertEqual([whole[0].findtext(k) for k in ("start", "end", "in", "out", "enabled")], ["0", "120", "0", "120", "TRUE"])
         self.assertEqual(whole[0].findall("filter"), [], "no scale, position or crop")
+        self.assertEqual(whole[0].findall("link"), [])
         self.assertIn("0123456789abcdef.mp4", whole[0].find("file").findtext("pathurl"))
-        self.assertEqual(len(audio), 2, "the music is in the finished clip, so it is not there twice")
-        self.assertEqual([t.find("clipitem/sourcetrack/trackindex").text for t in audio], ["1", "2"])
-        self.assertEqual({t.find("clipitem").findtext("name") for t in audio}, {"0123456789abcdef.mp4"})
+        self.assertIsNone(whole[0].find("file/media/audio"))
+        self.assertEqual(audio, [], "the music is a stem: it is not there from the recording too")
+
+    def test_each_sound_has_its_own_two_linked_tracks_over_the_whole_clip(self):
+        stems = [{"name": "Sound track 1", "path": "/w/mic.wav"}, {"name": "Sound track 2", "path": "/w/game.wav"},
+                 {"name": "Music", "path": "/w/m.wav"}]
+        audio = tracks(premiere.sequence("t", self.stream, self.state, self.path, (), stems), "audio")
+        self.assertEqual(len(audio), 6)
+        items = [t.find("clipitem") for t in audio]
+        self.assertEqual([c.findtext("name") for c in items], ["Sound track 1"] * 2 + ["Sound track 2"] * 2 + ["Music"] * 2)
+        self.assertEqual([c.find("sourcetrack/trackindex").text for c in items], ["1", "2"] * 3)
+        self.assertEqual([t.attrib["currentExplodedTrackIndex"] for t in audio], ["0", "1"] * 3)
+        self.assertEqual({(c.findtext("start"), c.findtext("end"), c.findtext("in"), c.findtext("out")) for c in items}, {("0", "120", "0", "120")})
+        self.assertEqual([sorted(ln.findtext("trackindex") for ln in c.findall("link")) for c in items[2:4]], [["3", "4"]] * 2)
+        first = items[0].find("file")
+        self.assertIn("mic.wav", first.findtext("pathurl"))
+        self.assertIsNone(first.find("media/video"), "a sound file has no picture")
+        self.assertEqual(first.findtext("media/audio/channelcount"), "2")
+        self.assertEqual(items[1].find("file").attrib["id"], first.attrib["id"], "written in full once")
 
     def test_the_pieces_stay_above_it_switched_off_with_their_whole_file(self):
         above = tracks(self.xml, "video")[1:]
@@ -242,43 +259,76 @@ class Finished(unittest.TestCase):
         self.assertEqual([ln for c in items for ln in c.findall("link") if ln.findtext("mediatype") == "audio"], [],
                          "a link to sound that is not on the timeline")
 
-    def test_the_captions_are_their_own_layer_just_above_the_clip_switched_off_and_see_through(self):
-        caps = os.path.join(self.tmp, "plates", "c.mov")
-        pieces = len(tracks(self.xml, "video"))
-        video = tracks(premiere.sequence("t", self.stream, self.state, self.path, caps), "video")
-        self.assertEqual(len(video), pieces + 1)
-        self.assertEqual(video[0].find("clipitem").findtext("name"), "0123456789abcdef.mp4")
-        layer = video[1].findall("clipitem")
-        self.assertEqual(len(layer), 1)
-        self.assertEqual([layer[0].findtext(k) for k in ("name", "enabled", "alphatype", "start", "end", "in", "out")],
-                         ["c.mov", "FALSE", "straight", "0", "120", "0", "120"])
-        self.assertIn("c.mov", layer[0].find("file").findtext("pathurl"))
-        self.assertIsNone(layer[0].find("file/media/audio"), "it has no sound")
-        self.assertEqual(layer[0].findall("link"), [])
-        self.assertEqual(layer[0].findall("filter"), [])
-        self.assertEqual({c.findtext("enabled") for t in video[2:] for c in t.findall("clipitem")}, {"FALSE"})
+    def test_each_kind_has_its_own_track_above_the_pieces_switched_on_and_see_through(self):
+        def clip(kind, name, at, length):
+            return {"kind": kind, "name": name, "path": os.path.join(self.tmp, "plates", name + ".mov"), "at": at, "length": length}
 
-    def test_the_note_tells_how_to_bring_the_captions_in_when_they_are_a_layer(self):
+        clips = [clip("flashes", "flash", 1.5, 0.15), clip("titles", "title", 0.2, 1.0), clip("stickers", "ball", 1.0, 1.0),
+                 clip("captions", "said", 0.0, 4.0), clip("pictures", "drawn", 0.5, 1.0)]
+        pieces = len(tracks(self.xml, "video"))
+        video = tracks(premiere.sequence("t", self.stream, self.state, self.path, clips), "video")
+        self.assertEqual(len(video), pieces + 5)
+        self.assertEqual([t.find("clipitem").findtext("name") for t in video[pieces:]], ["drawn", "ball", "title", "said", "flash"],
+                         "as the clip draws them, from the bottom up")
+        self.assertEqual({c.findtext("enabled") for t in video[1:pieces] for c in t.findall("clipitem")}, {"FALSE"})
+        layer = video[pieces + 1].find("clipitem")
+        self.assertEqual([layer.findtext(k) for k in ("enabled", "alphatype", "start", "end", "in", "out", "duration")],
+                         ["TRUE", "straight", "30", "60", "0", "30", "30"])
+        self.assertIn("ball.mov", layer.find("file").findtext("pathurl"))
+        self.assertIsNone(layer.find("file/media/audio"), "it has no sound")
+        self.assertEqual(layer.findall("link") + layer.findall("filter"), [])
+
+    def test_two_at_once_take_two_tracks_and_the_later_one_is_higher(self):
+        def clip(name, at, length):
+            return {"kind": "stickers", "name": name, "path": "/w/%s.mov" % name, "at": at, "length": length}
+
+        clips = [clip("a", 0.0, 2.0), clip("b", 1.0, 2.0), clip("c", 2.5, 1.0), clip("d", 3.6, 0.3)]
+        self.assertEqual([[c["name"] for c in lane] for lane in premiere._lanes(clips)], [["a", "d"], ["b"], ["c"]])
+
+    def test_a_clip_that_runs_past_the_end_is_cut_there_and_one_after_it_is_left_out(self):
+        clips = [{"kind": "stickers", "name": "a", "path": "/w/a.mov", "at": 3.5, "length": 2.0},
+                 {"kind": "titles", "name": "b", "path": "/w/b.mov", "at": 4.0, "length": 1.0}]
+        video = tracks(premiere.sequence("t", self.stream, self.state, self.path, clips), "video")
+        ends = [c.findtext("end") for t in video for c in t.findall("clipitem") if c.findtext("name") == "a"]
+        self.assertEqual(ends, ["120"])
+        self.assertNotIn("b", [c.findtext("name") for t in video for c in t.findall("clipitem")])
+
+    def test_the_note_says_how_to_edit_the_captions_words(self):
         lines = {"lines": [{"from": 0.0, "to": 1.0, "text": "สวัสดี"}]}
         marked = dict(self.state, captions=lines)
-        with zipfile.ZipFile(io.BytesIO(premiere.bundle("ไมค์ดี", self.stream, marked, self.path, "c.mov")[1])) as z:
+        said = [{"kind": "captions", "name": "Captions", "path": "/w/c.mov", "at": 0.0, "length": 4.0}]
+        with zipfile.ZipFile(io.BytesIO(premiere.bundle("ไมค์ดี", self.stream, marked, self.path, said)[1])) as z:
             note = z.read("ไมค์ดี/README.txt").decode("utf-8")
             self.assertIn("ไมค์ดี/ไมค์ดี.srt", z.namelist())
         self.assertIn("pick ไมค์ดี.srt and drag it onto the timeline", note)
-        self.assertIn("so they never show twice", note)
-        self.assertIn("ซับอยู่ในไฟล์ ไมค์ดี.srt", note)
+        self.assertIn("เลือก ไมค์ดี.srt แล้วลากลงไทม์ไลน์", note)
+        self.assertIn("- Video: Captions", note)
+        self.assertIn("- วิดีโอ: ซับ", note)
         with zipfile.ZipFile(io.BytesIO(premiere.bundle("ไมค์ดี", self.stream, self.state, self.path)[1])) as z:
             self.assertNotIn(".srt", z.read("ไมค์ดี/README.txt").decode("utf-8"))
 
-    def test_the_note_says_what_is_on_the_timeline_and_warns_of_the_blurs(self):
-        name, body = premiere.bundle("ไมค์ดี", self.stream, self.state, self.path)
-        with zipfile.ZipFile(io.BytesIO(body)) as z:
+    def test_the_note_says_what_is_on_which_track_and_what_stays_on_the_picture(self):
+        clips = [{"kind": "stickers", "name": "a", "path": "/w/a.mov", "at": 0.0, "length": 1.0}]
+        stems = [{"name": "Sound track 2", "path": "/w/s.wav"}, {"name": "Music", "path": "/w/m.wav"}]
+        st = dict(self.state, blurs=[{"box": [0, 0, 9, 9], "start": 0, "end": 1}], look="warm",
+                  hits=[{"kind": "shake", "at": 1.0}], glass=[{"start": 0.0, "end": 2.0}], pictures=[{"at": 1.0, "length": 1.0}])
+        with zipfile.ZipFile(io.BytesIO(premiere.bundle("ไมค์ดี", self.stream, st, self.path, clips, stems)[1])) as z:
             note = z.read("ไมค์ดี/README.txt").decode("utf-8")
-        self.assertIn("The bottom video track is your clip", note)
+        self.assertIn("- Video: Stickers", note)
+        self.assertNotIn("- Video: Titles", note)
+        self.assertIn("- Sound: Sound track 2, Music", note)
+        self.assertIn("the blurs, the colour look, shakes and zooms, glass boxes, the pictures under them.", note)
+        self.assertIn("เบลอ โทนสี กล้องสั่นและซูม กล่องกระจก ภาพประกอบที่อยู่ใต้กล่องกระจก", note)
         self.assertIn("is NOT blurred in them", note)
-        self.assertIn("แทร็กวิดีโอล่างสุดคือคลิปของคุณ", note)
         self.assertIn('double-click "ไมค์ดี"', note)
         self.assertNotIn("What came over", note)
+        with zipfile.ZipFile(io.BytesIO(premiere.bundle("ไมค์ดี", self.stream, self.state, self.path)[1])) as z:
+            self.assertNotIn("These stay", z.read("ไมค์ดี/README.txt").decode("utf-8"), "nothing stayed")
+
+    def test_no_word_of_the_note_is_left_unfilled(self):
+        name, body = premiere.bundle("x", self.stream, self.state, self.path)
+        with zipfile.ZipFile(io.BytesIO(body)) as z:
+            self.assertNotIn("{", z.read("x/README.txt").decode("utf-8"))
 
 
 class Page(unittest.TestCase):
@@ -314,16 +364,19 @@ class Page(unittest.TestCase):
         chat.emit("ready", job=1, title="ไมค์ดี")
         status, _, body = self.get("/api/premiere?chat=" + chat.id)
         self.assertEqual((status, json.loads(body)["error"]), (404, "The Premiere files of the clip as it is now are not made yet. Press Premiere again."))
-        plate, caps = os.path.join(self.tmp, "0123456789abcdef.mp4"), os.path.join(self.tmp, "c.mov")
-        chat.layers_now = lambda: {"plate": plate, "captions": caps}
+        plate = os.path.join(self.tmp, "0123456789abcdef.mp4")
+        chat.layers_now = lambda: {"plate": plate, "clips": [{"kind": "captions", "name": "Captions", "path": os.path.join(self.tmp, "c.mov"),
+                                                              "at": 0.0, "length": 2.0}],
+                                   "stems": [{"name": "Music", "path": os.path.join(self.tmp, "m.wav")}]}
         status, named, body = self.get("/api/premiere?chat=" + chat.id)
         self.assertEqual(status, 200)
         self.assertIn("filename*=UTF-8''%E0%B9%84%E0%B8%A1%E0%B8%84%E0%B9%8C%E0%B8%94%E0%B8%B5-premiere.zip", named)
         with zipfile.ZipFile(io.BytesIO(body)) as z:
             self.assertIn("ไมค์ดี/ไมค์ดี.xml", z.namelist())
             xml = z.read("ไมค์ดี/ไมค์ดี.xml")
-        self.assertIn(b"0123456789abcdef.mp4", xml, "the clip without its captions goes on the timeline")
-        self.assertIn(b"c.mov", xml, "the captions' own layer goes on the timeline")
+        self.assertIn(b"0123456789abcdef.mp4", xml, "the picture goes on the timeline")
+        self.assertIn(b"c.mov", xml, "each thing's own layer goes on the timeline")
+        self.assertIn(b"m.wav", xml, "each sound goes on the timeline")
         self.assertEqual(self.get("/api/premiere?chat=20990101-000000-abcd")[0], 404)
 
     def post(self, path, body):
@@ -348,7 +401,7 @@ class Page(unittest.TestCase):
 
 
 class Making(unittest.TestCase):
-    """The two files are made in the background with the bar's percent, and belong to the clip as it was then."""
+    """The files are made in the background with the bar's percent, and belong to the clip as it was then."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -366,21 +419,31 @@ class Making(unittest.TestCase):
         agent.WORK = self.work
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def made(self, plate=None, caps="c.mov"):
-        return (mock.patch.object(agent.render, "plate", plate or (lambda *a, **k: self.plate)),
-                mock.patch.object(agent.layer, "captions_video", lambda *a, **k: caps))
+    def made(self, plate=None, clips=None):
+        patches = [mock.patch.object(agent.render, "plate", plate or (lambda *a, **k: self.plate)),
+                   mock.patch.object(agent.render, "stems", lambda *a, **k: ["stem"]),
+                   mock.patch.object(agent.layer, "clips", clips or (lambda *a, **k: ["clip"]))]
+
+        class All:
+            def __enter__(self):
+                for p in patches:
+                    p.start()
+
+            def __exit__(self, *a):
+                for p in patches:
+                    p.stop()
+
+        return All()
 
     def test_the_files_are_kept_for_the_clip_they_were_made_from(self):
-        one, two = self.made()
-        with one, two:
+        with self.made():
             self.assertEqual(self.chat.layers(), {"ready": True})
-        self.assertEqual(self.chat.layers_now(), {"signature": mock.ANY, "plate": self.plate, "captions": "c.mov"})
+        self.assertEqual(self.chat.layers_now(), {"signature": mock.ANY, "plate": self.plate, "clips": ["clip"], "stems": ["stem"]})
         self.chat.project.add({"do": "look", "look": "warm"})
         self.assertIsNone(self.chat.layers_now(), "a change makes them stale")
 
     def test_files_gone_from_the_disk_are_not_handed_out(self):
-        one, two = self.made()
-        with one, two:
+        with self.made():
             self.chat.layers()
         os.remove(self.plate)
         self.assertIsNone(self.chat.layers_now())
@@ -389,8 +452,7 @@ class Making(unittest.TestCase):
         def broke(*a, **k):
             raise agent.render.NotDrawn("no fonts")
 
-        one, two = self.made(broke)
-        with one, two:
+        with self.made(broke):
             self.assertEqual(self.chat.layers(), {"error": "The Premiere files could not be made: no fonts"})
         self.assertIsNone(self.chat.layers_now())
 
@@ -398,9 +460,23 @@ class Making(unittest.TestCase):
         def stopped(*a, **k):
             raise agent.render.Stopped("Stopped")
 
-        one, two = self.made(stopped)
-        with one, two:
+        with self.made(stopped):
             self.assertEqual(self.chat.layers(), {"error": "The Premiere files were not made: Stop was pressed."})
+
+    def test_stop_reaches_the_tracks_between_one_and_the_next(self):
+        steps = []
+
+        def clips(state, default, each):
+            each(0, 2)
+            steps.append(self.chat.live["work"])
+            self.assertTrue(self.chat.stop())
+            each(1, 2)
+            return ["never"]
+
+        with self.made(clips=clips):
+            self.assertEqual(self.chat.layers(), {"error": "The Premiere files were not made: Stop was pressed."})
+        self.assertEqual(steps, ["Making the Premiere files: the tracks, 1 of 2 (99%)"])
+        self.assertIsNone(self.chat.layers_now())
 
     def test_a_long_making_says_so_and_its_end_comes_as_an_event(self):
         gate = threading.Event()
@@ -413,8 +489,7 @@ class Making(unittest.TestCase):
             gate.wait(10)
             return self.plate
 
-        one, two = self.made(slow)
-        with one, two, mock.patch.object(agent, "PREVIEW_WAIT", 0.05):
+        with self.made(slow), mock.patch.object(agent, "PREVIEW_WAIT", 0.05):
             self.assertEqual(self.chat.layers(), {"making": True})
             self.assertEqual(self.chat.layers(), {"making": True}, "one at a time")
             self.assertIn("(50%)", self.chat.live["work"])

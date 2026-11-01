@@ -1186,8 +1186,18 @@ class Chat:
             default = self.clip["style"] if self.clip else "clean"
             try:
                 plate = render.plate(self.recording, state, on_progress=progress, on_start=hand.started_work, default=default)
-                hand.working("Making the Premiere files: the captions' layer (99%)")
-                self.layered = {"signature": sign, "plate": plate, "captions": layer.captions_video(state, default)}
+                stopped = threading.Event()
+                hand.started_work(stopped.set)
+                hand.working("Making the Premiere files: the sound tracks (99%)")
+                stems = render.stems(self.recording, state)
+
+                def next_clip(done, total):
+                    if stopped.is_set():
+                        raise render.Stopped("Stopped: the Premiere files were not made.")
+                    hand.working("Making the Premiere files: the tracks, %d of %d (99%%)" % (done + 1, total))
+
+                clips = layer.clips(state, default, next_clip)
+                self.layered = {"signature": sign, "plate": plate, "clips": clips, "stems": stems}
             except render.Stopped:
                 got["error"] = "The Premiere files were not made: Stop was pressed."
             except render.NotDrawn as e:
@@ -1212,7 +1222,7 @@ class Chat:
         return {"error": got["error"]} if "error" in got else {"ready": True}
 
     def layers_now(self):
-        """The Premiere timeline's files of the clip as it is now, {"plate", "captions"}, or None."""
+        """The Premiere timeline's files of the clip as it is now, {"plate", "clips", "stems"}, or None."""
         made = self.layered
         if made and made["signature"] == project.signature(self.project.entries) and os.path.isfile(made["plate"]):
             return made

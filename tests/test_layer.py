@@ -11,7 +11,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import layer, layouts, recording, render, text  # noqa: E402
+from clipstudio import effects, layer, layouts, recording, render, text  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
 HAS_NUMPY = importlib.util.find_spec("numpy") is not None
@@ -175,7 +175,7 @@ class Words(unittest.TestCase):
 
 @unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")
 class Apart(unittest.TestCase):
-    """Tarm 11-01: burned in and on Premiere's timeline as the .srt, the captions showed twice."""
+    """Tarm 11-02: "อยากให้สามารถ Export ออกมาเป็น Track ของใครของมัน"."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -191,21 +191,19 @@ class Apart(unittest.TestCase):
                               "-pix_fmt", "rgba", "-"], capture_output=True, check=True).stdout
         return np.frombuffer(raw, np.uint8).reshape(1920, 1080, 4)[:, :, 3]
 
-    def test_each_part_holds_what_the_other_leaves_out(self):
-        st = state()
-        with open(render.ass(st, part=render.NO_CAPTIONS), encoding="utf-8") as f:
-            plain = f.read().split("[Events]")[1]
-        with open(render.ass(st, part=render.ONLY_CAPTIONS), encoding="utf-8") as f:
-            said = f.read().split("[Events]")[1]
-        self.assertIn("ว้าว", plain)
-        self.assertIn("ลดครึ่งราคา", plain)
-        self.assertNotIn("ซื้อหนึ่ง", plain)
-        self.assertIn("ซื้อหนึ่ง", said)
-        self.assertNotIn("ว้าว", said)
-        self.assertNotIn("ลดครึ่งราคา", said)
+    def test_each_part_holds_its_one_thing_alone(self):
+        st = dict(state(), channel={"name": "@ours", "spot": None})
+
+        def said(part):
+            with open(render.ass(st, part=part), encoding="utf-8") as f:
+                return f.read().split("[Events]")[1]
+
+        for part, kept in ((("title", 0), "ลดครึ่งราคา"), (("word", 0), "ว้าว"), (render.ONLY_CAPTIONS, "ซื้อหนึ่ง"), (render.ONLY_CHANNEL, "@ours")):
+            words = said(part)
+            for other in ("ลดครึ่งราคา", "ว้าว", "ซื้อหนึ่ง", "@ours"):
+                self.assertEqual(other in words, other == kept, (part, other))
 
     def test_a_clip_with_no_captions_has_no_captions_part(self):
-        self.assertIsNone(render.ass(state(title=False, word=False), part=render.NO_CAPTIONS))
         self.assertIsNone(render.ass(state(said=None), part=render.ONLY_CAPTIONS))
         self.assertIsNone(layer.captions_video(state(said=None)))
 
@@ -238,28 +236,94 @@ class Apart(unittest.TestCase):
         self.assertEqual(sorted(n for n in os.listdir(render.folder("plates")) if n.endswith(".txt") or ".part" in n), [],
                          "nothing is left behind")
 
-    def test_the_plate_is_the_finished_clip_less_the_captions(self):
+    def test_a_step_of_one_frame_lasts_one_frame(self):
+        """EP22 11-02: FFmpeg's concat list stretched each to 1/25 s, and the captions ran 2.8 s late by the end of the clip."""
+        import numpy as np
+        lines = [{"from": k * 0.2, "to": k * 0.2 + 0.15, "text": "คำที่ %d" % k} for k in range(30)]
+        st = state("pop", "pop", title=False, word=False, length=6.0, said=lines)
+        path = layer.captions_video(st)
+        index = layer.words(st, "clean", layer.FULL, render.ONLY_CAPTIONS, smooth=True)
+        raw = subprocess.run([FFMPEG, "-v", "error", "-i", path, "-vf", "scale=108:192:flags=neighbor", "-f", "rawvideo", "-pix_fmt", "rgba", "-"],
+                             capture_output=True, check=True).stdout
+        seen = np.frombuffer(raw, np.uint8).reshape(-1, 192, 108, 4)[:, :, :, 3].astype(int)
+        self.assertEqual(len(seen), 180)
+        step = index[-3]
+        small = subprocess.run([FFMPEG, "-v", "error", "-i", step["file"], "-vf", "scale=108:192:flags=neighbor", "-f", "rawvideo", "-pix_fmt", "rgba", "-"],
+                               capture_output=True, check=True).stdout
+        want = np.frombuffer(small, np.uint8).reshape(192, 108, 4)[:, :, 3].astype(int)
+        at = layer._frame(step["from"])
+        self.assertLess(float(np.abs(seen[at] - want).mean()), 0.5, "the last words at their own frame")
+
+    def test_a_big_word_pops_on_its_own_track_as_the_export_draws_it(self):
+        st = state(title=False, said=None)
+        got = layer.clips(st)
+        self.assertEqual([(c["kind"], c["name"], c["at"], round(c["length"], 3)) for c in got], [("titles", "Big word: ว้าว", 1.0, 0.8)])
+        first, later = self.alpha(got[0]["path"], 0.0), self.alpha(got[0]["path"], 0.1)
+        self.assertNotEqual(int((first > 100).sum()), int((later > 100).sum()), "it grows, frame by frame")
+
+    def test_the_tracks_laid_back_together_are_the_finished_clip(self):
         import numpy as np
         source = os.path.join(self.tmp, "s.mp4")
-        subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "color=c=0x305070:s=1280x720:r=30:d=5", "-f", "lavfi", "-i",
-                        "sine=f=440:d=5", "-c:v", "libx264", "-c:a", "aac", "-shortest", source], check=True)
+        subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=1280x720:r=30:d=6", "-f", "lavfi", "-i", "sine=f=440:d=6",
+                        "-f", "lavfi", "-i", "sine=f=880:d=6", "-filter_complex", "[1:a]volume='0.3+0.25*sin(t*3)':eval=frame[a];"
+                        "[2:a]volume='0.3+0.25*cos(t*2)':eval=frame[b]", "-map", "0:v", "-map", "[a]", "-map", "[b]", "-c:v", "libx264", "-crf", "12",
+                        "-c:a", "aac", "-b:a", "256k", "-shortest", source], check=True)
         rec = recording.probe(source)
-        st = dict(state(), clip={"pieces": [[0.0, 4.0]], "layout": layouts.make("subject", (1280, 720))})
+        ball, coin = effects.sticker_png("soccer_ball"), effects.sticker_png("coin")
+        st = dict(state(), clip={"pieces": [[0.0, 4.0]], "layout": layouts.make("subject", (1280, 720))},
+                  stickers=[{"png": ball, "at": 0.5, "length": 1.5, "box": [100, 300, 300, 300]}],
+                  flurries=[{"pngs": [coin], "at": 2.0, "box": [100, 300, 880, 900], "move": "burst", "count": 6}],
+                  pictures=[{"png": coin, "at": 1.0, "length": 1.0, "box": [600, 300, 300, 300]}],
+                  sounds=[{"kind": "ding", "at": 1.0}], channel={"name": "@ours", "spot": None}, tracks=[0, 1])
+        st["hits"] = st["hits"] + [{"kind": "flash", "at": 3.0}]
         whole = os.path.join(self.tmp, "whole.mp4")
         render.export(rec, st, whole)
-        plate = render.plate(rec, st)
+        plate, clips, stems = render.plate(rec, st), layer.clips(st), render.stems(rec, st)
+        self.assertEqual([c["kind"] for c in clips], ["pictures", "stickers", "stickers", "titles", "titles", "titles", "captions", "flashes"])
+        self.assertEqual([s["name"] for s in stems], ["Sound track 1", "Sound track 2", "Sound effects"])
+        self.assertEqual(subprocess.run([shutil.which("ffprobe"), "-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_name",
+                                         "-of", "csv=p=0", plate], capture_output=True, text=True, check=True).stdout.strip(), "", "the plate is silent")
+        inputs, graph, last = ["-i", plate], [], "0:v"
+        for k, c in enumerate(clips, 1):
+            inputs += ["-itsoffset", "%.6f" % c["at"], "-i", c["path"]]
+            graph.append("[%s][%d:v]overlay=eof_action=pass:format=rgb[o%d]" % (last, k, k))
+            last = "o%d" % k
 
-        def seen(path):
-            raw = subprocess.run([FFMPEG, "-v", "error", "-ss", "1.5", "-i", path, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt",
-                                  "gray", "-"], capture_output=True, check=True).stdout
-            return np.frombuffer(raw, np.uint8).reshape(1920, 1080).astype(int)
+        def frames(args):
+            raw = subprocess.run([FFMPEG, "-v", "error"] + args + ["-vf", "fps=30,scale=270:480:flags=area", "-f", "rawvideo", "-pix_fmt", "gray", "-"]
+                                 if "-map" not in args else [FFMPEG, "-v", "error"] + args + ["-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                                 capture_output=True, check=True).stdout
+            return np.frombuffer(raw, np.uint8).reshape(-1, 480, 270).astype(int)
 
-        gone = np.abs(seen(whole) - seen(plate))
-        band = gone[layouts.CAPTIONS[1] - 60:layouts.CAPTIONS[1] + layouts.CAPTIONS[3] + 60]
-        self.assertGreater(int(band.max()), 100, "the captions are not on it")
-        self.assertLess(int(gone[:layouts.CAPTIONS[1] - 60].max()), 40, "the title stays on it, drawn the same")
-        with mock.patch.object(render, "export", side_effect=AssertionError("made again")):
-            self.assertEqual(render.plate(rec, st), plate)
+        graph.append("[%s]fps=30,scale=270:480:flags=area[back]" % last)
+        back, want = frames(inputs + ["-filter_complex", ";".join(graph), "-map", "[back]"]), frames(["-i", whole])
+        self.assertEqual(len(back), len(want))
+        off = np.abs(back - want).mean(axis=(1, 2))
+        calm = np.delete(off, range(90, 96))
+        self.assertLess(float(calm.max()), 4.0, "frame %d" % calm.argmax())
+        self.assertLess(float(off[90:96].max()), 40.0, "a flash comes close")
+        self.assertGreater(float(np.abs(frames(["-i", plate]) - want).mean(axis=(1, 2)).min()), 0.0)
+
+        def sound(args):
+            raw = subprocess.run([FFMPEG, "-v", "error"] + args + ["-f", "f32le", "-ac", "2", "-ar", "48000", "-"], capture_output=True, check=True).stdout
+            return np.frombuffer(raw, np.float32)
+
+        heard = sound(["-i", whole, "-map", "0:a:0"])
+        files = [x for s in stems for x in ("-i", s["path"])]
+        laid = sound(files + ["-filter_complex", "".join("[%d:a]" % k for k in range(len(stems))) + "amix=inputs=%d:normalize=0:duration=longest[o]" % len(stems), "-map", "[o]"])
+        n = min(len(heard), len(laid))
+        best = min(np.sqrt(np.mean((heard[s:n] - laid[:n - s]) ** 2)) for s in range(0, 8192, 2))
+        self.assertLess(best / np.sqrt(np.mean(heard[:n] ** 2)), 0.05, "the tracks together sound as the clip does")
+
+    def test_a_picture_under_a_glass_box_stays_on_the_plate_with_the_glass(self):
+        coin = effects.sticker_png("coin")
+        st = dict(state(title=False, word=False, said=None),
+                  pictures=[{"png": coin, "at": 1.0, "length": 1.0, "box": [600, 300, 300, 300]},
+                            {"png": coin, "at": 3.0, "length": 0.8, "box": [600, 300, 300, 300]}],
+                  glass=[{"box": [100, 100, 500, 400], "start": 0.5, "end": 2.5}])
+        self.assertEqual([c["at"] for c in layer.clips(st)], [3.0])
+        self.assertTrue(render.under_glass(st, st["pictures"][0]))
+        self.assertFalse(render.under_glass(st, st["pictures"][1]))
 
 
 if __name__ == "__main__":

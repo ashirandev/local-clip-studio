@@ -1086,7 +1086,7 @@ function drawOut() {
   save.append(ico("save"), "Video");
   const edit = el("button");
   edit.type = "button";
-  edit.title = "The clip as it is now, for Premiere Pro, with the captions on a layer of their own";
+  edit.title = "The clip as it is now, for Premiere Pro, with each thing on a track of its own";
   edit.append(ico("lanes"), "Premiere");
   edit.addEventListener("click", askPremiere);
   const all = [e.title, e.caption, e.hashtags.join(" ")].concat(e.english ? [e.english] : []).join("\n\n");
