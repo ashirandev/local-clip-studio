@@ -54,7 +54,8 @@ computer only.
 - POST /api/effect {chat, of, name, at, to?, box?} or {chat, add: true, of, name, at, word?}: one effect taken off,
   moved on the timeline, or moved to box on the 0-1000 grid of the frame, as a title (of: "title") moves too, or put on
   at the second the person chose, by the tool Muse would call
-- POST /api/part {chat, part, box}: a part of the frame moved or sized, box on the 0-1000 grid of the clip's frame
+- POST /api/part {chat, part, box}: a part of the frame moved or sized, box on the 0-1000 grid of the clip's frame.
+  With at: [x, y] instead of box the part stays and what it shows pans there, in pixels of the recording (Chat.pan_part)
 - POST /api/frame {chat, x}: the upright frame holds with its left edge at x pixels of the recording (Chat.set_frame)
 - POST /api/shot {chat, start, end, show, x, y}: a talk clip's shot from start to end s shows person show (0: everyone),
   its frame's left top at x, y pixels of the recording when given (Chat.set_shot)
@@ -339,8 +340,14 @@ class Handler(BaseHTTPRequestHandler):
                     why = chat.set_effect(str(body.get("of") or ""), str(body.get("name") or ""), float(at),
                                           None if to is None else float(to), box)
             elif path == "/api/part":
-                box = body.get("box")
-                if not isinstance(box, list) or len(box) != 4 or \
+                box, at = body.get("box"), body.get("at")
+                if at is not None:
+                    if isinstance(at, list) and len(at) == 2 and all(
+                            isinstance(v, (int, float)) and not isinstance(v, bool) and abs(v) < 1e9 for v in at):
+                        why = chat.pan_part(str(body.get("part") or ""), *at)
+                    else:
+                        why = "Send where the picture goes: [x, y] in pixels of the recording."
+                elif not isinstance(box, list) or len(box) != 4 or \
                         not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in box):
                     why = "Send where the part goes: [x1, y1, x2, y2] on the 0-1000 grid of the frame."
                 else:

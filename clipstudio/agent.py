@@ -165,6 +165,12 @@ class Allowed(Exception):
     """A trial hand reached the tool's edit: the tool would make it."""
 
 
+def _on_grid(dst):
+    """A box of the frame (x, y, w, h) as [x1, y1, x2, y2] on the 0-1000 grid the page moves parts on."""
+    return [round(dst[0] * 1000 / layouts.W), round(dst[1] * 1000 / layouts.H),
+            round((dst[0] + dst[2]) * 1000 / layouts.W), round((dst[1] + dst[3]) * 1000 / layouts.H)]
+
+
 class Chat:
     """One conversation: the messages Muse reads, the events the page draws, and the job running now."""
 
@@ -407,7 +413,8 @@ class Chat:
                                   lambda n: {"style": n}),
                 "looks": choices("look", COLOUR_LOOKS, str.capitalize, "set_look", lambda n: {"look": n}),
                 "words": self.words_on(state), "effects": self.effects_on(state), "offered": self.effects_offered(),
-                "parts": self.parts_now(state), "again": bool(self.rendered) and self.finished() is None,
+                "parts": self.parts_now(state), "crops": self.crops_now(state),
+                "again": bool(self.rendered) and self.finished() is None,
                 "making": self.making is not None, "channels": self.channels_now(state),
                 "sound": {"mutes": state["mutes"], "has": self.has_sound(), "tracks": self.tracks_shown(state)},
                 "ends": self.ends(state),
@@ -588,10 +595,20 @@ class Chat:
         lay = state["clip"]["layout"]
         if lay["kind"] in TALK_KINDS:
             return []
-        return [{"name": p["name"], "box": [round(p["dst"][0] * 1000 / layouts.W), round(p["dst"][1] * 1000 / layouts.H),
-                                            round((p["dst"][0] + p["dst"][2]) * 1000 / layouts.W),
-                                            round((p["dst"][1] + p["dst"][3]) * 1000 / layouts.H)]}
-                for p in lay["parts"] if p.get("dst")]
+        return [{"name": p["name"], "box": _on_grid(p["dst"])} for p in lay["parts"] if p.get("dst")]
+
+    def crops_now(self, state):
+        """The parts of the frame a person can pan on the Layout tab, for what each shows of the recording: [{"name",
+        "box": on the 0-1000 grid of the frame, "src": [x, y, w, h] in the recording's pixels, "size": the recording's
+        [w, h], "follows": True while it moves by itself}]. A part showing the whole recording has nowhere to go, and
+        a talk clip pans its shots (shot_frames)."""
+        lay = state["clip"]["layout"]
+        if lay["kind"] == "talk":
+            return []
+        w, h = lay["size"]
+        return [{"name": p["name"], "box": _on_grid(p["dst"]), "src": [round(v) for v in p["src"]], "size": [w, h],
+                 "follows": bool(p.get("follow"))}
+                for p in lay["parts"] if p.get("dst") and (p["src"][2] < w - 1 or p["src"][3] < h - 1)]
 
     def set_effect(self, of, name, at, to=None, box=None):
         """The person's hand on one effect on the timeline: change_effect's own edit, taking it off, moving it to the
@@ -638,6 +655,22 @@ class Chat:
         if entry:
             self._tell("the person moved the %s on the page to %s on the grid" % (name, box))
         return refused
+
+    def pan_part(self, name, x, y):
+        """The person's pan of a part of the frame on the Layout tab: it shows the recording from x, y of its pixels
+        (layouts.panned), as one change Undo takes back, and Muse is told. Returns None, or the sentence why not."""
+        lay = self._clip_now()["clip"]["layout"]
+        try:
+            new = layouts.panned(lay, name, x, y)
+        except ValueError as e:
+            return str(e)
+        if new == lay:
+            return None
+        self.edit({"do": "layout", "part": name, "box": None, "layout": new})
+        src = next(p["src"] for p in new["parts"] if p["name"] == name)
+        self._tell("the person panned the %s on the page: it now shows the recording from x %d, y %d, and holds there"
+                   % (name, src[0], src[1]))
+        return None
 
     def set_captions(self, mode):
         """The person's tap on Off, Plain, Lit or Pop beside the clip: add_captions's own edit, made at once without

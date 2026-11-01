@@ -265,6 +265,26 @@ def moved(layout, name, box):
     return lay
 
 
+def panned(layout, name, x, y):
+    """A copy of layout with its part `name` showing the recording from x, y (its left top, in the recording's
+    pixels), kept on the picture: the same size in the same place on the frame, only what it shows moves. It holds
+    there through the whole clip, as the person's own place does (Chat.set_frame): a part that followed something
+    stops, and the product the whole frame followed is dropped. Only a part the layout does not have raises
+    ValueError."""
+    lay = copy.deepcopy(layout)
+    part = next((p for p in lay["parts"] if p["name"] == name), None)
+    if part is None or not part.get("dst"):
+        raise ValueError("part %r is not in the %s layout: use one of %s." % (name, lay["kind"], ", ".join(
+            p["name"] for p in lay["parts"] if p.get("dst"))))
+    w, h = lay["size"]
+    sw, sh = part["src"][2:]
+    part["src"] = [round(min(max(0, x), w - sw)), round(min(max(0, y), h - sh)), sw, sh]
+    part.pop("follow", None)
+    if name == "whole":
+        lay.pop("thing", None)
+    return lay
+
+
 CORNERS = ("top left", "top right", "bottom left", "bottom right")
 
 

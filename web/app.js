@@ -39,6 +39,10 @@ const welcome = $("welcome").cloneNode(true);
 const frameBox = $("frame");
 const emptyFrame = frameBox.cloneNode(true).childNodes;
 const bigPlay = $("bigPlay");
+const canvasTools = $("canvasTools");
+const canvasDrag = $("canvasDrag");
+const canvasPan = $("canvasPan");
+const canvasSays = $("canvasSays");
 const fullButton = $("full");
 const eyeButton = $("eye");
 const playButton = $("play");
@@ -99,7 +103,7 @@ const SHEETS = { fx: ["spark", "Effects"], album: ["film", "Album"], layout: ["s
 const EDITS = ["layout", "trim", "frame", "caps", "style", "look", "fx", "sound", "words", "channel", "album"];
 const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_ends: "cut", change_effect: "sticker", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", match_album: "film", move_part: "move", mute_sound: "mute", no_chat_box: "blur", open_clip: "film", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_album: "gear", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", set_tagline: "at", show_people: "people", slow_push: "move", undo: "undo", undo_album: "undo", use_channel_look: "at", watch_piece: "eye" };
 
-const room = { workLine: "", endSaid: "", mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false, layout: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null, sends: false };
+const room = { canvas: false, tool: "drag", workLine: "", endSaid: "", mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false, layout: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null, sends: false };
 
 function localStore(key, value) {
   try {
@@ -730,6 +734,8 @@ function showClip(e) {
     updatePlayer();
     return;
   }
+  const shown = playerVideo();
+  if (shown && !room.made && !room.showing) clipAt.value = shown.currentTime;
   room.made = { clip, version: e.id };
   room.showing = null;
   room.wantBase = true;
@@ -790,11 +796,11 @@ function wirePlayer(v) {
 function updatePlayer() {
   const v = playerVideo();
   const playing = Boolean(v && !v.paused && !v.ended);
-  playButton.disabled = !v;
+  playButton.disabled = !v || room.canvas;
   playButton.replaceChildren(ico(playing ? "pause" : "play"));
   playButton.setAttribute("aria-label", playing ? "Pause" : "Play");
-  bigPlay.hidden = !v || playing;
-  fullButton.hidden = !v;
+  bigPlay.hidden = !v || playing || room.canvas;
+  fullButton.hidden = !v || room.canvas;
   clipUndo.disabled = !room.panel;
   if (v && v.duration) timeLine.replaceChildren(el("b", null, clock(v.currentTime)), " / " + clock(v.duration));
   else if (room.made) timeLine.replaceChildren(el("b", null, clock(Number(clipAt.value) || 0)), " / " + clock(room.made.clip.length));
@@ -803,7 +809,7 @@ function updatePlayer() {
 
 function togglePlay() {
   const v = shownVideo();
-  if (!v) return;
+  if (!v || room.canvas) return;
   if (v.paused || v.ended) v.play().catch(() => {});
   else v.pause();
 }
@@ -1152,6 +1158,7 @@ function hidePanel() {
   againButton.hidden = true;
   partTabs.querySelectorAll(".tool[data-show]").forEach((b) => (b.disabled = true));
   closeWords();
+  drawCanvas();
 }
 
 function loadPanel() {
@@ -1317,6 +1324,21 @@ function showPart(name) {
   room.part = name;
   partTabs.querySelectorAll(".tool[data-show]").forEach((b) => b.setAttribute("aria-pressed", String(!sheet.hidden && b.dataset.show === name)));
   document.querySelectorAll("#panel [data-part]").forEach((e) => e.classList.toggle("part-off", e.dataset.part !== name));
+  setCanvas(!sheet.hidden && name === "layout");
+}
+
+function setCanvas(on) {
+  if (on && !room.canvas) {
+    stopWatching();
+    const v = playerVideo();
+    if (v) v.pause();
+    room.tool = "drag";
+  }
+  room.canvas = on;
+  clipBox.classList.toggle("canvas", on);
+  sheet.classList.toggle("canvas", on);
+  updatePlayer();
+  drawCanvas();
 }
 
 partTabs.addEventListener("click", (e) => {
@@ -2220,17 +2242,73 @@ $("fxWordForm").addEventListener("submit", (e) => {
 
 function drawFrameParts(d) {
   const list = d.parts || [];
-  const pick = $("partPick");
-  $("partHead").hidden = pick.hidden = $("partRow").hidden = !list.length;
-  drawPartBoxes();
-  if (!list.length) return;
-  if (!list.some((p) => p.name === room.partName)) room.partName = list[0].name;
-  drawChoices(pick, $("partWhy"), list.map((p) => ({ name: p.name, label: p.name.charAt(0).toUpperCase() + p.name.slice(1), now: p.name === room.partName, why: null })), (x) => {
-    room.partName = x.name;
-    drawFrameParts(room.panel);
-  }, false);
+  if (list.length) {
+    if (!list.some((p) => p.name === room.partName)) room.partName = list[0].name;
+    drawChoices($("partPick"), $("partWhy"), list.map((p) => ({ name: p.name, label: partLabel(p), now: p.name === room.partName, why: null })), (x) => {
+      room.partName = x.name;
+      drawFrameParts(room.panel);
+    }, false);
+  }
+  drawCanvas();
+}
+
+function partLabel(p) {
+  return p.label || p.name.charAt(0).toUpperCase() + p.name.slice(1);
+}
+
+function pansNow() {
+  const f = room.panel && room.panel.frame;
+  if (f && f.shots) {
+    room.shotAt = clipNow();
+    const s = shotPicked();
+    return s.show ? [{ name: "shot", label: "Person " + s.show, box: [0, 0, 1000, 1000], src: [s.x, s.y, f.width, f.height], size: f.size, shot: s }] : [];
+  }
+  return (room.panel && room.panel.crops) || [];
+}
+
+function canvasLine(parts, pans) {
+  const f = room.panel.frame;
+  const stays = " It stays where you let go, and Undo takes it back.";
+  if (room.work.layout) return "The clip is being made in the new layout.";
+  if (!parts.length && !pans.length) return f && f.shots ? "This shot shows everyone, so it has nothing to drag or pan. A shot of one person can be panned." : "This layout has nothing to drag or pan.";
+  if (room.tool === "pan") {
+    const moving = pans.find((p) => p.follows);
+    const whole = parts.filter((p) => !pans.some((q) => q.name === p.name));
+    if (pans[0].shot) return "Drag the picture to choose what this shot shows, from " + clock(pans[0].shot.from) + " to " + clock(pans[0].shot.to) + "." + stays;
+    return "Drag the picture in a part to choose what it shows." + stays + (moving ? " " + partLabel(moving) + " moves by itself now, and holds still once you pan it." : "") + (whole.length ? " " + whole.map(partLabel).join(" and ") + " already shows the whole picture." : "");
+  }
+  return "Drag a part to move it, or its corner to size it." + stays + (pans.length ? "" : " Every part already shows the whole picture, so there is nothing to pan.");
+}
+
+function drawCanvas() {
+  const d = room.canvas ? room.panel : null;
+  canvasTools.hidden = !d;
+  const partWhy = $("partWhy");
+  partWhy.textContent = room.partSaid || "";
+  partWhy.hidden = !room.partSaid;
+  if (d) {
+    const busy = Boolean(room.work.layout);
+    const parts = busy ? [] : d.parts || [];
+    const pans = busy ? [] : pansNow();
+    if (!parts.length) room.tool = "pan";
+    else if (!pans.length) room.tool = "drag";
+    const pan = room.tool === "pan";
+    canvasDrag.disabled = !parts.length;
+    canvasPan.disabled = !pans.length;
+    canvasDrag.setAttribute("aria-pressed", String(!pan));
+    canvasPan.setAttribute("aria-pressed", String(pan));
+    canvasSays.textContent = canvasLine(parts, pans);
+    $("partHead").hidden = $("partPick").hidden = $("partRow").hidden = pan || !parts.length;
+  }
   drawPartBoxes();
 }
+
+canvasTools.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b || b.disabled) return;
+  room.tool = b === canvasPan ? "pan" : "drag";
+  drawCanvas();
+});
 
 const PART_STEP = { bigger: 1.08, smaller: 0.93 };
 
@@ -2246,20 +2324,24 @@ function partMoved(box, how) {
   return [x1, y1, x1 + w, y1 + h].map(Math.round);
 }
 
-async function movePart(name, box) {
-  const why = $("partWhy");
-  why.hidden = true;
+async function savePart(path, body) {
+  room.partSaid = "";
   try {
-    const d = await post("/api/part", { chat: room.chat, part: name, box });
-    if (!d.ok) {
-      why.textContent = d.error || "It could not be moved.";
-      why.hidden = false;
-    }
+    const d = await post(path, Object.assign({ chat: room.chat }, body));
+    if (!d.ok) room.partSaid = d.error || "It could not be moved.";
   } catch (err) {
-    why.textContent = "The studio is not answering. Open Local Clip Studio again.";
-    why.hidden = false;
+    room.partSaid = "The studio is not answering. Open Local Clip Studio again.";
   }
   loadPanel();
+}
+
+function movePart(name, box) {
+  return savePart("/api/part", { part: name, box });
+}
+
+function panPart(part, x, y) {
+  const s = part.shot;
+  return s ? savePart("/api/shot", { start: s.from, end: s.to, show: s.show, x, y }) : savePart("/api/part", { part: part.name, at: [x, y] });
 }
 
 $("partRow").addEventListener("click", (e) => {
@@ -2276,23 +2358,72 @@ function placeBox(node, box) {
   node.style.height = (y2 - y1) / 10 + "%";
 }
 
+function panPicture() {
+  return "/api/shotframe?chat=" + encodeURIComponent(room.chat) + "&t=" + clipNow().toFixed(2);
+}
+
 function drawPartBoxes() {
+  if (room.held) return;
   const layer = $("partBoxes");
-  const list = (room.panel && room.panel.parts) || [];
-  layer.hidden = sheet.hidden || room.part !== "frame" || !list.length;
+  const pan = room.tool === "pan";
+  const list = !room.canvas || !room.panel || room.work.layout ? [] : pan ? pansNow() : room.panel.parts || [];
+  layer.hidden = !list.length;
   if (layer.hidden) return;
+  if (pan) new Image().src = panPicture();
   const size = (p) => (p.box[2] - p.box[0]) * (p.box[3] - p.box[1]);
   layer.replaceChildren(...[...list].sort((a, b) => size(b) - size(a)).map((p) => {
-    const node = el("div", "part-box" + (p.name === room.partName ? " now" : ""));
-    node.append(el("span", null, p.name.charAt(0).toUpperCase() + p.name.slice(1)), el("i"));
+    const node = el("div", "part-box" + (pan ? " pan" : p.name === room.partName ? " now" : "") + (p.name === "circle" ? " round" : ""));
+    node.appendChild(el("span", null, partLabel(p)));
+    if (!pan) node.appendChild(el("i"));
     placeBox(node, p.box);
-    node.addEventListener("pointerdown", (e) => dragPart(e, p, node));
+    node.addEventListener("pointerdown", (e) => (pan ? panDrag : dragPart)(e, p, node));
     return node;
   }));
 }
 
+function panDrag(e, part, node) {
+  e.preventDefault();
+  room.held = true;
+  node.classList.add("held");
+  const area = node.getBoundingClientRect();
+  const [x1, y1, w, h] = part.src;
+  const [fullW, fullH] = part.size;
+  const x0 = e.clientX;
+  const y0 = e.clientY;
+  const pic = el("img");
+  pic.alt = "";
+  pic.src = panPicture();
+  pic.style.width = (100 * fullW) / w + "%";
+  pic.style.height = (100 * fullH) / h + "%";
+  node.prepend(pic);
+  let x = x1;
+  let y = y1;
+  const place = () => {
+    pic.style.left = (-100 * x) / w + "%";
+    pic.style.top = (-100 * y) / h + "%";
+  };
+  place();
+  const follow = (ev) => {
+    x = Math.round(Math.max(0, Math.min(fullW - w, x1 - ((ev.clientX - x0) * w) / area.width)));
+    y = Math.round(Math.max(0, Math.min(fullH - h, y1 - ((ev.clientY - y0) * h) / area.height)));
+    place();
+  };
+  const done = () => {
+    window.removeEventListener("pointermove", follow);
+    window.removeEventListener("pointerup", done);
+    window.removeEventListener("pointercancel", done);
+    room.held = false;
+    if (x === x1 && y === y1) drawCanvas();
+    else panPart(part, x, y);
+  };
+  window.addEventListener("pointermove", follow);
+  window.addEventListener("pointerup", done);
+  window.addEventListener("pointercancel", done);
+}
+
 function dragPart(e, part, node) {
   e.preventDefault();
+  room.held = true;
   room.partName = part.name;
   const area = $("partBoxes").getBoundingClientRect();
   const sizing = e.target.tagName === "I";
@@ -2319,6 +2450,7 @@ function dragPart(e, part, node) {
     window.removeEventListener("pointermove", follow);
     window.removeEventListener("pointerup", done);
     window.removeEventListener("pointercancel", done);
+    room.held = false;
     if (box === part.box) drawFrameParts(room.panel);
     else movePart(part.name, box.map(Math.round));
   };
@@ -2456,6 +2588,7 @@ async function chooseLayout(c) {
       return;
     }
     pageWork("layout", true);
+    drawCanvas();
   } catch (err) {
     why.textContent = "The studio is not answering. Open Local Clip Studio again.";
   }
@@ -2645,6 +2778,7 @@ function movePlayhead(t) {
   const share = Math.max(0, Math.min(1, t / room.panel.length));
   head.style.left = (share * 100) + "%";
   if (room.part === "fx") sayFxAt();
+  if (room.canvas) drawCanvas();
   showTrimAt(t);
   if (room.made) updatePlayer();
 }
@@ -3226,7 +3360,6 @@ function openSheet(part) {
   sheet.hidden = false;
   sheetBack.classList.add("on");
   showPart(part);
-  drawPartBoxes();
   panelNote.textContent = "";
   if (part !== "words") closeWords();
   if (part === "cost") {
@@ -3258,7 +3391,6 @@ function closeSheet() {
   sheetBack.classList.remove("on");
   closeWords();
   showPart(room.part);
-  drawPartBoxes();
 }
 
 $("sheetClose").addEventListener("click", closeSheet);
