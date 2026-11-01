@@ -383,7 +383,8 @@ def graph(pieces):
                           "[g%d][s%d]overlay=(W-w)/2:(H-h)/2,setsar=1[p%d]"
                           % (i, i, i, i, cover, BLUR, DIM, i, i, W, H, i, i, i, i))
         chains.append("[p%d]fps=%d,format=yuv420p,trim=duration=%.3f,setpts=PTS-STARTPTS[v%d]" % (i, FPS, d, i))
-        sound = ("[%d:a:0]aresample=%d,aformat=channel_layouts=stereo,apad" % (i, RATE) if rec.get("sound_tracks")
+        mix, pad = recording.mixed(rec, i)
+        sound = ("%s%saresample=%d,aformat=channel_layouts=stereo,apad" % (mix, pad, RATE) if rec.get("sound_tracks")
                  else "anullsrc=r=%d:cl=stereo" % RATE)
         chains.append("%s,atrim=duration=%.3f,afade=t=in:d=%g,afade=t=out:st=%.3f:d=%g,asetpts=PTS-STARTPTS[a%d]"
                       % (sound, d, FADE, max(0.0, d - FADE), FADE, i))

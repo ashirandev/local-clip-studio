@@ -83,7 +83,7 @@ def _cut(rec, start, end, target):
     part = "%s.%d-%d.part.mp4" % (target[:-4], os.getpid(), threading.get_ident())
     try:
         subprocess.run([tool, "-v", "error", "-y", "-ss", "%.2f" % start, "-i", rec["path"], "-t", "%.2f" % (end - start),
-                        "-map", "0:v:0", "-map", "0:a:0?",
+                        "-map", "0:v:0"] + recording.sound_args(rec, either=True) + [
                         "-vf", "scale='if(gt(iw,ih),-2,%d)':'if(gt(iw,ih),%d,-2)'" % (SHORT_SIDE, SHORT_SIDE),
                         "-fpsmax", str(MOST_FPS), "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
                         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-ac", "2", "-movflags", "+faststart",

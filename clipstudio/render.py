@@ -484,11 +484,12 @@ def frame(rec, state, t, default="clean", width=PREVIEW_WIDTH, words=True):
 
 # ---- the finished clip ---------------------------------------------------------------------------------------
 
-def _sound(pieces, out="snd", level=""):
-    """Graph text from the first sound track of each piece's input to [out], the pieces joined, then level (the
+def _sound(rec, pieces, out="snd", level=""):
+    """Graph text from the used sound tracks of each piece's input to [out], the pieces joined, then level (the
     second loudnorm pass, or nothing). Each input is opened at its piece's start, so its timestamps start at 0."""
-    return "%sconcat=n=%d:v=0:a=1,aresample=%d%s[%s]" % ("".join("[%d:a:0]" % k for k in range(len(pieces))),
-                                                          len(pieces), RATE, level, out)
+    made = [recording.mixed(rec, k) for k in range(len(pieces))]
+    return "%s%sconcat=n=%d:v=0:a=1,aresample=%d%s[%s]" % ("".join(c for c, _ in made), "".join(p for _, p in made),
+                                                            len(pieces), RATE, level, out)
 
 
 def _inputs(rec, pieces, sound_only=False):
@@ -506,7 +507,7 @@ def loudness(rec, pieces, muted=""):
     _muted()'s filter, so what is measured is what is heard."""
     if not rec.get("sound_tracks"):
         return None
-    return _measured(_inputs(rec, pieces, True), _sound(pieces, level=muted), "the clip's sound")
+    return _measured(_inputs(rec, pieces, True), _sound(rec, pieces, level=muted), "the clip's sound")
 
 
 def music_loudness(music, length):
@@ -639,7 +640,7 @@ def _mix_gain(rec, state, measured, music_measured):
     inputs = (_inputs(rec, pieces, True) if voice else []) + (_music_input(music) if music else [])
     graph = _mix(state, voice, length, len(pieces) if voice else 0, music_measured, "snd")
     if voice:
-        graph = _sound(pieces, "voice", _muted(state) + _level(measured)) + ";" + graph
+        graph = _sound(rec, pieces, "voice", _muted(state) + _level(measured)) + ";" + graph
     cmd = [_ffmpeg(), "-hide_banner", "-nostats"] + inputs + [
         "-filter_complex", graph + ";[snd]ebur128=framelog=quiet[o]", "-map", "[o]", "-f", "null", "-"]
     what = "the clip's sound with its sounds and music"
@@ -717,9 +718,10 @@ def export(rec, state, out_path, on_progress=None, on_start=None, default="clean
     except ValueError as e:
         raise NotDrawn(str(e))
     measured = loudness(rec, pieces, muted) if sound else None
-    streams = "".join("[%d:v:0]" % k + ("[%d:a:0]" % k if sound else "") for k in range(count))
-    joined = "%sconcat=n=%d:v=1:a=%d[cat]%s;[cat]fps=%d[src]" % (
-        streams, count, 1 if sound else 0, "[catsnd]" if sound else "", FPS)
+    tracks = [recording.mixed(rec, k) for k in range(count)]
+    streams = "".join("[%d:v:0]" % k + (tracks[k][1] if sound else "") for k in range(count))
+    joined = "%s%sconcat=n=%d:v=1:a=%d[cat]%s;[cat]fps=%d[src]" % (
+        "".join(c for c, _ in tracks) if sound else "", streams, count, 1 if sound else 0, "[catsnd]" if sound else "", FPS)
     if sound:
         joined += ";[catsnd]aresample=%d%s%s%s[%s]" % (RATE, muted, _level(measured), _voice_out(length),
                                                        "voice" if added else "snd")

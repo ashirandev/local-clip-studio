@@ -127,7 +127,8 @@ def graph(rec, spans):
         args += ["-ss", "%.3f" % a, "-t", "%.3f" % d, "-i", rec["path"]]
         chains.append("[%d:v:0]scale=%d:%d,setsar=1,fps=%d,format=yuv420p,trim=duration=%.3f,setpts=PTS-STARTPTS[v%d]"
                       % (i, w, h, montage.FPS, d, i))
-        sound = ("[%d:a:0]aresample=%d,aformat=channel_layouts=stereo,apad" % (i, montage.RATE)
+        mix, pad = recording.mixed(rec, i)
+        sound = ("%s%saresample=%d,aformat=channel_layouts=stereo,apad" % (mix, pad, montage.RATE)
                  if rec.get("sound_tracks") else "anullsrc=r=%d:cl=stereo" % montage.RATE)
         chains.append("%s,atrim=duration=%.3f,afade=t=in:d=%g,afade=t=out:st=%.3f:d=%g,asetpts=PTS-STARTPTS[a%d]"
                       % (sound, d, montage.FADE, max(0.0, d - montage.FADE), montage.FADE, i))

@@ -78,7 +78,7 @@ def cut(rec, start, end, on_start=None):
     os.makedirs(folder(), exist_ok=True)
     part = "%s.%d-%d.part.mp4" % (target[:-4], os.getpid(), threading.get_ident())
     cmd = [tool, "-v", "error", "-y", "-ss", "%.2f" % start, "-i", rec["path"], "-t", "%.2f" % (end - start),
-           "-map", "0:v:0", "-map", "0:a:0?", "-vf", "scale=-2:%d,fps=%d" % (WATCH_HEIGHT, WATCH_FPS),
+           "-map", "0:v:0"] + recording.sound_args(rec, either=True) + ["-vf", "scale=-2:%d,fps=%d" % (WATCH_HEIGHT, WATCH_FPS),
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "30", "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-ac", "1", "-b:a", "48k", "-movflags", "+faststart", part]
     try:

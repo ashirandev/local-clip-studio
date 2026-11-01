@@ -120,7 +120,7 @@ def sound(rec, a, b):
         raise VoiceError("FFmpeg is not installed, so the voices cannot be heard.")
     try:
         raw = subprocess.run([tool, "-v", "error", "-ss", "%.3f" % a, "-t", "%.3f" % (b - a), "-i", rec["path"],
-                              "-map", "0:a:0", "-ac", "1", "-ar", str(RATE), "-f", "f32le", "-"],
+                              ] + recording.sound_args(rec) + ["-ac", "1", "-ar", str(RATE), "-f", "f32le", "-"],
                              capture_output=True, check=True, timeout=120).stdout
     except (subprocess.SubprocessError, OSError) as e:
         raise VoiceError("FFmpeg could not read the sound (%s)." % e)

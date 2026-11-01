@@ -139,6 +139,7 @@ def status():
 def key(rec, start, end, languages=()):
     st = os.stat(rec["path"])
     who = "" if engine() == "local" else "|" + asr.MODEL + "".join("|" + name for name in languages)
+    who += "|tracks %s" % recording.tracks(rec) if len(recording.tracks(rec)) > 1 else ""
     return hashlib.sha1(("%d|%s|%d|%s|%.2f|%.2f%s" % (VERSION, rec["path"], st.st_size, st.st_mtime, start, end, who))
                         .encode("utf-8")).hexdigest()[:16]
 
@@ -184,7 +185,7 @@ def hear(rec, start, end, on_start=None, on_paid=None, languages=()):
         on_start(stop)
     try:
         sound = subprocess.Popen([tool, "-v", "error", "-ss", "%.2f" % start, "-t", "%.2f" % (end - start), "-i",
-                                  rec["path"], "-map", "0:a:0", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"],
+                                  rec["path"]] + recording.sound_args(rec) + ["-ac", "1", "-ar", "16000", "-f", "s16le", "-"],
                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         parts["sound"] = sound.kill
         pcm, _ = sound.communicate()

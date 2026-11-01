@@ -53,7 +53,8 @@ def folder():
 
 def key(rec):
     st = os.stat(rec["path"])
-    return hashlib.sha1(("%d|%s|%d|%s" % (VERSION, rec["path"], st.st_size, st.st_mtime)).encode("utf-8")
+    many = "|tracks %s" % recording.tracks(rec) if len(recording.tracks(rec)) > 1 else ""
+    return hashlib.sha1(("%d|%s|%d|%s%s" % (VERSION, rec["path"], st.st_size, st.st_mtime, many)).encode("utf-8")
                         ).hexdigest()[:16]
 
 
@@ -77,7 +78,8 @@ def measure(rec, on_progress=None, on_start=None):
     try:
         graph, outputs = [], []
         if rec.get("sound_tracks"):
-            graph.append("[0:a:0]%s[sound]" % SOUND)
+            chain, pad = recording.mixed(rec)
+            graph.append("%s%s%s[sound]" % (chain, pad, SOUND))
             outputs += ["-map", "[sound]", "-f", "null", "-"]
         graph.append("[0:v:0]%s[picture]" % PICTURE)
         outputs += ["-map", "[picture]", "-f", "null", "-"]

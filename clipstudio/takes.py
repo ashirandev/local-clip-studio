@@ -226,13 +226,13 @@ def dips(rec, a, b):
 
 
 def _decoded(rec, a, b):
-    """The samples of rec's first sound track from a to b in recording seconds, mono at RATE from -1 to 1, or None."""
+    """The samples of rec's used sound tracks from a to b in recording seconds, mono at RATE from -1 to 1, or None."""
     tool = shutil.which("ffmpeg")
     if not rec.get("sound_tracks") or b <= a or not tool:
         return None
     try:
         got = subprocess.run([tool, "-v", "error", "-ss", "%.2f" % a, "-t", "%.2f" % (b - a), "-i", rec["path"],
-                              "-map", "0:a:0", "-ac", "1", "-ar", str(RATE), "-f", "s16le", "-"],
+                              ] + recording.sound_args(rec) + ["-ac", "1", "-ar", str(RATE), "-f", "s16le", "-"],
                              stdin=subprocess.DEVNULL, capture_output=True)
     except OSError:
         return None

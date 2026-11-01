@@ -271,6 +271,31 @@ def probe(path):
             "codec": video.get("codec_name") or ""}
 
 
+def tracks(rec):
+    """The numbers of rec's sound tracks that are used: every one, unless the person chose (rec["tracks"]). Tarm 11-01: Henri
+    records the game and his voice on separate tracks, and with only the first read, his words were neither heard nor
+    in the clip. A track that repeats the others only makes them louder, and the level is set after."""
+    return rec.get("tracks") or list(range(rec.get("sound_tracks") or 0))
+
+
+def mixed(rec, k=0):
+    """(graph text, pad): input k's used sound tracks as one pad, the text ending in ";", or "" with one track."""
+    chosen = tracks(rec) or [0]
+    if len(chosen) == 1:
+        return "", "[%d:a:%d]" % (k, chosen[0])
+    return "%samix=inputs=%d:duration=longest:normalize=0[tracks%d];" % ("".join("[%d:a:%d]" % (k, t) for t in chosen), len(chosen), k), \
+        "[tracks%d]" % k
+
+
+def sound_args(rec, either=False):
+    """FFmpeg's arguments that take input 0's used sound tracks as the output's sound; either leaves it silent when the
+    file has no sound."""
+    chain, pad = mixed(rec)
+    if chain:
+        return ["-filter_complex", chain[:-1], "-map", pad]
+    return ["-map", pad[1:-1] + ("?" if either else "")]
+
+
 def frame(rec, at=None, side=540):
     """One picture at second at (default: a tenth of the way in), side pixels on its long side: the file name in
     work/frames, or None."""

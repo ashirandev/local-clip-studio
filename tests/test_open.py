@@ -15,7 +15,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from clipstudio import agent, mind, montage, previews, recording, render, server  # noqa: E402
+from clipstudio import agent, mind, montage, previews, recording, render, server, takes  # noqa: E402
 from test_agent_loop import ScriptedMind, call  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
@@ -181,6 +181,35 @@ class Open(unittest.TestCase):
         finally:
             served.shutdown()
             served.server_close()
+
+    def two_tracks(self, name="two tracks.mkv"):
+        """A recording with silence on its first sound track, as a game with nothing playing, and a tone on its second, as a voice."""
+        path = os.path.join(self.videos, name)
+        subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=duration=3:size=320x180:rate=30", "-f", "lavfi", "-i",
+                        "anullsrc=r=48000:cl=stereo", "-f", "lavfi", "-i", "sine=frequency=440:duration=3", "-map", "0:v", "-map", "1:a",
+                        "-map", "2:a", "-t", "3", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", path], check=True)
+        return recording.probe(path)
+
+    def test_every_sound_track_is_used_unless_the_person_chose(self):
+        """Tarm 11-01: Henri's game was on the first track and his voice on another, so his words were not heard or in the clip."""
+        rec = self.two_tracks()
+        self.assertEqual((rec["sound_tracks"], recording.tracks(rec)), (2, [0, 1]))
+        self.assertEqual(recording.mixed(rec, 3), ("[3:a:0][3:a:1]amix=inputs=2:duration=longest:normalize=0[tracks3];", "[tracks3]"))
+        self.assertEqual(recording.mixed(dict(rec, tracks=[1]), 3), ("", "[3:a:1]"))
+        self.assertEqual(recording.sound_args(dict(rec, tracks=[1])), ["-map", "0:a:1"])
+        self.assertEqual(recording.sound_args({"path": "x"}, either=True), ["-map", "0:a:0?"])
+        self.assertEqual(recording.mixed(dict(rec, sound_tracks=1)), ("", "[0:a:0]"), "one track is read as before")
+
+    def test_a_voice_on_the_second_track_is_heard_and_is_in_the_clip(self):
+        rec = self.two_tracks()
+        self.assertGreater(float(abs(takes._decoded(rec, 0, 2)).max()), 0.05, "what the studio listens to")
+        self.assertLess(float(abs(takes._decoded(dict(rec, tracks=[0]), 0, 2)).max()), 0.01, "the choice is kept")
+        self.assertIsNotNone(render.loudness(rec, [[0.0, 2.0]]), "what the clip is levelled from")
+        self.assertIsNone(render.loudness(dict(rec, tracks=[0]), [[0.0, 2.0]]), "the silent track alone is silence")
+        self.assertEqual(previews._cut(rec, 0.0, 2.0, os.path.join(self.tmp, "p.mp4")), None)
+        made = recording.probe(os.path.join(self.tmp, "p.mp4"))
+        self.assertEqual(made["sound_tracks"], 1)
+        self.assertGreater(float(abs(takes._decoded(made, 0, 1.5)).max()), 0.05, "the voice is in the preview")
 
     def test_a_camera_file_is_a_recording(self):
         camera = os.path.join(self.videos, "card", "00001.MTS")
