@@ -187,8 +187,8 @@ class MakeCountdown(unittest.TestCase):
     ORDER = [{"moment": 1, "words": "Close call"}, {"moment": 2, "words": "A long fall"},
              {"moment": 3, "words": "The win"}]
 
-    def counted(self, moments=None, why="the countdown"):
-        return [call("make_countdown", moments=moments or self.ORDER, story="the three best moments", why=why)]
+    def counted(self, moments=None, why="the countdown", **more):
+        return [call("make_countdown", moments=moments or self.ORDER, story="the three best moments", why=why, **more)]
 
     def test_the_moments_are_joined_best_last_each_with_its_rank_and_the_clip_is_made_from_them(self):
         """Moment 1's piece is 6-17 s, its peak picture at 12.5 s too near the start for 7 s before it, and a line said
@@ -252,7 +252,7 @@ class MakeCountdown(unittest.TestCase):
         goals = [{"moment": 3, "words": "ปิดเกม 1-2", "start": "0:42", "end": "0:55"},
                  {"moment": 1, "words": "นำ 0-1", "start": "0:06", "end": "0:21"},
                  {"moment": 2, "words": "0-2", "start": "0:22", "end": "0:37"}]
-        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(goals), self.counted(goals), recipe="sport")
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(goals), self.counted(goals, final="1-2"), recipe="sport")
         made = steps[-1]
         self.assertFalse(made["refused"], made["result"])
         self.assertRegex(made["result"], r"Joined 3 moments into one recording, \S+ s long, in match order: ")
@@ -267,7 +267,7 @@ class MakeCountdown(unittest.TestCase):
                {"look": 1, "start": "0:33", "end": "0:50", "reason": "second"}]
         bare = [{"moment": 1, "words": "0-1", "start": "0:06", "end": "0:21"}, {"moment": 2, "words": "0-2"}]
         goals = [bare[0], dict(bare[1], start="0:33", end="0:50")]
-        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(bare), self.counted(goals), self.counted(goals), recipe="sport",
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(bare), self.counted(goals), self.counted(goals, final="0-2"), recipe="sport",
                              moments=two)
         self.assertTrue(steps[-3]["refused"])
         self.assertIn("Give each piece its start, where the attack starts", steps[-3]["result"])
@@ -331,7 +331,7 @@ class MakeCountdown(unittest.TestCase):
                              [call("look_at_piece", start="0:30", end="0:50", why="loud")],
                              [call("propose_moments", why="the goals", moments=late)],
                              [call("look_at_piece", start="0:06", end="0:24", why="what led to it")],
-                             self.counted(back), self.counted(back), "Done.")
+                             self.counted(back), self.counted(back, final="0-2"), "Done.")
         self.chat.jobs += 1
         self.chat.emit("person", job=self.chat.jobs, text="ทำคลิปไฮไลท์")
         job = self.chat.job = agent.Job(self.chat, brain, "ทำคลิปไฮไลท์")
@@ -350,7 +350,7 @@ class MakeCountdown(unittest.TestCase):
         over = [{"moment": 1, "words": "0-1", "start": "0:05", "end": "0:21"},
                 {"moment": 2, "words": "0-2", "start": "0:22", "end": "0:50"}]
         fixed = [over[0], dict(over[1], end="0:40")]
-        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(over), self.counted(fixed), self.counted(fixed), recipe="sport",
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(over), self.counted(fixed), self.counted(fixed, final="0-2"), recipe="sport",
                              moments=wide)
         said = steps[-3]["result"]
         self.assertIn("is 28 s long, and a piece is 3 to 20 s; give it a start and an end around the goal.", said)
@@ -386,7 +386,8 @@ class MakeCountdown(unittest.TestCase):
         wrong = [{"moment": 1, "words": "Hull 2-0", "start": "0:06", "end": "0:21"},
                  {"moment": 2, "words": "1-2", "start": "0:22", "end": "0:37"}]
         right = [dict(wrong[0], words="Hull 0-1"), dict(wrong[1], words="0-2")]
-        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(wrong), self.counted(wrong), self.counted(right), recipe="sport", moments=wide)
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(wrong), self.counted(wrong, final="0-2"), self.counted(right, final="0-2"),
+                             recipe="sport", moments=wide)
         self.assertTrue(steps[-2]["refused"], steps[-2]["result"])
         self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
         self.assertNotIn(tools.SCORES_OUT, steps[-1]["result"])
@@ -399,11 +400,60 @@ class MakeCountdown(unittest.TestCase):
                 {"look": 1, "start": "0:22", "end": "0:37", "reason": "second"}]
         pieces = [{"moment": 1, "words": "0-2", "start": "0:06", "end": "0:21"},
                   {"moment": 2, "words": "1-2", "start": "0:22", "end": "0:37"}]
-        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(pieces), self.counted(pieces), self.counted(pieces), recipe="sport", moments=wide)
+        seen, real = [], recording.frame
+
+        def frame(rec, at=None, side=540):
+            if side == tools.BOARD_SIDE:
+                seen.append(at)
+            return real(rec, at=at, side=side)
+
+        with mock.patch.object(recording, "frame", frame):
+            steps = self.run_job("ทำคลิปไฮไลท์", self.counted(pieces), self.counted(pieces, final="1-2"), self.counted(pieces, final="1-2"),
+                                 recipe="sport", moments=wide)
         self.assertTrue(steps[-2]["refused"], steps[-2]["result"])
         self.assertEqual(steps[-2]["result"], tools.GOAL_LEFT_OUT % ("0-2", "0:00", "0:06"))
         self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
         self.assertIn("Joined 2 moments", steps[-1]["result"])
+        across = [round(at, 2) for at in seen[-tools.ACROSS_PICTURES:]]
+        self.assertEqual(across, [round(6.0 * k / 9, 2) for k in range(1, 9)], "the stretch, evenly, at most what a mind can take")
+
+    def test_a_match_reels_final_score_asks_for_the_goal_after_its_last_piece(self):
+        """080148-9959 on 11-01: 1-3 on the board near the end, a last piece at 1-2, and the reel handed over with no 1-3."""
+        wide = [{"look": 1, "start": "0:06", "end": "0:21", "reason": "first"},
+                {"look": 1, "start": "0:22", "end": "0:37", "reason": "second"}]
+        pieces = [{"moment": 1, "words": "0-1", "start": "0:06", "end": "0:21"},
+                  {"moment": 2, "words": "0-2", "start": "0:22", "end": "0:37"}]
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(pieces), self.counted(pieces, final="ARS 1-2 HUL"),
+                             self.counted(pieces, final="ARS 1-2 HUL"), recipe="sport", moments=wide)
+        self.assertTrue(steps[-2]["refused"], steps[-2]["result"])
+        self.assertIn("The board reads 1-2, more goals than your pieces before it show, so a goal between 0:37 and ", steps[-2]["result"])
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertIn("The last score, 1-2, in the board's order has the right team ahead", steps[-1]["result"])
+
+    def test_a_match_reel_is_asked_once_for_the_final_score(self):
+        wide = [{"look": 1, "start": "0:06", "end": "0:21", "reason": "first"},
+                {"look": 1, "start": "0:22", "end": "0:37", "reason": "second"}]
+        bare = [{"moment": 1, "words": "0-1"}, {"moment": 2, "words": "0-2"}]
+        pieces = [dict(bare[0], start="0:06", end="0:21"), dict(bare[1], start="0:22", end="0:37")]
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(bare), self.counted(pieces), self.counted(pieces), self.counted(pieces),
+                             recipe="sport", moments=wide)
+        early, board, asked, made = steps[-4:]
+        self.assertNotIn("Give final", early["result"], "its pictures have not come yet")
+        self.assertEqual(board["result"], tools.READ_BOARD)
+        self.assertTrue(asked["refused"], asked["result"])
+        self.assertIn(tools.FINAL_ASKED, asked["result"])
+        self.assertFalse(made["refused"], made["result"])
+
+    def test_each_goal_left_out_is_asked_for_once(self):
+        wide = [{"look": 1, "start": "0:06", "end": "0:21", "reason": "first"},
+                {"look": 1, "start": "0:22", "end": "0:37", "reason": "second"}]
+        pieces = [{"moment": 1, "words": "0-2", "start": "0:06", "end": "0:21"},
+                  {"moment": 2, "words": "1-2", "start": "0:22", "end": "0:37"}]
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(pieces), *[self.counted(pieces, final="1-3")] * 3, recipe="sport", moments=wide)
+        jump, last, made = steps[-3:]
+        self.assertIn("The board reads 0-2,", jump["result"])
+        self.assertIn("The board reads 1-3,", last["result"])
+        self.assertFalse(made["refused"], made["result"])
 
     def test_a_match_reel_reads_the_board_as_each_attack_starts_before_it_is_joined(self):
         """022837-3062 on 11-01: 0-3 on a board at 1-2, as just after a goal the picture is a replay with no board."""
@@ -418,7 +468,7 @@ class MakeCountdown(unittest.TestCase):
             return real(rec, at=at, side=side)
 
         with mock.patch.object(recording, "frame", frame):
-            steps = self.run_job("ทำคลิปไฮไลท์", self.counted(pieces), self.counted(pieces), recipe="sport", moments=wide)
+            steps = self.run_job("ทำคลิปไฮไลท์", self.counted(pieces), self.counted(pieces, final="0-2"), recipe="sport", moments=wide)
         first, made = steps[-2:]
         self.assertEqual(first["result"], tools.READ_BOARD)
         self.assertFalse(made["refused"], made["result"])
@@ -466,11 +516,17 @@ class MakeCountdown(unittest.TestCase):
 
     def test_a_goal_left_out_is_where_the_scores_jump(self):
         spans = [[100.0, 110.0], [200.0, 210.0], [300.0, 310.0]]
-        self.assertEqual(tools._goal_left_out(["0-2", "1-2", "1-3"], spans), ("0-2", 0.0, 100.0))
-        self.assertEqual(tools._goal_left_out(["0-1", "1-2", "1-3"], spans), ("1-2", 110.0, 200.0))
-        self.assertEqual(tools._goal_left_out(["0-1", "ลุ้นจังหวะนี้", "1-2"], spans), ("1-2", 210.0, 300.0), "a piece with no score moves on")
-        self.assertIsNone(tools._goal_left_out(["0-1", "1-1", "1-2"], spans))
-        self.assertIsNone(tools._goal_left_out(["นาที 32:21", "สวยมาก", "ปิดเกม"], spans))
+        self.assertEqual(tools._goals_left_out(["0-2", "1-2", "1-3"], spans), [("0-2", 0.0, 100.0)])
+        self.assertEqual(tools._goals_left_out(["0-1", "1-2", "1-3"], spans), [("1-2", 110.0, 200.0)])
+        self.assertEqual(tools._goals_left_out(["0-1", "ลุ้นจังหวะนี้", "1-2"], spans), [("1-2", 210.0, 300.0)], "a piece with no score moves on")
+        self.assertEqual(tools._goals_left_out(["0-1", "1-1", "1-2"], spans), [])
+        self.assertEqual(tools._goals_left_out(["นาที 32:21", "สวยมาก", "ปิดเกม"], spans), [])
+        self.assertEqual(tools._goals_left_out(["0-1", "0-2", "1-2"], spans, "ARS 1-3 HUL", 900.0), [("1-3", 310.0, 900.0)])
+        self.assertEqual(tools._goals_left_out(["0-2", "1-2", "1-2"], spans, "1-3", 900.0), [("0-2", 0.0, 100.0), ("1-3", 310.0, 900.0)],
+                         "every stretch, not only the first")
+        self.assertEqual(tools._goals_left_out(["0-1", "0-2", "1-2"], spans, "1-2", 900.0), [])
+        self.assertEqual(tools._goals_left_out(["0-1", "0-2", "1-2"], spans, "1-1", 900.0), [], "an older picture says nothing")
+        self.assertEqual(tools._goals_left_out(["สวยมาก", "ปิดเกม", "จบ"], spans, "1-3", 900.0), [], "no scores to hold it against")
 
     def test_who_is_ahead_is_read_from_the_last_score(self):
         self.assertIsNone(tools._ahead(["นาที 32:21", "สวยมาก"]))

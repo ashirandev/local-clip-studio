@@ -1800,9 +1800,16 @@ READ_BOARD = ("Nothing was joined yet. The pictures that come next show the matc
               "last goal. Read the score on the board in each picture yourself: the change from one piece's picture to the "
               "next is that piece's goal, and it tells which side scored. A picture with no board tells nothing. Write each "
               "piece's words with the score the board shows after its goal, in the board's order: the left number is the left "
-              "team's goals in every piece, whoever leads. Then call make_countdown again. The last pictures are near the end "
-              "of the recording: if their score is more than your last piece's, a goal is missing, so look for it and propose "
-              "it first.")
+              "team's goals in every piece, whoever leads. Then call make_countdown again, with final set to the score in the "
+              "last picture near the end of the recording that shows a board: if it is more than your last piece's, a goal is "
+              "missing, so look for it and propose it first.")
+
+
+def _board_pictures(job, rec, times):
+    for t in times:
+        frame = recording.frame(rec, at=t, side=BOARD_SIDE)
+        if frame:
+            job.attach(os.path.join(recording.WORK, "frames", frame), "The match at %s:" % recording.clock(t))
 
 
 def _read_the_board(job, rec, spans):
@@ -1811,10 +1818,7 @@ def _read_the_board(job, rec, spans):
     last = spans[-1][1]
     after = [last + wait for wait in BOARD_AFTER] + [rec["seconds"] - wait for wait in BOARD_END]
     after = [t for t in after if last < t < rec["seconds"]]
-    for t in ([a for a, _ in spans] + sorted(set(after)))[-ACROSS_PICTURES:]:
-        frame = recording.frame(rec, at=t, side=BOARD_SIDE)
-        if frame:
-            job.attach(os.path.join(recording.WORK, "frames", frame), "The match at %s:" % recording.clock(t))
+    _board_pictures(job, rec, ([a for a, _ in spans] + sorted(set(after)))[-ACROSS_PICTURES:])
     return READ_BOARD
 
 
@@ -2717,9 +2721,16 @@ SCORES_OFF = ("The scores in these words read %s, and a match's score only goes 
               "the last the program takes them out.")
 SCORES_OUT = ("The scores in the words still could not be a match's, so the program took them out of the words. In the title "
               "and the post text, write only a score you read on the board.")
-GOAL_LEFT_OUT = ("Nothing was joined yet. A piece reads %s, two or more goals above the piece before it, so a goal between %s "
-                 "and %s of the recording is not in the clip. Look there, propose it and join it in match order. If that "
-                 "stretch has no goal, or the person asked for fewer goals, call make_countdown again and it is joined.")
+FINAL_ASKED = ("Give final: the score in the last picture near the end of the recording that shows a board, as the board shows "
+               "it. With no board in those pictures, leave it out and call it again.")
+# 080148-9959 on 11-01: told of the gap before 0-2, Glimmer took a look of 4 pictures across 5 minutes and called 4:15 the goal, a
+# later stretch at the same score, and 1-3 went missing as nothing here knew the final score. The goal was at 3:22.
+GOAL_LEFT_OUT = ("Nothing was joined yet. The board reads %s, more goals than your pieces before it show, so a goal between %s "
+                 "and %s of the recording is not in the clip. The pictures that come next show that stretch, each with its "
+                 "time: the goal lies between the last picture with the lower score and the first with the higher, and a "
+                 "later stretch at the same score is not the goal. Look there, propose it from the play that led to it, and "
+                 "join it in match order. If no picture's score changes, or the person asked for fewer goals, call "
+                 "make_countdown again and it is joined.")
 AHEAD = "The last score, %s, in the board's order has %s: the title and the post text say the same."
 
 
@@ -2728,17 +2739,21 @@ def _reel_scores(lines):
     return [(int(m[1]), int(m[2]), line.lower()) for line, m in ((s, REEL_SCORE.search(s)) for s in lines) if m]
 
 
-def _goal_left_out(lines, spans):
-    """(the score, the start, the end) of the first stretch of the recording that a match reel's own scores say holds a
-    goal left out, or None: a piece two or more goals above the piece before it, and a match starts at 0-0."""
-    goals, after = 0, 0.0
+def _goals_left_out(lines, spans, final=None, seconds=0.0):
+    """[(the score, the start, the end)] of the stretches of the recording that a match reel's own scores say hold a goal
+    left out: before a piece two or more goals above the piece before it, as a match starts at 0-0, and after the last
+    piece when final, the score near the end of the recording of seconds, is above it."""
+    gaps, goals, after = [], 0, 0.0
     for line, (a, b) in zip(lines, spans):
         for left, right, _ in _reel_scores([line]):
             if left + right > goals + 1:
-                return "%d-%d" % (left, right), after, a
+                gaps.append(("%d-%d" % (left, right), after, a))
             goals = left + right
         after = b
-    return None
+    for left, right, _ in _reel_scores([final or ""]):
+        if goals and left + right > goals:
+            gaps.append(("%d-%d" % (left, right), after, seconds))
+    return gaps
 
 
 def _ahead(lines):
@@ -6382,7 +6397,7 @@ def _one_clip(job, rec, k, c, layout, blur, opened=None):
                                                            "; " + "; ".join(notes) if notes else "")
 
 
-def make_countdown(job, why, moments, story):
+def make_countdown(job, why, moments, story, final=None):
     rec, proposed, looks = _counted_from(job)
     n = countdown.asked([e["text"] for e in job.chat.events if e["kind"] == "person"])
     recipe = (job.chat.clip or {}).get("recipe")
@@ -6489,13 +6504,16 @@ def make_countdown(job, why, moments, story):
     if off and tries < SCORE_TRIES:
         job.emit("reel_scores")
         problems.append(SCORES_OFF % (off, tries + 1, SCORE_TRIES))
+    if reel and not final and _times_told(job, "reel_board") and not _told_once(job, "reel_final"):
+        problems.append(FINAL_ASKED)
     if problems:
         raise Refused("Nothing was joined. Fix all of these, then call it again:\n- " + "\n- ".join(problems))
     if off:
         moments = [dict(c, words=" ".join(REEL_SCORE.sub(" ", c["words"]).split()) or REEL_NO_WORDS) for c in moments]
-    gap = _goal_left_out([c["words"] for c in moments], spans) if reel else None
-    if gap and not _told_once(job, "reel_goal_left"):
-        raise Refused(GOAL_LEFT_OUT % (gap[0], clock(gap[1]), clock(gap[2])))
+    for score, a, b in _goals_left_out([c["words"] for c in moments], spans, final, rec["seconds"]) if reel else ():
+        if not _told_once(job, "reel_goal_left_" + score):
+            _board_pictures(job, rec, [a + (b - a) * (k + 1) / (ACROSS_PICTURES + 1) for k in range(ACROSS_PICTURES)])
+            raise Refused(GOAL_LEFT_OUT % (score, clock(a), clock(b)))
     menu = None if reel else _menu_start(job, rec, spans[0][0])
     if menu:
         raise Refused("Nothing was joined. " + menu)
@@ -6553,7 +6571,7 @@ def make_countdown(job, why, moments, story):
         head.append(spelling)
     if off:
         head.append(SCORES_OUT)
-    ahead = _ahead(lines) if reel else None
+    ahead = _ahead(lines + [final or ""]) if reel else None
     if ahead:
         head.append(ahead)
     try:
@@ -8068,7 +8086,10 @@ TOOLS = {t.name: t for t in [
                      "description": "The moments in countdown order: the first is the lowest rank, the last the best."},
           "story": {"type": "string", "maxLength": 200,
                     "description": "What is counted down, in one line in the person's language, such as the five "
-                                   "closest fights of the stream."}},
+                                   "closest fights of the stream."},
+          "final": {"type": "string", "maxLength": 20,
+                    "description": "In a sports match: the score on the board near the end of the recording, as the "
+                                   "board shows it."}},
          ["moments", "story"], make_countdown, changes=True),
     Tool("undo", "Took back the last change",
          "Take back the last change to the clip: a layout, a moved part, a style, a title, the captions, a blur, a hit, a "
