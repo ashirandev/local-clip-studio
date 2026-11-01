@@ -87,14 +87,14 @@ class Piece(unittest.TestCase):
 
 
 class Graph(unittest.TestCase):
-    def test_the_recordings_own_size_and_only_its_first_sound_track(self):
+    def test_the_recordings_own_size_and_the_sound_tracks_it_uses(self):
         rec = {"path": "/s.mkv", "width": 1281, "height": 721, "sound_tracks": 2}
         args, chain = countdown.graph(rec, [[10, 21], [50, 61]])
         self.assertEqual(args, ["-ss", "10.000", "-t", "11.000", "-i", "/s.mkv", "-ss", "50.000", "-t", "11.000",
                                 "-i", "/s.mkv"])
         self.assertIn("[0:v:0]scale=1280:720,", chain, "even, as H.264 needs")
-        self.assertIn("[1:a:0]aresample", chain)
-        self.assertNotIn("a:1", chain, "the render and the hearing read the first track")
+        self.assertIn("[1:a:0][1:a:1]amix=inputs=2", chain, "the render and the hearing read every track that differs")
+        self.assertIn("[1:a:1]aresample", countdown.graph(dict(rec, tracks=[1]), [[10, 21], [50, 61]])[1], "or the one chosen")
         self.assertIn("concat=n=2:v=1:a=1[v][a]", chain)
         self.assertIn("anullsrc", countdown.graph(dict(rec, sound_tracks=0), [[10, 21]])[1])
 
@@ -109,9 +109,9 @@ class Join(unittest.TestCase):
         recording.WORK = self.work
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_the_pieces_join_in_order_at_the_recordings_size_with_its_first_track(self):
-        """A stream with two sound tracks, the first silent and the second a loud tone: the countdown keeps the
-        first."""
+    def test_the_pieces_join_in_order_at_the_recordings_size_with_its_sound_tracks(self):
+        """A stream with two sound tracks, the first silent and the second a loud tone, as a game and a voice: Tarm 11-01,
+        the voice stays in."""
         path = os.path.join(self.tmp, "stream.mkv")
         subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x180:r=30:d=12", "-f", "lavfi",
                         "-i", "anullsrc=r=48000:cl=stereo:d=12", "-f", "lavfi", "-i", "sine=f=440:d=12", "-map", "0:v",
@@ -129,7 +129,7 @@ class Join(unittest.TestCase):
         loud = subprocess.run([FFMPEG, "-hide_banner", "-i", out, "-af", "volumedetect", "-f", "null", "-"],
                               capture_output=True, text=True).stderr
         peak = float(loud.split("max_volume:")[1].split("dB")[0])
-        self.assertLess(peak, -60, "the first track, silent, not the tone on the second")
+        self.assertGreater(peak, -40, "the tone on the second track is in the clip")
         self.assertNotEqual(countdown.target(rec, spans), countdown.target(rec, spans[::-1]))
         self.assertEqual(countdown.join(rec, spans, out), out, "joined once")
 
