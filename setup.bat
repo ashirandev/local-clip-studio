@@ -17,6 +17,7 @@ echo  Local Clip Studio: setting up this computer.
 echo  Each file is checked before it is used. If anything stops, run setup.bat again: it carries on.
 echo.
 if exist "%PY%" goto pip
+if exist "%HERE%parts\one_key.txt" goto placed
 if defined LCS_PLACED goto placed
 echo  Choose where the studio goes in the window that opens. It makes a "Local Clip Studio" folder there
 echo  and keeps everything in it: about 18 GB with Muse Glimmer.

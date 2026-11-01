@@ -865,7 +865,7 @@ async function pickClip(k) {
     const d = await post("/api/album", { chat: room.chat, n: k });
     if (!d.ok) toast(d.error || "That clip could not be opened.");
   } catch (err) {
-    toast("The studio is not answering. Start it again with: python app.py");
+    toast("The studio is not answering. Open Local Clip Studio again.");
   }
 }
 
@@ -1073,7 +1073,7 @@ async function drawFaces(t, made, asked) {
         const res = await post("/api/person", { chat: room.chat, n: f.n, blur: !f.blur });
         if (!res.ok) clipLine.textContent = res.error || "That face could not be changed.";
       } catch (err) {
-        clipLine.textContent = "The studio is not answering. Start it again with: python app.py";
+        clipLine.textContent = "The studio is not answering. Open Local Clip Studio again.";
       }
       b.disabled = false;
     });
@@ -1286,7 +1286,7 @@ eyeButton.addEventListener("click", async () => {
     const d = await post("/api/captions", { chat: room.chat, hidden: !room.panel.eye.hidden });
     if (!d.ok) panelNote.textContent = d.error || "That could not be changed.";
   } catch (err) {
-    panelNote.textContent = "The studio is not answering. Start it again with: python app.py";
+    panelNote.textContent = "The studio is not answering. Open Local Clip Studio again.";
   }
   eyeButton.disabled = false;
   loadPanel();
@@ -1379,7 +1379,7 @@ async function mute(start, end, back) {
     if (d.ok) room.mute = {};
     else panelNote.textContent = d.error || "That could not be muted.";
   } catch (err) {
-    panelNote.textContent = "The studio is not answering. Start it again with: python app.py";
+    panelNote.textContent = "The studio is not answering. Open Local Clip Studio again.";
   }
   loadPanel();
 }
@@ -1621,7 +1621,7 @@ async function trimApply() {
       trimWhy.hidden = false;
     }
   } catch (err) {
-    trimWhy.textContent = "The studio is not answering. Start it again with: python app.py";
+    trimWhy.textContent = "The studio is not answering. Open Local Clip Studio again.";
     trimWhy.hidden = false;
   }
   drawTrim();
@@ -1715,7 +1715,7 @@ function cutDrag(e, node) {
       const d = await post("/api/shot", body);
       if (!d.ok) clipLine.textContent = d.error || "The shot could not be moved.";
     } catch (err) {
-      clipLine.textContent = "The studio is not answering. Start it again with: python app.py";
+      clipLine.textContent = "The studio is not answering. Open Local Clip Studio again.";
     }
     loadPanel();
   };
@@ -1911,7 +1911,7 @@ async function frameApply() {
       frameWhy.hidden = false;
     }
   } catch (err) {
-    frameWhy.textContent = "The studio is not answering. Start it again with: python app.py";
+    frameWhy.textContent = "The studio is not answering. Open Local Clip Studio again.";
     frameWhy.hidden = false;
   }
   drawFrame();
@@ -2047,7 +2047,7 @@ async function changeEffect(body, failed) {
     const d = await post("/api/effect", Object.assign({ chat: room.chat }, body));
     room.pickWhy = d.ok ? "" : d.error || failed;
   } catch (err) {
-    room.pickWhy = "The studio is not answering. Start it again with: python app.py";
+    room.pickWhy = "The studio is not answering. Open Local Clip Studio again.";
   }
   loadPanel();
 }
@@ -2088,7 +2088,7 @@ async function addEffect(body) {
       why.hidden = false;
     }
   } catch (err) {
-    why.textContent = "The studio is not answering. Start it again with: python app.py";
+    why.textContent = "The studio is not answering. Open Local Clip Studio again.";
     why.hidden = false;
   }
   loadPanel();
@@ -2177,7 +2177,7 @@ $("partRow").addEventListener("click", async (e) => {
       why.hidden = false;
     }
   } catch (err) {
-    why.textContent = "The studio is not answering. Start it again with: python app.py";
+    why.textContent = "The studio is not answering. Open Local Clip Studio again.";
     why.hidden = false;
   }
   loadPanel();
@@ -2233,7 +2233,7 @@ function titleDrag(e, k, node) {
       const d = await post("/api/title/time", { chat: room.chat, n: b.n, was: b.text, start: t.start, end: t.end });
       room.pickWhy = d.ok ? "" : d.error || "The words could not be moved.";
     } catch (err) {
-      room.pickWhy = "The studio is not answering. Start it again with: python app.py";
+      room.pickWhy = "The studio is not answering. Open Local Clip Studio again.";
     }
     loadPanel();
   };
@@ -2313,7 +2313,7 @@ async function chooseLayout(c) {
     }
     pageWork("layout", true);
   } catch (err) {
-    why.textContent = "The studio is not answering. Start it again with: python app.py";
+    why.textContent = "The studio is not answering. Open Local Clip Studio again.";
   }
 }
 
@@ -2324,7 +2324,7 @@ async function choose(row, path, body) {
     const d = await post(path, Object.assign({ chat: room.chat }, body));
     if (!d.ok) panelNote.textContent = d.error || "That could not be changed.";
   } catch (err) {
-    panelNote.textContent = "The studio is not answering. Start it again with: python app.py";
+    panelNote.textContent = "The studio is not answering. Open Local Clip Studio again.";
   }
   loadPanel();
 }
@@ -2373,7 +2373,7 @@ async function albumPress(path, body) {
     if (!d.ok) albumNote(d.error || "That could not be done.");
     return d.ok;
   } catch (err) {
-    albumNote("The studio is not answering. Start it again with: python app.py");
+    albumNote("The studio is not answering. Open Local Clip Studio again.");
     return false;
   } finally {
     loadPanel();
@@ -2579,7 +2579,7 @@ wordEdit.addEventListener("submit", async (e) => {
     if (d.ok) closeWords();
     else wordNote.textContent = d.error || "Those words could not be saved.";
   } catch (err) {
-    wordNote.textContent = "The studio is not answering. Start it again with: python app.py";
+    wordNote.textContent = "The studio is not answering. Open Local Clip Studio again.";
   }
   wordSave.disabled = false;
 });
@@ -2615,7 +2615,7 @@ againButton.addEventListener("click", async () => {
       againButton.disabled = false;
     }
   } catch (err) {
-    againLine.textContent = "The studio is not answering. Start it again with: python app.py";
+    againLine.textContent = "The studio is not answering. Open Local Clip Studio again.";
     againButton.disabled = false;
   }
 });
@@ -2626,7 +2626,7 @@ clipUndo.addEventListener("click", async () => {
     const d = await post("/api/undo", { chat: room.chat });
     if (!d.ok) clipLine.textContent = d.error || "Nothing was taken back.";
   } catch (err) {
-    clipLine.textContent = "The studio is not answering. Start it again with: python app.py";
+    clipLine.textContent = "The studio is not answering. Open Local Clip Studio again.";
   }
   clipUndo.disabled = !room.panel;
 });
@@ -3080,7 +3080,7 @@ async function health() {
     drawMinds();
     refreshCost();
   } catch (e) {
-    statusLine.textContent = "The studio is not answering. Start it again with: python app.py";
+    statusLine.textContent = "The studio is not answering. Open Local Clip Studio again.";
   }
 }
 
@@ -3134,7 +3134,7 @@ async function connect(chatId) {
     if (d.chat !== room.chat || !room.source || room.source.readyState === EventSource.CLOSED) show(d.chat);
     return true;
   } catch (e) {
-    statusLine.textContent = "The studio is not answering. Start it again with: python app.py";
+    statusLine.textContent = "The studio is not answering. Open Local Clip Studio again.";
     setTimeout(connect, 3000);
     return false;
   }
@@ -3201,7 +3201,7 @@ function drawSends(d) {
     try {
       got = await post("/api/sends", { on: k === "on" });
     } catch (e) {
-      got = { ok: false, error: "The studio is not answering. Start it again with: python app.py" };
+      got = { ok: false, error: "The studio is not answering. Open Local Clip Studio again." };
     }
     if (!got.ok) {
       sendsLine.classList.add("bad");
@@ -3222,7 +3222,7 @@ apiForm.addEventListener("submit", async (e) => {
   try {
     d = await post("/api/key", { api: apiNow, url: apiUrl.value, key: apiKey.value });
   } catch (err) {
-    d = { ok: false, error: "The studio is not answering. Start it again with: python app.py" };
+    d = { ok: false, error: "The studio is not answering. Open Local Clip Studio again." };
   }
   const ok = d.ok && d.mind.ok;
   apiNote.classList.toggle("bad", !ok);
@@ -3259,7 +3259,7 @@ function drawPhone(d) {
     try {
       got = await post("/api/phone", { on: k === "on" });
     } catch (e) {
-      got = { ok: false, error: "The studio is not answering. Start it again with: python app.py" };
+      got = { ok: false, error: "The studio is not answering. Open Local Clip Studio again." };
     }
     if (!got.ok) {
       phoneLine.classList.add("bad");
@@ -3316,8 +3316,7 @@ function upload(file, batch, progress) {
 
 async function sendFiles(files) {
   const list = [...files];
-  if (!list.length) return;
-  if (app.dataset.screen === "home") setScreen("chat");
+  if (!list.length || !(await leaveHome())) return;
   const batch = stamp(new Date());
   const line = bubble("note sent");
   const words = el("span");
@@ -3427,7 +3426,7 @@ setUpButton.addEventListener("click", async () => {
   try {
     d = await post("/api/parts", {});
   } catch (e) {
-    d = { ok: false, error: "The studio is not answering. Start it again with: python app.py" };
+    d = { ok: false, error: "The studio is not answering. Open Local Clip Studio again." };
   }
   setUpButton.disabled = false;
   if (d.ok) return loadParts();
@@ -3446,7 +3445,7 @@ async function say(words) {
     if (d.ok) return true;
     note(d.error || "Something went wrong.");
   } catch (err) {
-    note("The studio is not answering. Start it again with: python app.py");
+    note("The studio is not answering. Open Local Clip Studio again.");
   }
   return false;
 }
@@ -3470,21 +3469,32 @@ stopButton.addEventListener("click", async () => {
   try {
     await post("/api/stop", { chat: room.chat });
   } catch (err) {
-    note("The studio is not answering. Start it again with: python app.py");
+    note("The studio is not answering. Open Local Clip Studio again.");
     stopButton.disabled = false;
   }
 });
 
-newButton.addEventListener("click", async () => {
+async function newChat() {
   try {
     const d = await post("/api/chat/new", {});
     if (d.ok) show(d.chat);
   } catch (err) {
-    toast("The studio is not answering. Start it again with: python app.py");
-    return;
+    toast("The studio is not answering. Open Local Clip Studio again.");
+    return false;
   }
   setScreen("chat");
-  text.focus();
+  return true;
+}
+
+async function leaveHome() {
+  if (app.dataset.screen !== "home") return true;
+  if (!room.open.size) return newChat();
+  setScreen("chat");
+  return true;
+}
+
+newButton.addEventListener("click", async () => {
+  if (await newChat()) text.focus();
 });
 
 async function openChat(c) {
@@ -3502,7 +3512,7 @@ async function loadHome() {
       fetch("/api/spent?currency=" + myCurrency(), { cache: "no-store" }).then((r) => r.json()),
     ]);
   } catch (err) {
-    gridEmpty.textContent = "The studio is not answering. Start it again with: python app.py";
+    gridEmpty.textContent = "The studio is not answering. Open Local Clip Studio again.";
     gridEmpty.hidden = false;
     return;
   }
@@ -3734,24 +3744,58 @@ async function fillNewest() {
   }
 }
 
-async function openRecording(body) {
-  const words = text.value.trim();
+async function bringIn(file, space, ask) {
+  if (file.size > space) {
+    const gb = (n) => (Math.max(n, 0) / 1e9).toFixed(1);
+    return { error: file.name + " is " + gb(file.size) + " GB and the studio's drive has room for " + gb(space) + " GB. Free up space there and send it again. · วิดีโอนี้ขนาด " + gb(file.size) + " GB แต่ไดรฟ์ที่ติดตั้งโปรแกรมเหลือที่ให้ " + gb(space) + " GB ลบไฟล์ที่ไม่ใช้ออกก่อน แล้วกดส่งอีกครั้ง" };
+  }
+  const line = bubble("note sent");
+  const words = el("span");
+  line.append(ico("film", "sm"), words);
+  const head = "Copying " + file.name + " into the studio";
+  words.textContent = head;
   try {
-    const d = await post("/api/open", Object.assign({ chat: room.chat, words: words, mind: room.mind, language: navigator.language || "" }, body));
+    const d = await upload(file, stamp(new Date()), (part) => {
+      words.textContent = head + " · " + Math.round(part * 100) + "%";
+    });
+    if (!d.ok) {
+      line.remove();
+      return d;
+    }
+    words.textContent = "Copied " + file.name + " into the studio.";
+    return ask({ path: d.path });
+  } catch (e) {
+    line.remove();
+    return { error: file.name + " could not be copied. Keep this page open and send it again. · คัดลอกไม่สำเร็จ เปิดหน้านี้ค้างไว้แล้วกดส่งอีกครั้ง" };
+  }
+}
+
+async function openRecording(body) {
+  if (room.opening) return;
+  room.opening = true;
+  const words = text.value.trim();
+  const file = room.attached && room.attached.file;
+  const ask = (where) => post("/api/open", Object.assign({ chat: room.chat, words: words, mind: room.mind, language: navigator.language || "" }, where));
+  try {
+    const first = await ask(body);
+    const d = first.unseen && file ? await bringIn(file, first.room, ask) : first;
     if (d.ok) {
       text.value = "";
       fitText();
       detach();
-      return;
+    } else {
+      note(d.error || "Something went wrong.");
     }
-    note(d.error || "Something went wrong.");
   } catch (err) {
-    note("The studio is not answering. Start it again with: python app.py");
+    note("The studio is not answering. Open Local Clip Studio again.");
   }
+  room.opening = false;
 }
 
 function openFile(file) {
-  if (file) attach({ name: file.name, size: file.size, mtime: file.lastModified / 1000 }, file.name, sizeText(file.size));
+  if (!file) return;
+  attach({ name: file.name, size: file.size, mtime: file.lastModified / 1000 }, file.name, sizeText(file.size));
+  room.attached.file = file;
 }
 
 $("add").addEventListener("click", () => {
@@ -3770,9 +3814,10 @@ phoneFiles.addEventListener("change", () => {
   sendFiles(files);
 });
 
-fileInput.addEventListener("change", () => {
-  openFile(fileInput.files[0]);
+fileInput.addEventListener("change", async () => {
+  const file = fileInput.files[0];
   fileInput.value = "";
+  if (await leaveHome()) openFile(file);
 });
 
 function carriesFiles(e) {
@@ -3789,12 +3834,12 @@ window.addEventListener("dragleave", (e) => {
   if (!e.relatedTarget) dropCover.hidden = true;
 });
 
-window.addEventListener("drop", (e) => {
+window.addEventListener("drop", async (e) => {
   if (!carriesFiles(e)) return;
   e.preventDefault();
   dropCover.hidden = true;
-  if (app.dataset.screen === "home") setScreen("chat");
-  openFile(e.dataTransfer.files[0]);
+  const file = e.dataTransfer.files[0];
+  if (await leaveHome()) openFile(file);
 });
 
 function fitText() {

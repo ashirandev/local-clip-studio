@@ -45,6 +45,7 @@ GLIMMER_FILE = os.environ.get("LCS_GLIMMER_FILE") or os.path.join(WORK, "models"
 VISION_FILE = os.environ.get("LCS_GLIMMER_VISION") or os.path.join(WORK, "models", "glimmer", VISION_NAME)
 HEARING_DIR = os.environ.get("LCS_HEARING_MODELS") or os.path.join(WORK, "models", "hearing")
 HANDED = os.environ.get("LCS_PARTS") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "parts")
+ONE_KEY = os.path.join(HANDED, "one_key.txt")
 HEARING_FROM = os.environ.get("LCS_HEARING_FROM",
                               "https://github.com/ashirandev/local-clip-studio/releases/download/hearing-1").rstrip("/")
 LOCAL_URL = "http://127.0.0.1:8863/v1"
@@ -451,6 +452,32 @@ def ask_api(read=input, read_secret=None):
     return True
 
 
+def ask_key(read=input, read_secret=None):
+    """The one question of a build made for one person on Meta's API (ONE_KEY, which whoever made the build puts in the
+    parts folder): their Meta key, tried at once and asked for again when Meta turns it down, then ask_sends. A key
+    already saved stays with Enter, as setup is run again after anything stops. True when there is a key."""
+    import getpass
+    read_secret = read_secret or getpass.getpass
+    saved = mind.saved_api()[1]
+    if saved:
+        print("  A key is saved. Press Enter to keep it, or paste another.")
+    while True:
+        try:
+            key = read_secret("  Paste your Meta API key with one right-click, then press Enter (it does not show): ")
+        except EOFError:
+            print()
+            return False
+        if saved and not key.strip():
+            break
+        why = mind.save_api(mind.NAMED["meta"], key) or mind.key_refused()
+        if not why:
+            print("  The key works.")
+            break
+        print("  " + why)
+    ask_sends(read)
+    return True
+
+
 def _ask_one(read, read_secret, question):
     """One endpoint and key (Enter skips, or keeps the one saved); a word names Meta's, Baseten's or Fireworks' endpoint
     (mind.NAMED), as nobody can guess an address. The key is read without showing it. A Meta key is followed by
@@ -473,6 +500,8 @@ def _ask_one(read, read_secret, question):
         if not url:
             return False
         why = mind.save_api(url, key)
+        if not why and "META_API_KEY" in mind.api_names(url)[1]:
+            why = mind.key_refused()
         if not why:
             print("  Saved in %s." % mind.KEY_FILE)
             if "META_API_KEY" in mind.api_names(url)[1]:
@@ -490,7 +519,7 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     use_tools()
     if "--no-key" not in argv and sys.stdin and sys.stdin.isatty():
-        ask_api()
+        (ask_key if os.path.isfile(ONE_KEY) else ask_api)()
     gpu = card()
     found = parts(gpu, look=False)
     leave = LATER if mind.saved_api()[1] else ()

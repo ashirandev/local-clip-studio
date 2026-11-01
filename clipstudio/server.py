@@ -445,6 +445,9 @@ class Handler(BaseHTTPRequestHandler):
                     raise recording.NotOpened("Send the dropped file's name and size, or a path.")
                 where = recording.locate(str(body["name"]), size, mtime if isinstance(mtime, (int, float)) else None)
             rec = recording.probe(where)
+        except recording.NotSeen as e:
+            self.send_json({"ok": False, "error": str(e), "unseen": True, "room": phone.room()}, HTTPStatus.NOT_FOUND)
+            return
         except recording.NotOpened as e:
             self.send_json({"ok": False, "error": str(e)}, HTTPStatus.NOT_FOUND)
             return

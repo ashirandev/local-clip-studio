@@ -9,6 +9,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import urllib.error
 from contextlib import redirect_stdout
 from http.server import ThreadingHTTPServer
 from unittest import mock
@@ -19,6 +20,7 @@ from clipstudio import hearing, mind, parts, recording, sends, server  # noqa: E
 
 NAMES = ("LCS_SPARK_URL", "LCS_MODAL_URL", "META_API_KEY", "MODAL_KEY", "MODAL_SECRET", "LCS_KEYS", "LCS_BASETEN_URL",
          "BASETEN_API_KEY", "LCS_BASETEN_MODEL", "LCS_FIREWORKS_URL", "FIREWORKS_API_KEY", "LCS_FIREWORKS_MODEL")
+REAL_KEY_TRY = mind.key_refused
 
 
 class Saved(unittest.TestCase):
@@ -28,9 +30,12 @@ class Saved(unittest.TestCase):
         self.file.start()
         self.work = mock.patch.object(recording, "WORK", os.path.join(self.tmp, "work"))
         self.work.start()
+        self.tried = mock.patch.object(mind, "key_refused", lambda: None)
+        self.tried.start()
         self.had = {n: os.environ.pop(n, None) for n in NAMES}
 
     def tearDown(self):
+        self.tried.stop()
         self.work.stop()
         self.file.stop()
         for n, v in self.had.items():
@@ -134,6 +139,80 @@ class Saved(unittest.TestCase):
         self.assertEqual(mind.saved_api(), ("https://inference.baseten.co/v1", True))
         with redirect_stdout(io.StringIO()):
             self.assertFalse(parts.ask_api(read=lambda q: "", read_secret=lambda q: "x"), "Enter skips")
+
+    def test_a_key_is_tried_at_setup_and_a_refused_one_is_asked_for_again(self):
+        """Tarm 11-01: a bad paste shows nothing, and his brother would find out at his first job, on his only evening."""
+        tried = iter([mind.KEY_REFUSED, None])
+        keys = iter(["bad-paste", "good-key"])
+        out = io.StringIO()
+        with mock.patch.object(mind, "key_refused", lambda: next(tried)), redirect_stdout(out):
+            self.assertTrue(parts.ask_api(read=lambda q: "meta" if "Endpoint" in q else "", read_secret=lambda q: next(keys)))
+        self.assertIn(mind.KEY_REFUSED, out.getvalue())
+        self.assertIn("good-key", open(mind.KEY_FILE, encoding="utf-8").read())
+
+    def test_only_a_refusal_counts_against_a_key(self):
+        def fails(error):
+            def call(path, *a, **k):
+                raise error
+            return call
+        spark = mock.Mock()
+        with mock.patch.object(mind, "minds", lambda: {"spark": spark}):
+            spark._call = lambda path: {"data": []}
+            self.assertIsNone(REAL_KEY_TRY())
+            spark._call = fails(urllib.error.HTTPError("u", 401, "no", {}, None))
+            self.assertEqual(REAL_KEY_TRY(), mind.KEY_REFUSED)
+            spark._call = fails(urllib.error.HTTPError("u", 403, "no", {}, None))
+            self.assertEqual(REAL_KEY_TRY(), mind.KEY_REFUSED)
+            spark._call = fails(urllib.error.HTTPError("u", 500, "busy", {}, None))
+            self.assertIsNone(REAL_KEY_TRY(), "Meta being down is not a bad key")
+            spark._call = fails(OSError("no network"))
+            self.assertIsNone(REAL_KEY_TRY())
+
+    def test_a_build_for_one_person_asks_for_one_key_then_about_pieces(self):
+        asked, out, keys = [], io.StringIO(), iter(["", "bad-paste", "good-key"])
+        tried = iter([mind.KEY_REFUSED, None])
+
+        def read(q):
+            asked.append(q)
+            return ""
+        with mock.patch.object(mind, "key_refused", lambda: next(tried)), redirect_stdout(out):
+            self.assertTrue(parts.ask_key(read=read, read_secret=lambda q: next(keys)))
+        text = open(mind.KEY_FILE, encoding="utf-8").read()
+        self.assertIn("META_API_KEY=good-key", text)
+        self.assertIn("LCS_SPARK_URL=" + mind.NAMED["meta"], text)
+        self.assertIn("Give the API key.", out.getvalue(), "Enter with nothing saved is not a key")
+        self.assertIn(mind.KEY_REFUSED, out.getvalue())
+        self.assertIn("The key works.", out.getvalue())
+        self.assertEqual(len(asked), 1)
+        self.assertIn("hear and see pieces", asked[0], "the question about pieces stays")
+        self.assertTrue(sends.allowed())
+
+    def test_a_key_saved_before_stays_with_enter_when_setup_runs_again(self):
+        mind.save_api(mind.NAMED["meta"], "kept-key")
+        out = io.StringIO()
+        with mock.patch.object(mind, "key_refused", lambda: self.fail("nothing new to try")), redirect_stdout(out):
+            self.assertTrue(parts.ask_key(read=lambda q: "", read_secret=lambda q: ""))
+        self.assertIn("A key is saved.", out.getvalue())
+        self.assertIn("META_API_KEY=kept-key", open(mind.KEY_FILE, encoding="utf-8").read())
+
+    def test_a_build_with_the_one_key_mark_asks_one_question_and_others_ask_as_before(self):
+        mark = os.path.join(self.tmp, "one_key.txt")
+        stdin = mock.Mock()
+        stdin.isatty.return_value = True
+        for marked in (False, True):
+            if marked:
+                open(mark, "w").close()
+            with mock.patch.object(parts, "ONE_KEY", mark), mock.patch.object(parts, "ask_api") as many, \
+                    mock.patch.object(parts, "ask_key") as one, mock.patch.object(sys, "stdin", stdin), \
+                    mock.patch.object(parts, "card", lambda: None), mock.patch.object(parts, "parts", lambda *a, **k: []), \
+                    mock.patch.object(parts, "set_up", lambda *a: "Everything"), redirect_stdout(io.StringIO()):
+                parts.main([])
+            self.assertEqual((many.called, one.called), (not marked, marked))
+
+    def test_setup_stays_where_it_was_unzipped_in_a_build_for_one_person(self):
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "setup.bat"), encoding="utf-8") as f:
+            bat = f.read()
+        self.assertLess(bat.index('if exist "%HERE%parts\\one_key.txt" goto placed'), bat.index("Choose where the studio goes"))
 
     def asked(self, *answers, endpoint="meta", secret="made-up-secret"):
         """setup's key question with these answers after the endpoint. -> (what was printed, the questions asked)."""

@@ -142,6 +142,12 @@ def receive(read, length, name, batch, when=None):
     return {"path": dest, "folder": folder, "name": os.path.basename(dest), "kind": kind}
 
 
+def room():
+    """The size a file sent in may be, in bytes, leaving SPARE free on its drive. Below 0 when there is less than SPARE."""
+    os.makedirs(recording.INBOX, exist_ok=True)
+    return shutil.disk_usage(recording.INBOX).free - SPARE
+
+
 def _free_name(folder, name):
     stem, ext = os.path.splitext(name)
     dest, n = os.path.join(folder, name), 2

@@ -94,6 +94,37 @@ class Phone(unittest.TestCase):
             self.assertIn(os.path.realpath(recording.INBOX), recording.folders(), "named folders and the phone's")
             self.assertEqual(recording.check_path(d["path"]), os.path.realpath(d["path"]))
 
+    def test_a_dropped_video_the_studio_cannot_see_comes_in_and_opens_from_there(self):
+        """Tarm 11-01: his brother drags a video in from anywhere. The answer says so and how much fits, and what the
+        page sends then is a recording the studio opens by its path."""
+        chat = mock.Mock()
+        job = mock.Mock(n=1)
+        chat.open_dropped.return_value = job
+        chat.id = "c1"
+        rec = {"path": "x"}
+        with mock.patch.dict(os.environ, {"LCS_VIDEOS": self.tmp}), mock.patch.object(server.agent, "find", lambda c: chat), \
+                mock.patch.object(shutil, "disk_usage", lambda p: mock.Mock(free=5 * phone.SPARE)):
+            r, got = self.ask("POST", "/api/open", {"chat": "c1", "name": "00001.MTS", "size": 300_000, "mtime": 1.0})
+            self.assertEqual(r.status, 404, got)
+            d = json.loads(got)
+            self.assertTrue(d["unseen"], got)
+            self.assertEqual(d["room"], 4 * phone.SPARE, "a spare gigabyte stays free")
+            r, got = self.send("00001.MTS", os.urandom(300_000))
+            self.assertEqual(r.status, 200, got)
+            path = json.loads(got)["path"]
+            with mock.patch.object(recording, "probe", lambda p: dict(rec, path=p)):
+                r, got = self.ask("POST", "/api/open", {"chat": "c1", "path": path})
+            self.assertEqual(r.status, 200, got)
+        self.assertEqual(os.path.normcase(chat.open_dropped.call_args[0][0]["path"]), os.path.normcase(os.path.realpath(path)))
+
+    def test_a_dropped_file_that_is_no_video_is_not_asked_for(self):
+        chat = mock.Mock()
+        with mock.patch.dict(os.environ, {"LCS_VIDEOS": self.tmp}), mock.patch.object(server.agent, "find", lambda c: chat):
+            r, got = self.ask("POST", "/api/open", {"chat": "c1", "name": "notes.txt", "size": 300_000})
+        self.assertEqual(r.status, 404, got)
+        self.assertNotIn("unseen", json.loads(got))
+        self.assertIn("is not a video the studio reads", got)
+
     def test_a_recording_on_a_drive_the_studio_reads_whole_is_inside_it(self):
         clip = os.path.join(self.tmp, "trip.mp4")
         with open(clip, "wb") as f:

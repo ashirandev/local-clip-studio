@@ -135,6 +135,21 @@ def _kept():
         return {}
 
 
+KEY_REFUSED = "Meta refused this key. Copy it again from your key page and paste it here."
+
+
+def key_refused():
+    """KEY_REFUSED when Meta's API turns down the Meta key saved a moment ago, else None. The list of models costs nothing
+    to ask for; no answer at all stops nobody, as setup needs the internet before it comes here."""
+    try:
+        minds()["spark"]._call("/models")
+    except urllib.error.HTTPError as e:
+        return KEY_REFUSED if e.code in (401, 403) else None
+    except (OSError, ValueError):
+        return None
+    return None
+
+
 def saved_api():
     """The endpoint the person saved last in KEY_FILE ("" when none), and whether a key is saved with it. Never the
     key."""
@@ -414,7 +429,8 @@ class Mind:
 
     def unreachable(self, e):
         if self.key_env:
-            return "Meta's API did not answer at %s (%s)." % (self.url, _reason(e))
+            return ("Meta's API did not answer at %s (%s). Check this computer's internet, then say go on and it tries "
+                    "again." % (self.url, _reason(e)))
         return ("Muse Glimmer is not running at %s (%s). Open Options and press Set up, or start llama-server as "
                 "the README shows." % (self.url, _reason(e)))
 
@@ -496,6 +512,8 @@ class Mind:
         except urllib.error.HTTPError as e:
             said = e.read().decode("utf-8", "replace")
             sentence = "%s refused the question (HTTP %d): %s" % (self.label, e.code, said[:300])
+            if e.code == 401 and self.key_env:
+                sentence = "%s refused your key. Run setup.bat again and paste the key again." % self.label
             full = _full(said)
             if full:
                 raise TooLong(sentence, *full)

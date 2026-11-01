@@ -17,7 +17,8 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = os.environ.get("LCS_WORK") or os.path.join(ROOT, "work")
 INBOX = os.environ.get("LCS_INBOX") or os.path.join(ROOT, "From phone")
-VIDEO_TYPES = (".mp4", ".mkv", ".mov", ".m4v", ".webm", ".ts", ".flv", ".avi")
+VIDEO_TYPES = (".mp4", ".mkv", ".mov", ".m4v", ".webm", ".ts", ".flv", ".avi", ".mts", ".m2ts", ".mxf", ".mpg", ".mpeg",
+               ".wmv", ".3gp")
 SMALLEST = 1_000_000
 MOST_FILES_LOOKED_AT = 50_000
 SWEEP_SECONDS = 60
@@ -32,6 +33,11 @@ NUMBER = re.compile(r"^\d+(\.\d+)?$")
 
 class NotOpened(Exception):
     """The recording cannot be opened. The sentence says why and what to do."""
+
+
+class NotSeen(NotOpened):
+    """A dropped video is in no folder the studio looks in: on a card or a network drive, or in a folder it leaves out.
+    The page holds the file, so it sends it in (Tarm 11-01: his brother drags a video in and it opens)."""
 
 
 def folders():
@@ -189,15 +195,18 @@ def sound_seconds(path):
 
 
 def locate(name, size, mtime=None):
-    """The path of a dropped file, found by its name and size (and its time, when two files share both)."""
+    """The path of a dropped file, found by its name and size (and its time, when two files share both). NotSeen when
+    it is a video and it is not there."""
+    if not name.lower().endswith(VIDEO_TYPES):
+        raise NotOpened("%s is not a video the studio reads (%s)." % (name, ", ".join(VIDEO_TYPES)))
     for fresh in (False, True):
         hits = [(abs((m - mtime) if mtime else 0), p) for m, s, p in walk(fresh=fresh)
                 if os.path.basename(p).lower() == name.lower() and s == size]
         if hits:
             break
     if not hits:
-        raise NotOpened("%s is not in the folders recordings are kept in (%s). Move it into one of them, or add its "
-                        "folder to LCS_VIDEOS and start the studio again." % (name, ", ".join(folders()) or "none"))
+        raise NotSeen("%s is not in the folders recordings are kept in (%s). Move it into one of them, or add its "
+                      "folder to LCS_VIDEOS and start the studio again." % (name, ", ".join(folders()) or "none"))
     hits.sort()
     if mtime and hits[0][0] > SAME_TIME and len(hits) > 1:
         raise NotOpened("There are %d files named %s with that size, and none has the dropped file's time. Open it "

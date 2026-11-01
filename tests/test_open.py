@@ -136,9 +136,24 @@ class Open(unittest.TestCase):
         for mtime in (st.st_mtime, None):
             found = recording.locate("My Review.mp4", st.st_size, mtime)
             self.assertEqual(os.path.normcase(found), os.path.normcase(os.path.realpath(self.clip)))
-        with self.assertRaises(recording.NotOpened) as e:
+        with self.assertRaises(recording.NotSeen) as e:
             recording.locate("not here.mp4", 1234)
         self.assertIn("is not in the folders recordings are kept in", str(e.exception))
+
+    def test_a_dropped_file_that_is_no_video_is_told_so_and_not_sent_in(self):
+        with self.assertRaises(recording.NotOpened) as e:
+            recording.locate("notes.txt", 1234)
+        self.assertNotIsInstance(e.exception, recording.NotSeen)
+        self.assertIn("notes.txt is not a video the studio reads (.mp4,", str(e.exception))
+
+    def test_a_camera_file_is_a_recording(self):
+        camera = os.path.join(self.videos, "card", "00001.MTS")
+        make_video(camera.replace(".MTS", ".mp4"))
+        os.rename(camera.replace(".MTS", ".mp4"), camera)
+        found = recording.locate("00001.mts", os.path.getsize(camera))
+        self.assertEqual(os.path.normcase(found), os.path.normcase(os.path.realpath(camera)))
+        for name in ("a.m2ts", "a.mxf", "a.mpg", "a.mpeg", "a.wmv", "a.3gp"):
+            self.assertTrue(name.endswith(recording.VIDEO_TYPES), name)
 
     def test_only_recordings_inside_the_folders_open(self):
         outside = os.path.join(self.tmp, "elsewhere", "secret.mp4")
