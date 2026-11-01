@@ -3422,9 +3422,22 @@ function attach(body, name, meta) {
   room.attached = { body: body, name: name };
   attached.replaceChildren(ico("film", "sm"), el("span", "name", name), el("span", "meta", meta || ""), off);
   attached.hidden = false;
+  $("counts").hidden = "folder" in body;
+  drawCounts(1);
   setBusy();
   text.focus();
 }
+
+function drawCounts(n) {
+  room.count = n;
+  [...$("counts").querySelectorAll("button")].forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.n) === n)));
+  $("countSays").textContent = n > 1 ? "Rough picks first. Tap the ones you want made." : "One clip, ready to post.";
+}
+
+$("counts").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (b) drawCounts(Number(b.dataset.n));
+});
 
 function detach() {
   room.attached = null;
@@ -3841,7 +3854,7 @@ async function openRecording(body) {
   room.opening = true;
   const words = text.value.trim();
   const file = room.attached && room.attached.file;
-  const ask = (where) => post("/api/open", Object.assign({ chat: room.chat, words: words, mind: room.mind, language: navigator.language || "" }, where));
+  const ask = (where) => post("/api/open", Object.assign({ chat: room.chat, words: words, mind: room.mind, language: navigator.language || "", count: room.count }, where));
   try {
     const first = await ask(body);
     const d = first.unseen && file ? await bringIn(file, first.room, ask) : first;

@@ -988,7 +988,10 @@ def map_recording(job, why, stretch_s=None, top=6):
 
 LOOK_FRAMES = 4
 SHORTEST_LOOK, LONGEST_LOOK = 2, 600
-MOST_MOMENTS = 8
+MOST_MOMENTS = 20
+MOST_AT_ONCE = 8
+FEW_MOMENTS = ("The person chose to see %d clips and you proposed %d. Look at more stretches across the recording and propose "
+               "them all in one call. If it does not hold that many, call it again with what you have.")
 
 
 def _time(name, text):
@@ -1890,6 +1893,11 @@ def propose_moments(job, why, moments, then="make"):
         raise Refused("You have not looked at any stretch yet. Look first: a moment you propose must be one you saw.")
     if _no_recipe(job):
         raise Refused(NO_RECIPE)
+    wanted = job.chat.wanted
+    if wanted:
+        then = "wait"
+        if len(moments) < wanted and not _told_once(job, "few_moments"):
+            raise Refused(FEW_MOMENTS % (wanted, len(moments)))
     picked, gave, finer = [], [], []
     for i, m in enumerate(moments, 1):
         if not 1 <= m["look"] <= len(looks):
@@ -1906,11 +1914,11 @@ def propose_moments(job, why, moments, then="make"):
                                                                    clock(look["start"]), clock(look["end"])))
         a, b = max(a, lo), min(b, hi)
         gave.append((a, b))
-        seen = (_read_across(job, rec) or _seen_past(job, why, rec, i, m, look, a, b)) if i == 1 else None
+        seen = (_read_across(job, rec) or _seen_past(job, why, rec, i, m, look, a, b)) if i == 1 and not wanted else None
         if seen:
             return seen
         try:
-            finer += _finer_edges(job, rec, look, a, b)
+            finer += [] if wanted else _finer_edges(job, rec, look, a, b)
         except hearing.Stopped:
             return "Not proposed: the person pressed Stop."
         a, b, snapped = _snapped(look, a, b, (job.chat.clip or {}).get("recipe") == "seller")
@@ -1996,6 +2004,7 @@ def propose_moments(job, why, moments, then="make"):
                      "clip is made from one of them.")
     if then == "wait":
         job.emit(WAITING)
+        job.chat.wanted = None
         lines.append("The person asked to see the moments first, so no clip is made in this job: answer now, in one or "
                      "two short lines, that the cards are there to look at, and stop. They tap a card when they want a "
                      "clip from it. Do not list the moments again in words.")
@@ -6155,7 +6164,7 @@ def make_clips(job, why, clips, blur=None):
         raise Refused("No moments are proposed yet. Look at the recording and propose moments first: each clip is made "
                       "from one of them.")
     if len(clips) < 2 and not job.chat.album:
-        raise Refused("clips must have 2 to %d items; it has 1. For one clip, make_clip." % MOST_MOMENTS)
+        raise Refused("clips must have 2 to %d items; it has 1. For one clip, make_clip." % MOST_AT_ONCE)
     numbers = [c["moment"] for c in clips]
     wrong = [n for n in numbers if not 1 <= n <= len(moments)]
     if wrong:
@@ -8068,7 +8077,7 @@ TOOLS = {t.name: t for t in [
          "it over; then it reports on each clip, handed over or why not. Give each clip its title and post text as at "
          "hand-over. Names must be spelled as the screen shows them. A seller's clips each need their product, and "
          "their background on a green cloth: the program then follows the product and puts the background on.",
-         {"clips": {"type": "array", "minItems": 1, "maxItems": MOST_MOMENTS, "items": {
+         {"clips": {"type": "array", "minItems": 1, "maxItems": MOST_AT_ONCE, "items": {
              "type": "object", "required": ["moment", "title", "caption", "hashtags"], "properties": {
                  "moment": {"type": "integer", "minimum": 1, "maximum": MOST_MOMENTS,
                             "description": "The moment's number, as you proposed it."},
@@ -8096,7 +8105,7 @@ TOOLS = {t.name: t for t in [
                  "hashtags": {"type": "array", "minItems": 1, "maxItems": MOST_TAGS, "items": {"type": "string"}},
                  "english": {"type": "string", "maxLength": 600,
                              "description": "The post text in English, when the clip's language is not English."}}},
-                   "description": "2 to %d clips, one for each moment." % MOST_MOMENTS},
+                   "description": "2 to %d clips, one for each moment." % MOST_AT_ONCE},
           "blur": {"type": "array", "maxItems": 4, "items": {
               "type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0, "maximum": 1000}},
                    "description": "Boxes [x1, y1, x2, y2] on your 0-1000 grid of the recording's picture to blur in "

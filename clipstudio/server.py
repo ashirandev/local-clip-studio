@@ -458,7 +458,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": str(e)}, HTTPStatus.NOT_FOUND)
             return
         job = chat.open_dropped(rec, str(body.get("words") or "").strip(), body.get("mind"),
-                                str(body.get("language") or "")[:20])
+                                str(body.get("language") or "")[:20], body.get("count"))
         self.send_json({"ok": True, "chat": chat.id, "job": job.n, "path": rec["path"]})
 
     def send_frame(self, name):

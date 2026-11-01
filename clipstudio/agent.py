@@ -106,6 +106,10 @@ FINISH_CALL = "[studio] Words alone do not give the person the clip. Call the ne
 CUT_OUT = (" (The rest of this result was cut to make room in Muse's memory: the studio still has it, and the tool that gave "
            "it gives it again.)")
 OPEN_SAID = "(opened) "
+CLIP_COUNTS = (5, 10, 20)
+CLIPS_SHOWN = ", %d clips to choose from"
+CLIPS_TOLD = ("The person chose to see %d clips first. Load the recipe, look across the whole recording and propose %d moments, "
+              "each its own stretch, best first. No clip is made now: they tap the cards they want made.")
 AS_SAID = "said"
 WORDS_GONE = "Those words are not on the clip as the page showed them. Look at the clip again."
 VOICE_NAMES = {"Chinese": "Mandarin Chinese"}
@@ -171,7 +175,7 @@ class Chat:
         self.live, self.live_rev = None, 0
         self.clip = self.recording = None
         self.looks, self.moments = [], None
-        self.clips = self.counted = None
+        self.clips = self.counted = self.wanted = None
         self.project = project.Project()
         self.album, self.album_at = [], 0
         self.rendered = []
@@ -1498,18 +1502,25 @@ class Chat:
         self.emit("opened", job=job, recording=rec, frame=frame, line=recording.describe(rec))
         return had, (os.path.join(recording.WORK, "frames", frame) if frame else None)
 
-    def open_dropped(self, rec, words, mind_key, language=""):
+    def open_dropped(self, rec, words, mind_key, language="", count=None):
         """The person opened rec from the page: it opens, and Muse is told, with any words typed with it and one
         picture from it. The file name can mislead (the review clip is called trip_...), the picture does not.
-        Until the person types, the browser's language is the only clue to the language they read."""
+        Until the person types, the browser's language is the only clue to the language they read. count, one of
+        CLIP_COUNTS, asks for that many rough cards first, and only those the person taps are made (Tarm 11-01: one clip
+        from a long stream is a surprise, and making them all spends the API on clips nobody wants)."""
         _, picture = self.open(rec)
+        self.wanted = count if count in CLIP_COUNTS else None
         opened, said = OPEN_SAID + recording.describe(rec), ("\n" + words if words else "")
+        if self.wanted:
+            opened += CLIPS_SHOWN % count
         told = opened
         seen = montage.overview(rec)
         if seen:
             picture = seen[0]
             told += "\n" + montage.OVERVIEW_SAID % ", ".join(recording.clock(t) for t in seen[1])
         told += _reader(words, language)
+        if self.wanted:
+            told += "\n" + CLIPS_TOLD % (count, count)
         return self.say(told + said, mind_key, [picture] if picture else (), shown=opened + said)
 
     def open_sent(self, folder, n, words, mind_key, language=""):

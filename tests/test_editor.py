@@ -527,6 +527,21 @@ class Tools(unittest.TestCase):
                 [call("look_at_piece", start="0:30", end="0:50", why="the top stretch")],
                 [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the tone rings"}])]]
 
+    def test_a_chosen_number_of_clips_asks_once_for_the_rest_and_stops_at_the_cards(self):
+        """Tarm 11-01: rough cards first, and detail only for the ones the person taps, so the API is not spent on the rest."""
+        self.assertEqual((tools.MOST_MOMENTS, tools.MOST_AT_ONCE), (20, 8))
+        script = self.to_moment()
+        self.chat.wanted = 5
+        with mock.patch.object(tools, "_finer_edges", lambda *a: self.fail("no finer edges on a rough card")):
+            _, steps = self.run_job(*script[:2], script[2], script[2], "The cards are ready.")
+        few, cards = steps[-2:]
+        self.assertTrue(few["refused"], few["result"])
+        self.assertEqual(few["result"], tools.FEW_MOMENTS % (5, 1))
+        self.assertFalse(cards["refused"], cards["result"])
+        self.assertIn("no clip is made in this job: answer now", cards["result"], "the program stops at the cards, whatever Muse said")
+        self.assertIsNone(self.chat.project.state()["clip"])
+        self.assertIsNone(self.chat.wanted, "a tap on a card is a normal job")
+
     def test_a_person_who_asked_to_see_the_moments_first_gets_the_cards_and_no_clip_until_a_card_is_tapped(self):
         script = self.to_moment()
         wait = [call("propose_moments", why="they asked to see the highlights first", then="wait", plan_step=1,

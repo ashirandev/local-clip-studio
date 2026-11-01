@@ -304,6 +304,21 @@ class Open(unittest.TestCase):
                          "kind of video it is by all four.")
         self.assertEqual(shown["content"][1]["type"], "image_url")
 
+    def test_a_chosen_number_of_clips_asks_for_rough_cards_and_only_those_counts_do(self):
+        """Tarm 11-01: one clip from a long stream is a surprise, and rough cards first spare the API."""
+        said = []
+        self.chat.say = lambda told, mind_key, pictures=(), shown=None: said.append((told, shown))
+        rec = recording.probe(self.clip)
+        self.chat.open_dropped(rec, "", "local", "th", 10)
+        self.assertEqual(self.chat.wanted, 10)
+        self.assertIn(agent.CLIPS_TOLD % (10, 10), said[-1][0])
+        self.assertIn("10 clips to choose from", said[-1][1])
+        self.assertNotIn(agent.CLIPS_TOLD % (10, 10), said[-1][1], "the person sees their choice, not the instruction")
+        for count in (None, 1, 7, "10", True):
+            self.chat.open_dropped(rec, "", "local", "th", count)
+            self.assertIsNone(self.chat.wanted, count)
+            self.assertNotIn("choose from", said[-1][1])
+
     def test_a_dropped_recording_tells_muse_with_the_words_typed(self):
         brain, real = ScriptedMind("Making it."), mind.get
         mind.get = lambda key: brain
