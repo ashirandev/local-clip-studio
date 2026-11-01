@@ -40,6 +40,29 @@ as .srt.
 What did not come over, so do it in Premiere if you want it:
 {left_out}
 """
+FINISHED_NOTE = """How to open this clip in Premiere Pro
+
+1. Unzip it first: right-click the zip and choose Extract All.
+2. Open Premiere and start a new project, or open one you have.
+3. Choose File > Import and pick {name}.xml. In the Project panel, double-click "{title}". The clip opens on the timeline.
+4. If Premiere asks where a video is, press Locate and pick the file it names.
+
+The bottom video track is your finished clip, with its captions, titles, effects and sound. It plays as it is. Cut or trim it there.
+
+The tracks above it are the pieces of your own recording, switched off. To show more or less of a piece, select it, choose
+Clip > Enable, and drag its edge. They have none of the clip's effects, and a face or a chat the studio blurred is NOT blurred in them.
+
+วิธีเปิดคลิปนี้ใน Premiere Pro
+
+1. แตกไฟล์ก่อน: คลิกขวาที่ไฟล์ zip แล้วเลือก Extract All
+2. เปิด Premiere แล้วสร้างโปรเจกต์ใหม่ หรือเปิดโปรเจกต์ที่มีอยู่
+3. กด File > Import เลือก {name}.xml แล้วดับเบิลคลิก "{title}" ในช่อง Project คลิปจะเปิดบนไทม์ไลน์
+4. ถ้า Premiere ถามว่าวิดีโออยู่ไหน กด Locate แล้วเลือกไฟล์ที่มันบอกชื่อ
+
+แทร็กวิดีโอล่างสุดคือคลิปที่ทำเสร็จแล้ว มีซับ ชื่อเรื่อง เอฟเฟกต์ และเสียงครบ เล่นได้เลย จะตัดหรือเล็มก็ทำที่แทร็กนี้
+
+แทร็กด้านบนคือชิ้นจากวิดีโอต้นฉบับ ปิดไว้อยู่ ถ้าอยากให้ยาวขึ้นหรือสั้นลง ให้เลือกชิ้นนั้น กด Clip > Enable แล้วลากขอบ ชิ้นเหล่านี้ไม่มีเอฟเฟกต์ และสิ่งที่โปรแกรมเบลอไว้จะไม่ถูกเบลอ
+"""
 LEFT_OUT = [
     ("blurs", "The blurs. A face or a chat the studio blurred is NOT blurred here: blur it before you post."),
     ("look", "The colour look ({look})."),
@@ -219,10 +242,34 @@ def _place(item, length_frames):
         int(round((item["from"] + shown) * TICKS))
 
 
-def sequence(title, rec, state):
+def _finished(path, state, length, files, new_id):
+    """(the video clipitem, the left and the right sound clipitem) of the finished clip at path, over the whole sequence."""
+    item = {"path": path, "name": os.path.basename(path), "width": W, "height": H, "seconds": state["length"], "fps": FPS,
+            "sound": True}
+    rate = (FPS, False)
+    timing = ("<enabled>TRUE</enabled><duration>%d</duration>%s<start>0</start><end>%d</end><in>0</in><out>%d</out>" % (
+        length, _rate_xml(rate), length, length))
+    ids = [new_id(), new_id(), new_id()]
+    links = "".join("<link><linkclipref>%s</linkclipref><mediatype>%s</mediatype><trackindex>%d</trackindex><clipindex>1</clipindex>%s</link>"
+                    % (cid, kind, track, group) for cid, kind, track, group in (
+                        (ids[0], "video", 1, ""), (ids[1], "audio", 1, "<groupindex>1</groupindex>"),
+                        (ids[2], "audio", 2, "<groupindex>1</groupindex>")))
+    file_xml, fid = files.xml(item, rate)
+    common = "<masterclipid>master%s</masterclipid><name>%s</name>%s" % (fid, escape(item["name"]), timing)
+    video = '<clipitem id="%s">%s<alphatype>none</alphatype><pixelaspectratio>square</pixelaspectratio><anamorphic>FALSE</anamorphic>%s%s</clipitem>' % (
+        ids[0], common, file_xml, links)
+    sound = ['<clipitem id="%s" premiereChannelType="stereo">%s%s<sourcetrack><mediatype>audio</mediatype><trackindex>%d</trackindex></sourcetrack>%s</clipitem>'
+             % (cid, common, files.xml(item, rate)[0], channel, links) for cid, channel in zip(ids[1:], (1, 2))]
+    return video, sound[0], sound[1]
+
+
+def sequence(title, rec, state, finished=None):
     """The Final Cut Pro 7 XML of the clip as a 1080x1920 sequence at FPS: a video track for each part of the layout,
     the sound on two linked tracks (left and right), the music on two more, the titles and each piece's reason as
-    markers. NotExported when there is no clip."""
+    markers. finished, the finished clip's file, goes on the bottom video track and the sound tracks and the parts go
+    above it switched off, so the picture, the effects and every sound track are there whatever Premiere makes of a
+    part's scale and position (Henri 11-01: a black picture and a timeline with little on it). NotExported when there is
+    no clip."""
     if not state.get("clip"):
         raise NotExported("There is no clip yet, so there is nothing to export.")
     pieces = items(rec, state)
@@ -239,15 +286,16 @@ def sequence(title, rec, state):
         start, end, first, last, tin, tout = _place(item, length)
         if end <= start:
             continue
-        timing = ("<enabled>TRUE</enabled><duration>%d</duration>%s<start>%d</start><end>%d</end><in>%d</in>"
+        timing = ("<enabled>%s</enabled><duration>%d</duration>%s<start>%d</start><end>%d</end><in>%d</in>"
                   "<out>%d</out><pproTicksIn>%d</pproTicksIn><pproTicksOut>%d</pproTicksOut>" % (
-                      _frames(item["seconds"], _real(rate)), _rate_xml(rate), start, end, first, last, tin, tout))
+                      "FALSE" if finished else "TRUE", _frames(item["seconds"], _real(rate)), _rate_xml(rate), start, end,
+                      first, last, tin, tout))
 
         def common(fid):
             return "<masterclipid>master%s</masterclipid><name>%s</name>%s" % (fid, escape(item["name"]), timing)
 
         ids = [new_id() for _ in parts]
-        sound = [new_id(), new_id()] if item["sound"] else []
+        sound = [new_id(), new_id()] if item["sound"] and not finished else []
         links = [(ids[0], "video", 1, len(video[0]) + 1, None)] + [
             (cid, "audio", t + 1, len(track) + 1, 1) for t, (cid, track) in enumerate(zip(sound, (left, right)))]
         link_xml = "".join("<link><linkclipref>%s</linkclipref><mediatype>%s</mediatype><trackindex>%d</trackindex>"
@@ -265,7 +313,11 @@ def sequence(title, rec, state):
             track.append('<clipitem id="%s" premiereChannelType="stereo">%s%s<sourcetrack><mediatype>audio'
                          '</mediatype><trackindex>%d</trackindex></sourcetrack>%s</clipitem>' % (
                              cid, common(fid), file_xml, channel, link_xml))
-    music = _music(state, length, files, new_id, 3 if left else 1)
+    if finished:
+        whole, one, two = _finished(finished, state, length, files, new_id)
+        video.insert(0, [whole])
+        left, right = [one], [two]
+    music = ([], []) if finished else _music(state, length, files, new_id, 3 if left else 1)
     tracks = ["<track>%s<enabled>TRUE</enabled><locked>FALSE</locked></track>" % "".join(t) for t in video]
     audio = ['<track premiereTrackType="Stereo" currentExplodedTrackIndex="%d" totalExplodedTrackCount="2">%s'
              '<enabled>TRUE</enabled><locked>FALSE</locked><outputchannelindex>%d</outputchannelindex></track>'
@@ -347,11 +399,12 @@ def safe_name(title):
     return name or "clip"
 
 
-def bundle(title, rec, state):
+def bundle(title, rec, state, finished=None):
     """(file name, bytes) of a zip with <name>.xml, <name>.srt when the clip has captions, and README.txt."""
     name = safe_name(title)
-    xml = sequence(title or name, rec, state)
-    note = NOTE.format(name=name, title=title or name, left_out=_left_out(state, items(rec, state), rec))
+    xml = sequence(title or name, rec, state, finished)
+    note = (FINISHED_NOTE.format(name=name, title=title or name) if finished else
+            NOTE.format(name=name, title=title or name, left_out=_left_out(state, items(rec, state), rec)))
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("%s/%s.xml" % (name, name), xml)

@@ -203,6 +203,55 @@ class Export(unittest.TestCase):
             premiere.sequence("t", self.stream, {"clip": None})
 
 
+class Finished(unittest.TestCase):
+    """Henri 11-01: the picture was black and the timeline incomplete in Premiere, and no one here has Premiere to find out why."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.stream = rec(os.path.join(self.tmp, "stream.mkv"))
+        self.path = os.path.join(self.tmp, "clips", "0123456789abcdef.mp4")
+        song = os.path.join(self.tmp, "song.mp3")
+        with open(song, "wb") as f:
+            f.write(b"x")
+        self.state = state([[10.0, 12.0], [20.0, 22.0]], layouts.make("subject", (1920, 1080)), music={"path": song, "from": 0})
+        self.xml = premiere.sequence("t", self.stream, self.state, self.path)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_the_finished_clip_is_the_bottom_track_and_the_sound_with_no_scale_to_go_wrong(self):
+        video, audio = tracks(self.xml, "video"), tracks(self.xml, "audio")
+        whole = video[0].findall("clipitem")
+        self.assertEqual(len(whole), 1)
+        self.assertEqual(whole[0].findtext("name"), "0123456789abcdef.mp4")
+        self.assertEqual([whole[0].findtext(k) for k in ("start", "end", "in", "out", "enabled")], ["0", "120", "0", "120", "TRUE"])
+        self.assertEqual(whole[0].findall("filter"), [], "no scale, position or crop")
+        self.assertIn("0123456789abcdef.mp4", whole[0].find("file").findtext("pathurl"))
+        self.assertEqual(len(audio), 2, "the music is in the finished clip, so it is not there twice")
+        self.assertEqual([t.find("clipitem/sourcetrack/trackindex").text for t in audio], ["1", "2"])
+        self.assertEqual({t.find("clipitem").findtext("name") for t in audio}, {"0123456789abcdef.mp4"})
+
+    def test_the_pieces_stay_above_it_switched_off_with_their_whole_file(self):
+        above = tracks(self.xml, "video")[1:]
+        self.assertTrue(above)
+        items = [c for t in above for c in t.findall("clipitem")]
+        self.assertEqual(len(items), 2 * len(above))
+        self.assertEqual({c.findtext("enabled") for c in items}, {"FALSE"})
+        self.assertEqual({c.findtext("name") for c in items}, {"stream.mkv"})
+        self.assertEqual([ln for c in items for ln in c.findall("link") if ln.findtext("mediatype") == "audio"], [],
+                         "a link to sound that is not on the timeline")
+
+    def test_the_note_says_what_is_on_the_timeline_and_warns_of_the_blurs(self):
+        name, body = premiere.bundle("ไมค์ดี", self.stream, self.state, self.path)
+        with zipfile.ZipFile(io.BytesIO(body)) as z:
+            note = z.read("ไมค์ดี/README.txt").decode("utf-8")
+        self.assertIn("The bottom video track is your finished clip", note)
+        self.assertIn("is NOT blurred in them", note)
+        self.assertIn("แทร็กวิดีโอล่างสุดคือคลิปที่ทำเสร็จแล้ว", note)
+        self.assertIn('double-click "ไมค์ดี"', note)
+        self.assertNotIn("What came over", note)
+
+
 class Page(unittest.TestCase):
     """The finished clip's "Premiere project" button saves the clip as it is now."""
 
@@ -239,6 +288,10 @@ class Page(unittest.TestCase):
         self.assertIn("filename*=UTF-8''%E0%B9%84%E0%B8%A1%E0%B8%84%E0%B9%8C%E0%B8%94%E0%B8%B5-premiere.zip", named)
         with zipfile.ZipFile(io.BytesIO(body)) as z:
             self.assertIn("ไมค์ดี/ไมค์ดี.xml", z.namelist())
+            self.assertNotIn(b"0123456789abcdef.mp4", z.read("ไมค์ดี/ไมค์ดี.xml"), "a clip changed since it was made has no finished file")
+        chat.finished = lambda: {"name": "0123456789abcdef.mp4"}
+        with zipfile.ZipFile(io.BytesIO(self.get("/api/premiere?chat=" + chat.id)[2])) as z:
+            self.assertIn(b"0123456789abcdef.mp4", z.read("ไมค์ดี/ไมค์ดี.xml"), "the finished file goes on the timeline")
         self.assertEqual(self.get("/api/premiere?chat=20990101-000000-abcd")[0], 404)
 
 

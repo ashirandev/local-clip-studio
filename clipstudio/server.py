@@ -628,8 +628,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": GONE}, HTTPStatus.NOT_FOUND)
             return
         titles = [e["title"] for e in chat.events if e["kind"] in ("ready", "named") and e.get("title")]
+        done = chat.finished()
         try:
-            name, body = premiere.bundle(titles[-1] if titles else "", chat.recording, chat.project.state())
+            name, body = premiere.bundle(titles[-1] if titles else "", chat.recording, chat.project.state(),
+                                         os.path.join(render.folder("clips"), done["name"]) if done else None)
         except premiere.NotExported as e:
             self.send_json({"ok": False, "error": str(e)}, HTTPStatus.NOT_FOUND)
             return
