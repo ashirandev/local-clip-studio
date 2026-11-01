@@ -2301,12 +2301,13 @@ async function chooseLayout(c) {
   const row = $("layoutRow");
   const why = $("layoutWhy");
   row.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  panelNote.textContent = "";
   why.hidden = false;
   why.textContent = "Making the clip in the " + c.label + " layout…";
   try {
     const d = await post("/api/layout", { chat: room.chat, layout: c.name });
     if (!d.ok) {
-      why.textContent = d.error || "The layout could not be changed.";
+      panelNote.textContent = d.error || "The layout could not be changed.";
       loadPanel();
       return;
     }
@@ -2772,9 +2773,8 @@ function on(e) {
   if (e.kind === "relaid" || e.kind === "not_relaid") {
     pageWork("layout", false);
     againLine.textContent = "";
-    const why = $("layoutWhy");
-    why.textContent = e.kind === "relaid" ? "" : "The layout was not changed: " + e.error;
-    why.hidden = e.kind === "relaid";
+    $("layoutWhy").hidden = true;
+    panelNote.textContent = e.kind === "relaid" ? "" : "The layout was not changed: " + e.error;
     loadPanel();
     return;
   }

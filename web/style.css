@@ -667,6 +667,8 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
   .app[data-screen="chat"] .clip, .app[data-screen="clip"] .chat { display: flex; }
   .app[data-screen="chat"] .chat, .app[data-screen="clip"] .chat { min-height: 0; overflow-y: auto; }
   .app[data-screen="chat"] .clip, .app[data-screen="clip"] .clip { min-height: 0; overflow-y: auto; }
+  .app[data-screen="chat"] .stage, .app[data-screen="clip"] .stage { grid-template-rows: minmax(0, 1fr); min-height: 240px; }
+  .app[data-screen="chat"] .frame-wrap, .app[data-screen="clip"] .frame-wrap { height: 100%; max-height: min(52dvh, 620px); }
   .app .tool.muse, .app #clipBack, .app #toClip { display: none; }
 }
 
