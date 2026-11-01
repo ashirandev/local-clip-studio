@@ -394,6 +394,43 @@ class MakeCountdown(unittest.TestCase):
         self.assertIn('0 s: "Hull 0-1"', steps[-1]["result"])
         self.assertIn("The last score, 0-2, in the board's order has the right team ahead", steps[-1]["result"])
 
+    def test_a_level_word_is_named_after_the_goals_left_out_and_its_score_stays(self):
+        """090608-4e21 on 11-01: 0-2, 1-2, 1-3 went up rightly, but "Arsenal ตีเสมอ 1-2" was refused as numbers, so they came out
+        and final and the goal left out had nothing to work on."""
+        wide = [{"look": 1, "start": "0:06", "end": "0:21", "reason": "first"},
+                {"look": 1, "start": "0:22", "end": "0:37", "reason": "second"}]
+        pieces = [{"moment": 1, "words": "Hull นำ 0-2", "start": "0:06", "end": "0:21"},
+                  {"moment": 2, "words": "Arsenal ตีเสมอ 1-2", "start": "0:22", "end": "0:37"}]
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(pieces), self.counted(pieces), *[self.counted(pieces, final="1-2")] * 3,
+                             recipe="sport", moments=wide)
+        asked, gap, named, made = steps[-4:]
+        self.assertIn(tools.FINAL_ASKED, asked["result"], "the word does not stand in front of final")
+        self.assertNotIn("Arsenal ตีเสมอ", asked["result"])
+        self.assertEqual(gap["result"], tools.GOAL_LEFT_OUT % ("0-2", "0:00", "0:06"), "nor in front of the goal left out")
+        self.assertTrue(named["refused"], named["result"])
+        self.assertIn('"Arsenal ตีเสมอ 1-2"', named["result"])
+        self.assertNotIn("Hull นำ", named["result"], "only the false words are named")
+        self.assertNotIn("only goes up", named["result"], "the numbers are not the fault")
+        self.assertFalse(made["refused"], made["result"])
+        self.assertIn(tools.LEVEL_OUT % (tools.REEL_NO_WORDS, "1-2"), made["result"])
+        self.assertNotIn(tools.SCORES_OUT, made["result"])
+        titles = [e["entry"]["text"] for e in self.chat.events if e["kind"] == "edit" and e["entry"].get("do") == "title"]
+        self.assertEqual(titles, ["Hull นำ 0-2", "GOAL 1-2"], "the numbers stay and the false word goes")
+
+    def test_a_level_word_put_right_after_it_is_named_keeps_its_words(self):
+        wide = [{"look": 1, "start": "0:06", "end": "0:21", "reason": "first"},
+                {"look": 1, "start": "0:22", "end": "0:37", "reason": "second"}]
+        wrong = [{"moment": 1, "words": "0-1", "start": "0:06", "end": "0:21"},
+                 {"moment": 2, "words": "ตีเสมอ 0-2", "start": "0:22", "end": "0:37"}]
+        right = [wrong[0], dict(wrong[1], words="ยิงตามหลัง 0-2")]
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(wrong, final="0-2"), self.counted(wrong, final="0-2"), self.counted(right, final="0-2"),
+                             recipe="sport", moments=wide)
+        self.assertTrue(steps[-2]["refused"], steps[-2]["result"])
+        self.assertIn('"ตีเสมอ 0-2"', steps[-2]["result"])
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertNotIn(tools.LEVEL_OUT % (tools.REEL_NO_WORDS, "0-2"), steps[-1]["result"])
+        self.assertIn('"ยิงตามหลัง 0-2"', steps[-1]["result"])
+
     def test_a_match_reels_own_scores_ask_once_for_a_goal_they_leave_out(self):
         """071525-6738 on 11-01: 0-2 as its first piece, with 0-1 left out, and the board at the end agreed with its last piece."""
         wide = [{"look": 1, "start": "0:06", "end": "0:21", "reason": "first"},
@@ -511,8 +548,11 @@ class MakeCountdown(unittest.TestCase):
         self.assertEqual(tools._scores_off(["Hull 1-0", "Hull 2-0", "Arsenal 1-2"]), "1-0, then 2-0, then 1-2")
         self.assertEqual(tools._scores_off(["1-1", "1-1"]), "1-1, then 1-1")
         self.assertEqual(tools._scores_off(["0-2", "0-1"]), "0-2, then 0-1")
-        self.assertEqual(tools._scores_off(["Arsenal ตีเสมอ 1-2"]), "1-2", "a level word on a score that is not level")
-        self.assertEqual(tools._scores_off(["Level at 2-1"]), "2-1")
+        self.assertIsNone(tools._scores_off(["Arsenal ตีเสมอ 1-2"]), "a wrong word is not a wrong number")
+
+    def test_a_level_word_is_only_false_on_a_score_that_is_not_level(self):
+        self.assertEqual(tools._level_off(["Hull 0-2", "Arsenal ตีเสมอ 1-2", "Level at 2-1", "1-1 ตีเสมอ", "เสมอกันแล้ว"]),
+                         ["Arsenal ตีเสมอ 1-2", "Level at 2-1"])
 
     def test_a_goal_left_out_is_where_the_scores_jump(self):
         spans = [[100.0, 110.0], [200.0, 210.0], [300.0, 310.0]]

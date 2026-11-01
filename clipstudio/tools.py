@@ -2732,6 +2732,12 @@ GOAL_LEFT_OUT = ("Nothing was joined yet. The board reads %s, more goals than yo
                  "join it in match order. If no picture's score changes, or the person asked for fewer goals, call "
                  "make_countdown again and it is joined.")
 AHEAD = "The last score, %s, in the board's order has %s: the title and the post text say the same."
+# 090608-4e21 on 11-01: 0-2, 1-2, 1-3 is right, but "Arsenal ตีเสมอ 1-2" was refused as a score going back, so Glimmer changed
+# nothing, the numbers came out on the last try and only the wrong words stood, with no score left for final or a gap to work on.
+LEVEL_OFF = ("Nothing was joined yet. These words call the teams level on a score that is not level: %s. The score is fine: keep "
+             "it and write again what happened. If the words come back the same, the program puts %s and the score in their place.")
+LEVEL_OUT = ("The program put %s and the score over the words that called the teams level at %s, as the score is not level. "
+             "In the title and the post text, do not call them level there.")
 
 
 def _reel_scores(lines):
@@ -2767,12 +2773,15 @@ def _ahead(lines):
 
 def _scores_off(lines):
     """The scores in a match reel's lines in order when they cannot be a match's, else None: a later score lower on
-    either side or the same as the one before it, or a level word on a score that is not level. Numbers only: a wrong
-    team on a right number passes."""
+    either side or the same as the one before it. Numbers only: a wrong team on a right number passes."""
     scores = _reel_scores(lines)
-    level = any(a != b and any(w in line for w in REEL_LEVEL) for a, b, line in scores)
     back = any(c < a or d < b or (c, d) == (a, b) for (a, b, _), (c, d, _) in zip(scores, scores[1:]))
-    return ", then ".join("%d-%d" % s[:2] for s in scores) if level or back else None
+    return ", then ".join("%d-%d" % s[:2] for s in scores) if back else None
+
+
+def _level_off(lines):
+    """Those of a match reel's lines with a level word on a score that is not level."""
+    return [line for line in lines for a, b, low in _reel_scores([line]) if a != b and any(w in low for w in REEL_LEVEL)]
 
 
 def _one_goal(job, why, moments):
@@ -6542,6 +6551,11 @@ def make_countdown(job, why, moments, story, final=None):
         if not _told_once(job, "reel_goal_left_" + score):
             _board_pictures(job, rec, [a + (b - a) * (k + 1) / (ACROSS_PICTURES + 1) for k in range(ACROSS_PICTURES)])
             raise Refused(GOAL_LEFT_OUT % (score, clock(a), clock(b)))
+    level = _level_off([c["words"] for c in moments]) if reel else []
+    if level and not _told_once(job, "reel_level"):
+        raise Refused(LEVEL_OFF % ("; ".join('"%s"' % line for line in level), REEL_NO_WORDS))
+    moments = [dict(c, words="%s %s" % (REEL_NO_WORDS, REEL_SCORE.search(c["words"])[0])) if c["words"] in level else c
+               for c in moments]
     menu = None if reel else _menu_start(job, rec, spans[0][0])
     if menu:
         raise Refused("Nothing was joined. " + menu)
@@ -6599,6 +6613,8 @@ def make_countdown(job, why, moments, story, final=None):
         head.append(spelling)
     if off:
         head.append(SCORES_OUT)
+    if level:
+        head.append(LEVEL_OUT % (REEL_NO_WORDS, ", ".join(REEL_SCORE.search(line)[0] for line in level)))
     ahead = _ahead(lines + [final or ""]) if reel else None
     if ahead:
         head.append(ahead)
