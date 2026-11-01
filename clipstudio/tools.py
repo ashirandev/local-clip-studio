@@ -6099,12 +6099,37 @@ LAYOUT_OF = {"explain": "card", "game": "card", "talk": "talk", "seller": "subje
 BATCH_WHY = "one of the clips the person asked for"
 
 
+# 082547-8596 on 11-01: 5 clips, 4 handed over and the Samsung held back; Glimmer made all 5 again, 13 minutes, and its memory
+# filled with the job's calls and answers, so the job ended with no last word to the person.
+HANDED_ALREADY = ("Nothing was made. This job handed over the clip of moment %s already, and a clip takes minutes: leave it out and "
+                  "make only the clips still held back. To change a clip that was handed over, open it with open_clip, or make "
+                  "it again with make_clip.")
+
+
+def _handed_here(job, clips):
+    """The moments of clips that at least half of a clip this job handed over shares, or at least half of the moment. It goes by
+    the seconds of the recording, as proposing again numbers the moments anew, and a clip can be much shorter than its moment."""
+    handed = []
+    for place in job.chat.album:
+        ready, clip = job.chat.ready_of(place), place["project"].state()["clip"]
+        if ready and ready.get("job") == job.n and clip:
+            handed.append(clip["pieces"])
+
+    def shared(m, pieces):
+        both = sum(max(0.0, min(b, m["end"]) - max(a, m["start"])) for a, b in pieces)
+        return 2 * both >= min(m["end"] - m["start"], sum(b - a for a, b in pieces))
+
+    return [c["moment"] for c in clips if any(shared(job.chat.moments[c["moment"] - 1], p) for p in handed)]
+
+
 def make_clips(job, why, clips, blur=None):
     rec = _open(job, "make clips from")
     moments = job.chat.moments or []
     if not moments:
         raise Refused("No moments are proposed yet. Look at the recording and propose moments first: each clip is made "
                       "from one of them.")
+    if len(clips) < 2 and not job.chat.album:
+        raise Refused("clips must have 2 to %d items; it has 1. For one clip, make_clip." % MOST_MOMENTS)
     numbers = [c["moment"] for c in clips]
     wrong = [n for n in numbers if not 1 <= n <= len(moments)]
     if wrong:
@@ -6113,6 +6138,9 @@ def make_clips(job, why, clips, blur=None):
     if len(set(numbers)) < len(numbers):
         raise Refused("Each moment makes one clip; moment %s is given twice." % _numbers(
             sorted({n for n in numbers if numbers.count(n) > 1})))
+    handed = _handed_here(job, clips)
+    if handed:
+        raise Refused(HANDED_ALREADY % _numbers(handed))
     spelled = []
     for c in clips:
         m = moments[c["moment"] - 1]
@@ -7998,7 +8026,7 @@ TOOLS = {t.name: t for t in [
          "it over; then it reports on each clip, handed over or why not. Give each clip its title and post text as at "
          "hand-over. Names must be spelled as the screen shows them. A seller's clips each need their product, and "
          "their background on a green cloth: the program then follows the product and puts the background on.",
-         {"clips": {"type": "array", "minItems": 2, "maxItems": MOST_MOMENTS, "items": {
+         {"clips": {"type": "array", "minItems": 1, "maxItems": MOST_MOMENTS, "items": {
              "type": "object", "required": ["moment", "title", "caption", "hashtags"], "properties": {
                  "moment": {"type": "integer", "minimum": 1, "maximum": MOST_MOMENTS,
                             "description": "The moment's number, as you proposed it."},

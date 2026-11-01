@@ -3746,6 +3746,63 @@ class Tools(unittest.TestCase):
                  {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
         return self.several([call("make_clips", clips=clips, why="both")], *more, "Done.")
 
+    def test_a_clip_this_job_handed_over_is_not_made_again_in_one_go(self):
+        """082547-8596 on 11-01: 13 minutes on 5 clips again, for the 1 held back."""
+        clips = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]},
+                 {"moment": 2, "title": "Eaglet two", "caption": "c2", "hashtags": ["#b"]}]
+        one = [call("make_clip", moment=1, layout="card", why="one")]
+        _, steps = self.batch([call("make_clips", clips=clips, why="again")], [call("make_clips", clips=clips[1:], why="the second")], one)
+        made = [s for s in steps if s["tool"] in ("make_clips", "make_clip")]
+        self.assertFalse(made[-4]["refused"], made[-4]["result"])
+        self.assertTrue(made[-3]["refused"], made[-3]["result"])
+        self.assertEqual(made[-3]["result"], tools.HANDED_ALREADY % "1 and 2")
+        self.assertEqual(made[-2]["result"], tools.HANDED_ALREADY % "2", "even alone")
+        self.assertFalse(made[-1]["refused"], "one clip to fix is still made: " + made[-1]["result"])
+
+    def test_one_clip_goes_through_make_clips_only_when_an_album_holds_the_others(self):
+        """082547-8596 on 11-01: make_clips asked for two, so Glimmer sent the Samsung with a clip already handed over."""
+        one = [{"moment": 1, "title": "Eaglet one", "caption": "c1", "hashtags": ["#a"]}]
+        _, steps = self.several([call("make_clips", clips=one, why="one")], "Done.")
+        self.assertTrue(steps[-1]["refused"], steps[-1]["result"])
+        self.assertIn("clips must have 2 to", steps[-1]["result"])
+        self.assertIn("For one clip, make_clip.", steps[-1]["result"])
+        self.chat.album = [{"moment": 2, "title": "two", "project": agent.project.Project()}]
+        _, steps = self.run_job([call("make_clips", clips=one, why="the one held back")], "Done.")
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertIn("Made 1 clip, ", steps[-1]["result"])
+
+    def test_handed_clips_are_found_by_their_seconds(self):
+        place = {"project": mock.Mock(), "moment": 1}
+        place["project"].state.return_value = {"clip": {"pieces": [[30.0, 40.0]]}}
+        job = mock.Mock(n=3)
+        job.chat.album = [place]
+        job.chat.ready_of.return_value = {"job": 3}
+        job.chat.moments = [{"start": 80.0, "end": 90.0}, {"start": 31.0, "end": 39.0}, {"start": 38.0, "end": 50.0}, {"start": 30.0, "end": 45.0}]
+        clips = [{"moment": n} for n in (1, 2, 3, 4)]
+        self.assertEqual(tools._handed_here(job, clips), [2, 4], "numbers change when moments are proposed again, seconds do not")
+        job.chat.ready_of.return_value = {"job": 2}
+        self.assertEqual(tools._handed_here(job, clips), [], "an earlier job's clip may be made again")
+        job.chat.ready_of.return_value = None
+        self.assertEqual(tools._handed_here(job, clips), [], "a clip held back may be made again")
+
+    def test_a_job_that_ends_with_its_memory_full_says_which_clips_were_not_handed_over(self):
+        """082547-8596 on 11-01: the Samsung held back and the person told nothing about it."""
+        self.batch()
+        self.chat.album_now = lambda: {"clips": [{"title": "Eaglet one", "state": "ready"}, {"title": "Samsung", "state": "unfinished"},
+                                                 {"title": "Eaglet two", "state": "ready"}]}
+
+        class Full:
+            label = "Muse"
+
+            def ask(self, *a, **k):
+                raise agent.mind.MindError("Its memory is full.")
+
+        self.chat.jobs += 1
+        job = self.chat.job = agent.Job(self.chat, Full(), "make a clip")
+        job.run()
+        said = [e["text"] for e in self.chat.events if e["kind"] == "note" and e.get("job") == job.n]
+        self.assertIn("2 of 3 clips of the album are ready. Not handed over: Samsung.", said[-1])
+
     def test_the_clips_made_in_one_go_sit_in_an_album_each_with_its_own_edits(self):
         """Tarm 10-30: "ช่วยดูเรื่อง preview ให้มันออกมาเป็น album จะได้เลือกแก้ไขต่อได้ง่าย"."""
         _, steps = self.batch()

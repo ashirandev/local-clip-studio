@@ -1354,7 +1354,7 @@ class Chat:
         clip = place["project"].state()["clip"]
         return {place["moment"], clip["moment"] if clip else None}
 
-    def _ready_of(self, place):
+    def ready_of(self, place):
         """What was handed over last with the clip in this place of the album, or None."""
         moments = self._moments_of(place)
         return next((e for e in reversed(self.events) if e["kind"] == "ready" and e.get("moment") in moments
@@ -1364,7 +1364,7 @@ class Chat:
         """The clip open now, for the page: {"clip": clip_view, "file": its finished file or None, "ready": what was
         handed over with it or None, "title": its place's title or ""}."""
         place = self.album[self.album_at] if self.album else None
-        return {"clip": self.clip_view(), "file": self.finished(), "ready": self._ready_of(place) if place else None,
+        return {"clip": self.clip_view(), "file": self.finished(), "ready": self.ready_of(place) if place else None,
                 "title": place["title"] if place else ""}
 
     def album_now(self):
@@ -1380,7 +1380,7 @@ class Chat:
             done = next((f for f in reversed(self.rendered) if f["signature"] == sign), None)
             newest = done or next((f for f in reversed(self.rendered) if f.get("moment") in moments), None)
             place["file"] = newest["name"] if newest else place.get("file")
-            ready = self._ready_of(place)
+            ready = self.ready_of(place)
             clips.append({"moments": moments,
                           "title": (ready or {}).get("title") or place["title"],
                           "length": place["project"].state()["length"], "file": place.get("file"),
@@ -1825,6 +1825,11 @@ class Job:
         except mind.MindError as e:
             end = "mind"
             self.emit("note", text=str(e))
+            clips = (chat.album_now() or {"clips": []})["clips"]
+            held = [c for c in clips if c["state"] != "ready"]
+            if held:
+                self.emit("note", text="%d of %d clips of the album are ready. Not handed over: %s." % (
+                    len(clips) - len(held), len(clips), ", ".join(c["title"] or "a clip with no title" for c in held)))
         except Exception as e:
             end = "fault"
             self.emit("note", text="The studio broke while working (%s). The details are in the job log." % e,
