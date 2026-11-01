@@ -211,6 +211,28 @@ class Open(unittest.TestCase):
         self.assertEqual(made["sound_tracks"], 1)
         self.assertGreater(float(abs(takes._decoded(made, 0, 1.5)).max()), 0.05, "the voice is in the preview")
 
+    def test_the_finished_clip_uses_the_tracks_the_person_chose(self):
+        rec = self.two_tracks()
+        made = {}
+
+        def clip(tracks):
+            state = {"clip": {"pieces": [[0.0, 2.0]], "layout": {"kind": "fill", "parts": [
+                {"src": [0, 0, 320, 180], "dst": [0, 0, 1080, 1920]}]}}, "length": 2.0, "tracks": tracks}
+            with mock.patch.object(render, "_ffmpeg", lambda: FFMPEG):
+                made["graph"] = render._sound(dict(rec, tracks=state["tracks"]), state["clip"]["pieces"])
+            return made["graph"]
+        self.assertIn("[0:a:0][0:a:1]amix", clip(None))
+        self.assertNotIn("[0:a:0]", clip([1]))
+        self.assertIn("[0:a:1]", clip([1]))
+
+    def test_the_sound_tab_shows_tracks_only_when_there_are_several(self):
+        rec = self.two_tracks()
+        self.chat.recording = rec
+        self.assertEqual(self.chat.tracks_shown({"tracks": None}), [{"n": 0, "on": True}, {"n": 1, "on": True}])
+        self.assertEqual(self.chat.tracks_shown({"tracks": [1]}), [{"n": 0, "on": False}, {"n": 1, "on": True}])
+        self.chat.recording = dict(rec, sound_tracks=1)
+        self.assertEqual(self.chat.tracks_shown({"tracks": None}), [])
+
     def test_a_camera_file_is_a_recording(self):
         camera = os.path.join(self.videos, "card", "00001.MTS")
         make_video(camera.replace(".MTS", ".mp4"))

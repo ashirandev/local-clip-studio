@@ -1081,7 +1081,7 @@ class Endpoints(Served):
     def test_a_part_is_muted_with_a_post_of_its_seconds_and_muse_is_told(self):
         self.make(SAID, call("add_captions", why="say it"))
         panel = "/api/panel?chat=" + self.chat.id
-        self.assertEqual(self.ask("GET", panel)[1]["sound"], {"mutes": [], "has": True})
+        self.assertEqual(self.ask("GET", panel)[1]["sound"], {"mutes": [], "has": True, "tracks": []})
         self.assertEqual(self.ask("POST", "/api/mute", {"chat": self.chat.id, "start": 0, "end": 1.5}),
                          (200, {"ok": True}))
         self.assertEqual(self.ask("GET", panel)[1]["sound"]["mutes"], [[0, 1.5]])
@@ -1094,6 +1094,24 @@ class Endpoints(Served):
         self.assertEqual(self.ask("POST", "/api/mute", {"chat": self.chat.id, "start": 0, "end": 1.5, "back": True}),
                          (200, {"ok": True}))
         self.assertEqual(self.chat.project.state()["mutes"], [])
+
+    def test_a_sound_track_is_chosen_with_a_post_and_muse_is_told(self):
+        """Tarm 11-01: Henri's game and voice are on separate tracks, and they have to be told apart."""
+        self.make(SAID, call("add_captions", why="say it"))
+        panel = "/api/panel?chat=" + self.chat.id
+        one = {"chat": self.chat.id, "on": [1]}
+        self.assertEqual(self.ask("POST", "/api/tracks", one)[0], 400, "one track, nothing to choose")
+        self.chat.recording = dict(self.chat.recording, sound_tracks=3)
+        self.assertEqual(self.ask("GET", panel)[1]["sound"]["tracks"], [{"n": k, "on": True} for k in range(3)])
+        self.assertEqual(self.ask("POST", "/api/tracks", one), (200, {"ok": True}))
+        self.assertEqual(self.ask("GET", panel)[1]["sound"]["tracks"], [{"n": k, "on": k == 1} for k in range(3)])
+        self.assertEqual(self.chat.project.state()["tracks"], [1])
+        self.assertIn("the person chose sound tracks 2 on the page", self.chat.told)
+        for on, said in (([], "The recording has sound tracks 1 to 3: give at least one of those."),
+                         ([5], "The recording has sound tracks 1 to 3: give at least one of those."),
+                         ("1", "Send the numbers of the sound tracks to use."), ([True], "Send the numbers of the sound tracks to use.")):
+            self.assertEqual(self.ask("POST", "/api/tracks", {"chat": self.chat.id, "on": on}), (400, {"ok": False, "error": said}), on)
+        self.assertEqual(self.chat.project.state()["tracks"], [1], "a refused choice changes nothing")
 
     def test_a_clip_of_the_album_is_opened_with_a_post(self):
         self.make()

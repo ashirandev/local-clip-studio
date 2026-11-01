@@ -123,7 +123,7 @@ RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 CHANGES = ("/api/captions", "/api/style", "/api/colour", "/api/words", "/api/remake", "/api/channel",
            "/api/channel/save", "/api/mute", "/api/ends", "/api/title/time", "/api/frame", "/api/shot", "/api/layout",
            "/api/album",
-           "/api/album/look", "/api/album/back", "/api/album/make", "/api/tagline", "/api/circle", "/api/effect",
+           "/api/album/look", "/api/album/back", "/api/album/make", "/api/tagline", "/api/circle", "/api/effect", "/api/tracks",
            "/api/part")
 TIMES = {"/api/mute": "Send the start and the end of the part to mute, in seconds of the clip.",
          "/api/ends": "Send the new start and end of the clip, in seconds of the recording.",
@@ -319,6 +319,10 @@ class Handler(BaseHTTPRequestHandler):
                 why = chat.set_tagline(str(body.get("words") or ""), body.get("spot") or None)
             elif path == "/api/circle":
                 why = chat.set_circle(str(body.get("spot") or ""))
+            elif path == "/api/tracks":
+                on = body.get("on")
+                why = chat.set_tracks(on) if isinstance(on, list) and all(
+                    isinstance(n, int) and not isinstance(n, bool) for n in on) else "Send the numbers of the sound tracks to use."
             elif path == "/api/effect":
                 at, to, box = body.get("at"), body.get("to"), body.get("box")
                 if not isinstance(at, (int, float)) or isinstance(at, bool) or \

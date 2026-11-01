@@ -674,6 +674,7 @@ def base(rec, state, on_progress=None, on_start=None, default="clean"):
         raise NotDrawn(str(e))
     key = hashlib.sha1(json.dumps([BASES, rec["path"], rec["size"], rec["mtime"], clip["pieces"], drawn, files,
                                    state.get("music"), state.get("sounds"), state.get("speech"), state.get("mutes"),
+                                   state.get("tracks"),
                                    BASE_SIZE, BASE_PRESET, BASE_CRF], ensure_ascii=False, sort_keys=True, default=str)
                        .encode("utf-8")).hexdigest()[:16]
     path = os.path.join(folder("bases"), key + ".mp4")
@@ -703,6 +704,7 @@ def export(rec, state, out_path, on_progress=None, on_start=None, default="clean
     clip = state["clip"]
     if not clip:
         raise NotDrawn("There is no clip yet, so there is nothing to make.")
+    rec = dict(rec, tracks=state.get("tracks"))
     pieces, length = clip["pieces"], state["length"]
     count = len(pieces)
     sound = rec.get("sound_tracks")

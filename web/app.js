@@ -1372,7 +1372,29 @@ function drawSound(sound) {
     back.addEventListener("click", () => mute(a, b, true));
     row.appendChild(back);
   });
+  const tracks = (sound && sound.tracks) || [];
+  $("trackRow").hidden = !tracks.length;
+  $("trackRow").replaceChildren(...tracks.map((t) => {
+    const b = el("button", "chip");
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(t.on));
+    b.append(ico(t.on ? "sound" : "mute", "sm"), "Track " + (t.n + 1));
+    b.addEventListener("click", () => chooseTrack(tracks, t.n));
+    return b;
+  }));
   drawMute();
+}
+
+async function chooseTrack(tracks, n) {
+  const on = tracks.filter((t) => (t.n === n ? !t.on : t.on)).map((t) => t.n);
+  panelNote.textContent = "";
+  try {
+    const d = await post("/api/tracks", { chat: room.chat, on });
+    if (!d.ok) panelNote.textContent = d.error || "That could not be changed.";
+  } catch (err) {
+    panelNote.textContent = "The studio is not answering. Open Local Clip Studio again.";
+  }
+  loadPanel();
 }
 
 async function mute(start, end, back) {

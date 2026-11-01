@@ -403,7 +403,8 @@ class Chat:
                 "words": self.words_on(state), "effects": self.effects_on(state), "offered": self.effects_offered(),
                 "parts": self.parts_now(state), "again": bool(self.rendered) and self.finished() is None,
                 "making": self.making is not None, "channels": self.channels_now(state),
-                "sound": {"mutes": state["mutes"], "has": self.has_sound()}, "ends": self.ends(state),
+                "sound": {"mutes": state["mutes"], "has": self.has_sound(), "tracks": self.tracks_shown(state)},
+                "ends": self.ends(state),
                 "frame": self.framing(state), "layouts": self.layouts_now(state), "album": self.album_now(),
                 "circle": self.circle_now(state)}
 
@@ -894,6 +895,20 @@ class Chat:
     def has_sound(self):
         """True when the clip's recording has sound to mute."""
         return bool((self.recording or {}).get("sound_tracks"))
+
+    def tracks_shown(self, state):
+        """The recording's sound tracks for the Sound tab, [{"n", "on"}], or [] with fewer than two."""
+        rec = dict(self.recording or {}, tracks=state.get("tracks"))
+        count = rec.get("sound_tracks") or 0
+        return [{"n": n, "on": n in recording.tracks(rec)} for n in range(count)] if count > 1 else []
+
+    def set_tracks(self, on):
+        """The person's tap on a sound track: set_sound_tracks' own edit, as set_captions. on holds numbers from 0."""
+        self._clip_now()
+        refused, entry = self.tap("set_sound_tracks", tracks=[n + 1 for n in on])
+        if entry:
+            self._tell("the person chose sound tracks %s on the page" % ", ".join(str(n + 1) for n in entry["on"]))
+        return refused
 
     def set_mute(self, start, end, back=False):
         """The person's seconds to mute under the clip, or to bring the sound back over: mute_sound's own edit, as

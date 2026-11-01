@@ -185,6 +185,14 @@ class Projects(unittest.TestCase):
         with self.assertRaises(ValueError):
             p.add({"do": "nothing"})
 
+    def test_the_sound_tracks_chosen_stand_and_undo_takes_them_back(self):
+        p = project.Project([{"do": "clip", "moment": 1, "pieces": [[0, 10]], "layout": {"kind": "card"}}])
+        self.assertIsNone(p.state()["tracks"], "every track until the person chooses")
+        p.add({"do": "tracks", "on": [1]})
+        self.assertEqual(p.state()["tracks"], [1])
+        p.undo()
+        self.assertIsNone(p.state()["tracks"])
+
     def test_a_mute_stays_on_the_seconds_of_the_recording_when_the_clip_is_cut_again(self):
         pieces = [[30, 40], [50, 60]]
         spans = project.to_recording_spans(pieces, 8, 12)

@@ -4001,6 +4001,23 @@ def set_music(job, why, music=None, start=0, level=render.MUSIC_LEVEL, duck=rend
     return "\n".join(lines)
 
 
+def set_sound_tracks(job, why, tracks):
+    """Which of the recording's sound tracks are in the clip, by their numbers from 1. Every track is in it until this
+    is called. Tarm 11-01: Henri records the game and his voice on separate tracks and wants them told apart."""
+    rec = _open(job, "choose the sound tracks of")
+    _clip_state(job)
+    count = rec.get("sound_tracks") or 0
+    if count < 2:
+        raise Refused("The recording has %s, so there is no track to choose." % (
+            "one sound track" if count else "no sound"))
+    if not tracks or any(not 1 <= n <= count for n in tracks):
+        raise Refused("The recording has sound tracks 1 to %d: give at least one of those." % count)
+    on = sorted({n - 1 for n in tracks})
+    job.edit({"do": "tracks", "on": on})
+    return "The clip now uses sound track%s %s of the %d. Render it again to hear it in the finished file." % (
+        "" if len(on) == 1 else "s", ", ".join(str(n + 1) for n in on), count)
+
+
 def mute_sound(job, why, start, end, back=False):
     """Mutes the recording's own sound from clip second start to end, or brings it back over them (back): a count-in,
     another person's voice, a noise. The mute is kept as the stretches of the recording those seconds play
@@ -7201,6 +7218,8 @@ def describe(entry):
     if entry["do"] == "mute":
         return "%s at %g-%g s" % ("bringing the sound back" if entry.get("back") else "the mute", entry["start"],
                                   entry["end"])
+    if entry["do"] == "tracks":
+        return "sound tracks %s" % ", ".join(str(n + 1) for n in entry["on"])
     if entry["do"] == "people":
         return "the decision on people (%s)" % "; ".join(
             "%s person %s" % (k, _numbers(entry[k])) for k in ("blur", "keep") if entry[k])
@@ -7842,6 +7861,13 @@ TOOLS = {t.name: t for t in [
           "duck": {"type": "number", "minimum": -40, "maximum": -1,
                    "description": "dB lower while someone speaks, such as -12. Leave it out for -12."}},
          [], set_music, changes=True),
+    Tool("set_sound_tracks", "Chose the sound tracks",
+         "Choose which of the recording's sound tracks are in the clip, by their numbers from 1. A recording can hold "
+         "several, such as a game on one and a voice on another. All of them are in the clip until you choose. Use it "
+         "when the person asks for one track, or to leave one out, such as no game sound.",
+         {"tracks": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 1},
+                     "description": "The numbers of the tracks to keep, from 1."}},
+         ["tracks"], set_sound_tracks, changes=True),
     Tool("mute_sound", "Muted the sound",
          "Mute the clip's own sound from one second of the clip to another: a count-in such as 1 2 3, someone else "
          "talking, a noise. The picture plays on; the music and the studio's sounds still play there, and the "

@@ -360,6 +360,14 @@
   "show": "mute"
  },
  {
+  "tool": "set_sound_tracks",
+  "group": "Sound",
+  "name": "Choose sound tracks",
+  "says": "When a recording holds several sound tracks, such as the game on one and your voice on another, every track is in the clip. Choose the ones you want.",
+  "ask": "Use only sound track 2.",
+  "show": "mute"
+ },
+ {
   "tool": "no_chat_box",
   "group": "Blur",
   "name": "No chat box here",

@@ -60,7 +60,8 @@ import json
 import os
 
 DOES = ("clip", "style", "title", "captions", "blur", "hit", "sticker", "people", "look", "push", "layout", "untitle",
-        "sound", "music", "glass", "mask", "cutout", "channel", "flurry", "mute", "picture", "backdrop", "eye", "effect")
+        "sound", "music", "glass", "mask", "cutout", "channel", "flurry", "mute", "picture", "backdrop", "eye", "effect",
+        "tracks")
 MADE_BY = ("clipstudio", "cutting", "fonts", "stickers")
 
 
@@ -113,6 +114,7 @@ class Project:
         titles, blurs, hits, stickers, pushes, sounds, glass, cutouts, flurries = [], [], [], [], [], [], [], [], []
         pictures = []
         muted = []
+        tracks = None
         look = music = mask = channel = backdrop = None
         hidden = False
         decided = {}
@@ -190,6 +192,8 @@ class Project:
                 muted = _less(muted, e["spans"]) if e.get("back") else _joined(muted + e["spans"])
             elif e["do"] == "eye":
                 hidden = e["hidden"]
+            elif e["do"] == "tracks":
+                tracks = e["on"]
         length = round(sum(b - a for a, b in clip["pieces"]), 2) if clip else 0
         mutes = to_clip_spans(clip["pieces"], muted) if clip else []
         speech = clip.get("speech") if clip else None
@@ -217,7 +221,7 @@ class Project:
                 "backdrop": backdrop if clip else None,
                 "channel": channel if clip else None,
                 "cutouts": sorted([c for c in cutouts if inside(c["start"])], key=lambda c: c["start"]),
-                "mutes": mutes}
+                "mutes": mutes, "tracks": tracks}
 
 
 def effect_name(of, effect):
