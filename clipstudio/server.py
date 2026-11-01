@@ -72,6 +72,8 @@ computer only.
   at once when it is there, else {"url": null, "making": true} while it is made in the background (a "base" event
   says when). A POST, as it starts work: another web page cannot start it
 - GET /api/base/<name>.mp4: the base video, in the byte range the browser asks for
+- POST /api/premiere {chat}: makes the Premiere timeline's files of the clip as it is now: {"ready": true} at once when
+  they are there, else {"making": true} while they are made in the background (a "layers" event says when)
 - GET /api/events?chat=<id>: every event of the chat from the start, then each new one as it happens, and Muse's
   thinking while it is written (Server-Sent Events, so a reload redraws the whole chat and a running job carries on).
   Every page shows the chat the server has open: when another chat opens, the stream says "moved" and the page
@@ -228,7 +230,7 @@ class Handler(BaseHTTPRequestHandler):
             self.receive_upload(dict(parse_qsl(query)))
             return
         if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/open", "/api/undo", "/api/person",
-                        "/api/base", "/api/parts", "/api/key", "/api/phone", "/api/sends") + CHANGES:
+                        "/api/base", "/api/premiere", "/api/parts", "/api/key", "/api/phone", "/api/sends") + CHANGES:
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
             return
         body = self.read_json()
@@ -277,6 +279,8 @@ class Handler(BaseHTTPRequestHandler):
             self.change_clip(chat, path, body)
         elif path == "/api/base":
             self.send_base(chat)
+        elif path == "/api/premiere":
+            self.make_layers(chat)
         else:
             words = str(body.get("message") or "").strip()
             if not words:
@@ -405,6 +409,19 @@ class Handler(BaseHTTPRequestHandler):
         made."""
         try:
             got = chat.base()
+        except agent.Missing as e:
+            self.send_json({"ok": False, "error": str(e)}, HTTPStatus.NOT_FOUND)
+            return
+        if "error" in got:
+            self.send_json({"ok": False, "error": got["error"]}, HTTPStatus.BAD_REQUEST)
+        else:
+            self.send_json(dict(got, ok=True))
+
+    def make_layers(self, chat):
+        """The Premiere timeline's files of the clip as it is now (Chat.layers): 404 before there is a clip, 400 when they
+        could not be made."""
+        try:
+            got = chat.layers()
         except agent.Missing as e:
             self.send_json({"ok": False, "error": str(e)}, HTTPStatus.NOT_FOUND)
             return
@@ -628,10 +645,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": GONE}, HTTPStatus.NOT_FOUND)
             return
         titles = [e["title"] for e in chat.events if e["kind"] in ("ready", "named") and e.get("title")]
-        done = chat.finished()
+        made, state = chat.layers_now() or {}, chat.project.state()
+        if state.get("clip") and not made:
+            self.send_json({"ok": False, "error": "The Premiere files of the clip as it is now are not made yet. Press Premiere again."},
+                           HTTPStatus.NOT_FOUND)
+            return
         try:
-            name, body = premiere.bundle(titles[-1] if titles else "", chat.recording, chat.project.state(),
-                                         os.path.join(render.folder("clips"), done["name"]) if done else None)
+            name, body = premiere.bundle(titles[-1] if titles else "", chat.recording, state, made.get("plate"), made.get("captions"))
         except premiere.NotExported as e:
             self.send_json({"ok": False, "error": str(e)}, HTTPStatus.NOT_FOUND)
             return

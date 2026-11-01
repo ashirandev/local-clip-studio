@@ -647,7 +647,7 @@ function stopTimer() {
 
 function setBusy() {
   const busy = room.open.size > 0;
-  stopButton.hidden = !(busy || room.work.video || room.work.preview || room.work.ends || room.work.layout);
+  stopButton.hidden = !(busy || room.work.video || room.work.preview || room.work.ends || room.work.layout || room.work.premiere);
   stopButton.disabled = false;
   text.placeholder = room.attached ? "What to do? Or just send" : busy ? "Change what Muse is doing" : idle;
   showStatus();
@@ -1022,10 +1022,11 @@ function drawOut() {
   const save = el("a");
   save.href = "/api/clip/" + (room.finished || e.file) + "?download=1";
   save.append(ico("save"), "Video");
-  const edit = el("a");
-  edit.href = "/api/premiere?chat=" + encodeURIComponent(room.chat);
-  edit.title = "The clip as it is now, for Premiere Pro: each piece points at your own file, so an editor can drag its edges";
+  const edit = el("button");
+  edit.type = "button";
+  edit.title = "The clip as it is now, for Premiere Pro, with the captions on a layer of their own";
   edit.append(ico("lanes"), "Premiere");
+  edit.addEventListener("click", askPremiere);
   const all = [e.title, e.caption, e.hashtags.join(" ")].concat(e.english ? [e.english] : []).join("\n\n");
   const copy = el("button");
   copy.type = "button";
@@ -1034,6 +1035,32 @@ function drawOut() {
   outRow.append(save, edit, copy);
   postBox.append(el("p", "t", e.title), el("p", null, e.caption), el("p", "h", e.hashtags.join(" ")));
   if (e.english) postBox.appendChild(el("p", "e", e.english));
+}
+
+function savePremiere() {
+  room.wantPremiere = false;
+  const a = el("a");
+  a.href = "/api/premiere?chat=" + encodeURIComponent(room.chat);
+  a.click();
+}
+
+async function askPremiere() {
+  let d;
+  try {
+    d = await post("/api/premiere", { chat: room.chat });
+  } catch (err) {
+    toast("The studio is not answering. Open Local Clip Studio again.");
+    return;
+  }
+  if (!d.ok) {
+    toast(d.error || "The Premiere files could not be made.");
+  } else if (d.ready) {
+    savePremiere();
+  } else {
+    room.wantPremiere = true;
+    closeSheet();
+    pageWork("premiere", true);
+  }
 }
 
 async function copyText(words) {
@@ -2916,6 +2943,12 @@ function on(e) {
     loadPanel();
     return;
   }
+  if (e.kind === "layers") {
+    pageWork("premiere", false);
+    if (e.error) toast(e.error);
+    else if (room.wantPremiere) savePremiere();
+    return;
+  }
   if (e.kind === "preview") {
     room.cut[e.name] = e;
     document.querySelectorAll(".moment").forEach((tile) => {
@@ -2997,6 +3030,8 @@ function onThinking(live) {
     } else if (live.work && live.page === "ends") {
       if (!room.work.ends) pageWork("ends", true);
       againLine.textContent = live.work;
+    } else if (live.work && live.page === "premiere") {
+      if (!room.work.premiere) pageWork("premiere", true);
     } else if (live.work && live.page === "preview") {
       if (!room.work.preview) pageWork("preview", true);
       previewLine.hidden = false;
@@ -3070,7 +3105,7 @@ function endLine(j, e) {
 
 function showStatus() {
   const m = current();
-  const busy = room.open.size > 0 || room.work.ends || room.work.video || room.work.preview;
+  const busy = room.open.size > 0 || room.work.ends || room.work.video || room.work.preview || room.work.premiere;
   statusLine.classList.toggle("run", busy);
   statusLine.classList.toggle("done", !busy && !!room.endSaid);
   document.title = (busy ? "Working · " : room.endSaid ? "Finished · " : "") + PAGE_TITLE;
@@ -3078,8 +3113,8 @@ function showStatus() {
     statusLine.textContent = jobLine();
   } else if (room.work.ends) {
     statusLine.textContent = "Making the clip again with its new start and end. Press Stop to end it.";
-  } else if (room.work.video || room.work.preview) {
-    statusLine.textContent = "Making the " + (room.work.video ? "video" : "preview") + ". Press Stop to end it.";
+  } else if (room.work.video || room.work.preview || room.work.premiere) {
+    statusLine.textContent = "Making the " + (room.work.video ? "video" : room.work.preview ? "preview" : "Premiere files") + ". Press Stop to end it.";
   } else if (room.endSaid) {
     statusLine.textContent = room.endSaid;
   } else if (m) {
@@ -3303,7 +3338,8 @@ function show(chatId) {
   room.showing = null;
   room.minded = [];
   room.paid = false;
-  room.work = { video: false, preview: false, ends: false, layout: false };
+  room.work = { video: false, preview: false, ends: false, layout: false, premiere: false };
+  room.wantPremiere = false;
   const known = listed(chatId);
   room.title = known ? known.title || known.first : "";
   chatName.textContent = room.title || "New clip";

@@ -46,11 +46,12 @@ FINISHED_NOTE = """How to open this clip in Premiere Pro
 2. Open Premiere and start a new project, or open one you have.
 3. Choose File > Import and pick {name}.xml. In the Project panel, double-click "{title}". The clip opens on the timeline.
 4. If Premiere asks where a video is, press Locate and pick the file it names.
+{captions}
+The bottom video track is your clip, with its titles, effects and sound. It plays as it is. Cut or trim it there.
 
-The bottom video track is your finished clip, with its captions, titles, effects and sound. It plays as it is. Cut or trim it there.
-
-The tracks above it are the pieces of your own recording, switched off. To show more or less of a piece, select it, choose
-Clip > Enable, and drag its edge. They have none of the clip's effects, and a face or a chat the studio blurred is NOT blurred in them.
+The tracks above it are switched off. To use one, select it and choose Clip > Enable. The pieces of your own recording are there
+to show more or less of a piece: drag its edge. They have none of the clip's effects, and a face or a chat the studio blurred
+is NOT blurred in them.
 
 วิธีเปิดคลิปนี้ใน Premiere Pro
 
@@ -58,10 +59,19 @@ Clip > Enable, and drag its edge. They have none of the clip's effects, and a fa
 2. เปิด Premiere แล้วสร้างโปรเจกต์ใหม่ หรือเปิดโปรเจกต์ที่มีอยู่
 3. กด File > Import เลือก {name}.xml แล้วดับเบิลคลิก "{title}" ในช่อง Project คลิปจะเปิดบนไทม์ไลน์
 4. ถ้า Premiere ถามว่าวิดีโออยู่ไหน กด Locate แล้วเลือกไฟล์ที่มันบอกชื่อ
+{captions_th}
+แทร็กวิดีโอล่างสุดคือคลิปของคุณ มีชื่อเรื่อง เอฟเฟกต์ และเสียงครบ เล่นได้เลย จะตัดหรือเล็มก็ทำที่แทร็กนี้
 
-แทร็กวิดีโอล่างสุดคือคลิปที่ทำเสร็จแล้ว มีซับ ชื่อเรื่อง เอฟเฟกต์ และเสียงครบ เล่นได้เลย จะตัดหรือเล็มก็ทำที่แทร็กนี้
+แทร็กด้านบนปิดไว้อยู่ ถ้าจะใช้ ให้เลือกแล้วกด Clip > Enable ชิ้นจากวิดีโอต้นฉบับมีไว้ให้ยืดหรือหดซีนด้วยการลากขอบ ชิ้นเหล่านี้ไม่มีเอฟเฟกต์ และสิ่งที่โปรแกรมเบลอไว้จะไม่ถูกเบลอ
+"""
+CAPTIONS_NOTE = """5. For the captions, choose File > Import, pick {name}.srt and drag it onto the timeline. You can edit its words there.
 
-แทร็กด้านบนคือชิ้นจากวิดีโอต้นฉบับ ปิดไว้อยู่ ถ้าอยากให้ยาวขึ้นหรือสั้นลง ให้เลือกชิ้นนั้น กด Clip > Enable แล้วลากขอบ ชิ้นเหล่านี้ไม่มีเอฟเฟกต์ และสิ่งที่โปรแกรมเบลอไว้จะไม่ถูกเบลอ
+The clip itself has no captions on it, so they never show twice. The track just above it holds the same captions in the studio's
+look, switched off: use those instead of the .srt if you want that look.
+"""
+CAPTIONS_NOTE_TH = """5. ซับอยู่ในไฟล์ {name}.srt กด File > Import เลือกไฟล์นี้ แล้วลากลงไทม์ไลน์ แก้คำในนั้นได้เลย
+
+ตัวคลิปไม่มีซับฝังอยู่ ซับจึงไม่ซ้อนกันสองชั้น แทร็กถัดขึ้นไปคือซับชุดเดียวกันในหน้าตาแบบที่เห็นในโปรแกรม ปิดไว้อยู่ ถ้าชอบแบบนั้นก็เปิดใช้แทน .srt ได้
 """
 LEFT_OUT = [
     ("blurs", "The blurs. A face or a chat the studio blurred is NOT blurred here: blur it before you post."),
@@ -263,13 +273,26 @@ def _finished(path, state, length, files, new_id):
     return video, sound[0], sound[1]
 
 
-def sequence(title, rec, state, finished=None):
+def _captions_layer(path, state, length, files, new_id):
+    """The clipitem of the captions' own video at path, over the whole sequence and switched off: the .srt is what the
+    person edits, so with both on they would show twice."""
+    item = {"path": path, "name": os.path.basename(path), "width": W, "height": H, "seconds": state["length"], "fps": FPS,
+            "sound": False}
+    rate = (FPS, False)
+    file_xml, fid = files.xml(item, rate)
+    return ('<clipitem id="%s"><masterclipid>master%s</masterclipid><name>%s</name><enabled>FALSE</enabled><duration>%d</duration>%s'
+            '<start>0</start><end>%d</end><in>0</in><out>%d</out><alphatype>straight</alphatype><pixelaspectratio>square'
+            '</pixelaspectratio><anamorphic>FALSE</anamorphic>%s</clipitem>' % (
+                new_id(), fid, escape(item["name"]), length, _rate_xml(rate), length, length, file_xml))
+
+
+def sequence(title, rec, state, finished=None, captions=None):
     """The Final Cut Pro 7 XML of the clip as a 1080x1920 sequence at FPS: a video track for each part of the layout,
     the sound on two linked tracks (left and right), the music on two more, the titles and each piece's reason as
     markers. finished, the finished clip's file, goes on the bottom video track and the sound tracks and the parts go
     above it switched off, so the picture, the effects and every sound track are there whatever Premiere makes of a
-    part's scale and position (Henri 11-01: a black picture and a timeline with little on it). NotExported when there is
-    no clip."""
+    part's scale and position (Henri 11-01: a black picture and a timeline with little on it). captions, the captions'
+    own video, goes just above it, switched off too. NotExported when there is no clip."""
     if not state.get("clip"):
         raise NotExported("There is no clip yet, so there is nothing to export.")
     pieces = items(rec, state)
@@ -317,6 +340,8 @@ def sequence(title, rec, state, finished=None):
         whole, one, two = _finished(finished, state, length, files, new_id)
         video.insert(0, [whole])
         left, right = [one], [two]
+        if captions:
+            video.insert(1, [_captions_layer(captions, state, length, files, new_id)])
     music = ([], []) if finished else _music(state, length, files, new_id, 3 if left else 1)
     tracks = ["<track>%s<enabled>TRUE</enabled><locked>FALSE</locked></track>" % "".join(t) for t in video]
     audio = ['<track premiereTrackType="Stereo" currentExplodedTrackIndex="%d" totalExplodedTrackCount="2">%s'
@@ -399,11 +424,13 @@ def safe_name(title):
     return name or "clip"
 
 
-def bundle(title, rec, state, finished=None):
-    """(file name, bytes) of a zip with <name>.xml, <name>.srt when the clip has captions, and README.txt."""
+def bundle(title, rec, state, finished=None, captions=None):
+    """(file name, bytes) of a zip with <name>.xml, <name>.srt when the clip has captions, and README.txt. finished and
+    captions as for sequence."""
     name = safe_name(title)
-    xml = sequence(title or name, rec, state, finished)
-    note = (FINISHED_NOTE.format(name=name, title=title or name) if finished else
+    xml = sequence(title or name, rec, state, finished, captions)
+    note = (FINISHED_NOTE.format(name=name, title=title or name, captions=CAPTIONS_NOTE.format(name=name) if captions else "",
+                                 captions_th=CAPTIONS_NOTE_TH.format(name=name) if captions else "") if finished else
             NOTE.format(name=name, title=title or name, left_out=_left_out(state, items(rec, state), rec)))
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as z:

@@ -34,6 +34,8 @@ LUFS, PEAK, RANGE = -14, -1.5, 11
 PRESET, CRF = "medium", 19
 # the page's video without words (base): veryfast 24 measured as sharp as ultrafast 24 with a file 2 to 4 times smaller
 BASES, BASE_SIZE, BASE_PRESET, BASE_CRF = 1, (540, 960), "veryfast", 24
+PLATES = 1
+NO_CAPTIONS, ONLY_CAPTIONS = "no captions", "only captions"
 EXPORT_SECONDS = 600
 MUSIC_LEVEL, MUSIC_LEVELS, MUSIC_DUCK = -6, (-30, 0), -12
 MUSIC_IN, MUSIC_OUT = 0.3, 1.5
@@ -224,15 +226,17 @@ def whole_lines(state, default="clean"):
     return 0 < st.box < 1
 
 
-def ass(state, default="clean", behind=False):
+def ass(state, default="clean", behind=False, part=None):
     """The path of the clip's ASS file (written once per content) with its titles, captions, big words and the
     channel's name (state['channel']: {"name", "spot"}, or None), or None when there are no words on screen. With
     behind=True it holds only the titles and big words that go behind the person ("behind": True), and without it
-    everything else. The channel's name is in the captions' letters (text.channel_name), the whole clip long."""
-    captions = None if behind else state.get("captions")
-    titles = [t for t in state["titles"] if bool(t.get("behind")) == behind]
-    words = [h for h in _hits(state) if h["kind"] == "word" and bool(h.get("behind")) == behind]
-    channel = None if behind else state.get("channel")
+    everything else. The channel's name is in the captions' letters (text.channel_name), the whole clip long.
+    part NO_CAPTIONS leaves the captions out and ONLY_CAPTIONS leaves out all but them, each in the look it has with
+    the other there (the two layers of a Premiere timeline, premiere.py)."""
+    captions = None if behind or part == NO_CAPTIONS else state.get("captions")
+    titles = [t for t in state["titles"] if bool(t.get("behind")) == behind and part != ONLY_CAPTIONS]
+    words = [h for h in _hits(state) if h["kind"] == "word" and bool(h.get("behind")) == behind and part != ONLY_CAPTIONS]
+    channel = None if behind or part == ONLY_CAPTIONS else state.get("channel")
     if not (titles or captions or words or channel):
         return None
     st = _styles(state, default)
@@ -334,7 +338,8 @@ def after_source(state, src, out, first_input, default="clean", words=True):
       and big words, one ASS file), so the words hold still while the picture moves and stay on top of a sticker, a
       flurry or a glass box, then the flashes last, so a flash lights the words too.
     With words=False the titles, captions and big words over the picture are left out (the page lays layer.words()
-    over it); the words behind the person and the flashes stay, as they are part of the picture.
+    over it); the words behind the person and the flashes stay, as they are part of the picture. words=NO_CAPTIONS
+    leaves the captions alone out.
     A drawing that cannot be made raises ValueError with the sentence for Muse."""
     blurs = state.get("blurs") or []
     blurs = (effects.blur_tracks([b["track"] for b in blurs if b.get("track")]) +
@@ -356,7 +361,7 @@ def after_source(state, src, out, first_input, default="clean", words=True):
     fragments += [effects.sticker(k["png"], k["at"], k["length"], k["box"]) for k in state.get("stickers") or []]
     fragments += [effects.flurry(f["pngs"], f["at"], f["box"], f.get("move", "burst"), f.get("count", 8),
                                  f.get("length"), f.get("size", 150)) for f in state.get("flurries") or []]
-    path = ass(state, default) if words else None
+    path = ass(state, default, part=None if words is True else words) if words else None
     if path:
         fragments.append(text.burn(path, fonts(state, default)))
     fragments += [effects.flash(h["at"]) for h in hits if h["kind"] == "flash"]
@@ -672,16 +677,35 @@ def base(rec, state, on_progress=None, on_start=None, default="clean"):
         drawn, files = after_source(state, "src", "fin", len(clip["pieces"]), default, words=False)
     except ValueError as e:
         raise NotDrawn(str(e))
-    key = hashlib.sha1(json.dumps([BASES, rec["path"], rec["size"], rec["mtime"], clip["pieces"], drawn, files,
-                                   state.get("music"), state.get("sounds"), state.get("speech"), state.get("mutes"),
-                                   state.get("tracks"),
-                                   BASE_SIZE, BASE_PRESET, BASE_CRF], ensure_ascii=False, sort_keys=True, default=str)
-                       .encode("utf-8")).hexdigest()[:16]
-    path = os.path.join(folder("bases"), key + ".mp4")
+    path = os.path.join(folder("bases"), _named(BASES, rec, state, drawn, files, BASE_SIZE, BASE_PRESET, BASE_CRF) + ".mp4")
     if os.path.isfile(path):
         return path
     return export(rec, state, path, on_progress, on_start, default, words=False, size=BASE_SIZE, preset=BASE_PRESET,
                   crf=BASE_CRF)
+
+
+def plate(rec, state, on_progress=None, on_start=None, default="clean"):
+    """The finished clip without its captions, for a timeline that has them as a layer of their own (premiere.py), kept
+    in work/plates and named by what it shows. Tarm 11-01: burned in, they show twice once the .srt is on the timeline."""
+    clip = state["clip"]
+    if not clip:
+        raise NotDrawn("There is no clip yet, so there is nothing to make.")
+    try:
+        drawn, files = after_source(state, "src", "fin", len(clip["pieces"]), default, NO_CAPTIONS)
+    except ValueError as e:
+        raise NotDrawn(str(e))
+    path = os.path.join(folder("plates"), _named(PLATES, rec, state, drawn, files) + ".mp4")
+    if os.path.isfile(path):
+        return path
+    return export(rec, state, path, on_progress, on_start, default, words=NO_CAPTIONS)
+
+
+def _named(version, rec, state, drawn, files, *more):
+    """The name of a kept video: what it shows, from the recording, the pieces, the drawing, the sounds and the music."""
+    return hashlib.sha1(json.dumps([version, rec["path"], rec["size"], rec["mtime"], state["clip"]["pieces"], drawn, files,
+                                    state.get("music"), state.get("sounds"), state.get("speech"), state.get("mutes"),
+                                    state.get("tracks")] + list(more), ensure_ascii=False, sort_keys=True, default=str)
+                        .encode("utf-8")).hexdigest()[:16]
 
 
 def _fault(lines):

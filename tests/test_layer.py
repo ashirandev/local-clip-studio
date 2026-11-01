@@ -173,5 +173,94 @@ class Words(unittest.TestCase):
         self.assertEqual(layer.words(state(word=False, said=None, behind=True)), [])
 
 
+@unittest.skipUnless(FFMPEG and HAS_NUMPY, "needs ffmpeg and numpy")
+class Apart(unittest.TestCase):
+    """Tarm 11-01: burned in and on Premiere's timeline as the .srt, the captions showed twice."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.work, recording.WORK = recording.WORK, os.path.join(self.tmp, "work's ลอง")
+
+    def tearDown(self):
+        recording.WORK = self.work
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def alpha(self, path, at):
+        import numpy as np
+        raw = subprocess.run([FFMPEG, "-v", "error", "-ss", "%.3f" % at, "-i", path, "-frames:v", "1", "-f", "rawvideo",
+                              "-pix_fmt", "rgba", "-"], capture_output=True, check=True).stdout
+        return np.frombuffer(raw, np.uint8).reshape(1920, 1080, 4)[:, :, 3]
+
+    def test_each_part_holds_what_the_other_leaves_out(self):
+        st = state()
+        with open(render.ass(st, part=render.NO_CAPTIONS), encoding="utf-8") as f:
+            plain = f.read().split("[Events]")[1]
+        with open(render.ass(st, part=render.ONLY_CAPTIONS), encoding="utf-8") as f:
+            said = f.read().split("[Events]")[1]
+        self.assertIn("ว้าว", plain)
+        self.assertIn("ลดครึ่งราคา", plain)
+        self.assertNotIn("ซื้อหนึ่ง", plain)
+        self.assertIn("ซื้อหนึ่ง", said)
+        self.assertNotIn("ว้าว", said)
+        self.assertNotIn("ลดครึ่งราคา", said)
+
+    def test_a_clip_with_no_captions_has_no_captions_part(self):
+        self.assertIsNone(render.ass(state(title=False, word=False), part=render.NO_CAPTIONS))
+        self.assertIsNone(render.ass(state(said=None), part=render.ONLY_CAPTIONS))
+        self.assertIsNone(layer.captions_video(state(said=None)))
+
+    def test_the_captions_video_shows_them_at_their_times_over_nothing_for_the_whole_clip(self):
+        path = layer.captions_video(state())
+        for at, seen in ((0.1, False), (1.0, True), (2.2, False), (3.0, True), (3.9, False)):
+            self.assertEqual(int(self.alpha(path, at).max()) > 200, seen, at)
+        self.assertEqual(int(self.alpha(path, 1.0)[:layouts.CAPTIONS[1] - 60].max()), 0, "nothing but the captions: the title is on the clip")
+        self.assertEqual(int(self.alpha(path, 1.0).min()), 0, "the rest shows the clip through")
+        got = subprocess.run([shutil.which("ffprobe"), "-v", "error", "-count_frames", "-select_streams", "v", "-show_entries",
+                              "stream=codec_name,profile,pix_fmt,width,height,nb_read_frames", "-of", "csv=p=0", path],
+                             capture_output=True, text=True, check=True).stdout
+        self.assertEqual(got.strip().split(",")[0], "prores")
+        self.assertIn("4444", got)
+        self.assertIn("yuva", got)
+        self.assertIn("1080,1920", got)
+        self.assertEqual(got.strip().split(",")[-1], "120", "as long as the clip, or Premiere reads past its end")
+
+    def test_the_captions_video_is_as_long_as_the_clip_after_many_steps(self):
+        lines = [{"from": k * 0.5, "to": k * 0.5 + 0.4, "text": "คำที่ %d" % k} for k in range(30)]
+        path = layer.captions_video(state("pop", "pop", title=False, word=False, length=15.26, said=lines))
+        got = subprocess.run([shutil.which("ffprobe"), "-v", "error", "-count_frames", "-select_streams", "v", "-show_entries",
+                              "stream=nb_read_frames", "-of", "csv=p=0", path], capture_output=True, text=True, check=True).stdout
+        self.assertEqual(got.strip().strip(","), "458")
+
+    def test_the_same_captions_are_made_once(self):
+        first = layer.captions_video(state())
+        with mock.patch.object(layer.subprocess, "run", side_effect=AssertionError("made again")):
+            self.assertEqual(layer.captions_video(state()), first)
+        self.assertEqual(sorted(n for n in os.listdir(render.folder("plates")) if n.endswith(".txt") or ".part" in n), [],
+                         "nothing is left behind")
+
+    def test_the_plate_is_the_finished_clip_less_the_captions(self):
+        import numpy as np
+        source = os.path.join(self.tmp, "s.mp4")
+        subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "color=c=0x305070:s=1280x720:r=30:d=5", "-f", "lavfi", "-i",
+                        "sine=f=440:d=5", "-c:v", "libx264", "-c:a", "aac", "-shortest", source], check=True)
+        rec = recording.probe(source)
+        st = dict(state(), clip={"pieces": [[0.0, 4.0]], "layout": layouts.make("subject", (1280, 720))})
+        whole = os.path.join(self.tmp, "whole.mp4")
+        render.export(rec, st, whole)
+        plate = render.plate(rec, st)
+
+        def seen(path):
+            raw = subprocess.run([FFMPEG, "-v", "error", "-ss", "1.5", "-i", path, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt",
+                                  "gray", "-"], capture_output=True, check=True).stdout
+            return np.frombuffer(raw, np.uint8).reshape(1920, 1080).astype(int)
+
+        gone = np.abs(seen(whole) - seen(plate))
+        band = gone[layouts.CAPTIONS[1] - 60:layouts.CAPTIONS[1] + layouts.CAPTIONS[3] + 60]
+        self.assertGreater(int(band.max()), 100, "the captions are not on it")
+        self.assertLess(int(gone[:layouts.CAPTIONS[1] - 60].max()), 40, "the title stays on it, drawn the same")
+        with mock.patch.object(render, "export", side_effect=AssertionError("made again")):
+            self.assertEqual(render.plate(rec, st), plate)
+
+
 if __name__ == "__main__":
     unittest.main()

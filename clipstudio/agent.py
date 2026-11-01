@@ -184,7 +184,7 @@ class Chat:
         self.told = []
         self.held = 0
         self.spelling = None
-        self.making = self.basing = None
+        self.making = self.basing = self.layering = self.layered = None
         self.cond = threading.Condition()
         folder = os.path.join(WORK, "chats")
         os.makedirs(folder, exist_ok=True)
@@ -318,9 +318,10 @@ class Chat:
     def stop(self):
         """Stops the job running now and what the page is making (the video, the preview), at once. True when any
         of them was running."""
-        job, making, basing = self.job, self.making, self.basing
+        job, making, basing, layering = self.job, self.making, self.basing, self.layering
         stopped = bool(job and job.stop())
         stopped = bool(making and making.stop()) or stopped
+        stopped = bool(layering and layering.stop()) or stopped
         return bool(basing and basing.stop()) or stopped
 
     def unfit(self, *entries):
@@ -1126,6 +1127,60 @@ class Chat:
         if "error" in got:
             return {"error": got["error"]}
         return {"url": got["url"], "from_cache": not got.get("ran")}
+
+    def layers(self):
+        """Makes the Premiere timeline's files of the clip as it is now: {"ready": True} when they are there within
+        PREVIEW_WAIT s, else {"making": True} while they are made in the background, as base() makes its video, and a
+        "layers" event says when they are made, or why not. {"error"} when they could not be made."""
+        state, sign = self._clip_now(), project.signature(self.project.entries)
+        hand, got, done = Hand(self, page="premiere"), {}, threading.Event()
+        with self.cond:
+            if self.layering:
+                return {"making": True}
+            self.layering = hand
+        total, shown = max(0.1, state["length"]), [0.0]
+
+        def progress(at):
+            if time.time() - shown[0] >= SHOW_THINKING_EVERY:
+                shown[0] = time.time()
+                hand.working("Making the Premiere files: %.0f of %.0f s (%d%%)" % (min(at, total), total,
+                                                                                   min(99, 100 * at / total)))
+
+        def make():
+            default = self.clip["style"] if self.clip else "clean"
+            try:
+                plate = render.plate(self.recording, state, on_progress=progress, on_start=hand.started_work, default=default)
+                hand.working("Making the Premiere files: the captions' layer (99%)")
+                self.layered = {"signature": sign, "plate": plate, "captions": layer.captions_video(state, default)}
+            except render.Stopped:
+                got["error"] = "The Premiere files were not made: Stop was pressed."
+            except render.NotDrawn as e:
+                got["error"] = "The Premiere files could not be made: %s" % e
+            except Exception as e:
+                got["error"] = "The studio broke while making the Premiere files (%s)." % e
+            finally:
+                hand.done_working()
+                with self.cond:
+                    self.layering, hand.done, got["done"] = None, True, True
+                    late = got.get("late")
+            if late:
+                self.emit("layers", job=None, **{k: got[k] for k in ("error",) if k in got})
+            done.set()
+
+        threading.Thread(target=make, name="premiere", daemon=True).start()
+        done.wait(PREVIEW_WAIT)
+        with self.cond:
+            if not got.get("done"):
+                got["late"] = True
+                return {"making": True}
+        return {"error": got["error"]} if "error" in got else {"ready": True}
+
+    def layers_now(self):
+        """The Premiere timeline's files of the clip as it is now, {"plate", "captions"}, or None."""
+        made = self.layered
+        if made and made["signature"] == project.signature(self.project.entries) and os.path.isfile(made["plate"]):
+            return made
+        return None
 
     def worked(self, n, steps):
         """The line on the Ready to post card that shows how little the person did for the clip job n made: Muse's

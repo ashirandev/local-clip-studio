@@ -9,6 +9,7 @@ import tempfile
 import threading
 import unittest
 import zipfile
+from unittest import mock
 import xml.etree.ElementTree as ET
 from http.server import ThreadingHTTPServer
 
@@ -241,13 +242,41 @@ class Finished(unittest.TestCase):
         self.assertEqual([ln for c in items for ln in c.findall("link") if ln.findtext("mediatype") == "audio"], [],
                          "a link to sound that is not on the timeline")
 
+    def test_the_captions_are_their_own_layer_just_above_the_clip_switched_off_and_see_through(self):
+        caps = os.path.join(self.tmp, "plates", "c.mov")
+        pieces = len(tracks(self.xml, "video"))
+        video = tracks(premiere.sequence("t", self.stream, self.state, self.path, caps), "video")
+        self.assertEqual(len(video), pieces + 1)
+        self.assertEqual(video[0].find("clipitem").findtext("name"), "0123456789abcdef.mp4")
+        layer = video[1].findall("clipitem")
+        self.assertEqual(len(layer), 1)
+        self.assertEqual([layer[0].findtext(k) for k in ("name", "enabled", "alphatype", "start", "end", "in", "out")],
+                         ["c.mov", "FALSE", "straight", "0", "120", "0", "120"])
+        self.assertIn("c.mov", layer[0].find("file").findtext("pathurl"))
+        self.assertIsNone(layer[0].find("file/media/audio"), "it has no sound")
+        self.assertEqual(layer[0].findall("link"), [])
+        self.assertEqual(layer[0].findall("filter"), [])
+        self.assertEqual({c.findtext("enabled") for t in video[2:] for c in t.findall("clipitem")}, {"FALSE"})
+
+    def test_the_note_tells_how_to_bring_the_captions_in_when_they_are_a_layer(self):
+        lines = {"lines": [{"from": 0.0, "to": 1.0, "text": "สวัสดี"}]}
+        marked = dict(self.state, captions=lines)
+        with zipfile.ZipFile(io.BytesIO(premiere.bundle("ไมค์ดี", self.stream, marked, self.path, "c.mov")[1])) as z:
+            note = z.read("ไมค์ดี/README.txt").decode("utf-8")
+            self.assertIn("ไมค์ดี/ไมค์ดี.srt", z.namelist())
+        self.assertIn("pick ไมค์ดี.srt and drag it onto the timeline", note)
+        self.assertIn("so they never show twice", note)
+        self.assertIn("ซับอยู่ในไฟล์ ไมค์ดี.srt", note)
+        with zipfile.ZipFile(io.BytesIO(premiere.bundle("ไมค์ดี", self.stream, self.state, self.path)[1])) as z:
+            self.assertNotIn(".srt", z.read("ไมค์ดี/README.txt").decode("utf-8"))
+
     def test_the_note_says_what_is_on_the_timeline_and_warns_of_the_blurs(self):
         name, body = premiere.bundle("ไมค์ดี", self.stream, self.state, self.path)
         with zipfile.ZipFile(io.BytesIO(body)) as z:
             note = z.read("ไมค์ดี/README.txt").decode("utf-8")
-        self.assertIn("The bottom video track is your finished clip", note)
+        self.assertIn("The bottom video track is your clip", note)
         self.assertIn("is NOT blurred in them", note)
-        self.assertIn("แทร็กวิดีโอล่างสุดคือคลิปที่ทำเสร็จแล้ว", note)
+        self.assertIn("แทร็กวิดีโอล่างสุดคือคลิปของคุณ", note)
         self.assertIn('double-click "ไมค์ดี"', note)
         self.assertNotIn("What came over", note)
 
@@ -283,16 +312,122 @@ class Page(unittest.TestCase):
         chat.recording = rec(os.path.join(self.tmp, "IMG_1.MOV"))
         chat.project.add({"do": "clip", "pieces": [[1.0, 3.0]], "layout": layouts.make("subject", (1920, 1080))})
         chat.emit("ready", job=1, title="ไมค์ดี")
+        status, _, body = self.get("/api/premiere?chat=" + chat.id)
+        self.assertEqual((status, json.loads(body)["error"]), (404, "The Premiere files of the clip as it is now are not made yet. Press Premiere again."))
+        plate, caps = os.path.join(self.tmp, "0123456789abcdef.mp4"), os.path.join(self.tmp, "c.mov")
+        chat.layers_now = lambda: {"plate": plate, "captions": caps}
         status, named, body = self.get("/api/premiere?chat=" + chat.id)
         self.assertEqual(status, 200)
         self.assertIn("filename*=UTF-8''%E0%B9%84%E0%B8%A1%E0%B8%84%E0%B9%8C%E0%B8%94%E0%B8%B5-premiere.zip", named)
         with zipfile.ZipFile(io.BytesIO(body)) as z:
             self.assertIn("ไมค์ดี/ไมค์ดี.xml", z.namelist())
-            self.assertNotIn(b"0123456789abcdef.mp4", z.read("ไมค์ดี/ไมค์ดี.xml"), "a clip changed since it was made has no finished file")
-        chat.finished = lambda: {"name": "0123456789abcdef.mp4"}
-        with zipfile.ZipFile(io.BytesIO(self.get("/api/premiere?chat=" + chat.id)[2])) as z:
-            self.assertIn(b"0123456789abcdef.mp4", z.read("ไมค์ดี/ไมค์ดี.xml"), "the finished file goes on the timeline")
+            xml = z.read("ไมค์ดี/ไมค์ดี.xml")
+        self.assertIn(b"0123456789abcdef.mp4", xml, "the clip without its captions goes on the timeline")
+        self.assertIn(b"c.mov", xml, "the captions' own layer goes on the timeline")
         self.assertEqual(self.get("/api/premiere?chat=20990101-000000-abcd")[0], 404)
+
+    def post(self, path, body):
+        conn = http.client.HTTPConnection("127.0.0.1", self.http.server_port, timeout=30)
+        conn.request("POST", path, json.dumps(body), {"Content-Type": "application/json"})
+        got = conn.getresponse()
+        out = (got.status, json.loads(got.read()))
+        conn.close()
+        return out
+
+    def test_a_press_makes_the_files_and_says_how_it_went(self):
+        chat = agent.Chat()
+        agent.CHATS[chat.id] = chat
+        self.assertEqual(self.post("/api/premiere", {"chat": chat.id})[0], 404)
+        for said, status in (({"ready": True}, 200), ({"making": True}, 200), ({"error": "No."}, 400)):
+            chat.layers = lambda: said
+            got = self.post("/api/premiere", {"chat": chat.id})
+            self.assertEqual(got[0], status)
+            self.assertEqual(got[1].get("error"), said.get("error"))
+            self.assertEqual(got[1].get("ready"), said.get("ready"))
+            self.assertEqual(got[1].get("making"), said.get("making"))
+
+
+class Making(unittest.TestCase):
+    """The two files are made in the background with the bar's percent, and belong to the clip as it was then."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.work, agent.WORK = agent.WORK, os.path.join(self.tmp, "work")
+        self.chat = agent.Chat()
+        self.chat.recording = rec(os.path.join(self.tmp, "IMG_1.MOV"))
+        self.chat.project.add({"do": "clip", "pieces": [[1.0, 3.0]], "layout": layouts.make("subject", (1920, 1080))})
+        self.plate = os.path.join(self.tmp, "plate.mp4")
+        with open(self.plate, "wb") as f:
+            f.write(b"x")
+        self.lines = []
+        self.chat.emit = lambda kind, **more: self.lines.append((kind, more))
+
+    def tearDown(self):
+        agent.WORK = self.work
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def made(self, plate=None, caps="c.mov"):
+        return (mock.patch.object(agent.render, "plate", plate or (lambda *a, **k: self.plate)),
+                mock.patch.object(agent.layer, "captions_video", lambda *a, **k: caps))
+
+    def test_the_files_are_kept_for_the_clip_they_were_made_from(self):
+        one, two = self.made()
+        with one, two:
+            self.assertEqual(self.chat.layers(), {"ready": True})
+        self.assertEqual(self.chat.layers_now(), {"signature": mock.ANY, "plate": self.plate, "captions": "c.mov"})
+        self.chat.project.add({"do": "look", "look": "warm"})
+        self.assertIsNone(self.chat.layers_now(), "a change makes them stale")
+
+    def test_files_gone_from_the_disk_are_not_handed_out(self):
+        one, two = self.made()
+        with one, two:
+            self.chat.layers()
+        os.remove(self.plate)
+        self.assertIsNone(self.chat.layers_now())
+
+    def test_what_went_wrong_is_said(self):
+        def broke(*a, **k):
+            raise agent.render.NotDrawn("no fonts")
+
+        one, two = self.made(broke)
+        with one, two:
+            self.assertEqual(self.chat.layers(), {"error": "The Premiere files could not be made: no fonts"})
+        self.assertIsNone(self.chat.layers_now())
+
+    def test_stop_ends_it_and_says_so(self):
+        def stopped(*a, **k):
+            raise agent.render.Stopped("Stopped")
+
+        one, two = self.made(stopped)
+        with one, two:
+            self.assertEqual(self.chat.layers(), {"error": "The Premiere files were not made: Stop was pressed."})
+
+    def test_a_long_making_says_so_and_its_end_comes_as_an_event(self):
+        gate = threading.Event()
+
+        stopped = []
+
+        def slow(*a, **k):
+            k["on_start"](lambda: stopped.append(True))
+            k["on_progress"](1.0)
+            gate.wait(10)
+            return self.plate
+
+        one, two = self.made(slow)
+        with one, two, mock.patch.object(agent, "PREVIEW_WAIT", 0.05):
+            self.assertEqual(self.chat.layers(), {"making": True})
+            self.assertEqual(self.chat.layers(), {"making": True}, "one at a time")
+            self.assertIn("(50%)", self.chat.live["work"])
+            self.assertEqual(self.chat.live["page"], "premiere")
+            self.assertTrue(self.chat.stop(), "Stop reaches it")
+            self.assertEqual(stopped, [True])
+            gate.set()
+            for _ in range(200):
+                if self.lines:
+                    break
+                threading.Event().wait(0.01)
+        self.assertEqual(self.lines, [("layers", {"job": None})])
+        self.assertIsNotNone(self.chat.layers_now())
 
 
 if __name__ == "__main__":

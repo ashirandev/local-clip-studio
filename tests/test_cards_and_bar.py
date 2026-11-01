@@ -43,6 +43,7 @@ class Node {
   removeAttribute(k) { delete this.attrs[k]; }
   append(...kids) { kids.forEach((k) => this.appendChild(k)); }
   appendChild(k) { if (k instanceof Node) this.children.push(k); return k; }
+  click() { this.clicked = (this.clicked || 0) + 1; }
   prepend(...kids) { this.children.unshift(...kids.filter((k) => k instanceof Node)); }
   replaceChildren(...kids) { this.children = kids.filter((k) => k instanceof Node); }
   remove() {}
@@ -75,7 +76,7 @@ function any(own) {
   });
 }
 
-function load(page) {
+function load(page, answer) {
   const found = {};
   const body = new Node("body");
   const made = [];
@@ -98,12 +99,12 @@ function load(page) {
     console, Math, Number, String, Object, Array, JSON, Promise, Date, Set, Map, RegExp, Infinity, NaN, parseInt, parseFloat, isNaN, encodeURIComponent, decodeURIComponent, document,
     window: any({ addEventListener: () => {}, matchMedia: () => any({ matches: false }) }),
     history: any(), navigator: any(), localStorage: any({ getItem: () => null }), sessionStorage: any({ getItem: () => null }),
-    fetch: () => new Promise(() => {}), EventSource: function () { return any(); }, ResizeObserver: function () { return any(); }, IntersectionObserver: function () { return any(); }, MutationObserver: function () { return any(); },
+    fetch: () => (answer ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(answer) }) : new Promise(() => {})), EventSource: function () { return any(); }, ResizeObserver: function () { return any(); }, IntersectionObserver: function () { return any(); }, MutationObserver: function () { return any(); },
     getComputedStyle: () => ({ overflowY: "auto", display: "block" }), matchMedia: () => any({ matches: false }), requestAnimationFrame: () => 0, cancelAnimationFrame: () => {}, setTimeout: () => 0, clearTimeout: () => {}, setInterval: () => 0, clearInterval: () => {},
     Intl: any(), URL: any(), Image: function () { return any(); }, FormData: function () { return any(); }, CSS: any(), performance: any({ now: () => 0 }), innerWidth: 1200, innerHeight: 800,
   };
   vm.createContext(box);
-  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView };", box);
+  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere };", box);
   const t = box.t;
   t.room.chat = "c";
   let id = 0;
@@ -215,7 +216,43 @@ each("open", (p) => {
   p.t.setScreen("clip");
   return { top: p.t.chatView.scrollTop };
 });
-console.log(JSON.stringify(said));
+each("premiereBar", (p) => {
+  p.t.pageWork("premiere", true);
+  p.t.onThinking({ job: null, page: "premiere", work: "Making the Premiere files: 19 of 38 s (50%)" });
+  return { bar: bar(p), status: p.element("status").textContent };
+});
+each("premiereReload", (p) => {
+  p.t.onThinking({ job: null, page: "premiere", work: "Making the Premiere files: 19 of 38 s (50%)" });
+  return { work: p.t.room.work.premiere, says: bar(p).says };
+});
+const saved = (p) => p.made.filter((n) => n.tag === "a" && n.clicked).length;
+each("premiereEnd", (p) => {
+  p.t.pageWork("premiere", true);
+  p.t.room.wantPremiere = true;
+  p.t.on({ id: 1, kind: "layers", job: null });
+  return { saved: saved(p), want: p.t.room.wantPremiere, work: p.t.room.work.premiere };
+});
+each("premiereReplay", (p) => {
+  p.t.on({ id: 1, kind: "layers", job: null });
+  return { saved: saved(p) };
+});
+each("premiereFailed", (p) => {
+  p.t.pageWork("premiere", true);
+  p.t.room.wantPremiere = true;
+  p.t.on({ id: 1, kind: "layers", job: null, error: "No." });
+  return { saved: saved(p), work: p.t.room.work.premiere };
+});
+const press = async (answer) => {
+  const p = load(page, answer);
+  await p.t.askPremiere();
+  return { saved: saved(p), want: p.t.room.wantPremiere, work: Boolean(p.t.room.work.premiere) };
+};
+(async () => {
+  said.pressReady = await press({ ok: true, ready: true });
+  said.pressMaking = await press({ ok: true, making: true });
+  said.pressRefused = await press({ ok: false, error: "No." });
+  console.log(JSON.stringify(said));
+})();
 """
 
 
@@ -303,6 +340,27 @@ class Page(unittest.TestCase):
         s = self.said["nextJob"]
         self.assertEqual(s["says"], "In progress · 25%")
         self.assertEqual(s["step"], "Step 2 of 4: Cut the clip")
+
+
+    def test_making_the_premiere_files_shows_on_the_bar_and_the_status(self):
+        s = self.said["premiereBar"]
+        self.assertEqual(s["bar"]["says"], "In progress · 50%")
+        self.assertEqual(s["bar"]["step"], "Making the Premiere files: 19 of 38 s (50%)")
+        self.assertEqual(s["status"], "Making the Premiere files. Press Stop to end it.")
+
+    def test_a_page_opened_while_they_are_made_still_shows_it(self):
+        self.assertEqual(self.said["premiereReload"], {"work": True, "says": "In progress · 50%"})
+
+    def test_the_zip_is_saved_when_the_files_are_made_and_only_then(self):
+        self.assertEqual(self.said["premiereEnd"], {"saved": 1, "want": False, "work": False})
+        self.assertEqual(self.said["premiereReplay"]["saved"], 0, "opening the chat again saves nothing")
+        self.assertEqual(self.said["premiereFailed"], {"saved": 0, "work": False})
+
+    def test_a_press_saves_at_once_when_the_files_are_there_or_waits_for_them(self):
+        self.assertEqual(self.said["pressReady"]["saved"], 1)
+        self.assertEqual(self.said["pressMaking"], {"saved": 0, "want": True, "work": True})
+        self.assertEqual(self.said["pressRefused"]["saved"], 0)
+        self.assertFalse(self.said["pressRefused"]["work"])
 
 
 class Button(unittest.TestCase):

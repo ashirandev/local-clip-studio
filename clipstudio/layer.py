@@ -31,6 +31,7 @@ from . import render, text
 SIZE = (540, 960)
 FPS = render.FPS
 LAYERS = 1
+FULL = (1080, 1920)
 DRAW_SECONDS = 300
 CLOCK = re.compile(r"(\d+):(\d\d):(\d\d)\.(\d\d)")
 DIALOGUE = re.compile(r"^Dialogue: (\d+),([^,]+),([^,]+),(.*)$")
@@ -139,12 +140,13 @@ def _draw(path, fonts, frames, size, names, folder):
         shutil.rmtree(work, ignore_errors=True)
 
 
-def words(state, default="clean", size=SIZE):
+def words(state, default="clean", size=SIZE, part=None):
     """The words layer of the clip: [{"from", "to", "file"}] in clip seconds, from 0 to the clip's length, file a
     transparent PNG of size (w, h) in work/layers with the titles, big words and captions as the export burns them
     in at that size (the words behind the person are not in it: they are part of the picture). [] when the clip has
-    no words on screen. Steps that show the same picture are one entry. RuntimeError when FFmpeg cannot draw."""
-    path = render.ass(state, default)
+    no words on screen. Steps that show the same picture are one entry. part as for render.ass. RuntimeError when
+    FFmpeg cannot draw."""
+    path = render.ass(state, default, part=part)
     if not path:
         return []
     with open(path, encoding="utf-8") as f:
@@ -167,3 +169,49 @@ def words(state, default="clean", size=SIZE):
         names = sorted(todo, key=todo.get)
         _draw(path, fonts, [todo[n] for n in names], size, names, folder)
     return index
+
+
+def captions_video(state, default="clean"):
+    """The clip's captions alone at the clip's full size, over nothing, as a video with an alpha channel for a track of
+    their own in Premiere (ProRes 4444, which it reads): its path in work/plates, made the first time, or None when the
+    clip has no captions. RuntimeError when FFmpeg cannot make it."""
+    index = words(state, default, FULL, render.ONLY_CAPTIONS)
+    if not index:
+        return None
+    length = state["length"]
+    folder = render.folder("plates")
+    key = hashlib.sha1(json.dumps([LAYERS, length, index], sort_keys=True).encode("utf-8")).hexdigest()[:16]
+    target = os.path.join(folder, key + ".mov")
+    if os.path.isfile(target):
+        return target
+    tool = render._ffmpeg()
+    clear = os.path.join(folder, "clear.png")
+    part = "%s.%d.part.mov" % (target[:-4], os.getpid())
+    listed = target[:-4] + ".txt"
+    try:
+        if not os.path.isfile(clear):
+            subprocess.run([tool, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black@0:s=%dx%d,format=rgba" % FULL,
+                            "-frames:v", "1", "-update", "1", clear], capture_output=True, timeout=DRAW_SECONDS, check=True)
+        at, shows = 0.0, []
+        for step in index:
+            if step["from"] > at + 1e-6:
+                shows.append((clear, step["from"] - at))
+            shows.append((step["file"], step["to"] - step["from"]))
+            at = step["to"]
+        shows.append((clear, max(length - at, 1 / FPS)))
+        with open(listed, "w", encoding="utf-8", newline="\n") as f:
+            f.write("ffconcat version 1.0\n")
+            for file, seconds in shows:
+                f.write("file '%s'\nduration %.6f\n" % (file.replace("\\", "/").replace("'", "'\\''"), seconds))
+            f.write("file '%s'\n" % shows[-1][0].replace("\\", "/").replace("'", "'\\''"))
+        subprocess.run([tool, "-v", "error", "-y", "-safe", "0", "-f", "concat", "-i", listed, "-vf", "fps=%d,tpad=stop_mode=clone:stop_duration=2" % FPS, "-t", "%.3f" % length,
+                        "-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le", "-vendor", "apl0", "-an", part],
+                       capture_output=True, text=True, errors="replace", timeout=DRAW_SECONDS, check=True)
+        render.settle(part, target)
+        return target
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError("FFmpeg could not make the captions' layer: %s" % ((e.stderr or "").strip().splitlines() or ["no reason"])[-1])
+    finally:
+        for left in (part, listed):
+            if os.path.exists(left):
+                os.remove(left)
