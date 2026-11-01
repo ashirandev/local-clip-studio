@@ -1,0 +1,335 @@
+"""The cards of a run last in the chat, a preview with its sound, and the bar on the clip's side, run from web/app.js
+itself in node on a small stand-in for the page. python -m unittest tests.test_cards_and_bar"""
+import json
+import os
+import re
+import shutil
+import subprocess
+import unittest
+
+WEB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
+
+STAND_IN = r"""
+const fs = require("fs");
+const vm = require("vm");
+
+class Node {
+  constructor(tag) {
+    this.tag = tag;
+    this.className = "";
+    this.children = [];
+    this.dataset = {};
+    this.style = {};
+    this.hidden = false;
+    this.value = "";
+    this.textContent = "";
+    this.attrs = {};
+    this.heard = {};
+    const node = this;
+    this.classList = {
+      add: (...k) => k.forEach((c) => node.classList.toggle(c, true)),
+      remove: (...k) => k.forEach((c) => node.classList.toggle(c, false)),
+      contains: (c) => node.className.split(" ").includes(c),
+      toggle: (c, on) => {
+        const have = node.className.split(" ").filter((x) => x && x !== c);
+        node.className = (on ? have.concat(c) : have).join(" ");
+      },
+    };
+  }
+  addEventListener(k, fn) { (this.heard[k] = this.heard[k] || []).push(fn); }
+  removeEventListener() {}
+  setAttribute(k, v) { this.attrs[k] = String(v); }
+  getAttribute(k) { return this.attrs[k] === undefined ? null : this.attrs[k]; }
+  removeAttribute(k) { delete this.attrs[k]; }
+  append(...kids) { kids.forEach((k) => this.appendChild(k)); }
+  appendChild(k) { if (k instanceof Node) this.children.push(k); return k; }
+  prepend(...kids) { this.children.unshift(...kids.filter((k) => k instanceof Node)); }
+  replaceChildren(...kids) { this.children = kids.filter((k) => k instanceof Node); }
+  remove() {}
+  closest() { return null; }
+  focus() {}
+  scrollIntoView() {}
+  getBoundingClientRect() { return { left: 0, top: 0, width: 100, height: 100, bottom: 100, right: 100 }; }
+  walk(fn) { this.children.forEach((k) => { fn(k); k.walk(fn); }); }
+  querySelectorAll(q) {
+    const out = [];
+    const cls = q.replace(/^\./, "");
+    this.walk((k) => { if (k.classList.contains(cls) || k.tag === q) out.push(k); });
+    return out;
+  }
+  querySelector(q) { return this.querySelectorAll(q)[0] || null; }
+}
+
+function any(own) {
+  const t = Object.assign(function () {}, own);
+  return new Proxy(t, {
+    get(o, k) {
+      if (k in o) return o[k];
+      if (k === Symbol.toPrimitive) return () => 0;
+      if (k === Symbol.iterator) return function* () {};
+      if (typeof k === "symbol" || k === "then") return undefined;
+      return (o[k] = any());
+    },
+    apply: () => any(),
+    construct: () => any(),
+  });
+}
+
+function load(page) {
+  const found = {};
+  const body = new Node("body");
+  const made = [];
+  const element = (id) => (found[id] = found[id] || new Proxy(new Node("div"), {
+    get(o, k) {
+      if (k in o) return typeof o[k] === "function" ? o[k].bind(o) : o[k];
+      if (typeof k === "symbol" || k === "then") return undefined;
+      return (o[k] = any());
+    },
+  }));
+  const document = {
+    getElementById: element, addEventListener: () => {}, removeEventListener: () => {}, body, documentElement: body, title: "Studio",
+    scrollingElement: { scrollTop: 0, scrollHeight: 0 },
+    createElement: (tag) => { const n = new Node(tag); made.push(n); return n; },
+    createElementNS: (ns, tag) => new Node(tag),
+    querySelectorAll: (q) => element("log").querySelectorAll(q),
+    querySelector: (q) => element("log").querySelector(q),
+  };
+  const box = {
+    console, Math, Number, String, Object, Array, JSON, Promise, Date, Set, Map, RegExp, Infinity, NaN, parseInt, parseFloat, isNaN, encodeURIComponent, decodeURIComponent, document,
+    window: any({ addEventListener: () => {}, matchMedia: () => any({ matches: false }) }),
+    history: any(), navigator: any(), localStorage: any({ getItem: () => null }), sessionStorage: any({ getItem: () => null }),
+    fetch: () => new Promise(() => {}), EventSource: function () { return any(); }, ResizeObserver: function () { return any(); }, IntersectionObserver: function () { return any(); }, MutationObserver: function () { return any(); },
+    getComputedStyle: () => ({ overflowY: "auto", display: "block" }), matchMedia: () => any({ matches: false }), requestAnimationFrame: () => 0, cancelAnimationFrame: () => {}, setTimeout: () => 0, clearTimeout: () => {}, setInterval: () => 0, clearInterval: () => {},
+    Intl: any(), URL: any(), Image: function () { return any(); }, FormData: function () { return any(); }, CSS: any(), performance: any({ now: () => 0 }), innerWidth: 1200, innerHeight: 800,
+  };
+  vm.createContext(box);
+  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView };", box);
+  const t = box.t;
+  t.room.chat = "c";
+  let id = 0;
+  const event = (kind, over) => t.on(Object.assign({ id: id++, kind, job: 1 }, over));
+  return { t, element, made, event };
+}
+
+const page = fs.readFileSync(process.argv[2], "utf8");
+const said = {};
+const each = (name, fn) => { said[name] = fn(load(page)); };
+const MOMENTS = [1, 2, 3].map((n) => ({ n, preview: "p" + n + ".mp4", frame: "f.jpg", t: n, start: n, end: n + 5, reason: "why", said: [] }));
+const bar = (p) => ({
+  hidden: p.element("jobBar").hidden, says: p.element("jobBarSays").textContent, step: p.element("jobBarStep").textContent,
+  width: p.element("jobBarFill").style.width, now: p.element("jobBarTrack").attrs["aria-valuenow"], done: p.element("jobBar").classList.contains("done"),
+});
+const plan = (done, now, todo) => ({ items: [
+  ...Array(done).fill(0).map((_, k) => ({ text: "Done " + k, state: "done" })),
+  ...Array(now).fill(0).map((_, k) => ({ text: "Cut the clip", state: "now" })),
+  ...Array(todo).fill(0).map((_, k) => ({ text: "Later " + k, state: "todo" })),
+] });
+
+each("order", (p) => {
+  p.event("job", { mind: "Muse Spark" });
+  const j = p.t.job(1);
+  p.t.drawMoments(j, MOMENTS);
+  p.event("job", { job: 2, mind: "Muse Spark" });
+  const log = p.element("log");
+  const later = { inLog: log.children.includes(j.momentsBox), last: j.momentsBox.classList.contains("last"), inCard: j.card.children.includes(j.momentsBox) };
+  const k = p.t.job(2);
+  p.t.drawMoments(k, MOMENTS);
+  return { later, older: j.momentsBox.classList.contains("last"), newer: k.momentsBox.classList.contains("last") };
+});
+each("pick", (p) => {
+  p.event("job", { mind: "Muse Spark" });
+  const j = p.t.job(1);
+  p.t.drawMoments(j, MOMENTS);
+  const chips = () => j.momentsBox.querySelectorAll(".chip").map((b) => b.hidden);
+  const before = chips();
+  p.event("waiting");
+  const after = chips();
+  const q = load(page);
+  q.event("job", { mind: "Muse Spark" });
+  const k = q.t.job(1);
+  q.event("waiting");
+  q.t.drawMoments(k, MOMENTS);
+  return { before, after, first: k.momentsBox.querySelectorAll(".chip").map((b) => b.hidden) };
+});
+each("sound", (p) => {
+  p.t.room.cut["p2.mp4"] = { ok: true, name: "p2.mp4" };
+  p.t.showMoment(MOMENTS[1]);
+  const videos = p.made.filter((n) => n.tag === "video");
+  return { videos: videos.length, muted: videos.map((v) => v.muted === true) };
+});
+each("run", (p) => {
+  p.t.showStatus();
+  const start = bar(p);
+  p.event("job", { mind: "Muse Spark" });
+  const none = bar(p);
+  p.event("plan", plan(0, 1, 4));
+  const first = bar(p);
+  p.event("plan", plan(2, 1, 2));
+  const two = bar(p);
+  p.t.onThinking({ job: 1, work: "Rendering the clip: 12 of 24 s (50%)" });
+  const within = bar(p);
+  p.event("plan", plan(2, 1, 7));
+  const replanned = bar(p);
+  p.event("plan", plan(10, 0, 0));
+  const all = bar(p);
+  p.event("end", { why: "answered", steps: 5, seconds: 60 });
+  const end = bar(p);
+  return { start, none, first, two, within, replanned, all, end };
+});
+each("clipReady", (p) => {
+  p.event("job", { mind: "Muse Spark" });
+  p.t.job(1).handed = true;
+  p.event("end", { why: "answered", steps: 5, seconds: 60 });
+  return bar(p);
+});
+each("cards", (p) => {
+  p.event("job", { mind: "Muse Spark" });
+  p.event("waiting");
+  p.event("end", { why: "answered", steps: 5, seconds: 60 });
+  return bar(p);
+});
+each("stopped", (p) => {
+  p.event("job", { mind: "Muse Spark" });
+  p.event("plan", plan(2, 1, 2));
+  p.event("end", { why: "stopped", steps: 3, seconds: 60 });
+  return bar(p);
+});
+each("video", (p) => {
+  p.t.pageWork("video", true);
+  const started = bar(p);
+  p.t.onThinking({ job: null, work: "Rendering the clip: 13 of 24 s (51%)" });
+  const moving = bar(p);
+  p.t.pageWork("video", false);
+  return { started, moving, ended: bar(p), line: p.t.room.workLine };
+});
+each("nextJob", (p) => {
+  p.event("job", { mind: "Muse Spark" });
+  p.t.onThinking({ job: 1, work: "Mapping the video: 1:00 of 2:00 (50%)" });
+  p.event("step", { step: 1, tool: "map", ok: true, label: "Mapped", text: "" });
+  p.event("plan", plan(1, 1, 2));
+  return bar(p);
+});
+each("open", (p) => {
+  p.t.room.screen = "home";
+  p.t.chatView.scrollHeight = 900;
+  p.t.setScreen("clip");
+  return { top: p.t.chatView.scrollTop };
+});
+console.log(JSON.stringify(said));
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not on this computer")
+class Page(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        run = subprocess.run(["node", "-e", STAND_IN, "-", os.path.join(WEB, "app.js")], capture_output=True, text=True,
+                             encoding="utf-8", timeout=60)
+        if run.returncode:
+            raise AssertionError(run.stderr[-2000:])
+        cls.said = json.loads(run.stdout.strip().splitlines()[-1])
+
+    def test_the_cards_stay_last_in_the_chat_so_nobody_scrolls_back_up(self):
+        s = self.said["order"]["later"]
+        self.assertTrue(s["inLog"], "a run's own box would leave its cards above the next run")
+        self.assertTrue(s["last"], "a clip made from one card is followed by the others")
+        self.assertFalse(s["inCard"], "a folded card would take the basket with it")
+
+    def test_a_chat_opened_from_home_lands_on_its_end_where_the_cards_are(self):
+        self.assertEqual(self.said["open"]["top"], 900)
+
+    def test_only_the_newest_cards_are_last(self):
+        self.assertFalse(self.said["order"]["older"])
+        self.assertTrue(self.said["order"]["newer"])
+
+    def test_muses_pick_can_be_tapped_when_the_run_stopped_at_the_cards(self):
+        s = self.said["pick"]
+        self.assertEqual(s["before"], [True, False, False], "while Muse makes its pick the card has nothing to tap")
+        self.assertEqual(s["after"], [False, False, False])
+        self.assertEqual(s["first"], [False, False, False], "the stop can come before the cards")
+
+    def test_a_preview_on_the_big_player_has_its_sound(self):
+        s = self.said["sound"]
+        self.assertEqual(s["videos"], 1)
+        self.assertEqual(s["muted"], [False], "the player has no sound button, so a muted preview stays silent")
+
+    def test_nothing_shows_before_the_first_run(self):
+        self.assertTrue(self.said["run"]["start"]["hidden"])
+
+    def test_the_bar_counts_the_steps_of_the_plan(self):
+        s = self.said["run"]
+        self.assertFalse(s["none"]["hidden"])
+        self.assertEqual(s["none"]["says"], "In progress · 0%")
+        self.assertEqual(s["first"]["says"], "In progress · 0%")
+        self.assertEqual(s["two"]["says"], "In progress · 40%")
+        self.assertEqual(s["two"]["width"], "40%")
+        self.assertEqual(s["two"]["now"], "40")
+        self.assertEqual(s["two"]["step"], "Step 3 of 5: Cut the clip")
+
+    def test_the_bar_moves_inside_a_long_step(self):
+        s = self.said["run"]["within"]
+        self.assertEqual(s["says"], "In progress · 50%")
+        self.assertEqual(s["step"], "Rendering the clip: 12 of 24 s (50%)")
+
+    def test_a_longer_plan_never_takes_the_percent_back(self):
+        self.assertEqual(self.said["run"]["replanned"]["says"], "In progress · 50%")
+
+    def test_only_the_end_of_the_work_reads_a_hundred(self):
+        s = self.said["run"]
+        self.assertEqual(s["all"]["says"], "In progress · 99%")
+        self.assertFalse(s["all"]["done"])
+        self.assertEqual(s["end"]["says"], "Finished · 100%")
+        self.assertEqual(s["end"]["width"], "100%")
+        self.assertTrue(s["end"]["done"])
+
+    def test_the_end_says_what_to_do_next(self):
+        self.assertEqual(self.said["clipReady"]["step"], "Your clip is ready.")
+        self.assertEqual(self.said["cards"]["step"], "Tap a card to make that clip.")
+
+    def test_a_stopped_run_is_not_called_finished(self):
+        s = self.said["stopped"]
+        self.assertEqual(s["says"], "Stopped.")
+        self.assertFalse(s["done"])
+        self.assertEqual(s["width"], "0%")
+
+    def test_making_the_video_shows_on_the_bar(self):
+        s = self.said["video"]
+        self.assertEqual(s["started"]["says"], "In progress · 0%")
+        self.assertEqual(s["moving"]["says"], "In progress · 51%")
+        self.assertTrue(s["ended"]["hidden"], "with no run behind it the bar goes away")
+        self.assertEqual(s["line"], "")
+
+    def test_a_finished_steps_percent_does_not_leak_into_the_next_step(self):
+        s = self.said["nextJob"]
+        self.assertEqual(s["says"], "In progress · 25%")
+        self.assertEqual(s["step"], "Step 2 of 4: Cut the clip")
+
+
+class Button(unittest.TestCase):
+    def test_update_video_is_the_strong_colour_and_grey_only_while_it_cannot_be_pressed(self):
+        with open(os.path.join(WEB, "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        with open(os.path.join(WEB, "style.css"), encoding="utf-8") as f:
+            style = f.read()
+        self.assertRegex(page, r'class="pill dark again go" id="againButton"')
+        self.assertIn(".clip .pill.go { background: var(--st-accent);", style)
+        self.assertRegex(style, r"\.clip \.pill\.again:disabled \{[^}]*background: var\(--st-raise\)")
+
+    def test_last_means_last_on_the_screen(self):
+        with open(os.path.join(WEB, "style.css"), encoding="utf-8") as f:
+            style = f.read()
+        self.assertIn(".moments.last { order: 1; }", style)
+        self.assertRegex(re.search(r"\.log \{[^}]*\}", style).group(0), r"display: flex; flex-direction: column")
+
+    def test_the_bar_sits_on_the_clips_side_and_stays_in_sight(self):
+        with open(os.path.join(WEB, "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        with open(os.path.join(WEB, "style.css"), encoding="utf-8") as f:
+            style = f.read()
+        clip = page[page.index('id="clip"'):]
+        self.assertLess(clip.index('id="jobBar"'), clip.index('id="timeline"'))
+        self.assertRegex(re.search(r"\.job-bar \{[^}]*\}", style).group(0), r"position: sticky")
+
+
+if __name__ == "__main__":
+    unittest.main()

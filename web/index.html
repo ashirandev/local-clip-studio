@@ -129,6 +129,10 @@
       <button type="button" class="pill dark" id="clipCost" data-sheet="cost" hidden></button>
       <button type="button" class="round go" id="clipSave" data-sheet="out" aria-label="Save or export" hidden><svg class="ico"><use href="#i-out"/></svg></button>
     </header>
+    <div class="job-bar" id="jobBar" hidden>
+      <p class="job-says"><b id="jobBarSays"></b><span id="jobBarStep"></span></p>
+      <div class="job-track" id="jobBarTrack" role="progressbar" aria-label="How far the work is" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="jobBarFill"></i></div>
+    </div>
     <div class="album" id="album" role="group" aria-label="The clips made in one go" hidden></div>
     <div class="stage">
       <div class="frame-wrap">
@@ -146,7 +150,7 @@
     <div class="e-row">
       <button type="button" class="round dark" id="play" aria-label="Play" disabled><svg class="ico"><use href="#i-play"/></svg></button>
       <span class="e-time" id="time"></span>
-      <button type="button" class="pill dark again" id="againButton" hidden><svg class="ico sm"><use href="#i-again"/></svg>Update video</button>
+      <button type="button" class="pill dark again go" id="againButton" hidden><svg class="ico sm"><use href="#i-again"/></svg>Update video</button>
       <button type="button" class="round dark" id="eye" aria-label="Hide the captions" aria-pressed="false" hidden><svg class="ico"><use href="#i-eye"/></svg></button>
       <button type="button" class="round dark" id="clipUndo" aria-label="Undo the last change" disabled><svg class="ico"><use href="#i-undo"/></svg></button>
     </div>

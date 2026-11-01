@@ -5,6 +5,7 @@ const app = $("app");
 const log = $("log");
 const chatView = $("chatView");
 const statusLine = $("status");
+const jobBar = $("jobBar");
 const PAGE_TITLE = document.title;
 const composer = $("composer");
 const text = $("text");
@@ -98,7 +99,7 @@ const SHEETS = { fx: ["spark", "Effects"], album: ["film", "Album"], layout: ["s
 const EDITS = ["layout", "trim", "frame", "caps", "style", "look", "fx", "sound", "words", "channel", "album"];
 const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_ends: "cut", change_effect: "sticker", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", match_album: "film", move_part: "move", mute_sound: "mute", no_chat_box: "blur", open_clip: "film", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_album: "gear", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", set_tagline: "at", show_people: "people", slow_push: "move", undo: "undo", undo_album: "undo", use_channel_look: "at", watch_piece: "eye" };
 
-const room = { mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false, layout: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null, sends: false };
+const room = { workLine: "", endSaid: "", mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false, layout: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null, sends: false };
 
 function localStore(key, value) {
   try {
@@ -355,6 +356,7 @@ function setScreen(name, push) {
     else scrollDown(true);
   } else {
     window.scrollTo(0, 0);
+    if (from === "home") scrollDown(true);
   }
   if (name !== "clip") {
     const v = playerVideo();
@@ -408,7 +410,7 @@ function job(n) {
     open.setAttribute("aria-expanded", "true");
     const chips = el("div", "w-chips");
     chips.hidden = true;
-    card.append(head, plan, now, tick, think, moments, strip, rows, chips);
+    card.append(head, plan, now, tick, think, strip, rows, chips);
     const flow = el("div", "job");
     box.append(card, flow);
     log.appendChild(box);
@@ -526,6 +528,9 @@ function drawMoments(j, moments) {
   const box = j.momentsBox;
   box.replaceChildren();
   box.hidden = false;
+  document.querySelectorAll(".moments").forEach((b) => b.classList.remove("last"));
+  box.classList.add("last");
+  log.appendChild(box);
   const reasons = [];
   moments.forEach((m) => {
     const tile = el("div", "moment");
@@ -543,17 +548,15 @@ function drawMoments(j, moments) {
       said.classList.add("detail");
       tile.appendChild(said);
     }
-    if (m.n === 1) {
-      tile.appendChild(el("p", "moment-pick", "Muse's pick"));
-    } else {
-      const b = el("button", "chip", "Use this one");
-      b.type = "button";
-      b.addEventListener("click", () => {
-        showMoment(m);
-        say("(tapped) Use moment " + m.n + " (" + clock(m.start) + "-" + clock(m.end) + ") instead.");
-      });
-      tile.appendChild(b);
-    }
+    if (m.n === 1) tile.appendChild(el("p", "moment-pick", "Muse's pick"));
+    const b = el("button", "chip", "Use this one");
+    b.type = "button";
+    b.hidden = m.n === 1 && !j.cards;
+    b.addEventListener("click", () => {
+      showMoment(m);
+      say("(tapped) Use moment " + m.n + " (" + clock(m.start) + "-" + clock(m.end) + ") instead.");
+    });
+    tile.appendChild(b);
     box.appendChild(tile);
     if (room.cut[m.preview]) fillPreview(tile, room.cut[m.preview]);
   });
@@ -586,7 +589,6 @@ function showMoment(m) {
   if (ready && ready.ok) {
     const v = el("video");
     v.src = "/api/preview/" + m.preview;
-    v.muted = true;
     v.loop = true;
     v.playsInline = true;
     v.setAttribute("aria-label", "A rough preview of moment " + m.n);
@@ -653,6 +655,7 @@ function setBusy() {
 
 function pageWork(what, on) {
   room.work[what] = on;
+  if (!on) room.workLine = "";
   setBusy();
 }
 
@@ -818,6 +821,13 @@ function stepClip(by) {
 
 playButton.addEventListener("click", togglePlay);
 bigPlay.addEventListener("click", togglePlay);
+
+document.addEventListener("play", (e) => {
+  if (e.target.muted) return;
+  document.querySelectorAll("video").forEach((v) => {
+    if (v !== e.target && !v.muted) v.pause();
+  });
+}, true);
 
 fullButton.addEventListener("click", () => {
   const v = playerVideo();
@@ -2931,6 +2941,7 @@ function on(e) {
     showStatus();
   } else if (e.kind === "waiting") {
     j.cards = true;
+    j.momentsBox.querySelectorAll(".chip").forEach((b) => (b.hidden = false));
   } else if (e.kind === "guesses") {
     drawGuesses(j, e);
   } else if (e.kind === "wait") {
@@ -2942,6 +2953,7 @@ function on(e) {
     room.timer = setInterval(tick, 1000);
   } else if (e.kind === "step") {
     stopTimer();
+    room.workLine = "";
     drawStep(j, e);
   } else if (e.kind === "answer") {
     stopTimer();
@@ -2972,6 +2984,10 @@ function on(e) {
 }
 
 function onThinking(live) {
+  if ((live.work || "") !== room.workLine) {
+    room.workLine = live.work || "";
+    showStatus();
+  }
   if (live.job === null) {
     if (live.work && live.page === "layout") {
       if (!room.work.layout) pageWork("layout", true);
@@ -3012,13 +3028,38 @@ function current() {
   return room.minds.find((m) => m.key === room.mind) || room.minds[0];
 }
 
-function jobLine() {
-  const j = room.jobs[[...room.open].pop()];
+function stepLine(j) {
   const items = (j && j.items) || [];
+  if (!items.length) return "";
   const now = items.find((item) => item.state === "now");
   const done = items.filter((item) => item.state === "done").length;
-  const step = items.length ? "Step " + Math.min(done + 1, items.length) + " of " + items.length + (now ? ": " + now.text : "") + ". " : "";
-  return "Not finished yet. " + step + "Type to change what it does, or press Stop.";
+  return "Step " + Math.min(done + 1, items.length) + " of " + items.length + (now ? ": " + now.text : "");
+}
+
+function jobLine() {
+  const step = stepLine(room.jobs[[...room.open].pop()]);
+  return "Not finished yet. " + (step ? step + ". " : "") + "Type to change what it does, or press Stop.";
+}
+
+function barShare(j) {
+  const within = Number((/\((\d+)%\)/.exec(room.workLine) || [])[1]) || 0;
+  if (!j) return within;
+  if (!j.items.length) return 0;
+  const done = j.items.filter((item) => item.state === "done").length;
+  j.share = Math.max(j.share || 0, Math.min(Math.round((done + within / 100) / j.items.length * 100), 99));
+  return j.share;
+}
+
+function drawBar(busy) {
+  const j = room.jobs[[...room.open].pop()];
+  const finished = !busy && room.endSaid.startsWith("Finished");
+  const share = finished ? 100 : busy ? barShare(j) : 0;
+  jobBar.hidden = !busy && !room.endSaid;
+  jobBar.classList.toggle("done", finished);
+  $("jobBarSays").textContent = finished ? "Finished · 100%" : busy ? "In progress · " + share + "%" : room.endSaid;
+  $("jobBarStep").textContent = finished ? room.endSaid.slice("Finished.".length).trim() : busy ? room.workLine || stepLine(j) || statusLine.textContent : "";
+  $("jobBarFill").style.width = share + "%";
+  $("jobBarTrack").setAttribute("aria-valuenow", share);
 }
 
 function endLine(j, e) {
@@ -3044,6 +3085,7 @@ function showStatus() {
   } else if (m) {
     statusLine.textContent = m.ok ? m.label + " is ready, " + m.where + "." : m.label + " is not ready yet. Open Options to see why.";
   }
+  drawBar(busy);
 }
 
 function mindName(m) {
