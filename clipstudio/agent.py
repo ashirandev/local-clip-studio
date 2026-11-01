@@ -108,8 +108,9 @@ CUT_OUT = (" (The rest of this result was cut to make room in Muse's memory: the
 OPEN_SAID = "(opened) "
 CLIP_COUNTS = (5, 10, 20)
 CLIPS_SHOWN = ", %d clips to choose from"
-CLIPS_TOLD = ("The person chose to see %d clips first. Load the recipe, look across the whole recording and propose %d moments, "
-              "each its own stretch, best first. No clip is made now: they tap the cards they want made.")
+CLIPS_TOLD = ("The person chose to see %d clips first. Load the recipe, look across the whole recording and propose about %d "
+              "moments, each its own stretch, best first: a few more or fewer is fine. No clip is made now: they tap the cards "
+              "they want made.")
 AS_SAID = "said"
 WORDS_GONE = "Those words are not on the clip as the page showed them. Look at the clip again."
 VOICE_NAMES = {"Chinese": "Mandarin Chinese"}

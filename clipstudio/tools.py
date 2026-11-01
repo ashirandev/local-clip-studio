@@ -988,10 +988,17 @@ def map_recording(job, why, stretch_s=None, top=6):
 
 LOOK_FRAMES = 4
 SHORTEST_LOOK, LONGEST_LOOK = 2, 600
-MOST_MOMENTS = 20
+MOST_MOMENTS = 25
 MOST_AT_ONCE = 8
+NEAR_ENOUGH = 0.75
 FEW_MOMENTS = ("The person chose to see %d clips and you proposed %d. Look at more stretches across the recording and propose "
                "them all in one call. If it does not hold that many, call it again with what you have.")
+
+
+def _too_few(got, wanted):
+    """Far under what the person chose. Tarm 11-01: of 20, a number near 20 is fine, more or fewer: they should not wait for
+    an exact count, as they pick from the cards anyway."""
+    return got < wanted * NEAR_ENOUGH
 
 
 def _time(name, text):
@@ -1896,7 +1903,7 @@ def propose_moments(job, why, moments, then="make"):
     wanted = job.chat.wanted
     if wanted:
         then = "wait"
-        if len(moments) < wanted and not _told_once(job, "few_moments"):
+        if _too_few(len(moments), wanted) and not _told_once(job, "few_moments"):
             raise Refused(FEW_MOMENTS % (wanted, len(moments)))
     picked, gave, finer = [], [], []
     for i, m in enumerate(moments, 1):

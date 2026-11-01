@@ -529,7 +529,9 @@ class Tools(unittest.TestCase):
 
     def test_a_chosen_number_of_clips_asks_once_for_the_rest_and_stops_at_the_cards(self):
         """Tarm 11-01: rough cards first, and detail only for the ones the person taps, so the API is not spent on the rest."""
-        self.assertEqual((tools.MOST_MOMENTS, tools.MOST_AT_ONCE), (20, 8))
+        self.assertEqual((tools.MOST_MOMENTS, tools.MOST_AT_ONCE), (25, 8))
+        self.assertEqual([tools._too_few(n, 20) for n in (14, 15, 19, 20, 23)], [True, False, False, False, False], "near 20 is fine")
+        self.assertEqual([tools._too_few(n, 5) for n in (3, 4, 5)], [True, False, False])
         script = self.to_moment()
         self.chat.wanted = 5
         with mock.patch.object(tools, "_finer_edges", lambda *a: self.fail("no finer edges on a rough card")):
