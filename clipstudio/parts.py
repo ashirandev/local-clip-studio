@@ -557,7 +557,9 @@ def main(argv=None):
 
 def leave(code):
     """Ends setup at once. The hearing worker setup starts prints from a daemon thread, and Python aborts when one
-    prints while it closes, which reads as a failed setup when everything was set up."""
+    prints while it closes, which reads as a failed setup when everything was set up. os._exit skips atexit, so the
+    llama-server setup started is stopped here, or it would hold the card with no window."""
+    stop_glimmer()
     sys.stdout.flush()
     os._exit(code)
 

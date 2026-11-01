@@ -2,7 +2,7 @@
 
 ## Try it in 5 minutes
 
-1. **Install.** Windows: double-click `setup.bat`. macOS or Linux: `./setup.sh`, then `./start.sh` (it needs Python
+1. **Install.** Windows: double-click `setup.bat`. macOS or Linux: `sh setup.sh`, then `sh start.sh` (it needs Python
    3.11 or 3.12 and FFmpeg with libass: `brew install python@3.12 ffmpeg-full`, as Homebrew's plain `ffmpeg` has no
    libass, or `sudo apt install python3.12 python3.12-venv ffmpeg`). On a Mac: Apple silicon and macOS 14 or newer,
    the only Macs onnxruntime is built for. No graphics card is needed to try it through an API. The first setup
@@ -25,8 +25,9 @@
 Measured 10-29 on Linux, in a clean `python:3.12-slim` container with FFmpeg from apt and no graphics card:
 `setup.sh` finished in 26 s, and with a Meta key one typed line ("ทำคลิปสั้นจาก <a review>.MOV ให้พร้อมโพสต์") took a
 product review through 14 steps to a rendered and checked 19 s clip in about 4 minutes, for $0.28 (the container's
-network then dropped before the hand-over). On Windows, `setup.bat` is measured below. On macOS, `setup.sh` is written
-for it but not yet run on a Mac.
+network then dropped before the hand-over). On Windows, `setup.bat` is measured below. On macOS, one tester ran it on one
+M5 Mac on 11-01 through an API, after `brew install python@3.12 ffmpeg-full`. Muse Glimmer needs an NVIDIA card with
+16 GB.
 
 People who cannot edit video can still edit video. You drop in a long recording, and Meta's Muse model edits it as
 an **agent**: it makes its own plan, runs it step by step, gives a reason for every choice, checks its own clip,

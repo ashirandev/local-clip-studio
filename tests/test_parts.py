@@ -387,6 +387,17 @@ class Leaving(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr[-400:])
         self.assertNotIn("Fatal", run.stderr)
 
+    def test_setup_stops_the_engine_it_started_before_it_ends(self):
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(child.wait)
+        self.addCleanup(child.kill)
+        seen = []
+        with mock.patch.dict(parts._engine, {"process": child}), \
+                mock.patch.object(parts.os, "_exit", side_effect=lambda code: seen.append((code, child.poll() is None))):
+            parts.leave(3)
+        self.assertEqual(seen, [(3, False)], "os._exit runs no atexit, so nothing else would stop it")
+
     def test_setup_leaves_that_way(self):
         with open(parts.__file__, encoding="utf-8") as f:
             self.assertIn("leave(main())", f.read())
