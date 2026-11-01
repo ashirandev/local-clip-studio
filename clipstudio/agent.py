@@ -903,15 +903,15 @@ class Chat:
     def tracks_shown(self, state):
         """The recording's sound tracks for the Sound tab, [{"n", "on"}], or [] with fewer than two."""
         rec = dict(self.recording or {}, tracks=state.get("tracks"))
-        count = rec.get("sound_tracks") or 0
-        return [{"n": n, "on": n in recording.tracks(rec)} for n in range(count)] if count > 1 else []
+        streams, used = recording.streams_of(rec), recording.tracks(rec)
+        return [{"n": k, "on": s in used} for k, s in enumerate(streams)] if len(streams) > 1 else []
 
     def set_tracks(self, on):
         """The person's tap on a sound track: set_sound_tracks' own edit, as set_captions. on holds numbers from 0."""
         self._clip_now()
         refused, entry = self.tap("set_sound_tracks", tracks=[n + 1 for n in on])
         if entry:
-            self._tell("the person chose sound tracks %s on the page" % ", ".join(str(n + 1) for n in entry["on"]))
+            self._tell("the person chose sound tracks %s on the page" % ", ".join(str(n + 1) for n in sorted(on)))
         return refused
 
     def set_mute(self, start, end, back=False):

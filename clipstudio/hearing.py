@@ -139,7 +139,7 @@ def status():
 def key(rec, start, end, languages=()):
     st = os.stat(rec["path"])
     who = "" if engine() == "local" else "|" + asr.MODEL + "".join("|" + name for name in languages)
-    who += "|tracks %s" % recording.tracks(rec) if len(recording.tracks(rec)) > 1 else ""
+    who += recording.tracks_key(rec)
     return hashlib.sha1(("%d|%s|%d|%s|%.2f|%.2f%s" % (VERSION, rec["path"], st.st_size, st.st_mtime, start, end, who))
                         .encode("utf-8")).hexdigest()[:16]
 

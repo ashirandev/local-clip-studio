@@ -4015,16 +4015,16 @@ def set_sound_tracks(job, why, tracks):
     is called. Tarm 11-01: Henri records the game and his voice on separate tracks and wants them told apart."""
     rec = _open(job, "choose the sound tracks of")
     _clip_state(job)
-    count = rec.get("sound_tracks") or 0
+    streams = recording.streams_of(rec)
+    count = len(streams)
     if count < 2:
         raise Refused("The recording has %s, so there is no track to choose." % (
             "one sound track" if count else "no sound"))
     if not tracks or any(not 1 <= n <= count for n in tracks):
         raise Refused("The recording has sound tracks 1 to %d: give at least one of those." % count)
-    on = sorted({n - 1 for n in tracks})
-    job.edit({"do": "tracks", "on": on})
+    job.edit({"do": "tracks", "on": sorted({streams[n - 1] for n in tracks})})
     return "The clip now uses sound track%s %s of the %d. Render it again to hear it in the finished file." % (
-        "" if len(on) == 1 else "s", ", ".join(str(n + 1) for n in on), count)
+        "" if len(set(tracks)) == 1 else "s", ", ".join(map(str, sorted(set(tracks)))), count)
 
 
 def mute_sound(job, why, start, end, back=False):
@@ -7228,7 +7228,7 @@ def describe(entry):
         return "%s at %g-%g s" % ("bringing the sound back" if entry.get("back") else "the mute", entry["start"],
                                   entry["end"])
     if entry["do"] == "tracks":
-        return "sound tracks %s" % ", ".join(str(n + 1) for n in entry["on"])
+        return "the choice of sound tracks"
     if entry["do"] == "people":
         return "the decision on people (%s)" % "; ".join(
             "%s person %s" % (k, _numbers(entry[k])) for k in ("blur", "keep") if entry[k])

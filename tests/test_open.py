@@ -198,7 +198,40 @@ class Open(unittest.TestCase):
         self.assertEqual(recording.mixed(dict(rec, tracks=[1]), 3), ("", "[3:a:1]"))
         self.assertEqual(recording.sound_args(dict(rec, tracks=[1])), ["-map", "0:a:1"])
         self.assertEqual(recording.sound_args({"path": "x"}, either=True), ["-map", "0:a:0?"])
-        self.assertEqual(recording.mixed(dict(rec, sound_tracks=1)), ("", "[0:a:0]"), "one track is read as before")
+        self.assertEqual(recording.mixed(dict(rec, sound_streams=[0])), ("", "[0:a:0]"), "one track is read as before")
+
+    def tracks_of(self, name, *sounds):
+        """A recording with these lavfi sounds as its tracks, and what is used of it."""
+        path = os.path.join(self.videos, name)
+        inputs = ["-f", "lavfi", "-i", "testsrc=duration=12:size=320x180:rate=10"]
+        maps = ["-map", "0:v"]
+        for k, s in enumerate(sounds, 1):
+            inputs += ["-f", "lavfi", "-i", s]
+            maps += ["-map", "%d:a" % k]
+        subprocess.run([FFMPEG, "-v", "error", "-y"] + inputs + maps + ["-t", "12", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "pcm_s16le", path], check=True)
+        return recording.tracks(recording.probe(path))
+
+    def test_a_track_that_repeats_another_is_left_out_and_the_louder_stays(self):
+        """Lane 4 11-01: on the Sifu stream the mic has a track of its own and is in the first one too, so reading both raised it 6 dB."""
+        game = "anoisesrc=d=12:c=pink:r=48000:a=0.2:seed=7"
+        voice = "sine=frequency=330:duration=12:sample_rate=48000"
+        mix = "anoisesrc=d=12:c=pink:r=48000:a=0.2:seed=7,volume=1[n];sine=frequency=330:duration=12:sample_rate=48000[v];[n][v]amix=normalize=0"
+        self.assertEqual(self.tracks_of("apart.mkv", game, voice), [0, 1], "Henri's game and voice are both his")
+        self.assertEqual(self.tracks_of("same.mkv", voice, voice), [0], "identical tracks")
+        self.assertEqual(self.tracks_of("mix first.mkv", mix, voice), [0], "the mic is in the mix")
+        self.assertEqual(self.tracks_of("mix second.mkv", voice, mix), [1], "the mix stays wherever it is")
+        self.assertEqual(self.tracks_of("silent.mkv", "anullsrc=r=48000:cl=mono", voice), [0, 1], "silence tells nothing")
+
+    def test_a_track_ffmpeg_cannot_read_is_not_used(self):
+        """Lane 4 11-01: IMG_4096.mov's second track is Apple's spatial sound, and asking for it stops FFmpeg."""
+        done = mock.Mock(stdout=json.dumps({"format": {"duration": "3"}, "streams": [
+            {"codec_type": "video", "codec_name": "hevc", "width": 320, "height": 180, "r_frame_rate": "30/1"},
+            {"codec_type": "audio", "codec_name": "unknown"}, {"codec_type": "audio", "codec_name": "aac"},
+            {"codec_type": "audio"}]}).encode())
+        with mock.patch.object(recording.subprocess, "run", lambda *a, **k: done):
+            rec = recording.probe(self.clip)
+        self.assertEqual((rec["sound_tracks"], rec["sound_streams"], recording.tracks(rec)), (1, [1], [1]))
+        self.assertEqual(recording.sound_args(rec), ["-map", "0:a:1"], "numbered among all the audio streams")
 
     def test_a_voice_on_the_second_track_is_heard_and_is_in_the_clip(self):
         rec = self.two_tracks()
@@ -230,7 +263,7 @@ class Open(unittest.TestCase):
         self.chat.recording = rec
         self.assertEqual(self.chat.tracks_shown({"tracks": None}), [{"n": 0, "on": True}, {"n": 1, "on": True}])
         self.assertEqual(self.chat.tracks_shown({"tracks": [1]}), [{"n": 0, "on": False}, {"n": 1, "on": True}])
-        self.chat.recording = dict(rec, sound_tracks=1)
+        self.chat.recording = dict(rec, sound_tracks=1, sound_streams=[0])
         self.assertEqual(self.chat.tracks_shown({"tracks": None}), [])
 
     def test_a_camera_file_is_a_recording(self):

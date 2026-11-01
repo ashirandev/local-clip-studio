@@ -18,7 +18,7 @@ import urllib.parse
 import zipfile
 from xml.sax.saxutils import escape
 
-from . import montage
+from . import montage, recording
 
 FPS = 30
 TICKS = 254016000000
@@ -51,6 +51,7 @@ LEFT_OUT = [
     ("background", "The blurred copy of the picture behind the card or behind a lying clip."),
     ("captions", "The captions' look: the .srt has the words and times only."),
     ("channel", "The channel's name on the clip."),
+    ("tracks", "Sound tracks other than the first: this timeline holds track 1 of your file. Add the others from the file."),
 ]
 
 
@@ -328,8 +329,9 @@ def srt(state):
                    for k, ln in enumerate(lines, 1))
 
 
-def _left_out(state, pieces):
-    have = {"blurs": state.get("blurs"), "look": state.get("look"),
+def _left_out(state, pieces, rec=None):
+    used = recording.tracks(dict(rec or {}, tracks=state.get("tracks")))
+    have = {"tracks": used not in ([], [0]), "blurs": state.get("blurs"), "look": state.get("look"),
             "stickers": state.get("stickers") or state.get("glass") or state.get("flurries"),
             "hits": state.get("hits") or state.get("sounds"), "mutes": state.get("mutes"),
             "titles": state.get("titles"), "circle": any(p["name"] in ("circle", "card") for p in
@@ -349,7 +351,7 @@ def bundle(title, rec, state):
     """(file name, bytes) of a zip with <name>.xml, <name>.srt when the clip has captions, and README.txt."""
     name = safe_name(title)
     xml = sequence(title or name, rec, state)
-    note = NOTE.format(name=name, title=title or name, left_out=_left_out(state, items(rec, state)))
+    note = NOTE.format(name=name, title=title or name, left_out=_left_out(state, items(rec, state), rec))
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("%s/%s.xml" % (name, name), xml)

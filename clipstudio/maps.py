@@ -53,8 +53,7 @@ def folder():
 
 def key(rec):
     st = os.stat(rec["path"])
-    many = "|tracks %s" % recording.tracks(rec) if len(recording.tracks(rec)) > 1 else ""
-    return hashlib.sha1(("%d|%s|%d|%s%s" % (VERSION, rec["path"], st.st_size, st.st_mtime, many)).encode("utf-8")
+    return hashlib.sha1(("%d|%s|%d|%s%s" % (VERSION, rec["path"], st.st_size, st.st_mtime, recording.tracks_key(rec))).encode("utf-8")
                         ).hexdigest()[:16]
 
 

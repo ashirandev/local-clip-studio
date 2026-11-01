@@ -1101,7 +1101,7 @@ class Endpoints(Served):
         panel = "/api/panel?chat=" + self.chat.id
         one = {"chat": self.chat.id, "on": [1]}
         self.assertEqual(self.ask("POST", "/api/tracks", one)[0], 400, "one track, nothing to choose")
-        self.chat.recording = dict(self.chat.recording, sound_tracks=3)
+        self.chat.recording = dict(self.chat.recording, sound_tracks=3, sound_streams=[0, 1, 2])
         self.assertEqual(self.ask("GET", panel)[1]["sound"]["tracks"], [{"n": k, "on": True} for k in range(3)])
         self.assertEqual(self.ask("POST", "/api/tracks", one), (200, {"ok": True}))
         self.assertEqual(self.ask("GET", panel)[1]["sound"]["tracks"], [{"n": k, "on": k == 1} for k in range(3)])

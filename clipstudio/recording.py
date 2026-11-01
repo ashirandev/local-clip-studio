@@ -14,6 +14,8 @@ import subprocess
 import threading
 import time
 
+import numpy as np
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK = os.environ.get("LCS_WORK") or os.path.join(ROOT, "work")
 INBOX = os.environ.get("LCS_INBOX") or os.path.join(ROOT, "From phone")
@@ -27,6 +29,9 @@ FIXED_DRIVE = 3
 SKIP_FOLDERS = {"windows", "program files", "program files (x86)", "programdata", "appdata", "recovery", "perflogs",
                 "system volume information", "windowsapps", "node_modules", "site-packages"}
 SAME_TIME = 2.0
+UNREADABLE = ("", "none", "unknown")
+TRACK_LOOK, TRACK_RATE, TRACK_SAME, TRACK_SILENT = 10, 8000, 0.3, 1e-4
+TRACK_SPOTS = (0.2, 0.5, 0.8)
 PROBE_SECONDS = 30
 NUMBER = re.compile(r"^\d+(\.\d+)?$")
 
@@ -265,17 +270,83 @@ def probe(path):
     if abs(int(turn or 0)) % 180 == 90:
         width, height = height, width
     st = os.stat(path)
+    audio = [s for s in streams if s.get("codec_type") == "audio"]
+    readable = [k for k, s in enumerate(audio) if (s.get("codec_name") or "") not in UNREADABLE]
     return {"path": path, "name": os.path.basename(path), "size": st.st_size, "mtime": st.st_mtime,
             "seconds": round(seconds, 2), "width": width, "height": height, "fps": _fps(video.get("r_frame_rate")),
-            "sound_tracks": sum(1 for s in streams if s.get("codec_type") == "audio"),
-            "codec": video.get("codec_name") or ""}
+            "sound_tracks": len(readable), "sound_streams": readable, "codec": video.get("codec_name") or ""}
+
+
+def streams_of(rec):
+    """The numbers among rec's audio streams of the sound tracks FFmpeg can read. An iPhone's spatial sound is one it cannot
+    (IMG_4096.mov, lane 4 11-01), and asking for it stops FFmpeg."""
+    return rec.get("sound_streams") or list(range(rec.get("sound_tracks") or 0))
 
 
 def tracks(rec):
-    """The numbers of rec's sound tracks that are used: every one, unless the person chose (rec["tracks"]). Tarm 11-01: Henri
-    records the game and his voice on separate tracks, and with only the first read, his words were neither heard nor
-    in the clip. A track that repeats the others only makes them louder, and the level is set after."""
-    return rec.get("tracks") or list(range(rec.get("sound_tracks") or 0))
+    """The numbers of rec's sound tracks that are used: every one that holds something of its own, unless the person chose
+    (rec["tracks"]). Tarm 11-01: Henri records the game and his voice on separate tracks, and with only the first read,
+    his words were neither heard nor in the clip. A track that repeats another is left out: OBS's first track often
+    holds the mic and the game already, and a mic track beside it would raise the voice 6 dB over the game (the Sifu
+    stream)."""
+    if rec.get("tracks"):
+        return rec["tracks"]
+    streams = streams_of(rec)
+    if len(streams) < 2:
+        return streams
+    key = (rec.get("path"), rec.get("size"), rec.get("mtime"), tuple(streams))
+    if key not in _apart:
+        _apart[key] = _differing(rec, streams)
+    return _apart[key]
+
+
+def tracks_key(rec):
+    """What goes in a kept result's name when rec's sound is not simply its first track, or ""."""
+    used = tracks(rec)
+    return "" if used in ([], [0]) else "|tracks %s" % used
+
+
+_apart = {}
+
+
+def _track_piece(rec, stream, at):
+    """TRACK_LOOK s of one sound track from second at, mono at TRACK_RATE, or an empty array."""
+    tool = shutil.which("ffmpeg")
+    if not tool or not rec.get("path"):
+        return np.zeros(0, dtype=np.float32)
+    try:
+        got = subprocess.run([tool, "-v", "error", "-ss", "%.2f" % at, "-t", str(TRACK_LOOK), "-i", rec["path"], "-map", "0:a:%d" % stream,
+                              "-ac", "1", "-ar", str(TRACK_RATE), "-f", "f32le", "-"], stdin=subprocess.DEVNULL, capture_output=True,
+                             timeout=PROBE_SECONDS)
+    except (subprocess.SubprocessError, OSError):
+        return np.zeros(0, dtype=np.float32)
+    return np.frombuffer(got.stdout[:len(got.stdout) // 4 * 4], dtype=np.float32)
+
+
+def _alike(x, y):
+    """How alike two stretches of sound are at their best offset, from 0 to 1, or None when either is silent. Unlike
+    sounds of 10 s reach about 0.01; a mic in a mix with a game is as high as its share of the mix."""
+    n = min(len(x), len(y))
+    if n < TRACK_RATE:
+        return None
+    x, y = x[:n] - x[:n].mean(), y[:n] - y[:n].mean()
+    size = float(np.linalg.norm(x) * np.linalg.norm(y))
+    if size < 1e-6 or min(x.std(), y.std()) < TRACK_SILENT:
+        return None
+    return float(np.abs(np.fft.irfft(np.fft.rfft(x, 2 * n) * np.conj(np.fft.rfft(y, 2 * n)))).max()) / size
+
+
+def _differing(rec, streams):
+    """streams less each one that repeats a louder one: of a mix and the mic in it the mix stays, whichever comes first."""
+    spots = [(rec.get("seconds") or 0) * part for part in TRACK_SPOTS]
+    sound = {s: [_track_piece(rec, s, at) for at in spots] for s in streams}
+    loud = {s: sum(float(np.sum(p ** 2)) for p in sound[s]) for s in streams}
+    kept = []
+    for s in sorted(streams, key=lambda n: -loud[n]):
+        same = [_alike(a, b) for k in kept for a, b in zip(sound[s], sound[k])]
+        if not any(v is not None and v >= TRACK_SAME for v in same):
+            kept.append(s)
+    return sorted(kept)
 
 
 def mixed(rec, k=0):
