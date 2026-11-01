@@ -5,6 +5,7 @@ const app = $("app");
 const log = $("log");
 const chatView = $("chatView");
 const statusLine = $("status");
+const PAGE_TITLE = document.title;
 const composer = $("composer");
 const text = $("text");
 const send = $("send");
@@ -2852,6 +2853,7 @@ function on(e) {
   if (e.job === null || e.job === undefined) return;
   const j = job(e.job);
   if (e.kind === "job") {
+    room.endSaid = "";
     j.mind = e.mind;
     j.card.classList.add("run");
     j.cost.replaceChildren(ico(isLocal(e.mind) ? "pc" : "cloud", "sm"));
@@ -2862,6 +2864,9 @@ function on(e) {
     setBusy();
   } else if (e.kind === "plan") {
     drawPlan(j, e);
+    showStatus();
+  } else if (e.kind === "waiting") {
+    j.cards = true;
   } else if (e.kind === "guesses") {
     drawGuesses(j, e);
   } else if (e.kind === "wait") {
@@ -2885,6 +2890,7 @@ function on(e) {
       if (spot) spot.textContent = f.text;
     });
   } else if (e.kind === "ready") {
+    j.handed = true;
     drawReady(j, e);
   } else if (e.kind === "cut") {
     stopTimer();
@@ -2893,6 +2899,7 @@ function on(e) {
     note(e.text, j.flow);
   } else if (e.kind === "end") {
     endJob(j, e);
+    room.endSaid = endLine(j, e);
     room.open.delete(e.job);
     setBusy();
     refreshCost();
@@ -2941,14 +2948,35 @@ function current() {
   return room.minds.find((m) => m.key === room.mind) || room.minds[0];
 }
 
+function jobLine() {
+  const j = room.jobs[[...room.open].pop()];
+  const items = (j && j.items) || [];
+  const now = items.find((item) => item.state === "now");
+  const done = items.filter((item) => item.state === "done").length;
+  const step = items.length ? "Step " + Math.min(done + 1, items.length) + " of " + items.length + (now ? ": " + now.text : "") + ". " : "";
+  return "Not finished yet. " + step + "Type to change what it does, or press Stop.";
+}
+
+function endLine(j, e) {
+  if (e.why !== "answered") return (ENDS[e.why] || "Stopped") + ".";
+  if (j.handed) return "Finished. Your clip is ready.";
+  return j.cards ? "Finished. Tap a card to make that clip." : "Finished.";
+}
+
 function showStatus() {
   const m = current();
+  const busy = room.open.size > 0 || room.work.ends || room.work.video || room.work.preview;
+  statusLine.classList.toggle("run", busy);
+  statusLine.classList.toggle("done", !busy && !!room.endSaid);
+  document.title = (busy ? "Working · " : room.endSaid ? "Finished · " : "") + PAGE_TITLE;
   if (room.open.size) {
-    statusLine.textContent = "Muse is working on it. Type to change what it does, or press Stop.";
+    statusLine.textContent = jobLine();
   } else if (room.work.ends) {
     statusLine.textContent = "Making the clip again with its new start and end. Press Stop to end it.";
   } else if (room.work.video || room.work.preview) {
     statusLine.textContent = "Making the " + (room.work.video ? "video" : "preview") + ". Press Stop to end it.";
+  } else if (room.endSaid) {
+    statusLine.textContent = room.endSaid;
   } else if (m) {
     statusLine.textContent = m.ok ? m.label + " is ready, " + m.where + "." : m.label + " is not ready yet. Open Options to see why.";
   }
@@ -3159,6 +3187,7 @@ function show(chatId) {
   stopTimer();
   room.chat = chatId;
   room.last = -1;
+  room.endSaid = "";
   room.jobs = {};
   room.open = new Set();
   room.costs = [];
