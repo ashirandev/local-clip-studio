@@ -42,7 +42,7 @@ in and the celebration, and knows what it did to the score.
 ## The clip
 
 - One clip holds all the goals: propose every goal, then join them into one clip, in match order, not ranked. The
-  words over each piece: what happened and the score after it, as "วอลเลย์เข้าไกล 2-0". Give each piece the start where the
+  words over each piece: what happened and the score after it, in the board's order whoever leads, as "วอลเลย์เข้าไกล 2-0". Give each piece the start where the
   attack starts and the end when the celebration ends, at most 20 s, so all of them fit. Asked for one goal, make one.
 - Layout: the whole pitch as a card. The ball and the players move across the whole width, so the sides are never
   cut. When there is a face camera, the face goes in a circle above the card. When the person asks for it close up or

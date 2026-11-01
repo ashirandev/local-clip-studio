@@ -1799,9 +1799,10 @@ BOARD_SIDE, BOARD_AFTER, BOARD_END = 1024, (30.0, 45.0), (60.0, 40.0, 20.0)
 READ_BOARD = ("Nothing was joined yet. The pictures that come next show the match as each piece's attack starts and after the "
               "last goal. Read the score on the board in each picture yourself: the change from one piece's picture to the "
               "next is that piece's goal, and it tells which side scored. A picture with no board tells nothing. Write each "
-              "piece's words with the score the board shows after its goal, then call make_countdown again. The last pictures "
-              "are near the end of the recording: if their score is more than your last piece's, a goal is missing, so look "
-              "for it and propose it first.")
+              "piece's words with the score the board shows after its goal, in the board's order: the left number is the left "
+              "team's goals in every piece, whoever leads. Then call make_countdown again. The last pictures are near the end "
+              "of the recording: if their score is more than your last piece's, a goal is missing, so look for it and propose "
+              "it first.")
 
 
 def _read_the_board(job, rec, spans):
@@ -2705,18 +2706,55 @@ def _plain(job, rec, lay, a, b):
 
 # Lane 4 10-31, 12 match reels with words: Glimmer read the board right 7 of 7, and 4 of those went false when it wrote
 # the words again, leader first (094114-7e80: Hull 1-0, Hull 2-0, Arsenal level at 1-2). All 4 go down or stay, Spark 0 of 5.
+# 071525-6738 on 11-01: 2-0, 1-2, 1-3 refused once, so 2-0, 1-2, 3-1 stood on the next call, under a title with the wrong winner.
 REEL_SCORE = re.compile(r"(?<![\d:])(\d{1,2})\s*-\s*(\d{1,2})(?![\d:])")
 REEL_LEVEL = ("เสมอ", "level", "equal", "draw")
+SCORE_TRIES = 3
+REEL_NO_WORDS = "GOAL"
 SCORES_OFF = ("The scores in these words read %s, and a match's score only goes up, one side at a time, in the board's "
-              "order. Read each piece's score off the board, and write what happened in the play, not who leads. If they "
-              "are right as they are, call it again and they stand.")
+              "order: the left number is the left team's goals in every piece, whoever leads. Copy each piece's score off "
+              "the board. If these are two matches, or the numbers are not scores, leave them out of the words. Try %d of %d: after "
+              "the last the program takes them out.")
+SCORES_OUT = ("The scores in the words still could not be a match's, so the program took them out of the words. In the title "
+              "and the post text, write only a score you read on the board.")
+GOAL_LEFT_OUT = ("Nothing was joined yet. A piece reads %s, two or more goals above the piece before it, so a goal between %s "
+                 "and %s of the recording is not in the clip. Look there, propose it and join it in match order. If that "
+                 "stretch has no goal, or the person asked for fewer goals, call make_countdown again and it is joined.")
+AHEAD = "The last score, %s, in the board's order has %s: the title and the post text say the same."
+
+
+def _reel_scores(lines):
+    """(left, right, the line in lower case) of each of a match reel's lines with a score, in order."""
+    return [(int(m[1]), int(m[2]), line.lower()) for line, m in ((s, REEL_SCORE.search(s)) for s in lines) if m]
+
+
+def _goal_left_out(lines, spans):
+    """(the score, the start, the end) of the first stretch of the recording that a match reel's own scores say holds a
+    goal left out, or None: a piece two or more goals above the piece before it, and a match starts at 0-0."""
+    goals, after = 0, 0.0
+    for line, (a, b) in zip(lines, spans):
+        for left, right, _ in _reel_scores([line]):
+            if left + right > goals + 1:
+                return "%d-%d" % (left, right), after, a
+            goals = left + right
+        after = b
+    return None
+
+
+def _ahead(lines):
+    """AHEAD for a match reel's last score, or None with no score."""
+    scores = _reel_scores(lines)
+    if not scores:
+        return None
+    a, b = scores[-1][:2]
+    return AHEAD % ("%d-%d" % (a, b), "the teams level" if a == b else "the %s team ahead" % ("left" if a > b else "right"))
 
 
 def _scores_off(lines):
     """The scores in a match reel's lines in order when they cannot be a match's, else None: a later score lower on
     either side or the same as the one before it, or a level word on a score that is not level. Numbers only: a wrong
     team on a right number passes."""
-    scores = [(int(m[1]), int(m[2]), line.lower()) for line, m in ((s, REEL_SCORE.search(s)) for s in lines) if m]
+    scores = _reel_scores(lines)
     level = any(a != b and any(w in line for w in REEL_LEVEL) for a, b, line in scores)
     back = any(c < a or d < b or (c, d) == (a, b) for (a, b, _), (c, d, _) in zip(scores, scores[1:]))
     return ", then ".join("%d-%d" % s[:2] for s in scores) if level or back else None
@@ -2936,9 +2974,14 @@ def _unseen_said(names, shown):
         ", ".join(shown[:SHOWN_WORDS]) if shown else "no words")
 
 
+def _times_told(job, kind):
+    """How many times this job was refused for kind."""
+    return sum(e["kind"] == kind and e.get("job") == job.n for e in job.chat.events)
+
+
 def _told_once(job, kind):
     """True when this job was already refused for kind; else marks that it is, and False."""
-    if any(e["kind"] == kind and e.get("job") == job.n for e in job.chat.events):
+    if _times_told(job, kind):
         return True
     job.emit(kind)
     return False
@@ -6439,10 +6482,17 @@ def make_countdown(job, why, moments, story):
     if reel and not problems and not _told_once(job, "reel_board"):
         raise Refused(_read_the_board(job, rec, spans))
     off = _scores_off([c["words"] for c in moments]) if reel else None
-    if off and not _told_once(job, "reel_scores"):
-        problems.append(SCORES_OFF % off)
+    tries = _times_told(job, "reel_scores")
+    if off and tries < SCORE_TRIES:
+        job.emit("reel_scores")
+        problems.append(SCORES_OFF % (off, tries + 1, SCORE_TRIES))
     if problems:
         raise Refused("Nothing was joined. Fix all of these, then call it again:\n- " + "\n- ".join(problems))
+    if off:
+        moments = [dict(c, words=" ".join(REEL_SCORE.sub(" ", c["words"]).split()) or REEL_NO_WORDS) for c in moments]
+    gap = _goal_left_out([c["words"] for c in moments], spans) if reel else None
+    if gap and not _told_once(job, "reel_goal_left"):
+        raise Refused(GOAL_LEFT_OUT % (gap[0], clock(gap[1]), clock(gap[2])))
     menu = None if reel else _menu_start(job, rec, spans[0][0])
     if menu:
         raise Refused("Nothing was joined. " + menu)
@@ -6498,6 +6548,11 @@ def make_countdown(job, why, moments, story):
         head.append("The program fitted the pieces: %s." % "; ".join(fitted))
     if spelling:
         head.append(spelling)
+    if off:
+        head.append(SCORES_OUT)
+    ahead = _ahead(lines) if reel else None
+    if ahead:
+        head.append(ahead)
     try:
         made = make_clip(job, why, 1, "card")
     except Refused as e:

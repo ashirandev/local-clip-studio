@@ -249,7 +249,7 @@ class MakeCountdown(unittest.TestCase):
     def test_a_match_joins_its_goals_in_match_order_with_no_rank_though_nobody_asked(self):
         """10-31: Spark found all 4 goals of Tarm's eFootball match 3 of 3, and only the first proposed became a clip."""
         self.menus = [(0, 60)]
-        goals = [{"moment": 3, "words": "ปิดเกม 1-3", "start": "0:42", "end": "0:55"},
+        goals = [{"moment": 3, "words": "ปิดเกม 1-2", "start": "0:42", "end": "0:55"},
                  {"moment": 1, "words": "นำ 0-1", "start": "0:06", "end": "0:21"},
                  {"moment": 2, "words": "0-2", "start": "0:22", "end": "0:37"}]
         steps = self.run_job("ทำคลิปไฮไลท์", self.counted(goals), self.counted(goals), recipe="sport")
@@ -258,7 +258,8 @@ class MakeCountdown(unittest.TestCase):
         self.assertRegex(made["result"], r"Joined 3 moments into one recording, \S+ s long, in match order: ")
         self.assertIn('0 s: "นำ 0-1", moment 1, 0:06-0:21 of the recording', made["result"])
         titles = [e["entry"]["text"] for e in self.chat.events if e["kind"] == "edit" and e["entry"].get("do") == "title"]
-        self.assertEqual(titles, ["นำ 0-1", "0-2", "ปิดเกม 1-3"], "the score only reads in the order it happened")
+        self.assertEqual(titles, ["นำ 0-1", "0-2", "ปิดเกม 1-2"], "the score only reads in the order it happened")
+        self.assertIn("The last score, 1-2, in the board's order has the right team ahead", made["result"])
 
     def test_a_match_gives_each_piece_its_seconds_and_two_goals_are_enough(self):
         """10-31 005604-4fe9: left to the program, three of four pieces lost the attack and ran into the replay."""
@@ -358,19 +359,51 @@ class MakeCountdown(unittest.TestCase):
         self.assertIn("Joined 2 moments", steps[-1]["result"])
         self.assertIn("moment 1, 0:06-", steps[-1]["result"])
 
-    def test_a_match_reels_scores_that_cannot_be_a_match_are_refused_once_and_the_second_answer_stands(self):
-        """10-31 094114-7e80: the board read right, then Hull 1-0, Hull 2-0, Arsenal level at 1-2."""
+    def test_a_match_reels_scores_that_cannot_be_a_match_are_refused_until_the_tries_end_and_then_come_out(self):
+        """10-31 094114-7e80: the board read right, then Hull 1-0, Hull 2-0, Arsenal level at 1-2. 11-01 071525-6738: one
+        refusal was not enough, the second answer read 3-1 under a title with the wrong winner."""
         wide = [{"look": 1, "start": "0:06", "end": "0:21", "reason": "first"},
                 {"look": 1, "start": "0:22", "end": "0:37", "reason": "second"}]
-        pieces = [{"moment": 1, "words": "Hull 2-0", "start": "0:06", "end": "0:21"},
-                  {"moment": 2, "words": "Arsenal 1-2", "start": "0:22", "end": "0:37"}]
-        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(pieces), self.counted(pieces), self.counted(pieces), recipe="sport",
-                             moments=wide)
-        board, refused, made = steps[-3:]
+        pieces = [{"moment": 1, "words": "Hull ยิงนำ 2-0", "start": "0:06", "end": "0:21"},
+                  {"moment": 2, "words": "1-2", "start": "0:22", "end": "0:37"}]
+        steps = self.run_job("ทำคลิปไฮไลท์", *[self.counted(pieces)] * 5, recipe="sport", moments=wide)
+        board, refused, made = steps[-5], steps[-4:-1], steps[-1]
         self.assertEqual(board["result"], tools.READ_BOARD, "the board comes first, so Muse reads it before it writes again")
-        self.assertTrue(refused["refused"], refused["result"])
-        self.assertIn("The scores in these words read 2-0, then 1-2, and a match's score only goes up", refused["result"])
+        for k, step in enumerate(refused, 1):
+            self.assertTrue(step["refused"], step["result"])
+            self.assertIn("The scores in these words read 2-0, then 1-2, and a match's score only goes up", step["result"])
+            self.assertIn("the left number is the left team's goals in every piece, whoever leads", step["result"])
+            self.assertIn("Try %d of 3" % k, step["result"], "the same call is not stopped as a repeat")
         self.assertFalse(made["refused"], made["result"])
+        self.assertIn(tools.SCORES_OUT, made["result"])
+        self.assertNotIn("in the board's order has", made["result"], "nothing is left to say who is ahead from")
+        titles = [e["entry"]["text"] for e in self.chat.events if e["kind"] == "edit" and e["entry"].get("do") == "title"]
+        self.assertEqual(titles, ["Hull ยิงนำ", tools.REEL_NO_WORDS], "no false score on the clip, and every piece keeps words")
+
+    def test_a_match_reels_words_put_right_after_a_refusal_keep_their_scores(self):
+        wide = [{"look": 1, "start": "0:06", "end": "0:21", "reason": "first"},
+                {"look": 1, "start": "0:22", "end": "0:37", "reason": "second"}]
+        wrong = [{"moment": 1, "words": "Hull 2-0", "start": "0:06", "end": "0:21"},
+                 {"moment": 2, "words": "1-2", "start": "0:22", "end": "0:37"}]
+        right = [dict(wrong[0], words="Hull 0-1"), dict(wrong[1], words="0-2")]
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(wrong), self.counted(wrong), self.counted(right), recipe="sport", moments=wide)
+        self.assertTrue(steps[-2]["refused"], steps[-2]["result"])
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertNotIn(tools.SCORES_OUT, steps[-1]["result"])
+        self.assertIn('0 s: "Hull 0-1"', steps[-1]["result"])
+        self.assertIn("The last score, 0-2, in the board's order has the right team ahead", steps[-1]["result"])
+
+    def test_a_match_reels_own_scores_ask_once_for_a_goal_they_leave_out(self):
+        """071525-6738 on 11-01: 0-2 as its first piece, with 0-1 left out, and the board at the end agreed with its last piece."""
+        wide = [{"look": 1, "start": "0:06", "end": "0:21", "reason": "first"},
+                {"look": 1, "start": "0:22", "end": "0:37", "reason": "second"}]
+        pieces = [{"moment": 1, "words": "0-2", "start": "0:06", "end": "0:21"},
+                  {"moment": 2, "words": "1-2", "start": "0:22", "end": "0:37"}]
+        steps = self.run_job("ทำคลิปไฮไลท์", self.counted(pieces), self.counted(pieces), self.counted(pieces), recipe="sport", moments=wide)
+        self.assertTrue(steps[-2]["refused"], steps[-2]["result"])
+        self.assertEqual(steps[-2]["result"], tools.GOAL_LEFT_OUT % ("0-2", "0:00", "0:06"))
+        self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertIn("Joined 2 moments", steps[-1]["result"])
 
     def test_a_match_reel_reads_the_board_as_each_attack_starts_before_it_is_joined(self):
         """022837-3062 on 11-01: 0-3 on a board at 1-2, as just after a goal the picture is a replay with no board."""
@@ -431,10 +464,25 @@ class MakeCountdown(unittest.TestCase):
         self.assertEqual(tools._scores_off(["Arsenal ตีเสมอ 1-2"]), "1-2", "a level word on a score that is not level")
         self.assertEqual(tools._scores_off(["Level at 2-1"]), "2-1")
 
+    def test_a_goal_left_out_is_where_the_scores_jump(self):
+        spans = [[100.0, 110.0], [200.0, 210.0], [300.0, 310.0]]
+        self.assertEqual(tools._goal_left_out(["0-2", "1-2", "1-3"], spans), ("0-2", 0.0, 100.0))
+        self.assertEqual(tools._goal_left_out(["0-1", "1-2", "1-3"], spans), ("1-2", 110.0, 200.0))
+        self.assertEqual(tools._goal_left_out(["0-1", "ลุ้นจังหวะนี้", "1-2"], spans), ("1-2", 210.0, 300.0), "a piece with no score moves on")
+        self.assertIsNone(tools._goal_left_out(["0-1", "1-1", "1-2"], spans))
+        self.assertIsNone(tools._goal_left_out(["นาที 32:21", "สวยมาก", "ปิดเกม"], spans))
+
+    def test_who_is_ahead_is_read_from_the_last_score(self):
+        self.assertIsNone(tools._ahead(["นาที 32:21", "สวยมาก"]))
+        self.assertIn("1-3, in the board's order has the right team ahead", tools._ahead(["0-1", "1-3 ปิดเกม"]))
+        self.assertIn("2-1, in the board's order has the left team ahead", tools._ahead(["2-1"]))
+        self.assertIn("1-1, in the board's order has the teams level", tools._ahead(["1-1 ตีเสมอ", "สวยมาก"]))
+
     def test_a_countdown_of_a_game_is_not_read_for_scores(self):
         scored = [dict(self.ORDER[0], words="2-0"), dict(self.ORDER[1], words="1-2"), dict(self.ORDER[2], words="1-1")]
         steps = self.run_job("ทำคลิป Top 3 ช่วงที่มันส์ที่สุด", self.counted(scored))
         self.assertFalse(steps[-1]["refused"], steps[-1]["result"])
+        self.assertNotIn("in the board's order has", steps[-1]["result"])
 
     def test_a_top_three_of_a_match_is_ranked_so_its_scores_may_run_out_of_order(self):
         """Lane 1's review: a person-asked top 3 is best last, not match order."""
