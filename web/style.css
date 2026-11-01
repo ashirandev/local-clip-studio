@@ -363,6 +363,12 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .attached .meta { flex: 1; color: var(--muted); white-space: nowrap; }
 .status.run { color: var(--text); font-weight: 600; }
 .status.done { color: var(--ok); font-weight: 600; }
+.part-boxes { position: absolute; inset: 0; z-index: 22; }
+.part-boxes[hidden] { display: none; }
+.part-box { position: absolute; box-sizing: border-box; border: 2px dashed var(--accent); border-radius: 8px; cursor: move; touch-action: none; }
+.part-box.now { border-style: solid; }
+.part-box span { position: absolute; top: 4px; left: 4px; padding: 2px 6px; border-radius: 6px; background: var(--accent); color: var(--on-accent); font-size: 12px; font-weight: 600; pointer-events: none; }
+.part-box i { position: absolute; right: -10px; bottom: -10px; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); cursor: nwse-resize; touch-action: none; }
 .counts { display: flex; flex: 1 0 100%; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-size: 13px; }
 .counts[hidden] { display: none; }
 .counts button { min-width: 40px; height: 32px; padding: 0 10px; border: 1px solid var(--edge); border-radius: 999px; background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }

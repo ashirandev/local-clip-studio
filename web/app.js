@@ -2185,12 +2185,14 @@ function drawFrameParts(d) {
   const list = d.parts || [];
   const pick = $("partPick");
   $("partHead").hidden = pick.hidden = $("partRow").hidden = !list.length;
+  drawPartBoxes();
   if (!list.length) return;
   if (!list.some((p) => p.name === room.partName)) room.partName = list[0].name;
   drawChoices(pick, $("partWhy"), list.map((p) => ({ name: p.name, label: p.name.charAt(0).toUpperCase() + p.name.slice(1), now: p.name === room.partName, why: null })), (x) => {
     room.partName = x.name;
     drawFrameParts(room.panel);
   }, false);
+  drawPartBoxes();
 }
 
 const PART_STEP = { bigger: 1.08, smaller: 0.93 };
@@ -2207,14 +2209,11 @@ function partMoved(box, how) {
   return [x1, y1, x1 + w, y1 + h].map(Math.round);
 }
 
-$("partRow").addEventListener("click", async (e) => {
-  const b = e.target.closest("[data-part-do]");
-  const part = room.panel && (room.panel.parts || []).find((p) => p.name === room.partName);
-  if (!b || !part) return;
+async function movePart(name, box) {
   const why = $("partWhy");
   why.hidden = true;
   try {
-    const d = await post("/api/part", { chat: room.chat, part: part.name, box: partMoved(part.box, b.dataset.partDo) });
+    const d = await post("/api/part", { chat: room.chat, part: name, box });
     if (!d.ok) {
       why.textContent = d.error || "It could not be moved.";
       why.hidden = false;
@@ -2224,7 +2223,72 @@ $("partRow").addEventListener("click", async (e) => {
     why.hidden = false;
   }
   loadPanel();
+}
+
+$("partRow").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-part-do]");
+  const part = room.panel && (room.panel.parts || []).find((p) => p.name === room.partName);
+  if (b && part) movePart(part.name, partMoved(part.box, b.dataset.partDo));
 });
+
+function placeBox(node, box) {
+  const [x1, y1, x2, y2] = box;
+  node.style.left = x1 / 10 + "%";
+  node.style.top = y1 / 10 + "%";
+  node.style.width = (x2 - x1) / 10 + "%";
+  node.style.height = (y2 - y1) / 10 + "%";
+}
+
+function drawPartBoxes() {
+  const layer = $("partBoxes");
+  const list = (room.panel && room.panel.parts) || [];
+  layer.hidden = sheet.hidden || room.part !== "frame" || !list.length;
+  if (layer.hidden) return;
+  const size = (p) => (p.box[2] - p.box[0]) * (p.box[3] - p.box[1]);
+  layer.replaceChildren(...[...list].sort((a, b) => size(b) - size(a)).map((p) => {
+    const node = el("div", "part-box" + (p.name === room.partName ? " now" : ""));
+    node.append(el("span", null, p.name.charAt(0).toUpperCase() + p.name.slice(1)), el("i"));
+    placeBox(node, p.box);
+    node.addEventListener("pointerdown", (e) => dragPart(e, p, node));
+    return node;
+  }));
+}
+
+function dragPart(e, part, node) {
+  e.preventDefault();
+  room.partName = part.name;
+  const area = $("partBoxes").getBoundingClientRect();
+  const sizing = e.target.tagName === "I";
+  const [x1, y1, x2, y2] = part.box;
+  const w = x2 - x1;
+  const h = y2 - y1;
+  const x0 = e.clientX;
+  const y0 = e.clientY;
+  let box = part.box;
+  const follow = (ev) => {
+    const dx = (ev.clientX - x0) * 1000 / area.width;
+    const dy = (ev.clientY - y0) * 1000 / area.height;
+    if (sizing) {
+      const grow = Math.min(Math.max(0.2, 1 + dx / w), (1000 - x1) / w, (1000 - y1) / h);
+      box = [x1, y1, x1 + w * grow, y1 + h * grow];
+    } else {
+      const x = Math.max(0, Math.min(1000 - w, x1 + dx));
+      const y = Math.max(0, Math.min(1000 - h, y1 + dy));
+      box = [x, y, x + w, y + h];
+    }
+    placeBox(node, box);
+  };
+  const done = () => {
+    window.removeEventListener("pointermove", follow);
+    window.removeEventListener("pointerup", done);
+    window.removeEventListener("pointercancel", done);
+    if (box === part.box) drawFrameParts(room.panel);
+    else movePart(part.name, box.map(Math.round));
+  };
+  window.addEventListener("pointermove", follow);
+  window.addEventListener("pointerup", done);
+  window.addEventListener("pointercancel", done);
+}
 
 function tapBlock(b) {
   if (room.dragged) return;
@@ -3085,6 +3149,7 @@ function openSheet(part) {
   sheet.hidden = false;
   sheetBack.classList.add("on");
   showPart(part);
+  drawPartBoxes();
   panelNote.textContent = "";
   if (part !== "words") closeWords();
   if (part === "cost") {
@@ -3116,6 +3181,7 @@ function closeSheet() {
   sheetBack.classList.remove("on");
   closeWords();
   showPart(room.part);
+  drawPartBoxes();
 }
 
 $("sheetClose").addEventListener("click", closeSheet);
