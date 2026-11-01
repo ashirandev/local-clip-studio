@@ -855,7 +855,7 @@ function updatePlayer() {
   playButton.disabled = !v || room.canvas;
   playButton.replaceChildren(ico(playing ? "pause" : "play"));
   playButton.setAttribute("aria-label", playing ? "Pause" : "Play");
-  bigPlay.hidden = !v || playing || room.canvas;
+  bigPlay.hidden = !v || playing || room.canvas || room.blur;
   fullButton.hidden = !v || room.canvas;
   clipUndo.disabled = !room.panel;
   if (v && v.duration) timeLine.replaceChildren(el("b", null, clock(v.currentTime)), " / " + clock(v.duration));
@@ -1392,6 +1392,7 @@ function setBlur(on) {
   }
   if (on === Boolean(room.blur)) return;
   room.blur = on;
+  updatePlayer();
   frameBox.querySelectorAll(".faces").forEach((f) => f.remove());
   if (!on) return;
   stopWatching();

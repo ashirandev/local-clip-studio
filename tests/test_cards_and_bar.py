@@ -107,7 +107,7 @@ function load(page, answer) {
     Intl: any(), URL: any(), Image: function () { return any(); }, FormData: function () { return any(); }, CSS: any(), performance: any({ now: () => 0 }), innerWidth: 1200, innerHeight: 800,
   };
   vm.createContext(box);
-  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey };", box);
+  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, openSheet, closeSheet };", box);
   const t = box.t;
   t.room.chat = "c";
   let id = 0;
@@ -140,6 +140,14 @@ each("faces", (p) => {
   p.t.setBlur(true);
   const open = faces();
   return { closed, open, wide: p.element("sheet").classList.contains("canvas") };
+});
+each("blurSheet", (p) => {
+  p.t.openSheet("blur");
+  const open = p.t.room.blur;
+  p.t.closeSheet();
+  const shut = p.t.room.blur;
+  p.t.openSheet("trim");
+  return { open, shut, other: p.t.room.blur };
 });
 each("blurTab", (p) => {
   p.t.showClip({ id: 1, clip: { people: 2, length: 10, lanes: [] } });
@@ -545,6 +553,13 @@ class Plain(unittest.TestCase):
         self.assertEqual(s["closed"], 0, "a clip on the player has no boxes on its faces")
         self.assertEqual(s["open"], 1)
         self.assertTrue(s["wide"], "the sheet leaves the picture in sight, as on Layout")
+
+    def test_the_big_play_button_stays_off_the_faces(self):
+        with open(os.path.join(WEB, "app.js"), encoding="utf-8") as f:
+            self.assertIn("bigPlay.hidden = !v || playing || room.canvas || room.blur;", f.read())
+
+    def test_the_faces_show_while_blur_is_open_and_not_after(self):
+        self.assertEqual(Page.said["blurSheet"], {"open": True, "shut": False, "other": False})
 
     def test_the_blur_tab_shows_when_the_clip_has_people(self):
         s = Page.said["blurTab"]
