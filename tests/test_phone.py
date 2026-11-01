@@ -125,6 +125,17 @@ class Phone(unittest.TestCase):
         self.assertNotIn("unseen", json.loads(got))
         self.assertIn("is not a video the studio reads", got)
 
+    def test_a_build_for_one_person_starts_with_phone_off_until_it_is_turned_on(self):
+        """Lane 4 11-01: Tarm's key on his brother's computer, and a Windows question about Python he would not know how to answer."""
+        self.assertTrue(phone.wanted(), "the studio starts with Phone on")
+        with mock.patch.object(recording, "ROOT", self.tmp):
+            os.makedirs(os.path.join(self.tmp, "parts"))
+            open(os.path.join(self.tmp, "parts", "one_key.txt"), "w").close()
+            self.assertFalse(phone.wanted())
+            os.makedirs(recording.WORK, exist_ok=True)
+            phone.want(True)
+            self.assertTrue(phone.wanted(), "the person's own choice stands")
+
     def test_a_recording_on_a_drive_the_studio_reads_whole_is_inside_it(self):
         clip = os.path.join(self.tmp, "trip.mp4")
         with open(clip, "wb") as f:

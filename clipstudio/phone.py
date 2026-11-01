@@ -38,12 +38,14 @@ def _setting():
 
 
 def wanted():
-    """False only when the person turned Phone off."""
+    """False when the person turned Phone off. A build made for one person (parts/one_key.txt) starts off until they turn
+    it on: the key in it may be someone else's, and anyone on the same Wi-Fi could spend it, and Windows would ask them
+    about Python and the network on the first start."""
     try:
         with open(_setting(), encoding="utf-8") as f:
             return bool(json.load(f).get("on", True))
     except (OSError, ValueError):
-        return True
+        return not os.path.isfile(os.path.join(recording.ROOT, "parts", "one_key.txt"))
 
 
 def want(on):
