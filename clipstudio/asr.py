@@ -32,6 +32,12 @@ AT_ONCE = 6
 TIMEOUT = 120
 PIECE_TRIES = 2
 USD_PER_HOUR = 0.18
+# 081254-7a4b on 11-01: EP0's laughter runs 25 s with no pause, so a piece was cut inside it, and the 10.9 s after the cut came back
+# empty, 2 asks of 2 and in both hearings of the run. Cut 4 s earlier the same sound gave its words, and alone it gave almost none.
+# 7 s before the hole gave them 4 of 4; 2 s after it ran a line on into the next one, so its words came twice.
+HOLE = 5.0
+HOLE_BEFORE, HOLE_AFTER = 7.0, 1.0
+MOST_HOLES = 4
 
 
 class Label:
@@ -58,15 +64,10 @@ def pieces(pcm, rate=RATE):
     both ends of a pause of LONG_QUIET s or more (AIR s inside it), each piece at most PIECE s where a pause allows it
     and never more than LONGEST_PIECE s; a piece that is all quiet, such as a long pause, is left out. A pause is a
     stretch QUIET_OVER dB or less over the quietest fifth of the sound, and under QUIET_MOST."""
-    samples = np.frombuffer(pcm, dtype="<i2").astype(np.float32)
-    step = int(rate * FRAME)
-    n = len(samples) // step
+    quiet = _quiet(pcm, rate)
+    n = len(quiet)
     if n == 0:
         return []
-    frames = samples[:n * step].reshape(n, step)
-    db = 20 * np.log10(np.sqrt((frames ** 2).mean(axis=1)) / 32768 + 1e-9)
-    floor = min(float(np.percentile(db, 20)) + QUIET_OVER, QUIET_MOST)
-    quiet = db <= floor
     cuts, run = [], 0
     for i, q in enumerate(list(quiet) + [False]):
         if q:
@@ -89,6 +90,26 @@ def pieces(pcm, rate=RATE):
     out.append((start, end))
     return [(round(a, 2), round(b, 2)) for a, b in out
             if not quiet[int(a / FRAME):max(int(a / FRAME) + 1, int(b / FRAME))].all()]
+
+
+def _quiet(pcm, rate=RATE):
+    """For each FRAME of the 16-bit mono sound pcm, whether it is a pause (pieces)."""
+    samples = np.frombuffer(pcm, dtype="<i2").astype(np.float32)
+    step = int(rate * FRAME)
+    n = len(samples) // step
+    if n == 0:
+        return np.zeros(0, dtype=bool)
+    frames = samples[:n * step].reshape(n, step)
+    db = 20 * np.log10(np.sqrt((frames ** 2).mean(axis=1)) / 32768 + 1e-9)
+    return db <= min(float(np.percentile(db, 20)) + QUIET_OVER, QUIET_MOST)
+
+
+def _holes(heard, quiet):
+    """[(from, to)] in seconds of the holes of HOLE s or more between the lines of heard, ((from, to, text) in order), with
+    sound through most of them: the longest MOST_HOLES, in order."""
+    gaps = [(x, y) for (_, x, _), (y, _, _) in zip(heard, heard[1:]) if y - x >= HOLE
+            and quiet[int(x / FRAME):int(y / FRAME)].mean() < 0.5]
+    return sorted(sorted(gaps, key=lambda g: g[0] - g[1])[:MOST_HOLES])
 
 
 class PartHeard(VoiceError):
@@ -160,7 +181,8 @@ def turns(pcm, rate=RATE, languages=()):
 
 def hear(pcm, rate=RATE, stopped=None, languages=()):
     """[{from, to, text}] said in the sound pcm, in seconds of it, and the US dollars it cost: each piece asked,
-    AT_ONCE at a time, expecting languages (ask), up to PIECE_TRIES times. stopped() True leaves the pieces not yet
+    AT_ONCE at a time, expecting languages (ask), up to PIECE_TRIES times, then each hole (_holes) asked once with
+    the sound around it, keeping the lines that fall in it. stopped() True leaves the pieces not yet
     sent unsent. A piece that still fails costs that piece: PartHeard holds the rest. VoiceError when none was
     heard; sound with nothing in it asks nothing, and nothing was said."""
     if not secret():
@@ -184,9 +206,23 @@ def hear(pcm, rate=RATE, stopped=None, languages=()):
             return [(a + x, min(b, a + y) if y > x else b, text) for x, y, text in turns]
         return []
 
+    def fill(hole):
+        x, y = hole
+        a, b = max(0.0, x - HOLE_BEFORE), min(len(pcm) / width, y + HOLE_AFTER)
+        if stopped and stopped():
+            return [], 0.0
+        try:
+            turns = ask(pcm[int(a * width):int(b * width)], rate, languages)
+        except VoiceError:
+            return [], b - a
+        spans = [(a + p, min(b, a + q) if q > p else b, text) for p, q, text in turns]
+        return [(max(x, p), min(y, q), text) for p, q, text in spans if x <= (p + q) / 2 <= y], b - a
+
     with concurrent.futures.ThreadPoolExecutor(AT_ONCE) as pool:
         heard = [t for got in pool.map(one, cut) for t in got]
-    usd = sum(b - a for a, b in cut) / 3600 * USD_PER_HOUR
+        filled = list(pool.map(fill, _holes(heard, _quiet(pcm, rate)))) if not failed else []
+    usd = (sum(b - a for a, b in cut) + sum(seconds for _, seconds in filled)) / 3600 * USD_PER_HOUR
+    heard = sorted(heard + [t for got, _ in filled for t in got], key=lambda t: t[0])
     said = [{"from": round(a, 2), "to": round(b, 2), "text": text} for a, b, text in heard]
     if failed and len(failed) == len(cut):
         raise VoiceError(next(iter(failed.values())))

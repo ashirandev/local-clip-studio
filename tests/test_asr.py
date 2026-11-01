@@ -39,7 +39,7 @@ class Meta:
 
     def __init__(self, status=200):
         self.got, self.status = [], status
-        self.stray = self.fails = None
+        self.stray = self.fails = self.turns = None
         meta = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -64,9 +64,9 @@ class Meta:
                     self.send_response(status)
                     self.end_headers()
                     return
-                answer = json.dumps({"transcript": "x", "turns": [
-                    {"turnId": 0, "startMs": 100, "endMs": ms - 100, "transcript": "พูด %d ms" % ms}]},
-                    ensure_ascii=False).encode()
+                turns = [{"turnId": 0, "startMs": 100, "endMs": ms - 100, "transcript": "พูด %d ms" % ms}]
+                answer = json.dumps({"transcript": "x", "turns": meta.turns(ms, len(meta.got)) if meta.turns else turns},
+                                    ensure_ascii=False).encode()
                 if meta.stray:
                     answer = answer.replace("พูด".encode(), "พู".encode() + meta.stray + "ด".encode())
                 self.send_response(200)
@@ -164,6 +164,80 @@ class Hears(unittest.TestCase):
         """183215-ea60: "propose_moments broke ()", as next() of no failures is a StopIteration with no words in it."""
         self.assertEqual(asr.hear(bytes(RATE * 2 * 5)), ([], 0))
         self.assertEqual(self.meta.got, [])
+
+    def holes(self, *more):
+        """A fake that hears two lines around a hole in a 25 s piece, and more when it is asked about that hole again."""
+        def turns(ms, n):
+            line = lambda a, b, words: {"startMs": a, "endMs": b, "transcript": words}
+            return [line(0, 2000, "ก่อน"), line(12000, 14000, "หลัง")] if n == 1 else [line(*m) for m in more]
+
+        self.meta.turns = turns
+
+    def test_a_hole_with_sound_in_it_is_asked_again_with_the_sound_around_it_and_its_own_lines_are_kept(self):
+        """081254-7a4b on 11-01: 10.9 s of laughing talk with no caption, as Voice gave nothing back after a cut inside it."""
+        self.holes((0, 1000, "ก่อนอีกที"), (8000, 11000, "ในรู"), (17000, 19000, "หลังอีกที"))
+        said, usd = asr.hear(sound((14.5, True)))
+        self.assertEqual([p["text"] for p in said], ["ก่อน", "ในรู", "หลัง"], "only what falls in the hole, in order")
+        self.assertEqual([(p["from"], p["to"]) for p in said], [(0.0, 2.0), (8.0, 11.0), (12.0, 14.0)])
+        with wave.open(io.BytesIO(self.meta.got[1]["audio"])) as w:
+            self.assertEqual(w.getnframes() / w.getframerate(), 13.0, "7 s before 2-12 s, as far as the sound goes, and 1 s after")
+        self.assertAlmostEqual(usd, 27.5 / 3600 * 0.18, places=6)
+
+    def test_a_hole_late_in_the_sound_is_asked_with_7_s_before_it(self):
+        self.meta.turns = lambda ms, n: [{"startMs": 0, "endMs": 10000, "transcript": "ก่อน"},
+                                         {"startMs": 18000, "endMs": 20000, "transcript": "หลัง"}] if n == 1 else []
+        with mock.patch.object(asr, "pieces", return_value=[(0.0, 25.0)]):
+            asr.hear(sound((25, True)))
+        with wave.open(io.BytesIO(self.meta.got[1]["audio"])) as w:
+            self.assertEqual(w.getnframes() / w.getframerate(), 16.0, "from 3 s, 7 s before the hole, to 19 s, 1 s after it")
+
+    def test_a_line_is_held_to_its_hole(self):
+        self.holes((1000, 4000, "ข้ามขอบ"))
+        said, _ = asr.hear(sound((14.5, True)))
+        self.assertEqual([(p["text"], p["from"], p["to"]) for p in said][1], ("ข้ามขอบ", 2.0, 4.0))
+
+    def test_a_short_gap_and_a_quiet_one_are_not_asked_about(self):
+        def turns(ms, n):
+            return [{"startMs": 0, "endMs": 2000, "transcript": "ก่อน"}, {"startMs": 6500, "endMs": 8000, "transcript": "หลัง"}]
+
+        self.meta.turns = turns
+        asr.hear(sound((8.5, True)))
+        self.assertEqual(len(self.meta.got), 1, "under 5 s")
+        self.meta.got.clear()
+
+        def apart(ms, n):
+            return [{"startMs": 0, "endMs": 2000, "transcript": "ก่อน"}, {"startMs": 22000, "endMs": 24000, "transcript": "หลัง"}]
+
+        self.meta.turns = apart
+        with mock.patch.object(asr, "pieces", return_value=[(0.0, 25.0)]):
+            asr.hear(sound((2, True), (20, False), (3, True)))
+        self.assertEqual(len(self.meta.got), 1, "a pause, not a hole")
+
+    def test_only_the_longest_holes_are_asked_about(self):
+        heard = [(float(k * 20), float(k * 20 + 1 + k % 3), "x") for k in range(9)]
+        quiet = asr._quiet(sound((200, True)))
+        holes = asr._holes(heard, quiet)
+        self.assertEqual(len(holes), asr.MOST_HOLES)
+        self.assertEqual(holes, sorted(holes), "in order")
+        self.assertEqual(min(y - x for x, y in holes), 18.0, "the long ones")
+
+    def test_a_hole_asked_about_that_fails_leaves_what_was_heard(self):
+        self.holes()
+        self.meta.fails = lambda ms, n: n > 1
+        said, usd = asr.hear(sound((14.5, True)))
+        self.assertEqual([p["text"] for p in said], ["ก่อน", "หลัง"])
+
+    def test_a_piece_that_failed_is_not_also_a_hole(self):
+        self.meta.fails = lambda ms, n: ms > 6000
+        with self.assertRaises(asr.PartHeard):
+            asr.hear(sound((3, True), (0.6, False), (8, True), (0.6, False), (3, True)))
+        self.assertEqual(len(self.meta.got), 4, "the failed piece twice, the others once, and no hole")
+
+    def test_stop_leaves_a_hole_unasked(self):
+        self.holes((8000, 11000, "ในรู"))
+        said, _ = asr.hear(sound((14.5, True)), stopped=lambda: len(self.meta.got) > 0)
+        self.assertEqual([p["text"] for p in said], ["ก่อน", "หลัง"])
+        self.assertEqual(len(self.meta.got), 1)
 
     def test_stop_asks_nothing_again(self):
         self.meta.fails = lambda ms, n: True
