@@ -105,7 +105,7 @@ const SHEETS = { fx: ["spark", "Effects"], blur: ["blur", "Blur"], album: ["film
 const EDITS = ["layout", "trim", "frame", "caps", "style", "look", "fx", "sound", "blur", "words", "channel", "album"];
 const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_ends: "cut", change_effect: "sticker", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", match_album: "film", move_part: "move", mute_sound: "mute", no_chat_box: "blur", open_clip: "film", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_album: "gear", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", set_tagline: "at", show_people: "people", slow_push: "move", undo: "undo", undo_album: "undo", use_channel_look: "at", watch_piece: "eye" };
 
-const room = { canvas: false, tool: "drag", workLine: "", endSaid: "", mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false, layout: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null, sends: false };
+const room = { canvas: false, blur: false, tool: "drag", workLine: "", endSaid: "", mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false, layout: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null, sends: false };
 
 function localStore(key, value) {
   try {
@@ -1390,7 +1390,7 @@ function setBlur(on) {
     clipBox.classList.add("canvas");
     sheet.classList.add("canvas");
   }
-  if (on === Boolean(room.blur)) return;
+  if (on === room.blur) return;
   room.blur = on;
   updatePlayer();
   frameBox.querySelectorAll(".faces").forEach((f) => f.remove());

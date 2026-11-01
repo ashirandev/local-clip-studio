@@ -153,6 +153,18 @@ each("blurSheet", (p) => {
   p.t.showPart("trim");
   return { open, shut, other: p.t.room.blur };
 });
+each("bigPlay", (p) => {
+  const v = new Node("video");
+  v.paused = true;
+  v.currentTime = 1;
+  p.element("frame").appendChild(v);
+  p.t.room.made = { version: 1, clip: { people: 2, length: 10 } };
+  p.element("sheet").hidden = true;
+  p.t.showPart("trim");
+  const before = p.element("bigPlay").hidden;
+  p.t.setBlur(true);
+  return { before, after: p.element("bigPlay").hidden };
+});
 each("blurTab", (p) => {
   p.t.showClip({ id: 1, clip: { people: 2, length: 10, lanes: [] } });
   const people = p.element("blurTab").hidden;
@@ -559,8 +571,7 @@ class Plain(unittest.TestCase):
         self.assertTrue(s["wide"], "the sheet leaves the picture in sight, as on Layout")
 
     def test_the_big_play_button_stays_off_the_faces(self):
-        with open(os.path.join(WEB, "app.js"), encoding="utf-8") as f:
-            self.assertIn("bigPlay.hidden = !v || playing || room.canvas || room.blur;", f.read())
+        self.assertEqual(Page.said["bigPlay"], {"before": False, "after": True})
 
     def test_the_faces_show_while_blur_is_open_and_not_after(self):
         self.assertEqual(Page.said["blurSheet"], {"open": True, "shut": False, "other": False})
