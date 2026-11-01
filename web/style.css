@@ -409,7 +409,7 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .e-time b { color: var(--st-text); font-weight: 600; }
 .clip-tools { display: none !important; }
 
-.timeline { position: relative; margin: 8px 0 2px; padding: 0 16px 0 52px; touch-action: none; }
+.timeline { position: relative; margin: 8px 0 2px; padding: 0 16px 0 52px; touch-action: none; -webkit-user-select: none; user-select: none; }
 .timeline:has(.lanes:empty) { display: none; }
 .lanes { position: relative; display: grid; gap: 6px; }
 .lane { position: relative; display: block; }

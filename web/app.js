@@ -771,6 +771,10 @@ function playerVideo() {
   return frameBox.querySelector("video");
 }
 
+function shownVideo() {
+  return watchBox.hidden ? playerVideo() : watchVideo;
+}
+
 function wirePlayer(v) {
   ["play", "pause", "ended", "loadedmetadata", "timeupdate"].forEach((k) => v.addEventListener(k, () => {
     if (k === "timeupdate" && !v.classList.contains("base")) movePlayhead(v.currentTime);
@@ -794,10 +798,21 @@ function updatePlayer() {
 }
 
 function togglePlay() {
-  const v = playerVideo();
+  const v = shownVideo();
   if (!v) return;
   if (v.paused || v.ended) v.play().catch(() => {});
   else v.pause();
+}
+
+function stepClip(by) {
+  const v = shownVideo();
+  if (v) {
+    v.pause();
+    if (v.duration) v.currentTime = Math.max(0, Math.min(v.currentTime + by, v.duration - 0.05));
+  } else if (room.made) {
+    clipAt.value = Math.max(0, Math.min(Number(clipAt.value) + by, room.made.clip.length - 0.05));
+    clipAt.dispatchEvent(new Event("input"));
+  }
 }
 
 playButton.addEventListener("click", togglePlay);
@@ -1700,6 +1715,7 @@ function pickShown(c) {
 }
 
 function tapShot(s) {
+  if (room.dragged) return;
   room.pick = room.fx = null;
   room.pickWhy = "";
   drawPicked();
@@ -2533,6 +2549,7 @@ function movePlayhead(t) {
 
 function seek(t) {
   const v = frameBox.querySelector("video");
+  if (v && !room.showing) v.pause();
   if (room.made) {
     clipAt.value = Math.max(0, Math.min(t + 0.05, room.made.clip.length - 0.05));
     movePlayhead(Number(clipAt.value));
@@ -2559,18 +2576,23 @@ $("timeline").addEventListener("pointerdown", (e) => {
     else trimDrag(e, grip.dataset.edge);
     return;
   }
-  if (e.target.closest(".block")) return;
-  if (room.pick || room.fx) {
+  const block = e.target.closest(".block");
+  if (block && block.closest(".lane.effect")) return;
+  if (!block && (room.pick || room.fx)) {
     room.pick = room.fx = null;
     room.pickWhy = "";
     drawPicked();
   }
+  const x0 = e.clientX;
   const at = (ev) => {
+    if (block && Math.abs(ev.clientX - x0) > 3) room.dragged = true;
+    if (block && !room.dragged) return;
     const r = lanes.getBoundingClientRect();
     seek(Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * room.panel.length);
   };
   at(e);
   const up = () => {
+    setTimeout(() => (room.dragged = false), 0);
     window.removeEventListener("pointermove", at);
     window.removeEventListener("pointerup", up);
   };
@@ -3085,8 +3107,26 @@ document.addEventListener("click", (e) => {
   }
 });
 
+const KEY_STEP = 0.25;
+
+function keyIsFree(e) {
+  if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return false;
+  if (getComputedStyle(clipBox).display === "none") return false;
+  if (e.target.closest("input, textarea, select, [contenteditable]")) return false;
+  if (e.key !== " ") return true;
+  return !e.target.closest(room.tabbed ? "button, a, summary, video[controls]" : "video[controls]");
+}
+
+window.addEventListener("pointerdown", () => (room.tabbed = false), true);
+
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Tab") room.tabbed = true;
   if (e.key === "Escape" && !sheet.hidden && document.activeElement !== wordText) closeSheet();
+  const by = { ArrowLeft: -KEY_STEP, ArrowRight: KEY_STEP }[e.key];
+  if ((e.key !== " " && !by) || !keyIsFree(e) || !(shownVideo() || room.made)) return;
+  e.preventDefault();
+  if (by) stepClip(by);
+  else if (!e.repeat) togglePlay();
 });
 
 async function health() {
