@@ -190,10 +190,21 @@ class Saved(unittest.TestCase):
     def test_a_key_saved_before_stays_with_enter_when_setup_runs_again(self):
         mind.save_api(mind.NAMED["meta"], "kept-key")
         out = io.StringIO()
-        with mock.patch.object(mind, "key_refused", lambda: self.fail("nothing new to try")), redirect_stdout(out):
+        with redirect_stdout(out):
             self.assertTrue(parts.ask_key(read=lambda q: "", read_secret=lambda q: ""))
         self.assertIn("A key is saved.", out.getvalue())
-        self.assertIn("META_API_KEY=kept-key", open(mind.KEY_FILE, encoding="utf-8").read())
+        self.assertIn("The key works.", out.getvalue())
+        self.assertIn("META_API_KEY=kept-key", self.read())
+
+    def test_a_refused_key_left_saved_is_not_kept_by_enter(self):
+        """A paste Meta refused stays in the file until another replaces it, and setup may be closed and run again."""
+        mind.save_api(mind.NAMED["meta"], "bad-paste")
+        tried, keys, out = iter([mind.KEY_REFUSED, None]), iter(["", "", "good-key"]), io.StringIO()
+        with mock.patch.object(mind, "key_refused", lambda: next(tried)), redirect_stdout(out):
+            self.assertTrue(parts.ask_key(read=lambda q: "", read_secret=lambda q: next(keys)))
+        self.assertIn(mind.KEY_REFUSED, out.getvalue())
+        self.assertIn("Give the API key.", out.getvalue(), "with the saved key refused, Enter keeps nothing")
+        self.assertIn("META_API_KEY=good-key", self.read())
 
     def test_a_build_with_the_one_key_mark_asks_one_question_and_others_ask_as_before(self):
         mark = os.path.join(self.tmp, "one_key.txt")

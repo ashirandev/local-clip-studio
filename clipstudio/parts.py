@@ -455,9 +455,11 @@ def ask_api(read=input, read_secret=None):
 def ask_key(read=input, read_secret=None):
     """The one question of a build made for one person on Meta's API (ONE_KEY, which whoever made the build puts in the
     parts folder): their Meta key, tried at once and asked for again when Meta turns it down, then ask_sends. A key
-    already saved stays with Enter, as setup is run again after anything stops. True when there is a key."""
+    already saved stays with Enter, as setup is run again after anything stops, and is tried too, as a refused paste
+    is saved until another replaces it. True when there is a key."""
     import getpass
     read_secret = read_secret or getpass.getpass
+    mind.load_keys()
     saved = mind.saved_api()[1]
     if saved:
         print("  A key is saved. Press Enter to keep it, or paste another.")
@@ -467,12 +469,12 @@ def ask_key(read=input, read_secret=None):
         except EOFError:
             print()
             return False
-        if saved and not key.strip():
-            break
-        why = mind.save_api(mind.NAMED["meta"], key) or mind.key_refused()
+        why = (mind.key_refused() if saved and not key.strip() else
+               mind.save_api(mind.NAMED["meta"], key) or mind.key_refused())
         if not why:
             print("  The key works.")
             break
+        saved = False
         print("  " + why)
     ask_sends(read)
     return True
