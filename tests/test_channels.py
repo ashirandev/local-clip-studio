@@ -22,14 +22,14 @@ class Channels(unittest.TestCase):
 
     def test_a_look_is_kept_by_its_name_and_the_one_in_use_outlives_the_studio(self):
         self.assertEqual((channels.listed(), channels.in_use()), ([], None))
-        channels.save({"name": "  ศิษย์  Society ", "handle": "@siney", "look": "warm", "captions": "lit"})
+        channels.save({"name": "  ตัวอย่าง  Society ", "handle": "@sample", "look": "warm", "captions": "lit"})
         channels.save({"name": "Ashiran", "style": {"name": "pop", "font": None}, "spot": "bottom right"})
-        self.assertEqual([c["name"] for c in channels.listed()], ["Ashiran", "ศิษย์ Society"], "spaces tidied")
-        channels.use("ศิษย์ Society")
-        self.assertEqual(channels.in_use()["handle"], "@siney")
-        channels.save({"name": "ศิษย์ Society", "handle": "@siney2"})
+        self.assertEqual([c["name"] for c in channels.listed()], ["Ashiran", "ตัวอย่าง Society"], "spaces tidied")
+        channels.use("ตัวอย่าง Society")
+        self.assertEqual(channels.in_use()["handle"], "@sample")
+        channels.save({"name": "ตัวอย่าง Society", "handle": "@sample2"})
         self.assertEqual(len(channels.listed()), 2, "the same name replaces its look")
-        self.assertEqual(channels.in_use()["handle"], "@siney2")
+        self.assertEqual(channels.in_use()["handle"], "@sample2")
         self.assertEqual(sorted(os.listdir(channels.folder()))[-1], channels.IN_USE, "no part file is left behind")
 
     def test_what_a_look_cannot_have_is_refused_with_a_sentence(self):
