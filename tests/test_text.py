@@ -971,7 +971,7 @@ class ChannelName(unittest.TestCase):
         self.folder = tempfile.mkdtemp(prefix="lcs channel ")
         self.addCleanup(shutil.rmtree, self.folder, True)
 
-    def drawn_name(self, st, spot=None, ground="0x808080", name="@SineySociety"):
+    def drawn_name(self, st, spot=None, ground="0x808080", name="@SampleChannel"):
         events = text.channel_name(name, 0, 2, st, spot)
         return draw(doc(events, styles=[st, text.channel_style(st)]), [15], self.folder, ground=ground)[15]
 
@@ -982,7 +982,7 @@ class ChannelName(unittest.TestCase):
         ceiling = layouts.NAME_TOP + text.CHANNEL_GAP
         for spot in text.CHANNEL_SPOTS + (None,):
             x0, y0, x1, y1 = drawn(self.drawn_name(st, spot))
-            bx, by, bw, bh = text.channel_box("@SineySociety", st, spot)
+            bx, by, bw, bh = text.channel_box("@SampleChannel", st, spot)
             for got, want in ((x0, bx), (y0, by), (x1, bx + bw), (y1, by + bh)):
                 self.assertLessEqual(abs(got - want), 2, "%s: drawn %s, box %s" % (spot, (x0, y0, x1, y1),
                                                                                    (bx, by, bw, bh)))
@@ -1001,7 +1001,7 @@ class ChannelName(unittest.TestCase):
     def test_it_reads_on_white_and_on_black_footage_in_every_look(self):
         for name in text.HOUSE_NAMES:
             st = text.STYLES[name]
-            x, y, w, h = text.channel_box("@SineySociety", st)
+            x, y, w, h = text.channel_box("@SampleChannel", st)
             for ground, value in (("white", 255), ("black", 0)):
                 area = self.drawn_name(st, ground=ground)[y - 2:y + h + 2, x - 2:x + w + 2].astype(int)
                 apart = int((abs(area - value).max(axis=2) > 100).sum())
@@ -1019,9 +1019,9 @@ class ChannelName(unittest.TestCase):
 
     def test_it_shows_for_the_whole_clip_and_the_file_must_hold_its_style(self):
         st = text.STYLES["clean"]
-        (event,) = text.channel_name("@SineySociety", 0, 18.25, st)
+        (event,) = text.channel_name("@SampleChannel", 0, 18.25, st)
         self.assertTrue(event.startswith("Dialogue: 0,0:00:00.00,0:00:18.25,clean_channel_title,"), event)
-        self.assertTrue(event.endswith("}@SineySociety"), event)
+        self.assertTrue(event.endswith("}@SampleChannel"), event)
         with self.assertRaisesRegex(ValueError, "event uses style 'clean_channel_title', which is not in styles"):
             text.document([st], [event])
 
@@ -1029,7 +1029,7 @@ class ChannelName(unittest.TestCase):
         st = text.STYLES["clean"]
         for name in ("", "  ", None):
             with self.assertRaisesRegex(ValueError, "^name .* is empty: give the channel's name, such as "
-                                                    "@SineySociety\\.$"):
+                                                    "@SampleChannel\\.$"):
                 text.channel_name(name, 0, 2, st)
         with self.assertRaisesRegex(ValueError, "^name '@a\\\\nb' has a line break: a channel name is one line\\.$"):
             text.channel_name("@a\nb", 0, 2, st)
@@ -1037,7 +1037,7 @@ class ChannelName(unittest.TestCase):
             text.channel_name("@a{b}", 0, 2, st)
         with self.assertRaisesRegex(ValueError, "^spot 'top left' is not a spot for the channel name: use one of "
                                                 "bottom left, bottom middle, bottom right, or None for bottom left\\.$"):
-            text.channel_name("@SineySociety", 0, 2, st, "top left")
+            text.channel_name("@SampleChannel", 0, 2, st, "top left")
         long_name = "@" + "W" * 40
         with self.assertRaisesRegex(ValueError, "^name '@W+' is \\d+ px wide at the channel name's size, and the "
                                                 "bottom middle spot holds 688 px: use a shorter name, or the bottom "
@@ -1046,9 +1046,9 @@ class ChannelName(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "the bottom left spot holds 828 px: use a shorter name\\.$"):
             text.channel_name("@" + "W" * 60, 0, 2, st)
         with self.assertRaisesRegex(ValueError, "^end 0 is not after start 0"):
-            text.channel_name("@SineySociety", 0, 0, st)
+            text.channel_name("@SampleChannel", 0, 0, st)
         big = st._replace(name="big", sizes=tuple(2 * v for v in st.sizes))
-        with self.assertRaisesRegex(ValueError, "^name '@SineySociety' stands \\d+ px tall in Google Sans SemiBold at "
+        with self.assertRaisesRegex(ValueError, "^name '@SampleChannel' stands \\d+ px tall in Google Sans SemiBold at "
                                                 "the channel name's size \\(124 px\\), and the row kept for it holds "
                                                 "50 px: use a smaller size or another font for the captions\\.$"):
-            text.channel_name("@SineySociety", 0, 2, big)
+            text.channel_name("@SampleChannel", 0, 2, big)

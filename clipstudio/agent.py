@@ -92,6 +92,8 @@ EFFECT_PLACES = ("middle", "top")
 COVER_SAID = re.compile(r"(?i)\bcovers?\b|หน้าปก|ภาพปก|ปกพร้อม|ปกคลิป|ปกให้|ปกของ|ปกสวย")
 NO_COVER = ("[studio] Your answer speaks of the clip's cover, but no cover is made for the finished clip. Answer the "
             "person again without saying it has one; if they want one, they can tap Make the cover or ask for it.")
+TOOL_AS_WORDS = ("[studio] Your last answer wrote a tool call out as words, so nothing ran and the person saw code. "
+                 "Call the tool itself, or answer the person in plain words.")
 LANDED = (MOVED_CUTS[:MOVED_CUTS.index("%")], LOUD_CUT[:LOUD_CUT.index("%")])
 LAST_STEPS = ("[studio] %d steps are left on this message and nothing is handed over yet. Finish with what you have "
               "now: make the clip if there is none, then render it, check it and hand it over. A rough clip the person "
@@ -1821,7 +1823,7 @@ class Job:
 
     def run(self):
         chat, started, end, nudged = self.chat, time.time(), "answered", False
-        closing = covered = warned = False
+        closing = covered = warned = retold = False
         self.emit("job", mind=self.brain.label)
         try:
             while True:
@@ -1869,8 +1871,11 @@ class Job:
                     with chat.cond:
                         chat.live = None
                 calls = got["tool_calls"]
-                got["text"] = words.plain(words.tidy(got["text"]))
-                got["message"]["content"] = words.plain(words.tidy(got["message"]["content"]))
+                garbled = not calls and words.tool_markup(got["text"])
+                got["text"] = words.plain(words.tidy(words.unmarked(got["text"])))
+                got["message"]["content"] = words.plain(words.tidy(words.unmarked(got["message"]["content"])))
+                if garbled and not got["message"]["content"]:
+                    got["message"]["content"] = "..."
                 for i, call in enumerate(calls):
                     call.setdefault("id", "call_%d_%d" % (self.steps + 1, i))
                     if isinstance(call.get("function"), dict):
@@ -1878,6 +1883,13 @@ class Job:
                 if calls:
                     got["message"]["tool_calls"] = [_sendable(call) for call in calls]
                 chat.add(got["message"])
+                if garbled and not retold:
+                    retold = True
+                    chat.add({"role": "user", "content": TOOL_AS_WORDS})
+                    self.emit("note", text="Muse's answer came out as code, so the studio asked it to answer again.")
+                    continue
+                if garbled:
+                    got["text"] = got["text"] or "Muse's answer came out as code. Please say it again."
                 if not calls and self.finishing and not self.handed:
                     self.steps += 1
                     self.emit("answer", final=False, text=words.unslipped(got["text"]), thinking=got["thinking"],

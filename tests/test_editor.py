@@ -350,14 +350,14 @@ class Projects(unittest.TestCase):
         self.assertIsNone(p.state()["channel"], "no clip yet")
         p.add({"do": "clip", "moment": 1, "pieces": [[30, 50]], "layout": {"kind": "card"}})
         self.assertEqual(p.state()["channel"]["name"], "@early")
-        p.add({"do": "channel", "name": "@SineySociety", "spot": None})
-        self.assertEqual(p.state()["channel"], {"do": "channel", "name": "@SineySociety", "spot": None})
+        p.add({"do": "channel", "name": "@SampleChannel", "spot": None})
+        self.assertEqual(p.state()["channel"], {"do": "channel", "name": "@SampleChannel", "spot": None})
         p.add({"do": "channel", "name": "", "spot": None})
         self.assertIsNone(p.state()["channel"])
         p.undo()
-        self.assertEqual(p.state()["channel"]["name"], "@SineySociety")
-        self.assertEqual(tools.describe({"do": "channel", "name": "@SineySociety", "spot": None}),
-                         "the channel name @SineySociety on the clip")
+        self.assertEqual(p.state()["channel"]["name"], "@SampleChannel")
+        self.assertEqual(tools.describe({"do": "channel", "name": "@SampleChannel", "spot": None}),
+                         "the channel name @SampleChannel on the clip")
 
     def test_clip_seconds_and_recording_seconds(self):
         pieces = [[100, 110], [200, 205]]
@@ -4312,7 +4312,7 @@ class Tools(unittest.TestCase):
     def test_a_name_in_capitals_the_screen_does_not_show_stops_the_clips_once_whatever_the_recipe(self):
         from unittest import mock
         pack = {"product": [200, 200, 800, 800], "what": "white pack"}
-        clips = [dict(pack, moment=1, title="ASTI pack", caption="ASTI c", hashtags=["#ASTI", "#SineySociety"]),
+        clips = [dict(pack, moment=1, title="ASTI pack", caption="ASTI c", hashtags=["#ASTI", "#SampleChannel"]),
                  dict(pack, moment=2, title="PDRN pack", caption="c", hashtags=["#b"])]
         fixed = dict(clips[0], title="Jabs pack", caption="Jabs c", hashtags=["#Jabs"])
         with mock.patch.object(tools.person, "cut_out", side_effect=tools.person.PersonError("SAM is not set up.")):
@@ -4321,7 +4321,7 @@ class Tools(unittest.TestCase):
                                     '{"lines": ["one heard"]}', "Done.", recipe="seller", shown=["Jabs", "PDRN", "ASTAXANTHIN"])
         asked, made = steps[-2], steps[-1]
         self.assertTrue(asked["refused"])
-        self.assertEqual(asked["result"], 'Nothing was made. Clip of moment 1: "ASTI", "SineySociety" are not on the '
+        self.assertEqual(asked["result"], 'Nothing was made. Clip of moment 1: "ASTI", "SampleChannel" are not on the '
                                           'screen there, not said and not written by the person; the screen there '
                                           'shows Jabs, PDRN, ASTAXANTHIN. Write each name as the screen shows it, or '
                                           'leave it out; if the person gave you the name, make the clips again '

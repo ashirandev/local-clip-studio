@@ -1327,7 +1327,7 @@ def _karaoke(page, start):
 
 # ---- the channel name --------------------------------------------------------------------------------------------
 
-# The channel's name (a handle such as @SineySociety) on every clip, in the captions' letters at CHANNEL_SHARE of
+# The channel's name (a handle such as @SampleChannel) on every clip, in the captions' letters at CHANNEL_SHARE of
 # their size, so it reads as the channel's mark and not as words to follow (measured 10-28 in clean: a capital is 25
 # px of the 1080 px frame, about 9 pt on a phone 390 pt wide, where the captions' is 39 px; at half size it was 20 px,
 # 7 pt, smaller than a phone's own small print). It sits in the row the layouts keep for it (layouts.NAME_TOP to
@@ -1369,7 +1369,7 @@ def _channel_place(name, style, spot):
     """(x, y) of the name's anchor (its middle, \\an5) and its letters' box from the anchor."""
     _check_style(style)
     if not isinstance(name, str) or not name.strip():
-        raise ValueError("name %r is empty: give the channel's name, such as @SineySociety." % (name,))
+        raise ValueError("name %r is empty: give the channel's name, such as @SampleChannel." % (name,))
     if "\n" in name:
         raise ValueError("name %r has a line break: a channel name is one line." % (name,))
     if spot is None:

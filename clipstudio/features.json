@@ -596,7 +596,7 @@
   "group": "Channel",
   "name": "Your channel's look",
   "says": "Keeps this clip's text style, colour, captions, title spot and your channel's name, so every new clip starts in it. Save it under Channel beside the clip, or ask Muse.",
-  "ask": "Save this look for my channel Siney Society.",
+  "ask": "Save this look for my channel Sample Channel.",
   "show": "channel"
  },
  {
@@ -604,7 +604,7 @@
   "group": "Channel",
   "name": "Switch channel",
   "says": "Puts one of your saved channel looks on the clip, or none.",
-  "ask": "Use my Siney Society look.",
+  "ask": "Use my Sample Channel look.",
   "show": "channel-switch"
  }
 ]

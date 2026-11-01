@@ -507,6 +507,31 @@ class Loop(unittest.TestCase):
         self.assertEqual([p["state"] for p in plans[-1]["items"]], ["done", "todo", "done"])
         self.assertIn("[studio] Your plan has steps no call has named yet: 2. b.", self.chat.messages[-2]["content"])
 
+    def test_a_tool_call_written_as_words_is_never_shown_and_is_asked_again_once(self):
+        """Walk 11-01, Spark Open: raw tags reached the person as the answer, and nothing ran."""
+        raw = ("<|start|>assistant to=commentary<|message|>ย้อนให้แล้วค่ะ<|eom|><|start|>assistant to=mute_sound<|message|>"
+               "<atem:function_calls>\n<atem:invoke name=\"mute_sound\">")
+        job, events = self.run_job(ScriptedMind(raw, "เรียบร้อยค่ะ"))
+        self.assertEqual([(a["text"], a["final"]) for a in events if a["kind"] == "answer"], [("เรียบร้อยค่ะ", True)])
+        self.assertEqual(self.chat.messages[-2]["content"], agent.TOOL_AS_WORDS)
+        self.assertFalse([m for m in self.chat.messages if "<|" in str(m.get("content"))], "nor does Muse read it back")
+        self.assertIn("came out as code", [e for e in events if e["kind"] == "note"][-1]["text"])
+
+    def test_a_second_answer_of_tags_shows_only_its_words(self):
+        raw = "<|start|>assistant to=commentary<|message|>ย้อนให้แล้วค่ะ<|eom|>"
+        job, events = self.run_job(ScriptedMind(raw, raw))
+        self.assertEqual([(a["text"], a["final"]) for a in events if a["kind"] == "answer"], [("ย้อนให้แล้วค่ะ", True)])
+
+    def test_an_answer_of_nothing_but_tags_says_so(self):
+        raw = "<|start|>assistant to=mute_sound<|message|><atem:function_calls>"
+        job, events = self.run_job(ScriptedMind(raw, raw))
+        self.assertEqual([a["text"] for a in events if a["kind"] == "answer"],
+                         ["Muse's answer came out as code. Please say it again."])
+
+    def test_an_answer_of_plain_words_with_a_less_than_sign_stands(self):
+        job, events = self.run_job(ScriptedMind("ใช้เวลา < 3 นาที"))
+        self.assertEqual([a["text"] for a in events if a["kind"] == "answer"], ["ใช้เวลา < 3 นาที"])
+
     def test_an_answer_that_speaks_of_a_cover_none_made_is_asked_again_once(self):
         """Beat 1, 10-29: make_cover was refused, and the answer still said "และปกพร้อมโพสต์ให้แล้ว"."""
         brain = ScriptedMind("คลิปและปกพร้อมโพสต์ให้แล้ว", "คลิปพร้อมแล้ว ยังไม่มีหน้าปก", "")

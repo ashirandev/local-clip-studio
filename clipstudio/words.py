@@ -28,10 +28,25 @@ THAI_MARK_RUN = re.compile("([ัิ-ฺ็-๎])\\1+")
 BOLD = re.compile(r"\*\*(.+?)\*\*", re.S)
 HEADING = re.compile(r"^#{1,6}[ \t]+", re.M)
 BULLET = re.compile(r"^([ \t]*)[*+][ \t]+", re.M)
+MARKUP = re.compile(r"<\|[a-z_]+\|>|</?atem:")
 
 
 def tidy(text):
     return mend(THAI_MARK_RUN.sub(r"\1", text.replace(BROKEN, ""))) if isinstance(text, str) else text
+
+
+def tool_markup(text):
+    """True when the answer holds a chat template's tags or a tool call written out as words, which no person can read
+    (Spark Open, 11-01: <|start|>assistant to=mute_sound<|message|><atem:function_calls>)."""
+    return isinstance(text, str) and bool(MARKUP.search(text))
+
+
+def unmarked(text):
+    """The words of an answer without those tags and without the tool call written out after them."""
+    if not tool_markup(text):
+        return text
+    kept = re.sub(r"<\|start\|>[^<]*<\|message\|>", "", text.split("<atem:")[0])
+    return MARKUP.sub(" ", kept).strip()
 
 
 def plain(text):

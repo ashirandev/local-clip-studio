@@ -90,8 +90,8 @@ class Stages(unittest.TestCase):
 
     def test_the_channel_name_is_in_the_words_the_whole_clip_and_not_in_the_video_under_them(self):
         from clipstudio import layer
-        named = dict(state(), channel={"do": "channel", "name": "@SineySociety", "spot": "bottom right"})
-        x, y, w, h = text.channel_box("@SineySociety", render._styles(named, "clean")["caption"], "bottom right")
+        named = dict(state(), channel={"do": "channel", "name": "@SampleChannel", "spot": "bottom right"})
+        x, y, w, h = text.channel_box("@SampleChannel", render._styles(named, "clean")["caption"], "bottom right")
         with open(render.ass(named), encoding="utf-8") as f:
             said = [line for line in f.read().splitlines() if line.startswith("Dialogue: ") and "_channel_" in line]
         self.assertEqual(len(said), 1)
@@ -997,6 +997,7 @@ class ExportSound(unittest.TestCase):
         cls.rec = recording.probe(talk)
         cls.out = render.export(cls.rec, cls.state, os.path.join(cls.tmp, "clip.mp4"))
         cls.sound = samples(cls.out)
+        cls.music_alone = samples(render.export(cls.rec, dict(cls.state, sounds=[]), os.path.join(cls.tmp, "alone.mp4")))
         still = os.path.join(cls.tmp, "still.mp4")
         subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=4", "-c:v",
                         "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", still], check=True)
@@ -1017,6 +1018,13 @@ class ExportSound(unittest.TestCase):
         self.assertLess(peak, render.PEAK + 0.5, "its true peak is %s dBTP" % peak)
         sound = probe(self.out)["audio"]
         self.assertLess(abs(float(sound["duration"]) - self.state["length"]), 1 / 30)
+
+    def test_music_with_no_sounds_makes_the_clip_and_is_heard(self):
+        """Walk 11-01: with no sound on the clip, FFmpeg's video null sat on the audio, and every render refused."""
+        import numpy as np
+        rate = len(self.music_alone) / 7
+        between = self.music_alone[int(2.6 * rate):int(2.9 * rate)]
+        self.assertGreater(float(np.sqrt(np.mean(between.astype(float) ** 2))), 0.001, "nobody speaks here: this is the music")
 
     def test_the_music_goes_down_by_its_duck_while_someone_speaks(self):
         up, down = tone(self.sound, 2.6, 3.0, 600), tone(self.sound, 0.6, 1.0, 600)

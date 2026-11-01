@@ -2981,7 +2981,7 @@ UNSEEN_THEN = "Write each name as the screen shows it, or leave it out; if the p
 
 def _unseen_names(job, rec, a, b, text, said=()):
     """([names], [the screen's words from a to b]): the names in text written in capitals (ASTI) or with a capital
-    inside (SineySociety) that the screen does not show from a to b (recording seconds), that were not said (said:
+    inside (SampleChannel) that the screen does not show from a to b (recording seconds), that were not said (said:
     the lines heard there) and that the person did not write, whatever the recipe (a tap on the page, a job with no
     number, is the person's own words and is not asked). Seen 10-28 on a travel show's
     sponsor read: the pack showed Jabs, PDRN and ASTAXANTHIN, Muse wrote ASTI on three clips' titles and posts, and
@@ -7680,7 +7680,9 @@ TOOLS = {t.name: t for t in [
          ["style"], set_style, changes=True),
     Tool("list_fonts", "Listed the fonts",
          "List the fonts that can write every letter of the clip's words, the studio's and this computer's, with "
-         "whether each is free to use in a video someone posts. Use it when the person wants another font.",
+         "whether each is free to use in a video someone posts. Call it whenever the person asks which fonts there "
+         "are or which can write their words, and when they want another font. The list depends on this computer, so "
+         "never answer it from memory.",
          {}, [], list_fonts),
     Tool("add_title", "Put a title on",
          "Put words on screen from start to end, in one of the layout's places for words, or in a box the person "
@@ -7736,9 +7738,10 @@ TOOLS = {t.name: t for t in [
     Tool("save_channel_look", "Saved the channel look",
          "Save the clip's look as the person's channel look: the words' style, the colour look, how the captions "
          "show, where the title goes, and the channel's name drawn on the clip. Every new clip, in this chat and the "
-         "next ones, starts in it. Use it only when the person asks to keep this look for their channel.",
+         "next ones, starts in it. Use it only when the person asks to keep this look for their channel, and call it "
+         "before you say it is saved: nothing is kept without this call.",
          {"channel": {"type": "string", "maxLength": channels.LONGEST_NAME,
-                      "description": "The channel's name, as the person says it, such as Siney Society."},
+                      "description": "The channel's name, as the person says it, such as Sample Channel."},
           "handle": {"type": "string", "maxLength": channels.LONGEST_HANDLE,
                      "description": "The name to draw small on every clip, such as @yourchannel, when the person "
                                     "gives one. Leave it out for none."}},
@@ -8181,7 +8184,8 @@ TOOLS = {t.name: t for t in [
     Tool("undo", "Took back the last change",
          "Take back the last change to the clip: a layout, a moved part, a style, a title, the captions, a blur, a hit, a "
          "look, a push, a sound, a mute or a decision about people. The "
-         "person can also do this on the page.",
+         "person can also do this on the page. When the person says undo, ย้อนกลับ or เอาคืน and names no other change, "
+         "call it at once, with no question, and never make the change again by hand.",
          {}, [], undo, changes=True),
 ]}
 SCHEMAS = [t.schema() for t in TOOLS.values()]

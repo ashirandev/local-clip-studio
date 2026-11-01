@@ -619,7 +619,8 @@ def _mix(state, voice, length, music_input, music_measured, out):
         parts = ["aevalsrc=exprs=0:s=%d:c=stereo:d=%.3f[mix_v]" % (RATE, length)]
     music = _music(state)
     sounds = [effects.sound(s["kind"], s["at"], s.get("level", 0)) for s in state.get("sounds") or []]
-    parts.append(effects.join(sounds, "mix_v", "mix_s" if music else out, 0)[0])
+    last = "mix_s" if music else out
+    parts.append(effects.join(sounds, "mix_v", last, 0)[0] if sounds else "[mix_v]anull[%s]" % last)
     if music:
         if not music_measured:
             raise ValueError("The music %s is silent from its second %s: choose another file or another start."
