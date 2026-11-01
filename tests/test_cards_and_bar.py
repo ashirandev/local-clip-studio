@@ -107,7 +107,7 @@ function load(page, answer) {
     Intl: any(), URL: any(), Image: function () { return any(); }, FormData: function () { return any(); }, CSS: any(), performance: any({ now: () => 0 }), innerWidth: 1200, innerHeight: 800,
   };
   vm.createContext(box);
-  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, openSheet, closeSheet };", box);
+  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, showPart };", box);
   const t = box.t;
   t.room.chat = "c";
   let id = 0;
@@ -142,11 +142,15 @@ each("faces", (p) => {
   return { closed, open, wide: p.element("sheet").classList.contains("canvas") };
 });
 each("blurSheet", (p) => {
-  p.t.openSheet("blur");
+  const sheet = p.element("sheet");
+  sheet.hidden = false;
+  p.t.showPart("blur");
   const open = p.t.room.blur;
-  p.t.closeSheet();
+  sheet.hidden = true;
+  p.t.showPart("blur");
   const shut = p.t.room.blur;
-  p.t.openSheet("trim");
+  sheet.hidden = false;
+  p.t.showPart("trim");
   return { open, shut, other: p.t.room.blur };
 });
 each("blurTab", (p) => {
