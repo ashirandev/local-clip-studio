@@ -5,7 +5,9 @@ The rule was in Muse's instructions and was not enough: measured 10-28, in a new
 12 messages that only talked and Spark for 3 ("ฝนตกทั้งวันเลย" went looking for recordings with both). This one short
 question, asked apart, sorts 70 of 70 with both (36 talk, 34 work). Glimmer missed "มีไฟล์อะไรบ้าง" until "which
 recordings they have" was named; naming "what is in one" too cost it two talk messages ("คลิปนี้ยาวกี่วิ"). It takes
-3 to 5 seconds, so it is asked only when Muse's first answer calls a tool.
+3 to 5 seconds, so it is asked only when Muse's first answer calls a tool. The walk of 11-01 found "ย้อนกลับ ไม่ต้องทำปกใหม่",
+"ฟอนต์ไหนเขียนไทยได้บ้าง" and a saved look read as talk, with Muse then saying it had done them: with undo, a look and
+fonts named, 36 of 36 on Spark and on Spark Open, against 31 of 36.
 """
 import json
 
@@ -15,10 +17,11 @@ SYSTEM = """A person is talking with their video editor in a chat. Read their ne
 answer, when there is one) and say what the message needs.
 
 work: it asks the editor to do something with the person's recordings or clips now: find, open, look at, cut, \
-change, add, remove, render or hand over, or it asks which recordings they have. A yes to something the editor offered to do is work. So is a request said \
-politely as a question ("can you make it shorter?") or as a complaint about the clip ("the caption is too big").
+change, add, remove, undo or take back, save or use a look, render or hand over, or it asks which recordings or fonts they have. A yes to something the \
+editor offered to do is work. So is a request said politely as a question ("can you make it shorter?") or as a complaint about the clip ("the caption \
+is too big"). A request stays work when it also says what not to do ("undo that, no new cover").
 
-talk: anything else. Greetings, thanks, how they feel, small talk, an opinion, a no or a wait, and questions the \
+talk: anything else. Greetings, thanks, how they feel, small talk, an opinion, a no or a wait with nothing asked for, and questions the \
 editor can answer from what it knows: a tip, what it can do, why it made a choice in the clip it already made."""
 SCHEMA = {"type": "object", "properties": {"needs": {"type": "string", "enum": ["work", "talk"]}},
           "required": ["needs"]}

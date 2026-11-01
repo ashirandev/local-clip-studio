@@ -813,7 +813,13 @@ class Talk(unittest.TestCase):
         self.assertIsNotNone(brain.offered[0])
         self.assertIsNone(brain.offered[2], "asked again with no tools, so no call can come back")
         self.assertFalse(any(m.get("tool_calls") for m in self.chat.messages), "the call that was not run is not kept")
-        self.assertEqual([m["role"] for m in self.chat.messages], ["system", "user", "assistant"])
+        self.assertEqual([m["role"] for m in self.chat.messages], ["system", "user", "user", "assistant"])
+        self.assertEqual(self.chat.messages[2]["content"], agent.TALK_ONLY, "or Muse says it did what no tool ran")
+
+    def test_undo_a_saved_look_and_fonts_are_named_as_work(self):
+        """Walk 11-01: each was read as talk, and Muse then said it had done them. Measured on real Muses, 36 of 36."""
+        for words in ("undo or take back", "save or use a look", "which recordings or fonts", '("undo that, no new cover")'):
+            self.assertIn(words, " ".join(needs.SYSTEM.split()))
 
     def test_the_countdown_is_offered_only_once_the_person_asked_for_one(self):
         def names(brain):

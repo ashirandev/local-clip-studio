@@ -6816,13 +6816,13 @@ FRAME = {"width": effects.FRAME_W, "height": effects.FRAME_H}
 
 
 def _person_frames(state, start, end):
-    """Where the clip shows the person from clip second start to end, read from the mask the renderer draws with
-    (cutout.frame_mask, made once): [pictures, rows, columns] of True, PERSON_STEP pictures a second at
-    1/PERSON_SCALE of the frame's size."""
+    """Where the clip shows the person from clip second start to end, everyone in a talk, read from the mask the
+    renderer draws with (cutout.people_mask, made once): [pictures, rows, columns] of True, PERSON_STEP pictures a
+    second at 1/PERSON_SCALE of the frame's size."""
     clip = state["clip"]
     try:
-        path = cutout.frame_mask(state["mask"], clip["pieces"], clip["layout"], state["length"],
-                                 state.get("pushes") or [])
+        path = cutout.people_mask(state["mask"], clip["pieces"], clip["layout"], state["length"],
+                                  state.get("pushes") or [])
     except (ValueError, RuntimeError) as e:
         raise Refused(str(e))
     w, h = effects.FRAME_W // PERSON_SCALE, effects.FRAME_H // PERSON_SCALE
@@ -7710,7 +7710,8 @@ TOOLS = {t.name: t for t in [
           "key": {"type": "string", "maxLength": 40,
                   "description": "One word of the title to draw in the style's key colour. Leave it out for none."},
           "behind": {"type": "boolean",
-                     "description": "true puts the title behind the person, so their head and body cross in front of "
+                     "description": "true puts the title behind the person, or everyone the clip shows in a talk, "
+                                    "so their head and body cross in front of "
                                     "the words, as on a magazine cover. It needs cut_out first, whose result says "
                                     "where the person is on the frame: the words must cross them there. Then a title "
                                     "may cross a face: the face stays in front."}},

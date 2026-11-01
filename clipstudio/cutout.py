@@ -84,6 +84,15 @@ def frame_mask(mask, pieces, layout, length, pushes=()):
     return _make(cmd, graph, length, target)
 
 
+def people_mask(mask, pieces, layout, length, pushes=()):
+    """The path of the mask of everyone the clip shows, laid on the clip as frame_mask() lays one person's: everyone
+    SAM followed (mask["everyone"], from cut_out on a talk), or the one person when it followed one. For what stands
+    behind people, as they all stand in front of it whoever speaks. Lane 5 11-01 on EP0, four people: with the one SAM
+    kept, the title stood behind that one and across the other three in their shots, and add_title said it hid
+    about 0% of the words."""
+    return frame_mask(dict(mask, path=mask.get("everyone") or mask["path"]), pieces, layout, length, pushes)
+
+
 def speaking_mask(mask, pieces, layout, length, pushes=(), told_apart=False):
     """The path of the mask of whoever speaks, on the clip as frame_mask() lays one person's (made once in
     work/masks): each person's own mask (mask["each"], from cut_out on a talk) white only while they speak

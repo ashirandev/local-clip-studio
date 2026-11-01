@@ -94,6 +94,7 @@ NO_COVER = ("[studio] Your answer speaks of the clip's cover, but no cover is ma
             "person again without saying it has one; if they want one, they can tap Make the cover or ask for it.")
 TOOL_AS_WORDS = ("[studio] Your last answer wrote a tool call out as words, so nothing ran and the person saw code. "
                  "Call the tool itself, or answer the person in plain words.")
+TALK_ONLY = "[studio] This message only talks, so no tool runs for it. Answer in words, and never say you did or changed something."
 LANDED = (MOVED_CUTS[:MOVED_CUTS.index("%")], LOUD_CUT[:LOUD_CUT.index("%")])
 LAST_STEPS = ("[studio] %d steps are left on this message and nothing is handed over yet. Finish with what you have "
               "now: make the clip if there is none, then render it, check it and hand it over. A rough clip the person "
@@ -1863,6 +1864,7 @@ class Job:
                 try:
                     got = self.ask(tools=None) if closing else self.ask(self.offered())
                     if got["tool_calls"] and self.only_talk():
+                        chat.add({"role": "user", "content": TALK_ONLY})
                         got = self.ask(tools=None)
                 except mind.Cancelled:
                     self.emit("cut", step=self.steps + 1, by="stop" if self.stopped else "person")

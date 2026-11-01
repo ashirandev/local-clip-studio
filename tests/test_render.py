@@ -662,6 +662,15 @@ class Preview(unittest.TestCase):
             grey, behind = render._cut_out(st, "clean")
         self.assertEqual((grey.files, behind.files), (["speaking.mkv"], ["person.mkv"]))
 
+    def test_words_and_a_background_stand_behind_everyone_in_a_talk(self):
+        """Lane 5 11-01, EP0: four people, and the title stood behind one of them."""
+        from unittest import mock
+        mask = {"path": "kept.mkv", "everyone": "everyone.mkv", "from": 0.0, "to": 4.0}
+        st = dict(state(title=[dict(TITLE, behind=True)]), mask=mask, backdrop={"png": "place.png"})
+        with mock.patch.object(render.cutout, "frame_mask", side_effect=lambda m, *a: m["path"]):
+            self.assertEqual(render._cut_out(st, "clean")[0].files, ["everyone.mkv"])
+            self.assertEqual(render._backdrop(st)[0].files, ["everyone.mkv", "place.png"])
+
     def test_a_crowd_of_blurs_too_long_for_a_command_line_is_drawn(self):
         tracks = [{"track": [[0.2 + 0.03 * k + 0.01 * i, 8 * k + i, 100 + 10 * (k % 9), 20 + k % 40, 20 + k % 40]
                              for i in range(3)], "start": 0.2 + 0.03 * k, "end": 0.22 + 0.03 * k} for k in range(90)]

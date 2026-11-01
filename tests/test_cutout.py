@@ -175,6 +175,28 @@ class FrameMask(unittest.TestCase):
         self.assertEqual(cutout.speaking_mask(dict(mask, everyone=None), [[0, 3]], layout, 3.0), told,
                          "a mask made before keeps its look")
 
+    def test_what_stands_behind_people_stands_behind_everyone_the_talk_shows(self):
+        """Lane 5 11-01, EP0: the title stood behind the one SAM kept and across the other three in their shots."""
+        from clipstudio import talk, tools
+        persons = [{"n": 1, "box": [120, 120, 80, 80]}, {"n": 2, "box": [440, 120, 80, 80]}]
+        shots = [{"from": 0, "to": 1.5, "show": 1}, {"from": 1.5, "to": 3.0, "show": 2}]
+        layout = talk.make((640, 360), persons, shots)
+        one = make_mask(self.tmp, "one.mkv", 3.0, 0, expr="lt(hypot(X-160,Y-200),60)")
+        both = make_mask(self.tmp, "both.mkv", 3.0, 0,
+                         expr="(lt(hypot(X-160,Y-200),60)+lt(hypot(X-480,Y-200),60))")
+        mask = dict(self.mask, path=one, each=[one, one], everyone=both, **{"from": 0.0, "to": 3.0})
+        _, lone = grey_frames(cutout.frame_mask(mask, [[0, 3]], layout, 3.0), [15, 75])
+        self.assertEqual(int(lone[75].max()), 0, "the one person is not in the other's shot")
+        made = cutout.people_mask(mask, [[0, 3]], layout, 3.0)
+        _, got = grey_frames(made, [15, 75])
+        self.assertEqual(int(got[15].max()), 255, "the first person in their shot")
+        self.assertEqual(int(got[75].max()), 255, "and the second in theirs")
+        self.assertEqual(cutout.people_mask(dict(mask, everyone=None), [[0, 3]], layout, 3.0),
+                         cutout.frame_mask(mask, [[0, 3]], layout, 3.0), "a mask with one person keeps them")
+        state = {"mask": mask, "clip": {"pieces": [[0, 3]], "layout": layout}, "length": 3.0, "pushes": []}
+        seen = tools._person_frames(state, 0, 3.0)
+        self.assertTrue(seen[tools.PERSON_STEP * 2:].any(), "the title is measured against the mask it is drawn with")
+
     def test_the_render_goes_by_the_clips_voices(self):
         from unittest import mock
         from clipstudio import render
