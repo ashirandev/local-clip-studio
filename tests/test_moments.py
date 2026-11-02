@@ -910,6 +910,9 @@ class InClip(unittest.TestCase):
         self.assertLessEqual(got["to"], 15.0)
         got = tools._heard_in_piece([[12.0, 14.0], [30.0, 40.0]], line)
         self.assertEqual(got["text"], "three four")
+        got = tools._heard_in_piece([[11.4, 13.0]], line)
+        self.assertEqual(got["text"], "three")
+        self.assertGreater(got["from"], 11.4, "it starts with its own first word, not with the piece")
 
     def test_a_line_only_just_over_the_edge_keeps_its_words(self):
         line = {"from": 14.5, "to": 18.0, "text": "said at the very start"}
