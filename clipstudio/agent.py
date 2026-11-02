@@ -544,16 +544,22 @@ class Chat:
     def words_on(self, state):
         """The words on the clip as blocks the page places by their time: every title, and every phrase of the
         captions (its lines joined give it back whole), "typed" when the person wrote it on the page, and every
-        draft: a phrase the hearing was not sure of, not on the video until the person keeps or fixes it."""
+        draft: a phrase the hearing was not sure of, not on the video until the person keeps or fixes it. "box" is
+        where a block stands on the 0-1000 grid of the frame, for the person to drag: a caption has it when it stands
+        in the clip's one band."""
         out = [{"kind": "title", "n": k, "text": t["text"], "start": t["start"], "end": t["end"], "box": _grid_box(t["box"])}
                for k, t in enumerate(state["titles"])]
+        caps = state["captions"] or {}
         for kind, key in (("caption", "lines"), ("draft", "drafts")):
-            lines = (state["captions"] or {}).get(key) or []
+            lines = caps.get(key) or []
             for k in sorted({ln["phrase"] for ln in lines}):
                 mine = [ln for ln in lines if ln["phrase"] == k]
                 out.append({"kind": kind, "n": k, "text": "".join(ln["text"] for ln in mine).strip(),
                             "start": mine[0]["from"], "end": mine[-1]["to"],
                             "typed": any(ln.get("typed") for ln in mine)})
+                if kind == "caption" and not caps.get("bands"):
+                    x, _, w, _ = state["clip"]["layout"]["captions"]
+                    out[-1]["box"] = _grid_box([x, caps["band"][0], w, caps["band"][1]])
         return sorted(out, key=lambda b: (b["start"], b["kind"]))
 
     def effects_on(self, state):

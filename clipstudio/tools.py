@@ -3892,9 +3892,33 @@ def _main_part(layout):
 PARTS = ("card", "circle", "top", "bottom", "whole")
 
 
+def _move_captions(job, state, rec, box):
+    """All the captions up or down the frame, where the person asked: the layout's band moves, so add_captions keeps it
+    and titles keep clear of it. Only how high box stands counts, as captions stand in the middle of the frame. A clip
+    with a band under each face keeps them there, as each line belongs to its person."""
+    caps = state["captions"]
+    if not caps:
+        raise Refused("The clip has no captions to move.")
+    if caps.get("bands"):
+        raise Refused("These captions stand under the face of the person who says them, so they stay there.")
+    lay = state["clip"]["layout"]
+    x, _, w, _ = lay["captions"]
+    h = caps["band"][1]
+    y = max(0, min(effects.FRAME_H - h, _frame_box("box", box)[1]))
+    state = job.edit({"do": "layout", "part": "captions", "box": [x, y, w, h], "layout": dict(lay, captions=[x, y, w, h])})
+    covered = layouts.unsafe([x, y, w, h])
+    lines = ["The captions run from %s on your grid now.%s" % (layouts.on_grid(y, y + h, "y", inward=False), (
+        " On a phone, %s; tell the person." % "; ".join(covered)) if covered else ""),
+             _show_frame(job, state, rec, state["length"] / 2, "The clip with the captions moved:")]
+    job.show(clip=job.chat.clip_view())
+    return "\n".join(lines)
+
+
 def move_part(job, why, part, box):
     rec = _open(job, "move a part of")
     state = _clip_state(job)
+    if part == "captions":
+        return _move_captions(job, state, rec, box)
     if state["clip"]["layout"]["kind"] == "talk":
         raise Refused("A talk clip has no parts to move: it cuts between the people. Change who is shown when with "
                       "change_shot.")
@@ -7953,15 +7977,17 @@ TOOLS = {t.name: t for t in [
          ["at"], show_people),
     Tool("move_part", "Moved a part of the frame",
          "Only when the person asks: put one part of the frame where they want it, anywhere on the clip, such as "
-         "their face circle bottom right, a bigger circle, or the card higher. circle also adds the face circle to "
-         "a full-screen layout. The result says where it went and what a phone covers there; tell the person.",
-         {"part": {"type": "string", "enum": list(PARTS),
+         "their face circle bottom right, a bigger circle, the card higher, or the captions higher. circle also adds "
+         "the face circle to a full-screen layout. The result says where it went and what a phone covers there; tell "
+         "the person.",
+         {"part": {"type": "string", "enum": list(PARTS) + ["captions"],
                    "description": "card: the game card; circle: the face circle; top and bottom: the two halves of "
-                                  "the stack; whole: the full-screen picture."},
+                                  "the stack; whole: the full-screen picture; captions: all the captions together."},
           "box": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0,
                                                                               "maximum": 1000},
                   "description": "[x1, y1, x2, y2] on a 0-1000 grid of the clip's vertical frame, where the part "
-                                 "goes. A circle stays round, in the middle of the box."}},
+                                 "goes. A circle stays round, in the middle of the box. For captions only y1 counts: "
+                                 "where their band starts."}},
          ["part", "box"], move_part, changes=True),
     Tool("pan_part", "Panned a part of the frame",
          "Only when the person asks: change what one part of the frame shows, with the part staying where it is, such "

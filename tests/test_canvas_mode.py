@@ -1,6 +1,6 @@
 """The Layout sheet as a canvas: the clip stays still, a part is dragged or sized on the picture, Pan moves what a part
-or a shot shows, and the crop is what the render cuts. The page runs from web/app.js itself in node on a small
-stand-in. python -m unittest discover -s tests -p test_canvas_mode.py"""
+or a shot shows, and the crop is what the render cuts. Any element tapped gets a frame to drag the same way. The page
+runs from web/app.js itself in node on a small stand-in. python -m unittest discover -s tests -p test_canvas_mode.py"""
 import json
 import os
 import re
@@ -10,7 +10,7 @@ import unittest
 from unittest import mock
 
 import test_editor
-from clipstudio import agent, layouts, server
+from clipstudio import agent, layouts, render, server, text
 
 WEB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
 
@@ -113,7 +113,7 @@ function load(page) {
     Intl: any(), URL: any(), Image: function () { return any(); }, FormData: function () { return any(); }, CSS: any(), performance: any({ now: () => 0 }), innerWidth: 1280, innerHeight: 800, scrollTo: () => {},
   };
   vm.createContext(box);
-  vm.runInContext(page + "\n;globalThis.t = { room, clipAt, openSheet, closeSheet, togglePlay, wirePlayer, drawFrameParts, showClip, hidePanel, playButton, bigPlay, fullButton, watchBox, clipBox, sheet, stepClip, movePlayhead };", box);
+  vm.runInContext(page + "\n;globalThis.t = { room, clipAt, openSheet, closeSheet, togglePlay, wirePlayer, drawFrameParts, showClip, hidePanel, playButton, bigPlay, fullButton, watchBox, clipBox, sheet, stepClip, movePlayhead, tapBlock, tapEffect, pickWords, pickSpot };", box);
   const t = box.t;
   t.room.chat = "c";
   t.room.screen = "clip";
@@ -343,6 +343,154 @@ each("the clip goes away", (p) => {
   p.t.hidePanel();
   return state(p);
 });
+const TITLE = { kind: "title", n: 0, text: "Big words", start: 0, end: 10, box: [60, 130, 940, 230] };
+const SAID = { kind: "caption", n: 0, text: "hello", start: 1, end: 3, box: [60, 700, 940, 780] };
+const LATER = { kind: "caption", n: 1, text: "there", start: 3, end: 5, box: [60, 700, 940, 780] };
+const UNSURE = { kind: "draft", n: 7, text: "maybe", start: 6, end: 7 };
+const FIRE = { of: "sticker", name: "fire", label: "Fire", start: 2, end: 4, box: [100, 300, 300, 420] };
+const POP = { of: "sound", name: "pop", label: "Pop", start: 2, end: 2.5 };
+const elements = (p) => {
+  p.t.wirePlayer(p.video);
+  p.video.paused = true;
+  p.video.currentTime = 3;
+  p.t.room.panel = panel({ words: [TITLE, SAID, LATER, UNSURE], effects: [FIRE, POP] });
+};
+const framed = (p) => {
+  const shown = !p.element("partBoxes").hidden;
+  const n = shown ? p.boxes() : [];
+  return { n: n.length, at: n[0] ? [n[0].style.left, n[0].style.top, n[0].style.width, n[0].style.height] : null, corner: Boolean(n[0] && n[0].children.some((k) => k.tag === "i")), big: p.t.bigPlay.hidden, full: p.t.fullButton.hidden };
+};
+each("a caption tapped", (p) => {
+  elements(p);
+  p.t.tapBlock(SAID);
+  const first = Object.assign(framed(p), { cap: p.t.room.cap, seat: p.video.currentTime, words: !p.t.pickWords.hidden, sheet: p.t.sheet.hidden });
+  p.t.tapBlock(LATER);
+  const other = p.t.room.cap;
+  p.t.tapBlock(LATER);
+  return { first, other, second: { sheet: p.t.sheet.hidden, editing: p.t.room.editing } };
+});
+each("a draft tapped", (p) => {
+  elements(p);
+  p.t.tapBlock(UNSURE);
+  return Object.assign(framed(p), { editing: p.t.room.editing });
+});
+each("a caption dragged", async (p) => {
+  elements(p);
+  p.t.tapBlock(SAID);
+  p.down(p.boxes()[0], 50, 70);
+  p.move(70, 50);
+  const at = p.boxes()[0].style.top;
+  p.up();
+  await p.settle();
+  return { at, posted: p.posted, dragged: p.t.room.dragged };
+});
+each("a title dragged", async (p) => {
+  elements(p);
+  p.t.tapBlock(TITLE);
+  p.down(p.boxes()[0], 50, 20);
+  p.move(50, 40);
+  p.up();
+  await p.settle();
+  return Object.assign(framed(p), { posted: p.posted });
+});
+each("a sticker dragged and sized", async (p) => {
+  elements(p);
+  p.t.tapEffect(FIRE);
+  const first = framed(p);
+  p.down(p.boxes()[0], 20, 40);
+  p.move(30, 50);
+  p.up();
+  await p.settle();
+  p.later.forEach((fn) => fn());
+  const node = p.boxes()[0];
+  p.down(node, 30, 42, node.children.find((k) => k.tag === "i"));
+  p.move(40, 42);
+  p.up();
+  await p.settle();
+  return { first, posted: p.posted };
+});
+each("a hand that shakes", async (p) => {
+  elements(p);
+  p.t.tapEffect(FIRE);
+  const node = p.boxes()[0];
+  p.down(node, 20, 40);
+  p.move(22, 41);
+  p.up();
+  await p.settle();
+  return Object.assign(framed(p), { posted: p.posted, same: p.boxes()[0] === node });
+});
+each("a sound has no frame", (p) => {
+  elements(p);
+  p.t.tapEffect(POP);
+  return framed(p);
+});
+each("play takes the frame off", (p) => {
+  elements(p);
+  p.t.tapBlock(SAID);
+  p.click("play");
+  const button = Object.assign(framed(p), { cap: p.t.room.cap, playing: !p.video.paused });
+  p.video.paused = true;
+  p.t.tapEffect(FIRE);
+  p.key(" ");
+  const space = Object.assign(framed(p), { fx: p.t.room.fx, playing: !p.video.paused });
+  p.video.pause();
+  p.video.heard.pause.forEach((fn) => fn({}));
+  return { button, space, again: framed(p) };
+});
+each("the picture tapped", (p) => {
+  elements(p);
+  const tap = (x, y) => p.video.heard.click.forEach((fn) => fn({ clientX: x, clientY: y }));
+  tap(20, 35);
+  const sticker = { fx: p.t.room.fx, playing: !p.video.paused, frame: framed(p) };
+  p.t.room.panel.effects = [Object.assign({}, FIRE, { name: "small", box: [100, 150, 300, 210] }), POP];
+  tap(20, 18);
+  const small = p.t.room.fx;
+  p.t.room.panel.effects = [FIRE, POP];
+  p.t.clipBox.classList.remove("big");
+  const area = p.element("partBoxes");
+  const tapBox = (x, y) => area.heard.click.forEach((fn) => { const e = { clientX: x, clientY: y, target: area, currentTarget: area }; fn(e); });
+  p.video.currentTime = 2;
+  tapBox(50, 74);
+  const caption = { cap: p.t.room.cap, fx: p.t.room.fx };
+  p.video.currentTime = 8;
+  tapBox(50, 74);
+  const gone = Object.assign(framed(p), { cap: p.t.room.cap, playing: !p.video.paused });
+  tap(50, 74);
+  return { sticker, small, caption, gone, plays: !p.video.paused };
+});
+each("the picture tapped while it plays", (p) => {
+  elements(p);
+  p.video.paused = false;
+  p.video.heard.click.forEach((fn) => fn({ clientX: 20, clientY: 35 }));
+  return { fx: p.t.room.fx || null, paused: p.video.paused };
+});
+each("full screen plays on a tap", (p) => {
+  elements(p);
+  p.t.clipBox.classList.add("big");
+  p.video.heard.click.forEach((fn) => fn({ clientX: 20, clientY: 35 }));
+  return { fx: p.t.room.fx || null, playing: !p.video.paused };
+});
+each("layout takes over from a frame", (p) => {
+  elements(p);
+  p.t.room.panel.parts = [part(CARD)];
+  p.t.room.panel.crops = [CARD];
+  p.t.tapBlock(SAID);
+  p.t.openSheet("layout");
+  return { boxes: state(p).boxes };
+});
+each("up and down on the bar", async (p) => {
+  elements(p);
+  p.t.tapBlock(SAID);
+  p.t.pickSpot.heard.click.forEach((fn) => fn({ target: { closest: () => ({ dataset: { spot: "up" } }) } }));
+  await p.settle();
+  return p.posted;
+});
+each("a caption that stays under a face", (p) => {
+  elements(p);
+  p.t.room.panel.words = [Object.assign({}, SAID, { box: undefined })];
+  p.t.tapBlock(p.t.room.panel.words[0]);
+  return Object.assign(framed(p), { says: p.element("pickSays").textContent, spot: p.element("pickSpot").hidden });
+});
 each("the first change keeps the moment", (p) => {
   p.video.currentTime = 7.5;
   p.t.clipAt.value = 10;
@@ -370,6 +518,96 @@ class Canvas(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.said = said_by_the_page()
+
+    def test_a_tapped_caption_gets_a_frame_and_the_big_play_steps_aside(self):
+        s = self.said["a caption tapped"]["first"]
+        self.assertEqual(s["n"], 1)
+        self.assertEqual(s["at"], ["6%", "70%", "88%", "8%"])
+        self.assertFalse(s["corner"], "captions have no size to drag")
+        self.assertTrue(s["big"], "the big Play is off the frame")
+        self.assertTrue(s["full"])
+        self.assertEqual(s["cap"], {"n": 0})
+        self.assertEqual(s["seat"], 1, "the clip goes where the words show")
+        self.assertTrue(s["words"], "Change words is one tap away")
+        self.assertTrue(s["sheet"], "and the sheet stays out of the way")
+
+    def test_a_second_tap_on_the_same_caption_changes_its_words(self):
+        s = self.said["a caption tapped"]
+        self.assertEqual(s["other"], {"n": 1})
+        self.assertFalse(s["second"]["sheet"])
+        self.assertEqual(s["second"]["editing"]["n"], 1)
+
+    def test_a_draft_is_not_on_the_video_so_it_opens_its_words(self):
+        s = self.said["a draft tapped"]
+        self.assertEqual(s["n"], 0)
+        self.assertEqual(s["editing"]["kind"], "draft")
+
+    def test_captions_drag_up_and_down_only_and_all_go_together(self):
+        s = self.said["a caption dragged"]
+        self.assertEqual(s["at"], "50%")
+        self.assertEqual(s["posted"], [{"path": "/api/part", "body": {"chat": "c", "part": "captions", "box": [60, 500, 940, 580]}}])
+        self.assertTrue(s["dragged"], "the click after the drag is not a tap")
+
+    def test_a_title_drags_through_the_tool_that_moves_it(self):
+        s = self.said["a title dragged"]
+        self.assertEqual(s["posted"], [{"path": "/api/effect", "body": {"chat": "c", "of": "title", "name": "Big words", "at": 0, "box": [60, 330, 940, 430]}}])
+        self.assertFalse(s["corner"])
+        self.assertEqual(s["n"], 1, "the frame stays after the move")
+
+    def test_a_sticker_drags_and_its_corner_sizes_it(self):
+        s = self.said["a sticker dragged and sized"]
+        self.assertTrue(s["first"]["corner"])
+        self.assertEqual([p["path"] for p in s["posted"]], ["/api/effect", "/api/effect"])
+        self.assertEqual(s["posted"][0]["body"], {"chat": "c", "of": "sticker", "name": "fire", "at": 2, "box": [200, 400, 400, 520]})
+        self.assertEqual(s["posted"][1]["body"]["box"], [100, 300, 400, 480])
+
+    def test_a_hand_that_shakes_moves_nothing(self):
+        s = self.said["a hand that shakes"]
+        self.assertEqual(s["posted"], [])
+        self.assertEqual(s["n"], 1)
+        self.assertTrue(s["same"], "and the frame is there for the next press")
+
+    def test_what_has_no_spot_on_the_picture_has_no_frame(self):
+        s = self.said["a sound has no frame"]
+        self.assertEqual(s["n"], 0)
+        self.assertFalse(s["big"], "and Play stays")
+
+    def test_play_or_space_takes_the_frame_off_and_brings_play_back(self):
+        s = self.said["play takes the frame off"]
+        self.assertEqual((s["button"]["n"], s["button"]["cap"], s["button"]["playing"]), (0, None, True))
+        self.assertEqual((s["space"]["n"], s["space"]["fx"], s["space"]["playing"]), (0, None, True))
+        self.assertFalse(s["again"]["big"])
+
+    def test_a_tap_on_the_picture_picks_what_stands_there_and_plays_nothing(self):
+        s = self.said["the picture tapped"]
+        self.assertEqual(s["sticker"]["fx"], "sticker|fire|2")
+        self.assertEqual(s["small"], "sticker|small|2", "the smallest of what stands there, the sticker over the title")
+        self.assertFalse(s["sticker"]["playing"])
+        self.assertEqual(s["sticker"]["frame"]["n"], 1)
+        self.assertEqual(s["caption"], {"cap": {"n": 0}, "fx": None})
+
+    def test_a_tap_beside_everything_takes_the_frame_off_and_the_next_one_plays(self):
+        s = self.said["the picture tapped"]
+        self.assertEqual((s["gone"]["n"], s["gone"]["cap"], s["gone"]["playing"]), (0, None, False))
+        self.assertTrue(s["plays"])
+
+    def test_while_it_plays_a_tap_only_stops_it(self):
+        self.assertEqual(self.said["the picture tapped while it plays"], {"fx": None, "paused": True})
+
+    def test_full_screen_only_watches(self):
+        self.assertEqual(self.said["full screen plays on a tap"], {"fx": None, "playing": True})
+
+    def test_layout_shows_its_own_boxes(self):
+        self.assertEqual(self.said["layout takes over from a frame"]["boxes"], ["Card"])
+
+    def test_up_and_down_on_the_bar_move_the_captions_too(self):
+        self.assertEqual(self.said["up and down on the bar"], [{"path": "/api/part", "body": {"chat": "c", "part": "captions", "box": [60, 660, 940, 740]}}])
+
+    def test_captions_under_each_face_say_why_they_have_no_frame(self):
+        s = self.said["a caption that stays under a face"]
+        self.assertEqual(s["n"], 0)
+        self.assertIn("under each person's face", s["says"])
+        self.assertTrue(s["spot"])
 
     def test_with_layout_open_nothing_plays_the_clip(self):
         s = self.said["still"]
@@ -498,6 +736,15 @@ class Page(unittest.TestCase):
         tools_at = self.read("index.html").index('id="canvasTools"')
         self.assertLess(self.read("index.html").index('class="frame-wrap"'), tools_at)
         self.assertLess(tools_at, self.read("index.html").index('id="watch"'))
+
+    def test_full_screen_keeps_the_clip_inside_the_window_on_a_wide_screen(self):
+        style = self.read("style.css")
+        self.assertIn(".clip.big .frame { width: min(100vw, calc(100dvh * 9 / 16)); height: min(100dvh, calc(100vw * 16 / 9));", style)
+
+    def test_a_mouse_gets_a_slider_under_the_tools_and_a_finger_swipes(self):
+        style = self.read("style.css")
+        self.assertRegex(style, r"\.tools \{[^}]*scrollbar-width: none;")
+        self.assertRegex(style, r"@media \(hover: hover\) and \(pointer: fine\) \{\s*\.tools \{ scrollbar-width: thin;")
 
     def test_the_canvas_stays_above_the_backdrop_that_closes_the_sheet(self):
         """position: fixed makes its own stacking context: without a z-index on .clip the backdrop takes every press."""
@@ -631,6 +878,65 @@ class Panning(unittest.TestCase):
             self.assertEqual(answer.get("ok"), ok, (body, answer))
             if not ok:
                 self.assertTrue(answer.get("error"))
+
+    def with_captions(self):
+        self.a_clip()
+        lay = self.chat.project.state()["clip"]["layout"]["captions"]
+        lines = text.caption_lines([{"from": 0.5, "to": 1.5, "text": "hello there"}], 30)
+        self.chat.edit({"do": "captions", "lines": lines, "band": [lay[1], lay[3]], "lit": False, "pop": False})
+        return lay
+
+    def drawn_at(self):
+        with open(render.ass(self.chat.project.state()), encoding="utf-8") as f:
+            return next(line for line in f if line.startswith("Dialogue") and "_caption" in line).split("pos(")[1].split(")")[0]
+
+    def test_a_caption_says_where_it_stands(self):
+        lay = self.with_captions()
+        box = next(b for b in self.chat.panel()["words"] if b["kind"] == "caption")["box"]
+        self.assertEqual([round(v, 3) for v in box], [round(v, 3) for v in agent._grid_box(lay)])
+
+    def test_the_captions_move_as_one_undo_takes_them_back_and_muse_is_told(self):
+        lay = self.with_captions()
+        before = self.drawn_at()
+        self.assertIsNone(self.chat.set_part("captions", [0, 300, 1000, 400]))
+        state = self.chat.project.state()
+        self.assertEqual(state["captions"]["band"], [576, lay[3]])
+        self.assertEqual(state["clip"]["layout"]["captions"], [lay[0], 576, lay[2], lay[3]], "so captions made again stay there")
+        self.assertIn("moved the captions", self.chat.told[-1])
+        x0, y0 = [float(v) for v in before.split(",")]
+        x1, y1 = [float(v) for v in self.drawn_at().split(",")]
+        self.assertEqual(x1, x0, "they stay in the middle of the frame")
+        self.assertAlmostEqual(y1 - y0, 576 - lay[1], delta=1)
+        self.chat.undo()
+        self.assertEqual(self.chat.project.state()["captions"]["band"], [lay[1], lay[3]])
+        self.assertEqual(self.drawn_at(), before)
+
+    def test_words_changed_after_a_move_stay_where_they_were_put(self):
+        lay = self.with_captions()
+        self.chat.set_part("captions", [0, 300, 1000, 400])
+        self.assertIsNone(self.chat.set_words("caption", 0, "hello there", "hello you"))
+        self.assertEqual(self.chat.project.state()["captions"]["band"], [576, lay[3]])
+
+    def test_the_captions_stay_on_the_frame(self):
+        lay = self.with_captions()
+        self.assertIsNone(self.chat.set_part("captions", [0, 990, 1000, 1000]))
+        self.assertEqual(self.chat.project.state()["captions"]["band"], [1920 - lay[3], lay[3]])
+
+    def test_titles_keep_clear_of_where_the_captions_went(self):
+        self.with_captions()
+        self.chat.set_part("captions", [0, 300, 1000, 400])
+        self.assertEqual(self.chat.project.state()["clip"]["layout"]["captions"][1], 576)
+
+    def test_no_captions_nothing_to_move(self):
+        self.a_clip()
+        self.assertIn("no captions", self.chat.set_part("captions", [0, 300, 1000, 400]))
+
+    def test_captions_under_each_face_stay_there(self):
+        self.with_captions()
+        caps = self.chat.project.state()["captions"]
+        self.chat.edit(dict(caps, bands={"1": [400, 200], "2": [1200, 200]}))
+        self.assertIn("under the face", self.chat.set_part("captions", [0, 300, 1000, 400]))
+        self.assertNotIn("box", next(b for b in self.chat.panel()["words"] if b["kind"] == "caption"))
 
     def post(self, body):
         got = {}

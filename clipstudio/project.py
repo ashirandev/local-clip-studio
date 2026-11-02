@@ -32,7 +32,8 @@ the recording, and boxes on the frame are pixels of the 1080x1920 clip.
   "length", "box": frame box every copy stays inside, "move": one of effects.MOVES, "count": copies, "size": px of
   a picture's longer side}; a flurry on the same spot at an overlapping time replaces an earlier one
 - untitle: {"text"}: takes the titles with these words off
-- layout: {"part", "box": frame box, "layout": the clip's layout with that part moved where the person asked}
+- layout: {"part", "box": frame box, "layout": the clip's layout with that part moved where the person asked}; with
+  part "captions" the captions on the clip take the band of box too
 - look: {"name": one of effects.LOOKS, or None for the footage as it was shot}
 - push: {"start", "end", "zoom", "centre": [x, y] on the frame}: a slow push-in on the main picture; a push over
   the time of an earlier one replaces it
@@ -168,6 +169,8 @@ class Project:
                     pushes = _changed(pushes, e, lambda a, b: a["start"] < b["end"] and b["start"] < a["end"])
             elif e["do"] == "layout":
                 clip = dict(clip, layout=e["layout"]) if clip else None
+                if captions and e.get("part") == "captions":
+                    captions = dict(captions, band=e["box"][1::2])
             elif e["do"] == "look":
                 look = e["name"]
             elif e["do"] == "push":

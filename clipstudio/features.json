@@ -59,7 +59,7 @@
   "tool": "move_part",
   "group": "Layout",
   "name": "Move a part",
-  "says": "Puts the face circle, the card or another part exactly where you want it, and says what a phone would cover there.",
+  "says": "Puts the face circle, the card, the captions or another part exactly where you want it, and says what a phone would cover there. On the page, tap anything on the clip and drag its frame.",
   "ask": "Move my face circle to the bottom right.",
   "show": "move"
  },

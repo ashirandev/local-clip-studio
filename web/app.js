@@ -767,7 +767,7 @@ function clearClip() {
   room.clipName = "";
   room.finished = null;
   room.mute = {};
-  room.pick = null;
+  room.pick = room.cap = room.fx = null;
   room.pickWhy = "";
   room.frameX = null;
   room.shotMove = null;
@@ -849,17 +849,18 @@ function wirePlayer(v) {
     if (k === "timeupdate" && !v.classList.contains("base")) movePlayhead(v.currentTime);
     updatePlayer();
   }));
-  v.addEventListener("click", togglePlay);
+  v.addEventListener("click", tapPicture);
 }
 
 function updatePlayer() {
   const v = playerVideo();
   const playing = Boolean(v && !v.paused && !v.ended);
+  const framed = Boolean(pickedOnPicture());
   playButton.disabled = !v || room.canvas;
   playButton.replaceChildren(ico(playing ? "pause" : "play"));
   playButton.setAttribute("aria-label", playing ? "Pause" : "Play");
-  bigPlay.hidden = !v || playing || room.canvas || room.blur;
-  fullButton.hidden = !v || room.canvas;
+  bigPlay.hidden = !v || playing || room.canvas || room.blur || framed;
+  fullButton.hidden = !v || room.canvas || framed;
   if (!v || !v.classList.contains("base") || room.canvas) clipBox.classList.remove("big");
   fullButton.setAttribute("aria-label", clipBox.classList.contains("big") ? "Leave full screen" : "Full screen");
   clipUndo.disabled = !room.panel;
@@ -870,7 +871,9 @@ function updatePlayer() {
 
 function togglePlay() {
   const v = shownVideo();
-  if (!v || room.canvas) return;
+  if (room.canvas) return;
+  clearPick();
+  if (!v) return;
   if (v.paused || v.ended) v.play().catch(() => {});
   else v.pause();
 }
@@ -1006,6 +1009,7 @@ function openClip(e) {
 }
 
 function watch(e) {
+  clearPick();
   watchVideo.src = clipUrl(e.file);
   watchVideo.poster = "/api/clip/" + e.file.replace(/\.mp4$/, ".jpg");
   watchVideo.setAttribute("aria-label", "Your clip: " + e.title);
@@ -1440,6 +1444,7 @@ function setBlur(on) {
   if (on === room.blur) return;
   room.blur = on;
   updatePlayer();
+  drawPartBoxes();
   frameBox.querySelectorAll(".faces").forEach((f) => f.remove());
   if (!on) return;
   stopWatching();
@@ -1898,9 +1903,7 @@ function pickShown(c) {
 
 function tapShot(s) {
   if (room.dragged) return;
-  room.pick = room.fx = null;
-  room.pickWhy = "";
-  drawPicked();
+  clearPick();
   if (sheet.hidden || room.part !== "frame") openSheet("frame");
   pickShot(s);
 }
@@ -2147,19 +2150,79 @@ function pickedTitle() {
   return same.length === 1 ? same[0] : same.find((b) => b.n === room.pick.n) || null;
 }
 
+function pickedCaption() {
+  if (!room.cap || !room.panel) return null;
+  return (room.panel.words || []).find((b) => b.kind === "caption" && b.n === room.cap.n) || null;
+}
+
+function pickedElement() {
+  return pickedTitle() || pickedCaption() || pickedEffect();
+}
+
+function pickedOnPicture() {
+  const on = pickedElement();
+  return on && on.box && watchBox.hidden && !room.canvas && !room.blur ? on : null;
+}
+
+function pickElement(b) {
+  room.pickWhy = "";
+  room.pick = b.kind === "title" ? { n: b.n, was: b.text } : null;
+  room.cap = b.kind === "caption" ? { n: b.n } : null;
+  room.fx = b.of ? fxKey(b) : null;
+}
+
+function clearPick() {
+  if (!room.pick && !room.cap && !room.fx) return;
+  room.pick = room.cap = room.fx = null;
+  room.pickWhy = "";
+  drawPicked();
+}
+
+function elementAt(e) {
+  const r = frameBox.getBoundingClientRect();
+  const x = (1000 * (e.clientX - r.left)) / r.width;
+  const y = (1000 * (e.clientY - r.top)) / r.height;
+  const t = clipNow();
+  const size = (b) => (b.box[2] - b.box[0]) * (b.box[3] - b.box[1]);
+  const under = (room.panel.words || []).concat(room.panel.effects || []).filter((b) => b.box && b.start <= t && t < b.end && b.box[0] <= x && x <= b.box[2] && b.box[1] <= y && y <= b.box[3]);
+  return under.sort((a, b) => size(a) - size(b))[0] || null;
+}
+
+function tapPicture(e) {
+  if (room.dragged) return;
+  const v = playerVideo();
+  if (!v || !v.paused || !room.panel || room.blur || clipBox.classList.contains("big")) {
+    togglePlay();
+    return;
+  }
+  const b = elementAt(e);
+  if (b) {
+    pickElement(b);
+    drawPicked();
+  } else if (pickedOnPicture()) {
+    clearPick();
+  } else {
+    togglePlay();
+  }
+}
+
 function drawPick() {
   const b = pickedTitle();
+  const c = b ? null : pickedCaption();
   const e = room.panel && room.panel.ends;
-  const f = b ? null : pickedEffect();
-  const trimming = Boolean(!b && !f && e && room.trim);
-  pickWords.hidden = !b;
+  const f = b || c ? null : pickedEffect();
+  const on = b || c || f;
+  const trimming = Boolean(!on && e && room.trim);
+  pickWords.hidden = !b && !c;
   pickOff.hidden = !f;
-  pickSpot.hidden = !(b || f) || !(b || f).box;
-  pickSpot.querySelectorAll(".side").forEach((n) => (n.hidden = Boolean(b)));
+  pickSpot.hidden = !on || !on.box;
+  pickSpot.querySelectorAll(".side").forEach((n) => (n.hidden = Boolean(b || c)));
   pickBack.hidden = pickGo.hidden = !trimming;
-  pickBar.hidden = !b && !f && !trimming;
+  pickBar.hidden = !on && !trimming;
   if (b) {
-    pickSays.textContent = room.pickWhy || b.start.toFixed(1) + "–" + b.end.toFixed(1) + " s · drag its ends";
+    pickSays.textContent = room.pickWhy || b.start.toFixed(1) + "–" + b.end.toFixed(1) + " s · drag its ends, or drag the frame on the picture";
+  } else if (c) {
+    pickSays.textContent = room.pickWhy || (c.box ? "Drag the frame on the picture: all the captions move together" : "These captions stay under each person's face");
   } else if (f) {
     pickSays.textContent = room.pickWhy || f.label + " at " + f.start.toFixed(1) + " s · drag it to another second";
   } else if (trimming) {
@@ -2167,10 +2230,13 @@ function drawPick() {
     pickGo.disabled = trimGo.disabled;
     pickGo.lastChild.textContent = trimGo.lastChild.textContent;
   }
+  drawPartBoxes();
+  updatePlayer();
 }
 
 function drawPicked() {
   const b = pickedTitle();
+  const c = pickedCaption();
   if (b) room.pick.n = b.n;
   lanes.querySelectorAll(".lane.title .block").forEach((node) => {
     const on = Boolean(b) && Number(node.dataset.n) === b.n;
@@ -2183,6 +2249,11 @@ function drawPicked() {
       g.dataset.edge = k;
       node.appendChild(g);
     });
+  });
+  lanes.querySelectorAll(".lane.caption .block").forEach((node) => {
+    const on = Boolean(c) && Number(node.dataset.n) === c.n && !node.classList.contains("draft");
+    node.classList.toggle("picked", on);
+    node.setAttribute("aria-pressed", String(on));
   });
   lanes.querySelectorAll(".lane.effect .block").forEach((node) => {
     const on = node.dataset.key === room.fx;
@@ -2228,9 +2299,7 @@ function drawEffectLane(d) {
 
 function tapEffect(b) {
   if (room.dragged) return;
-  room.pickWhy = "";
-  room.pick = null;
-  room.fx = fxKey(b);
+  pickElement(b);
   seek(b.start);
   drawPicked();
 }
@@ -2266,9 +2335,9 @@ function effectDrag(e, b, node) {
   window.addEventListener("pointercancel", up);
 }
 
-async function changeEffect(body, failed) {
+async function changeEffect(body, failed, path) {
   try {
-    const d = await post("/api/effect", Object.assign({ chat: room.chat }, body));
+    const d = await post(path || "/api/effect", Object.assign({ chat: room.chat }, body));
     room.pickWhy = d.ok ? "" : d.error || failed;
   } catch (err) {
     room.pickWhy = "The studio is not answering. Open Local Clip Studio again.";
@@ -2276,14 +2345,17 @@ async function changeEffect(body, failed) {
   loadPanel();
 }
 
+function moveElement(on, box) {
+  if (on.kind === "caption") return changeEffect({ part: "captions", box }, "They could not be moved.", "/api/part");
+  const which = on.kind === "title" ? { of: "title", name: on.text, at: on.start } : { of: on.of, name: on.name, at: on.start };
+  return changeEffect(Object.assign(which, { box }), "It could not be moved.");
+}
+
 pickSpot.addEventListener("click", async (e) => {
   const b = e.target.closest("[data-spot]");
-  const t = pickedTitle();
-  const f = t ? null : pickedEffect();
-  const on = t || f;
+  const on = pickedElement();
   if (!b || !on || !on.box) return;
-  const which = t ? { of: "title", name: t.text, at: t.start } : { of: f.of, name: f.name, at: f.start };
-  await changeEffect(Object.assign(which, { box: partMoved(on.box, b.dataset.spot) }), "It could not be moved.");
+  await moveElement(on, partMoved(on.box, b.dataset.spot));
 });
 
 pickOff.addEventListener("click", async () => {
@@ -2432,6 +2504,7 @@ canvasTools.addEventListener("click", (e) => {
 });
 
 const PART_STEP = { bigger: 1.08, smaller: 0.93 };
+const DRAG_FROM = 2;
 
 function partMoved(box, how) {
   let [x1, y1, x2, y2] = box;
@@ -2486,6 +2559,16 @@ function panPicture() {
 function drawPartBoxes() {
   if (room.held) return;
   const layer = $("partBoxes");
+  const on = pickedOnPicture();
+  if (on) {
+    const node = el("div", "part-box now");
+    if (on.of) node.appendChild(el("i"));
+    placeBox(node, on.box);
+    node.addEventListener("pointerdown", (e) => dragBox(e, on.box, node, { upDown: on.kind === "caption", save: (box) => moveElement(on, box), still: () => {} }));
+    layer.replaceChildren(node);
+    layer.hidden = false;
+    return;
+  }
   const pan = room.tool === "pan";
   const list = !room.canvas || !room.panel || room.work.layout ? [] : pan ? pansNow() : room.panel.parts || [];
   layer.hidden = !list.length;
@@ -2542,26 +2625,35 @@ function panDrag(e, part, node) {
   window.addEventListener("pointercancel", done);
 }
 
+$("partBoxes").addEventListener("click", (e) => {
+  if (e.target === e.currentTarget && !room.canvas) tapPicture(e);
+});
+
 function dragPart(e, part, node) {
+  room.partName = part.name;
+  dragBox(e, part.box, node, { save: (box) => movePart(part.name, box), still: () => drawFrameParts(room.panel) });
+}
+
+function dragBox(e, start, node, how) {
   e.preventDefault();
   room.held = true;
-  room.partName = part.name;
   const area = $("partBoxes").getBoundingClientRect();
   const sizing = e.target.tagName === "I";
-  const [x1, y1, x2, y2] = part.box;
+  const [x1, y1, x2, y2] = start;
   const w = x2 - x1;
   const h = y2 - y1;
   const x0 = e.clientX;
   const y0 = e.clientY;
-  let box = part.box;
+  let box = start;
   const follow = (ev) => {
+    if (box === start && Math.abs(ev.clientX - x0) <= DRAG_FROM && Math.abs(ev.clientY - y0) <= DRAG_FROM) return;
     const dx = (ev.clientX - x0) * 1000 / area.width;
     const dy = (ev.clientY - y0) * 1000 / area.height;
     if (sizing) {
       const grow = Math.min(Math.max(0.2, 1 + dx / w), (1000 - x1) / w, (1000 - y1) / h);
       box = [x1, y1, x1 + w * grow, y1 + h * grow];
     } else {
-      const x = Math.max(0, Math.min(1000 - w, x1 + dx));
+      const x = how.upDown ? x1 : Math.max(0, Math.min(1000 - w, x1 + dx));
       const y = Math.max(0, Math.min(1000 - h, y1 + dy));
       box = [x, y, x + w, y + h];
     }
@@ -2572,8 +2664,13 @@ function dragPart(e, part, node) {
     window.removeEventListener("pointerup", done);
     window.removeEventListener("pointercancel", done);
     room.held = false;
-    if (box === part.box) drawFrameParts(room.panel);
-    else movePart(part.name, box.map(Math.round));
+    if (box === start) {
+      how.still();
+      return;
+    }
+    room.dragged = true;
+    setTimeout(() => (room.dragged = false), 0);
+    how.save(box.map(Math.round));
   };
   window.addEventListener("pointermove", follow);
   window.addEventListener("pointerup", done);
@@ -2582,21 +2679,20 @@ function dragPart(e, part, node) {
 
 function tapBlock(b) {
   if (room.dragged) return;
-  room.pickWhy = "";
-  room.fx = null;
-  if (b.kind === "title" && !(pickedTitle() && pickedTitle().n === b.n)) {
-    room.pick = { n: b.n, was: b.text };
+  const now = b.kind === "title" ? pickedTitle() : pickedCaption();
+  if (b.kind !== "draft" && !(now && now.n === b.n)) {
+    pickElement(b);
     seek(b.start);
     drawPicked();
     return;
   }
-  if (b.kind !== "title") room.pick = null;
+  if (b.kind === "draft") pickElement(b);
   drawPicked();
   openWords(b);
 }
 
 pickWords.addEventListener("click", () => {
-  const b = pickedTitle();
+  const b = pickedTitle() || pickedCaption();
   if (b) openWords(b);
 });
 
@@ -2937,11 +3033,7 @@ $("timeline").addEventListener("pointerdown", (e) => {
   }
   const block = e.target.closest(".block");
   if (block && block.closest(".lane.effect")) return;
-  if (!block && (room.pick || room.fx)) {
-    room.pick = room.fx = null;
-    room.pickWhy = "";
-    drawPicked();
-  }
+  if (!block) clearPick();
   const x0 = e.clientX;
   const at = (ev) => {
     if (block && Math.abs(ev.clientX - x0) > 3) room.dragged = true;

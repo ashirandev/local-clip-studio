@@ -524,6 +524,9 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .playhead::before { content: ""; position: absolute; top: -4px; left: -5px; width: 12px; height: 12px; border-radius: 50%; background: #FFFFFF; }
 
 .tools { display: flex; gap: 8px; overflow-x: auto; padding: 10px 12px calc(12px + env(safe-area-inset-bottom)); scrollbar-width: none; }
+@media (hover: hover) and (pointer: fine) {
+  .tools { scrollbar-width: thin; scrollbar-color: var(--st-edge) var(--st-raise); }
+}
 .tool { display: grid; justify-items: center; gap: 6px; flex: none; width: 74px; padding: 10px 0 8px; border: 0; border-radius: 16px; background: var(--st-surface); color: var(--st-text); font-size: 12px; font-weight: 600; cursor: pointer; }
 .tool[aria-pressed="true"] { background: var(--st-raise); box-shadow: inset 0 0 0 2px var(--st-accent); }
 .tool.muse { background: var(--muse); color: var(--on-muse); }
@@ -719,8 +722,8 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 }
 
 .clip.canvas .stage, .clip.canvas .e-row, .clip.canvas .timeline { position: relative; z-index: 22; }
-.clip.big .frame-wrap { position: fixed; inset: 0; z-index: 30; width: 100%; height: 100dvh; max-width: none; max-height: none; aspect-ratio: auto; background: #000000; }
-.clip.big .frame { border-radius: 0; }
+.clip.big .frame-wrap { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; width: 100%; height: 100dvh; max-width: none; max-height: none; aspect-ratio: auto; background: #000000; }
+.clip.big .frame { width: min(100vw, calc(100dvh * 9 / 16)); height: min(100dvh, calc(100vw * 16 / 9)); border-radius: 0; }
 .clip.canvas .clip-line { display: none; }
 
 @media (min-width: 1000px) {
