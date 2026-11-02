@@ -5062,6 +5062,40 @@ class Tools(unittest.TestCase):
         job.chat.events = [person("Make a clip with the title ตายแล้ว")]
         self.assertEqual(tools._thai_for_english(job, ["ตายแล้ว"]), [], "what they typed themselves passes")
 
+    def test_thai_words_are_refused_at_every_door_on_an_english_ask(self):
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        self.chat.emit("person", job=None, text="Make a clip from the best part of this stream")
+        try:
+            _, steps = self.run_job(
+                *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("decide_people", keep=[1], why="it is him")],
+                [call("add_title", words="ตายแล้ว", start=0, end=4, place="top", why="the hook")],
+                [call("add_hit", at=1, kind="word", word="ตาย", why="a pop")],
+                [call("add_title", words="Boss down", start=0, end=4, place="top", why="the hook")],
+                [call("render_clip", why="make the file")],
+                [call("check_clip", why="check it")],
+                [call("make_cover", title="ตายแล้ว", why="a cover")],
+                [call("hand_over", title="ตายแล้ว", caption="c", hashtags=["#reels"], why="a title")],
+                [call("hand_over", title="Down", caption="ตายแล้ว", hashtags=["#reels"], why="a post")],
+                [call("hand_over", title="Down", caption="c", hashtags=["#เกม"], why="a tag")], "Done.")
+        finally:
+            render.export = had
+        by = {}
+        for step in steps:
+            by.setdefault(step["tool"], []).append(step)
+        self.assertIn('write "ตายแล้ว" in English', by["add_title"][0]["result"])
+        self.assertFalse(by["add_title"][1]["refused"], by["add_title"][1]["result"])
+        self.assertIn('write "ตาย" in English', by["add_hit"][0]["result"])
+        self.assertIn('write "ตายแล้ว" in English', by["make_cover"][0]["result"])
+        for handed, word in zip(by["hand_over"], ("ตายแล้ว", "ตายแล้ว", "#เกม")):
+            self.assertTrue(handed["refused"], handed["result"])
+            self.assertIn("write these in English: \"%s\"" % word, handed["result"])
+
     def test_a_line_that_began_before_the_clip_has_captions_for_what_is_said_in_it(self):
         """EP22 11-01: no captions in the first 10 s while they talk, as a 24 s line ran over the clip's start."""
         self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")], "Done.")
