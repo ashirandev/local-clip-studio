@@ -343,8 +343,7 @@ class Mind:
         return os.environ.get(self.key_env, "").strip() if self.key_env else ""
 
     def missing(self):
-        return ("Set %s to your own %s API key, or name a file that holds it in LCS_KEYS, then start the studio "
-                "again." % (self.key_env, self.provider))
+        return "Paste your %s API key in Options." % self.provider
 
     def price(self):
         """US dollars per million tokens (read new, read from the provider's cache, written) by the provider's price
@@ -431,8 +430,8 @@ class Mind:
         if self.key_env:
             return ("Meta's API did not answer at %s (%s). Check this computer's internet, then say go on and it tries "
                     "again." % (self.url, _reason(e)))
-        return ("Muse Glimmer is not running at %s (%s). Open Options and press Set up, or start llama-server as "
-                "the README shows." % (self.url, _reason(e)))
+        print("Muse Glimmer did not answer at %s: %s" % (self.url, _reason(e)), flush=True)
+        return "Muse has no brain to use yet. Open Options and paste an API key, or press Set up for Muse Glimmer."
 
     def ask(self, messages, tools=None, temperature=CHAT_TEMPERATURE, max_tokens=None, on_delta=None,
             asking=None, schema=None):
@@ -560,8 +559,7 @@ class Shared(Mind):
         return ".".join(parts) if all(parts) else ""
 
     def missing(self):
-        return ("Set %s to the key and the secret of your Modal proxy token, or name a file that holds them in "
-                "LCS_KEYS, then start the studio again." % " and ".join(self.key_env))
+        return "Paste your Modal proxy token in Options."
 
     def headers(self, messages=()):
         headers = Mind.headers(self)

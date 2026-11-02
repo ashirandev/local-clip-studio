@@ -69,7 +69,7 @@ class Drawn(unittest.TestCase):
         with self.assertRaisesRegex(picture.PictureError, "^A picture needs words saying what it shows"):
             picture.make("   ")
         with mock.patch.dict(os.environ, {cover.KEY_ENV: ""}):
-            with self.assertRaisesRegex(picture.PictureError, "set META_API_KEY to your own Meta API key"):
+            with self.assertRaisesRegex(picture.PictureError, "paste your Meta API key in Options"):
                 picture.make("a ghost")
         self.images.status = 400
         with self.assertRaisesRegex(picture.PictureError, r"refused to draw it \(HTTP 400: made-up refusal 400\)\. "

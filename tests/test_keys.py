@@ -1,4 +1,6 @@
 """Keys from a file of the person's own (LCS_KEYS), with made-up keys: python -m unittest discover -s tests"""
+import contextlib
+import io
 import os
 import shutil
 import sys
@@ -37,10 +39,17 @@ class Keys(unittest.TestCase):
         self.assertEqual([os.environ.get(n) for n in NAMES],
                          ["made-up-a", "made-up b", "made-up-c", None, "already-set"])
 
+    def test_no_brain_says_what_to_do_and_keeps_the_address_for_the_log(self):
+        """Lane 5 11-02: a first run with no key ended on an address, a Windows error and llama-server."""
+        here = mind.Mind("local", "Muse Glimmer", "http://127.0.0.1:9/v1", model="m")
+        with contextlib.redirect_stdout(io.StringIO()) as log:
+            said = here.unreachable(OSError("refused"))
+        self.assertEqual(said, "Muse has no brain to use yet. Open Options and paste an API key, or press Set up for Muse Glimmer.")
+        self.assertIn("http://127.0.0.1:9/v1", log.getvalue())
+
     def test_spark_says_where_its_key_can_come_from(self):
         spark = mind.Mind("spark", "Muse Spark", "https://example.invalid/v1", model="m", key_env="LCS_TEST_KEY_A")
-        self.assertEqual(spark.status()["why"], "Set LCS_TEST_KEY_A to your own Meta API key, or name a file that "
-                                                "holds it in LCS_KEYS, then start the studio again.")
+        self.assertEqual(spark.status()["why"], "Paste your Meta API key in Options.", "lane 5 11-02: no key needs no restart")
         os.environ["LCS_TEST_KEY_A"] = "made-up"
         self.assertTrue(spark.status()["ok"])
 

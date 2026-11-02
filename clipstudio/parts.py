@@ -439,6 +439,16 @@ def ask_sends(read):
     print("  Meta sees pieces is %s." % ("on" if sends.allowed() else "off"))
 
 
+def no_key_wait(found):
+    """The line that says what Enter at the key question costs, or None: with no key, what LATER holds is downloaded
+    before the studio opens (lane 5 11-02: a judge on a big card would wait for about 15 GB with no word why)."""
+    size = sum(p["size"] for p in found if p["key"] in LATER and not p["ok"])
+    if not size:
+        return None
+    return ("  No key? Press Enter and setup downloads Muse Glimmer first, %s, and the studio opens after that. With a "
+            "key it opens at once." % _size(size))
+
+
 def ask_api(read=input, read_secret=None):
     """Asks for the API endpoint and key in the console, and then for a second one: the hearing and the watching use a
     Meta key while the mind may be Muse Spark Open elsewhere, and someone new should not have to find Options for it.
@@ -522,7 +532,13 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     use_tools()
     if "--no-key" not in argv and sys.stdin and sys.stdin.isatty():
-        (ask_key if os.path.isfile(ONE_KEY) else ask_api)()
+        if os.path.isfile(ONE_KEY):
+            ask_key()
+        else:
+            wait = no_key_wait(parts(card(), look=False))
+            if wait:
+                print(wait)
+            ask_api()
     gpu = card()
     found = parts(gpu, look=False)
     leave = LATER if mind.saved_api()[1] else ()

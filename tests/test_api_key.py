@@ -79,7 +79,7 @@ class Saved(unittest.TestCase):
             self.assertNotEqual(m.label, mind.minds()["modal"].label, "the page tells minds apart by their label")
             gone = m.status()
             self.assertFalse(gone["ok"])
-            self.assertIn("Set %s to your own %s API key" % (name, label), gone["why"])
+            self.assertIn("Paste your %s API key in Options" % label, gone["why"])
             self.assertIsNone(mind.save_api(url, " made-up-%s " % key))
             self.assertEqual(mind.saved_api(), (url, True))
             m = mind.minds()[key]
@@ -219,6 +219,23 @@ class Saved(unittest.TestCase):
                     mock.patch.object(parts, "set_up", lambda *a: "Everything"), redirect_stdout(io.StringIO()):
                 parts.main([])
             self.assertEqual((many.called, one.called), (not marked, marked))
+
+    def test_setup_says_what_going_on_with_no_key_costs(self):
+        """Lane 5 11-02: Enter on a big card waits for about 15 GB, and nothing said so."""
+        glimmer = {"key": "glimmer", "label": "Muse Glimmer", "size": 15_000_000_000, "ok": False, "why": ""}
+        engine = dict(glimmer, key="engine", size=500_000_000)
+        hearing = dict(glimmer, key="hearing", size=900_000_000)
+        self.assertIn("downloads Muse Glimmer first, 15.5 GB", parts.no_key_wait([glimmer, engine, hearing]))
+        self.assertIsNone(parts.no_key_wait([dict(glimmer, ok=True), dict(engine, ok=True), hearing]))
+        self.assertIsNone(parts.no_key_wait([dict(glimmer, size=0), dict(engine, size=0)]), "no card that takes it, no wait")
+        stdin = mock.Mock()
+        stdin.isatty.return_value = True
+        out = io.StringIO()
+        with mock.patch.object(parts, "ONE_KEY", "not-there"), mock.patch.object(parts, "ask_api"), mock.patch.object(sys, "stdin", stdin), \
+                mock.patch.object(parts, "card", lambda: None), mock.patch.object(parts, "parts", lambda *a, **k: [glimmer]), \
+                mock.patch.object(parts, "set_up", lambda *a: "Everything"), redirect_stdout(out):
+            parts.main([])
+        self.assertIn("No key? Press Enter", out.getvalue())
 
     def test_setup_stays_where_it_was_unzipped_in_a_build_for_one_person(self):
         with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "setup.bat"), encoding="utf-8") as f:

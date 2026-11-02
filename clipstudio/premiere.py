@@ -2,8 +2,7 @@
 (File > Import), the captions as .srt and a note on what came over.
 
 Every piece on the timeline points at the person's own file, named by it, with its in and out points in that file,
-so an editor drags a piece's edge to take more or less of it (Tarm 10-29: "น้องผมต้องลาก timeline ของแต่ละวิดีโอ
-ยาวขึ้น สั้นลงเพื่อปรับซีนได้"). A montage was joined into one recording first; its pieces point back at the clips it
+so an editor drags a piece's edge to take more or less of it (Tarm 10-29: his brother drags each piece's edge to make a scene longer or shorter). A montage was joined into one recording first; its pieces point back at the clips it
 was joined from (montage.made_of), not at the joined file.
 
 The frame comes over as each part's scale and position (Basic Motion), with a crop when a part does not fill the
@@ -11,8 +10,7 @@ frame. Premiere places a clip's middle at the sequence's middle plus center time
 (read from Premiere's exports by two tools that parse them; no one has yet opened this file in Premiere here). Looks,
 stickers, blurs, sounds and the captions' style do not come over: the note says which, and a blur matters most.
 
-With the finished picture (render.plate), each thing has a track of its own, as Tarm asked on 11-02: "อยากให้สามารถ
-Export ออกมาเป็น Track ของใครของมัน". From the bottom up: the plate, the pieces switched off, then the pictures, stickers,
+With the finished picture (render.plate), each thing has a track of its own, as Tarm asked on 11-02. From the bottom up: the plate, the pieces switched off, then the pictures, stickers,
 titles, captions and flashes (layer.clips), and below them the sound as stems (render.stems). What changes the picture
 itself cannot come off it (a blur, a look, a shake), so it stays on the plate and the note says so.
 """
@@ -57,30 +55,14 @@ It plays as the clip does. Each thing has its own track, so you can move, shorte
 {stayed}{captions}The pieces of your own recording are on the tracks just above your clip, switched off. To use one, select it and
 choose Clip > Enable, then drag its edge to show more or less. They have none of the clip's effects, and a face or a chat the
 studio blurred is NOT blurred in them.
-
-วิธีเปิดคลิปนี้ใน Premiere Pro
-
-1. แตกไฟล์ก่อน: คลิกขวาที่ไฟล์ zip แล้วเลือก Extract All
-2. เปิด Premiere แล้วสร้างโปรเจกต์ใหม่ หรือเปิดโปรเจกต์ที่มีอยู่
-3. กด File > Import เลือก {name}.xml แล้วดับเบิลคลิก "{title}" ในช่อง Project คลิปจะเปิดบนไทม์ไลน์
-4. ถ้า Premiere ถามว่าวิดีโออยู่ไหน กด Locate แล้วเลือกไฟล์ที่มันบอกชื่อ
-
-เปิดแล้วเล่นได้เหมือนคลิปเลย แต่ละอย่างอยู่คนละแทร็ก ย้าย ตัด หรือลบได้ทีละอย่าง:
-{tracks_th}
-{stayed_th}{captions_th}ชิ้นจากวิดีโอต้นฉบับอยู่แทร็กถัดจากคลิปขึ้นไป ปิดไว้อยู่ ถ้าจะใช้ ให้เลือกแล้วกด Clip > Enable แล้วลากขอบเพื่อยืดหรือหดซีน ชิ้นเหล่านี้ไม่มีเอฟเฟกต์ และสิ่งที่โปรแกรมเบลอไว้จะไม่ถูกเบลอ
 """
 CAPTIONS_NOTE = """To edit the captions' words, select the captions on their track and choose Clip > Enable to switch them off. Then choose
 File > Import, pick {name}.srt and drag it onto the timeline.
 
 """
-CAPTIONS_NOTE_TH = """ถ้าจะแก้คำในซับ ให้เลือกซับบนแทร็กแล้วกด Clip > Enable เพื่อปิด จากนั้นกด File > Import เลือก {name}.srt แล้วลากลงไทม์ไลน์
-
-"""
-KINDS = (("pictures", "Pictures", "ภาพประกอบ"), ("stickers", "Stickers", "สติกเกอร์"), ("titles", "Titles", "ชื่อเรื่อง"),
-         ("captions", "Captions", "ซับ"), ("flashes", "Flashes", "แฟลช"))
-STAYED = (("blurs", "the blurs", "เบลอ"), ("look", "the colour look", "โทนสี"), ("camera", "shakes and zooms", "กล้องสั่นและซูม"),
-          ("cut", "the background and the looks around the person", "พื้นหลังและลูกเล่นรอบตัวคน"),
-          ("behind", "words behind the person", "ตัวหนังสือหลังตัวคน"), ("glass", "glass boxes", "กล่องกระจก"))
+KINDS = (("pictures", "Pictures"), ("stickers", "Stickers"), ("titles", "Titles"), ("captions", "Captions"), ("flashes", "Flashes"))
+STAYED = (("blurs", "the blurs"), ("look", "the colour look"), ("camera", "shakes and zooms"),
+          ("cut", "the background and the looks around the person"), ("behind", "words behind the person"), ("glass", "glass boxes"))
 LEFT_OUT = [
     ("blurs", "The blurs. A face or a chat the studio blurred is NOT blurred here: blur it before you post."),
     ("look", "The colour look ({look})."),
@@ -276,7 +258,7 @@ def _lanes(clips):
     """The clips (layer.clips) as tracks from the bottom up, in time order: a track for each kind, and more of a kind only
     where two of its clips show at once, the later one higher, as it is drawn over the other."""
     tracks = []
-    for kind, _, _ in KINDS:
+    for kind, _ in KINDS:
         lanes, placed = [], []
         for clip in clips:
             if clip["kind"] != kind:
@@ -435,27 +417,24 @@ def _left_out(state, pieces, rec=None):
 
 
 def _on_track(clips, stems):
-    """The lines of the note that say what is on which track, (English, Thai), from the bottom up."""
-    kinds = [(en, th) for kind, en, th in KINDS if any(c["kind"] == kind for c in clips)]
+    """The lines of the note that say what is on which track, from the bottom up."""
+    kinds = [name for kind, name in KINDS if any(c["kind"] == kind for c in clips)]
     sounds = ", ".join(s["name"] for s in stems)
-    return ("\n".join(["- Video: your clip's picture, on the bottom track"] + ["- Video: " + en for en, _ in kinds] +
-                      (["- Sound: " + sounds] if sounds else [])),
-            "\n".join(["- วิดีโอ: ภาพของคลิป แทร็กล่างสุด"] + ["- วิดีโอ: " + th for _, th in kinds] + (["- เสียง: " + sounds] if sounds else [])))
+    return "\n".join(["- Video: your clip's picture, on the bottom track"] + ["- Video: " + name for name in kinds] +
+                      (["- Sound: " + sounds] if sounds else []))
 
 
 def _stayed(state):
-    """The lines of the note on what stays on the clip's picture, (English, Thai), or empty."""
+    """The lines of the note on what stays on the clip's picture, or empty."""
     hits, titles = state.get("hits") or [], state.get("titles") or []
     have = {"blurs": state.get("blurs"), "look": state.get("look"), "glass": state.get("glass"),
             "camera": state.get("pushes") or any(h["kind"] in ("shake", "punch") for h in hits),
             "cut": state.get("cutouts") or state.get("backdrop"), "behind": any(t.get("behind") for t in titles + hits)}
-    kept = [(en, th) for key, en, th in STAYED if have[key]] + (
-        [("the pictures under them", "ภาพประกอบที่อยู่ใต้กล่องกระจก")] if any(
-            render.under_glass(state, k) for k in state.get("pictures") or []) else [])
+    kept = [said for key, said in STAYED if have[key]] + (
+        ["the pictures under them"] if any(render.under_glass(state, k) for k in state.get("pictures") or []) else [])
     if not kept:
-        return "", ""
-    return ("\nThese stay in your clip's picture, as they change the picture itself: %s.\n\n" % ", ".join(en for en, _ in kept),
-            "\nสิ่งเหล่านี้ฝังอยู่ในภาพของคลิป เพราะมันเปลี่ยนตัวภาพเอง: %s\n\n" % " ".join(th for _, th in kept))
+        return ""
+    return "\nThese stay in your clip's picture, as they change the picture itself: %s.\n\n" % ", ".join(kept)
 
 
 def safe_name(title):
@@ -470,12 +449,8 @@ def bundle(title, rec, state, finished=None, clips=(), stems=()):
     xml = sequence(title or name, rec, state, finished, clips, stems)
     if finished:
         said = any(c["kind"] == "captions" for c in clips)
-        tracks, tracks_th = _on_track(clips, stems)
-        stayed, stayed_th = _stayed(state)
-        note = FINISHED_NOTE.format(name=name, title=title or name, tracks=tracks, tracks_th=tracks_th,
-                                    stayed=stayed or "\n", stayed_th=stayed_th or "\n",
-                                    captions=CAPTIONS_NOTE.format(name=name) if said else "",
-                                    captions_th=CAPTIONS_NOTE_TH.format(name=name) if said else "")
+        note = FINISHED_NOTE.format(name=name, title=title or name, tracks=_on_track(clips, stems),
+                                    stayed=_stayed(state) or "\n", captions=CAPTIONS_NOTE.format(name=name) if said else "")
     else:
         note = NOTE.format(name=name, title=title or name, left_out=_left_out(state, items(rec, state), rec))
     data = io.BytesIO()

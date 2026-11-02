@@ -294,8 +294,7 @@ class Modal(unittest.TestCase):
                 os.environ[n] = v
 
     def test_the_token_is_its_key_and_its_secret_and_both_are_needed(self):
-        why = ("Set LCS_TEST_MODAL_KEY and LCS_TEST_MODAL_SECRET to the key and the secret of your Modal proxy token, "
-               "or name a file that holds them in LCS_KEYS, then start the studio again.")
+        why = "Paste your Modal proxy token in Options."
         self.assertEqual(self.mind.status()["why"], why)
         os.environ["LCS_TEST_MODAL_KEY"] = "wk-made-up"
         self.assertEqual(self.mind.status()["why"], why, "a key without its secret is no token")

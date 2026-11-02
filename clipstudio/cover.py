@@ -107,8 +107,7 @@ def _said(e):
 
 def _refused(code, said):
     if code in (401, 403):
-        return ("Meta's API refused your key (HTTP %d: %s). Set %s to your own Meta API key, or name a file that "
-                "holds it in LCS_KEYS, then start the studio again." % (code, said, KEY_ENV))
+        return "Meta's API refused your key (HTTP %d: %s). Paste a key that works in Options." % (code, said)
     if code == 429:
         return ("Meta's API takes no more pictures from your key for now (HTTP 429: %s). Wait a minute, then make "
                 "the cover again." % said)
@@ -175,8 +174,7 @@ def make(frame, title, language=None, again=False):
         return {"path": made[-1][1], "usd": 0.0, "seconds": 0.0, "reused": True}
     key = os.environ.get(KEY_ENV, "").strip()
     if not key:
-        raise CoverError("%s is on Meta's API: set %s to your own Meta API key, or name a file that holds it in "
-                         "LCS_KEYS, then start the studio again." % (LABEL, KEY_ENV))
+        raise CoverError("%s is on Meta's API: paste your Meta API key in Options." % LABEL)
     t0 = time.time()
     picture = _ask(data, asked, key)
     target = os.path.join(folder, sign + (".%d" % (made[-1][0] + 1) if made else "") + ".jpg")

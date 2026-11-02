@@ -110,7 +110,7 @@ function load(page, answer) {
     Intl: any(), URL: any(), Image: function () { return any(); }, FormData: function () { return any(); }, CSS: any(), performance: any({ now: () => 0 }), innerWidth: 1200, innerHeight: 800,
   };
   vm.createContext(box);
-  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, showPart, showPicture, showOver };", box);
+  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, showPart, showPicture, showOver, api: (name) => { apiNow = name; } };", box);
   const t = box.t;
   t.room.chat = "c";
   let id = 0;
@@ -441,6 +441,16 @@ const press = async (answer) => {
   broken.t.showOver(lost, []);
   (lost.heard.error || []).forEach((fn) => fn());
   said.picture.broken = lost.classList.contains("waiting");
+  const noted = async (api, sends) => {
+    const p = load(page, { ok: true, url: "u", mind: { ok: true, label: "Muse Spark" } });
+    await new Promise((r) => setImmediate(r));
+    p.t.api(api);
+    p.t.room.sends = sends;
+    await p.element("apiForm").heard.submit[0]({ preventDefault: () => {} });
+    await new Promise((r) => setImmediate(r));
+    return p.element("apiNote").textContent;
+  };
+  said.keyNote = [await noted("meta", false), await noted("meta", true), await noted("baseten", false)];
   const named = load(page);
   const opened = (name) => named.event("opened", { recording: { name, seconds: 60 } });
   opened("sifu.mkv");
@@ -475,6 +485,13 @@ class Page(unittest.TestCase):
         self.assertEqual(s["over"], [["film"], False])
         self.assertEqual(s["phone"], [["played"], False], "a phone loads no video until it is played, so the wait ends")
         self.assertFalse(s["broken"], "a video that cannot load says so itself, on the page")
+
+    def test_a_meta_key_saved_with_the_switch_off_says_what_is_missing(self):
+        """Lane 5 11-02: a key added later gave no Wonder and no cover, and the note only said it was ready."""
+        off, on, other = self.said["keyNote"]
+        self.assertIn("Meta sees pieces is off", off)
+        self.assertEqual(on, "Muse Spark is ready.")
+        self.assertEqual(other, "Muse Spark is ready.")
 
     def test_the_chat_name_goes_when_the_chat_opens_another_recording(self):
         """Lane 5 11-01: a clip of a chicken pot under the name of the Sifu clip before it."""
@@ -624,6 +641,15 @@ class Page(unittest.TestCase):
         self.assertEqual(s["wait"], 0)
         self.assertEqual(s["kids"], ["img", "svg"], "one play mark, however many times it is told")
         self.assertFalse(s["inline"], "a player in the card as well would be two ways to watch and two sounds")
+
+
+class English(unittest.TestCase):
+    def test_everything_a_person_reads_is_in_english(self):
+        """Tarm 11-02: "ใช้ภาษาอังกฤษให้หมดเลย กรรมการเป็นฝรั่งทั้งหมด". Thai stays in what the program understands."""
+        root = os.path.dirname(WEB)
+        for name in ("web/app.js", "web/index.html", "web/replay.js", "clipstudio/features.json", "README.md"):
+            with open(os.path.join(root, name), encoding="utf-8") as f:
+                self.assertEqual(re.findall("[\u0e00-\u0e7f]+", f.read()), [], name)
 
 
 class Plain(unittest.TestCase):

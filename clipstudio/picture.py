@@ -62,8 +62,7 @@ def make(about, ask=ASK, size=SIZE):
         return {"path": target, "usd": 0.0, "seconds": 0.0, "reused": True}
     key = os.environ.get(cover.KEY_ENV, "").strip()
     if not key:
-        raise PictureError("%s is on Meta's API: set %s to your own Meta API key, or name a file that holds it in "
-                           "LCS_KEYS, then start the studio again." % (LABEL, cover.KEY_ENV))
+        raise PictureError("%s is on Meta's API: paste your Meta API key in Options." % LABEL)
     t0 = time.time()
     data = _ask(asked, key, size)
     part = render._part(target)

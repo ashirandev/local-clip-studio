@@ -174,8 +174,8 @@ class Cover(unittest.TestCase):
         os.environ["META_API_KEY"] = " "
         with self.assertRaises(cover.CoverError) as e:
             cover.make(self.frame, TITLE)
-        self.assertIn("META_API_KEY", str(e.exception))
-        self.assertIn("LCS_KEYS", str(e.exception))
+        self.assertIn("paste your Meta API key in Options", str(e.exception))
+        self.assertIn("Options", str(e.exception))
         self.assertEqual((self.api.got, self.covers(), e.exception.usd), ([], [], 0.0))
 
     def test_each_refusal_is_one_sentence_with_what_the_api_said_and_no_cover_is_written(self):
@@ -190,7 +190,7 @@ class Cover(unittest.TestCase):
             self.assertNotIn(KEY, sentence)
             self.assertEqual((e.exception.usd, self.covers()), (0.0, []))
             if status in (401, 403):
-                self.assertIn("META_API_KEY", sentence)
+                self.assertIn("Paste a key that works in Options", sentence)
 
     def test_an_answer_with_no_picture_or_one_that_is_not_a_picture_leaves_no_cover(self):
         for answer, says, usd in (({"data": []}, "answered without a picture", 0.0),

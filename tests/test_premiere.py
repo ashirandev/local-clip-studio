@@ -302,9 +302,8 @@ class Finished(unittest.TestCase):
             self.assertIn("ไมค์ดี/ไมค์ดี.srt", z.namelist())
             self.assertTrue(z.read("ไมค์ดี/ไมค์ดี.srt").startswith(b"\xef\xbb\xbf"), "or Thai may not read as Thai")
         self.assertIn("pick ไมค์ดี.srt and drag it onto the timeline", note)
-        self.assertIn("เลือก ไมค์ดี.srt แล้วลากลงไทม์ไลน์", note)
         self.assertIn("- Video: Captions", note)
-        self.assertIn("- วิดีโอ: ซับ", note)
+        self.assertNotRegex(note, "[\u0e00-\u0e4f]{4}.*[\u0e00-\u0e4f]{4}.*[\u0e00-\u0e4f]{4}.*[\u0e00-\u0e4f]{4}", "Tarm 11-02: English, the judges read it")
         with zipfile.ZipFile(io.BytesIO(premiere.bundle("ไมค์ดี", self.stream, self.state, self.path)[1])) as z:
             self.assertNotIn(".srt", z.read("ไมค์ดี/README.txt").decode("utf-8"))
 
@@ -319,7 +318,6 @@ class Finished(unittest.TestCase):
         self.assertNotIn("- Video: Titles", note)
         self.assertIn("- Sound: Sound track 2, Music", note)
         self.assertIn("the blurs, the colour look, shakes and zooms, glass boxes, the pictures under them.", note)
-        self.assertIn("เบลอ โทนสี กล้องสั่นและซูม กล่องกระจก ภาพประกอบที่อยู่ใต้กล่องกระจก", note)
         self.assertIn("is NOT blurred in them", note)
         self.assertIn('double-click "ไมค์ดี"', note)
         self.assertNotIn("What came over", note)

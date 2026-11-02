@@ -3724,7 +3724,7 @@ function drawSends(d) {
     health();
   });
   sendsLine.classList.remove("bad");
-  sendsLine.textContent = room.sends ? "Meta's servers hear what is said, watch pieces of up to a minute, and draw covers from frames, with your key." : "With Muse on this computer, nothing goes to Meta unless you ask. Hearing stays here and is weaker in Thai.";
+  sendsLine.textContent = room.sends ? "Meta's servers hear what is said, watch pieces of up to a minute, and draw covers from frames, with your key." : "With Muse on this computer, nothing goes to Meta unless you ask. Hearing stays here and may miss more words.";
 }
 
 apiForm.addEventListener("submit", async (e) => {
@@ -3737,7 +3737,7 @@ apiForm.addEventListener("submit", async (e) => {
   }
   const ok = d.ok && d.mind.ok;
   apiNote.classList.toggle("bad", !ok);
-  apiNote.textContent = !d.ok ? d.error : ok ? d.mind.label + " is ready." : d.mind.why;
+  apiNote.textContent = !d.ok ? d.error : ok ? d.mind.label + " is ready." + (apiNow === "meta" && !room.sends ? " Meta sees pieces is off, so the hearing stays on this computer: turn it on below to hear better." : "") : d.mind.why;
   if (!d.ok) return;
   const a = apis.find((x) => x.name === apiNow);
   if (a) {
@@ -4179,7 +4179,7 @@ const MINI = {
   "style-classic": { parts: "who ttl" },
   "style-font": { parts: "who ttl cap" },
   title: { parts: "who ttl" },
-  fonts: { parts: "ttl", ttl: "Aa กข" },
+  fonts: { parts: "ttl", ttl: "Aa Bb" },
   untitle: { parts: "who ttl" },
   flash: { parts: "who" },
   shake: { parts: "who" },
@@ -4187,7 +4187,7 @@ const MINI = {
   word: { parts: "who fx", fx: "WOW" },
   push: { parts: "who" },
   sticker: { parts: "who fx", fx: "🔥" },
-  glass: { parts: "who box ttl", ttl: "฿990" },
+  glass: { parts: "who box ttl", ttl: "$99" },
   "look-vivid": { parts: "who" },
   "look-warm": { parts: "who" },
   "look-film": { parts: "who" },
@@ -4271,7 +4271,7 @@ async function fillNewest() {
 async function bringIn(file, space, ask) {
   if (file.size > space) {
     const gb = (n) => (Math.max(n, 0) / 1e9).toFixed(1);
-    return { error: file.name + " is " + gb(file.size) + " GB and the studio's drive has room for " + gb(space) + " GB. Free up space there and send it again. · วิดีโอนี้ขนาด " + gb(file.size) + " GB แต่ไดรฟ์ที่ติดตั้งโปรแกรมเหลือที่ให้ " + gb(space) + " GB ลบไฟล์ที่ไม่ใช้ออกก่อน แล้วกดส่งอีกครั้ง" };
+    return { error: file.name + " is " + gb(file.size) + " GB and the studio's drive has room for " + gb(space) + " GB. Free up space there and send it again." };
   }
   const line = bubble("note sent");
   const words = el("span");
@@ -4290,7 +4290,7 @@ async function bringIn(file, space, ask) {
     return ask({ path: d.path });
   } catch (e) {
     line.remove();
-    return { error: file.name + " could not be copied. Keep this page open and send it again. · คัดลอกไม่สำเร็จ เปิดหน้านี้ค้างไว้แล้วกดส่งอีกครั้ง" };
+    return { error: file.name + " could not be copied. Keep this page open and send it again." };
   }
 }
 
