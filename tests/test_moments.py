@@ -914,6 +914,21 @@ class InClip(unittest.TestCase):
         self.assertEqual(got["text"], "three")
         self.assertGreater(got["from"], 11.4, "it starts with its own first word, not with the piece")
 
+    def test_a_clip_does_not_end_on_the_first_word_of_a_new_line(self):
+        """EP0 11-02: the end sat 0.17 s into a line of 7 s, and the last caption was "But..."."""
+        said = [{"from": 505.76, "to": 511.41, "text": "a"}, {"from": 511.49, "to": 518.71, "text": "b"}]
+        moved, told = tools._ends_before_new_line(([[448.83, 511.66]], None), {"said": said})
+        self.assertEqual(moved, [[448.83, 511.49]])
+        self.assertEqual(told, tools.ENDS_BEFORE)
+        made = ([[448.83, 512.8]], "cut")
+        self.assertEqual(tools._ends_before_new_line(made, {"said": said}), made, "more of the line than a first word")
+        made = ([[448.83, 518.0]], "cut")
+        self.assertEqual(tools._ends_before_new_line(made, {"said": said}), made, "a line nearly done is left to its end")
+        made = ([[448.83, 511.66]], "cut")
+        self.assertEqual(tools._ends_before_new_line(made, {"said": said, "ends": [1, 2]}), made, "the person's end stays")
+        self.assertEqual(tools._ends_before_new_line(([[0.0, 5.0], [448.83, 511.66]], None), {"said": said})[0],
+                         [[0.0, 5.0], [448.83, 511.49]], "only the last end")
+
     def test_a_subtitle_loses_the_number_of_its_place_in_the_list(self):
         """EP0 11-02, Spark Open: "1. With such huge age gaps" on the clip."""
         self.assertEqual(tools._without_own_number("1. With such huge age gaps", 1), "With such huge age gaps")

@@ -5062,6 +5062,36 @@ class Tools(unittest.TestCase):
         job.chat.events = [person("Make a clip with the title ตายแล้ว")]
         self.assertEqual(tools._thai_for_english(job, ["ตายแล้ว"]), [], "what they typed themselves passes")
 
+    def test_a_cut_on_talk_reaches_the_person_and_a_talk_clips_numbers_were_said(self):
+        """Lane 4 11-02: the check said tell the person, and neither final answer did. "14-Year Gap" came from Muse."""
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        loud = (None, "on sound as loud as the talk at 8:31.7 of the recording, with nothing quiet near" + tools.TELL_PERSON, "Muse")
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            with mock.patch.object(tools, "_cuts_check", lambda *a: loud):
+                self.run_job(*self.to_moment(), [call("load_recipe", type="talk", why="two people talking")],
+                             [call("make_clip", moment=1, layout="subject", why="the action")],
+                             [call("decide_people", keep=[1], why="it is him")],
+                             [call("add_title", words="Boss down", start=0, end=4, place="top", why="the hook")],
+                             [call("render_clip", why="make the file")], [call("check_clip", why="check it")], "Done.")
+                self.chat.moments[0]["said"] = [{"from": 30.0, "to": 35.0, "text": "we are seven years apart"}]
+                _, steps = self.run_job(
+                    [call("hand_over", title="14-Year Gap", caption="c", hashtags=["#reels"], why="a guess")],
+                    [call("hand_over", title="14-Year Gap", caption="c", hashtags=["#reels"], why="they said it")], "Done.")
+        finally:
+            render.export = had
+        guessed, ready = steps
+        self.assertTrue(guessed["refused"])
+        self.assertIn("were not heard in this clip: 14", guessed["result"])
+        self.assertFalse(ready["refused"], ready["result"])
+        notes = [e["text"] for e in self.chat.events if e["kind"] == "note"]
+        self.assertIn("Listen before you post: a cut falls on sound as loud as the talk at 8:31.7 of the recording, "
+                      "with nothing quiet near.", notes)
+
     def test_thai_words_are_refused_at_every_door_on_an_english_ask(self):
         def export(rec, state, out, on_progress=None, on_start=None, *, default):
             make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))

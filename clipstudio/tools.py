@@ -1484,6 +1484,8 @@ def _pieces(said, a, b, still, claps=(), slates=False, of="the moment", edges=Tr
 
 
 EDGE_REACH = 1.0
+NEW_LINE_SHOWN = 1.0
+ENDS_BEFORE = "The clip ends before a new line of talk it only just caught."
 LAST_REACH = 4.0
 PICTURE_ENDS = ("game", "sport")
 EDGE_BED = 6.0
@@ -1551,6 +1553,21 @@ def _on_quiet(rec, made, level, last_end=False):
     return landed, " ".join(([said] if said else []) + told) or None
 
 
+def _ends_before_new_line(made, m):
+    """made, (pieces, sentence), with the clip's end moved back to the start of a line of talk it only just caught. EP0
+    on 11-02: the end sat 0.17 s into a line of 7 s, and the clip's last caption was "But...". Such a start is not
+    part of what the clip says, so this takes no word from the line before it; an end the person gave stays."""
+    pieces, said = made
+    if not pieces or m.get("ends"):
+        return made
+    end = pieces[-1][1]
+    caught = [p["from"] for p in m.get("said") or [] if pieces[-1][0] < p["from"] < end and
+              end - p["from"] <= NEW_LINE_SHOWN and p["to"] - end >= NEW_LINE_SHOWN]
+    if not caught:
+        return made
+    return pieces[:-1] + [[pieces[-1][0], round(min(caught), 2)]], " ".join(filter(None, [said, ENDS_BEFORE]))
+
+
 def _reaches_on(recipe, m):
     """True when the last end of the clip of recipe from moment m may look on for a pause (_on_quiet): not when the
     picture ended it, as a game's death or a goal's celebration does, nor when the person gave it."""
@@ -1568,6 +1585,9 @@ def _loud_cuts(rec, cuts, level):
     return [t for t in cuts if EDGE_FILE < t < rec["seconds"] - EDGE_FILE and not held(t)]
 
 
+TELL_PERSON = ": tell the person"
+
+
 def _cuts_check(rec, state, kind):
     """(ok, found, who) for the check that the clip's cuts sit in quiet sound. _on_quiet moved those it could, so one
     left on loud sound had nothing quiet near: only a person can hear whether it is right."""
@@ -1579,8 +1599,8 @@ def _cuts_check(rec, state, kind):
         return None, "the sound could not be read", "program"
     loud = _loud_cuts(rec, sum(pieces, []), level)
     if loud:
-        return None, "on sound as loud as the talk at %s of the recording, with nothing quiet near: tell the person" % (
-            ", ".join(_tenth(t) for t in loud)), "Muse"
+        return None, "on sound as loud as the talk at %s of the recording, with nothing quiet near%s" % (
+            ", ".join(_tenth(t) for t in loud), TELL_PERSON), "Muse"
     return True, "every cut is in quiet sound", "program"
 
 
@@ -2351,9 +2371,9 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
         raise Refused("Not made. " + unasked)
     level = None if recipe == MONTAGE else takes.heard_level(rec, a, b)
     if layout in ("talk", "speaker", "split"):
-        return _make_talk(job, rec, moment, m, *_on_quiet(rec, _pieces(
+        return _make_talk(job, rec, moment, m, *_ends_before_new_line(_on_quiet(rec, _pieces(
             m.get("said") or [], a, b, _still(rec, "talk", a, b, None), takes.heard_claps(rec, a, b),
-            edges=not m.get("ends"), level=level), level, _reaches_on(recipe, m)), name=layout, kept=kept)
+            edges=not m.get("ends"), level=level), level, _reaches_on(recipe, m)), m), name=layout, kept=kept)
     trim = None
     try:
         if recipe == "vlog" and layout == "card" and not face:
@@ -2370,8 +2390,9 @@ def make_clip(job, why, moment, layout, crop=None, face=None, product=None, foll
     except ValueError as e:
         raise Refused(str(e))
     still = _still(rec, recipe, a, b, layouts.face_room(lay))
-    pieces, cut = _on_quiet(rec, _pieces(m.get("said") or [], a, b, still, takes.heard_claps(rec, a, b) if still else [],
-                                         edges=not m.get("ends"), level=level), level, _reaches_on(recipe, m))
+    pieces, cut = _ends_before_new_line(_on_quiet(
+        rec, _pieces(m.get("said") or [], a, b, still, takes.heard_claps(rec, a, b) if still else [],
+                     edges=not m.get("ends"), level=level), level, _reaches_on(recipe, m)), m)
     menus = None
     if recipe == "game":
         try:
@@ -3850,8 +3871,10 @@ SUBTITLE_ASK = ("These are the spoken sentences of a short vertical clip (%s), i
                 "word may be misheard), in the order they are said, each with how long it is on screen. Write the %s "
                 "subtitle for each sentence, so a viewer who does not know %s follows the clip: natural spoken %s, "
                 "short, the meaning and not word for word; keep every number the sentence says, and add none; keep "
-                "names written in Latin letters exactly as they are%s; when a sentence is only a filler sound, write "
-                "it short (\"Yeah.\", \"Huh?\"). One %s line for each sentence, in the same order.\n\n%s")
+                "names written in Latin letters exactly as they are%s; where the sentence does not say whether someone "
+                "is a man or a woman, use their name or \"they\", and never guess he or she; when a sentence is only a "
+                "filler sound, write it short (\"Yeah.\", \"Huh?\"). One %s line for each sentence, in the same "
+                "order.\n\n%s")
 NUMBER_ASK = ("These lines do not carry the numbers their sentences say:\n%s\nGive each line the numbers its sentence "
               "says, and no others. Where a word is not a number in that sentence (the speech recognition may have "
               "misheard it), write the line as it was. Answer with all %d lines again, in the same order.")
@@ -6115,6 +6138,10 @@ def _score_slips(state, post):
             ["%d-%d" % s for s in went])
 
 
+TALK_NUMBERS = ("Not handed over. These numbers are in the title or the post and were not heard in this clip: %s. Take out "
+                "any you worked out or guessed; if the speaker did say them, hand over again unchanged.")
+
+
 def hand_over(job, why, title, caption, hashtags, english=""):
     state = _clip_state(job)
     done = job.chat.finished()
@@ -6171,6 +6198,11 @@ def hand_over(job, why, title, caption, hashtags, english=""):
         if wrong and not _numbers_unread(job, said):
             raise Refused("The post text has numbers that were not said: %s. Use only numbers the seller said; one "
                           "that was not said comes out, it is not written in words instead." % ", ".join(wrong))
+    if (job.chat.clip or {}).get("recipe") == "talk":
+        said = _said(job, state)
+        wrong = _not_said(" ".join([title, caption, english or ""] + [t["text"] for t in state["titles"]]), said)
+        if wrong and not _numbers_unread(job, said) and not _told_once(job, "talk_numbers"):
+            raise Refused(TALK_NUMBERS % ", ".join(wrong))
     caption, more = _without_tags(caption)
     english, also = _without_tags(english)
     tags = list(dict.fromkeys(t for t in (_tag(w) for w in list(hashtags) + more + also) if t))
@@ -6202,6 +6234,9 @@ def hand_over(job, why, title, caption, hashtags, english=""):
              "cover": made}
     job.emit("ready", **ready)
     job.show(ready=ready)
+    for c in checks:
+        if c["ok"] is None and c["found"].endswith(TELL_PERSON):
+            job.emit("note", text="Listen before you post: a cut falls %s." % c["found"][:-len(TELL_PERSON)])
     if failed and job.finishing:
         job.emit("note", text="Muse ran out of steps, so this clip was handed over with %s: %s." % (
             "a check that failed" if len(failed) == 1 else "checks that failed", "; ".join(failed)))
