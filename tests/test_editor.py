@@ -5047,6 +5047,21 @@ class Tools(unittest.TestCase):
         self.chat.clip["recipe"] = "game"
         self.assertIsNone(tools._unclear(fresh, mumbled, self.chat.looks), "in a game the play is the clip, not words")
 
+    def test_an_english_ask_gets_english_words_on_the_clip_and_in_the_post(self):
+        """Tarm 11-02: the judges read English. Glimmer gave English captions, and a Thai title and post on a Sifu clip."""
+        job = mock.Mock(chat=mock.Mock(clip={"recipe": "game"}, events=[]))
+        person = lambda text: {"kind": "person", "text": text}
+        job.chat.events = [person("(opened) sifu.mkv\nMake a short clip from the best part of this stream")]
+        self.assertEqual(tools._thai_for_english(job, ["ตายแล้วอายุ 35", "Dead at 35"]), ["ตายแล้วอายุ 35"])
+        job.chat.events.append(person("(tapped) Make the cover."))
+        self.assertEqual(tools._thai_for_english(job, ["ตาย"]), ["ตาย"], "a tap is not what they wrote, the ask still stands")
+        job.chat.events = [person("ทำคลิปจากไลฟ์นี้"), person("(tapped) Make the cover.")]
+        self.assertEqual(tools._thai_for_english(job, ["ตาย"]), [], "a tap's English words do not change who is reading")
+        job.chat.events = [person("(opened) a video of the trip")]
+        self.assertEqual(tools._thai_for_english(job, ["ตาย"]), [], "no words typed, none to go by")
+        job.chat.events = [person("Make a clip with the title ตายแล้ว")]
+        self.assertEqual(tools._thai_for_english(job, ["ตายแล้ว"]), [], "what they typed themselves passes")
+
     def test_a_line_that_began_before_the_clip_has_captions_for_what_is_said_in_it(self):
         """EP22 11-01: no captions in the first 10 s while they talk, as a 24 s line ran over the clip's start."""
         self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")], "Done.")

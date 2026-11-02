@@ -45,7 +45,7 @@ import traceback
 
 from . import (asr, channels, chatname, countdown, effects, faces, hearing, layer, layouts, maps, mind, montage, needs, previews,
                project, recording, render, spent, talk, text, words)
-from .tools import (CAPTION_LETTERS, EFFECT_BOXES, HITS, ON_THE_PICTURE, SCRIPTS, LONGEST, LOUD_CUT, MOVED_CUTS, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST,
+from .tools import (OPEN_SAID, TAP_SAID, CAPTION_LETTERS, EFFECT_BOXES, HITS, ON_THE_PICTURE, SCRIPTS, LONGEST, LOUD_CUT, MOVED_CUTS, ONE_LETTERS, LOOK_LABELS, LOOKS, SCHEMAS, SHORTEST,
                     SOUNDS, STYLES, TOOLS, UNASKED, ALBUM_PARTS, ALBUM_TOOLS, Refused, _changed_clips, _circle_box, _spoken, _subtitles,
                     _undecided, _waits, album_entries, channel_entries, channel_unfit, describe, faces_at,
                     features, look_of, look_said)
@@ -86,7 +86,6 @@ LAYOUT_LABELS = {"card": "Card", "stack": "Stack", "face": "Face", "subject": "F
 COLOUR_LOOKS = ("none",) + tuple(n for n in LOOKS if n != "none")
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"(])")
 PREVIEW_WAIT = 1.0
-TAP_SAID = "(tapped) "
 BLOCK_LENGTH = 0.6
 EFFECT_PLACES = ("middle", "top")
 COVER_SAID = re.compile(r"(?i)\bcovers?\b|หน้าปก|ภาพปก|ปกพร้อม|ปกคลิป|ปกให้|ปกของ|ปกสวย")
@@ -108,7 +107,6 @@ STOPPED_SAY = ("[studio] This message has used all its steps. Tell the person in
 FINISH_CALL = "[studio] Words alone do not give the person the clip. Call the next of %s now."
 CUT_OUT = (" (The rest of this result was cut to make room in Muse's memory: the studio still has it, and the tool that gave "
            "it gives it again.)")
-OPEN_SAID = "(opened) "
 CLIP_COUNTS = (5, 10, 20)
 CLIPS_SHOWN = ", %d clips to choose from"
 CLIPS_TOLD = ("The person chose to see %d clips first. Load the recipe, look across the whole recording and propose about %d "

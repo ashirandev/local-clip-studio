@@ -3623,10 +3623,11 @@ def _spot(name, state, place, box):
 
 
 def _thai_for_english(job, texts):
-    """The texts Muse wrote in Thai when the person asked for the words on the clip in English, so a viewer who reads
-    no Thai can follow; words the person typed themselves pass. The captions are not among them: they say what was
-    said, and add_captions translates them."""
-    if _subtitles((job.chat.clip or {}).get("subtitles")) != "English":
+    """The texts Muse wrote in Thai when the person asked for the words on the clip in English or writes in English,
+    so a viewer who reads no Thai can follow; words the person typed themselves pass. The captions are not among them:
+    they say what was said, and add_captions translates them. 11-02: on an English ask over a Thai stream, Glimmer gave
+    English captions, and a Thai title and post."""
+    if "English" not in (_subtitles((job.chat.clip or {}).get("subtitles")), _asked_in(job)):
         return []
     said = " ".join(" ".join(e["text"].split()) for e in job.chat.events if e["kind"] == "person")
     return [t for t in texts if re.search("[ก-๛]", t) and " ".join(t.split()) not in said]
@@ -4193,6 +4194,7 @@ def _in_clip(pieces, p, length):
 
 
 EDGE_SECONDS = 1.0
+TAP_SAID, OPEN_SAID = "(tapped) ", "(opened) "
 
 
 def _heard_in_piece(pieces, p):
@@ -4232,13 +4234,19 @@ def _subtitles(name):
     return " ".join(name.split()).title()
 
 
+def _own_words(said):
+    """What the person typed in a message: an opened recording's line is the studio's, not their words."""
+    return said.partition("\n")[2] if said.startswith(OPEN_SAID) else said
+
+
 def _asked_in(job):
     """The language of the person's last words, when the studio writes captions in it and the words leave no doubt,
     else None: a clip whose speaker speaks another language gets its captions translated with nobody asking (Tarm
     10-31, "โอเค ลองเลยนะ"). A path in the words says nothing of it. Latin letters alone do not say English: a person
     writing Spanish over a Spanish video would get English captions (Tarm: "ถ้า user ใช้ภาษาอื่นจะมีปัญหาปะ"), so
     English takes one of its own small words, and with none the captions stay as they were said."""
-    said = [PLACES.sub(" ", e["text"]) for e in job.chat.events if e["kind"] == "person"]
+    said = [PLACES.sub(" ", _own_words(e["text"])) for e in job.chat.events
+            if e["kind"] == "person" and not e["text"].startswith(TAP_SAID)]
     words = said[-1] if said else ""
     return next((name for name, letters in SCRIPTS if letters.search(words)), None) or (
         "English" if ENGLISH_WORDS & set(re.findall(r"[a-z']+", words.lower())) else None)
@@ -4323,8 +4331,14 @@ def _subtitle_lines(job, talk, count, language, tries):
         except (ValueError, KeyError, TypeError):
             continue
         if isinstance(got, list) and len(got) == count and all(isinstance(s, str) and s.strip() for s in got):
-            return [" ".join(s.split()) for s in got]
+            return [_without_own_number(" ".join(s.split()), k) for k, s in enumerate(got, 1)]
     return None
+
+
+def _without_own_number(line, n):
+    """A subtitle without the number of its place in the list Muse was shown: 11-02, Spark Open on EP0's talk wrote
+    "1. With such huge age gaps", and the 1. went on the clip."""
+    return re.sub(r"^%d[.)]\s+" % n, "", line)
 
 
 def _said_numbers(said):
@@ -5100,6 +5114,9 @@ def add_hit(job, why, at, kind, word=None):
     if kind == "word":
         if not word:
             raise Refused("A word hit needs its word, such as POW, in the clip's language.")
+        if _thai_for_english(job, [word]):
+            raise Refused("The person writes in English, so a viewer who reads no Thai can follow: write \"%s\" in "
+                          "English." % word)
         try:
             text.big_word(word, at, 0.8, _main_part(state["clip"]["layout"]),
                           render.style_of(state, job.chat.clip["style"] if job.chat.clip else "clean", kind="big"))
@@ -5954,6 +5971,9 @@ def make_cover(job, why, title, again=False, asked=False):
     if not done:
         raise Refused("There is no finished file made from the clip as it is now. Render the clip first, then make "
                       "its cover.")
+    if _thai_for_english(job, [title]):
+        raise Refused("The person writes in English, so a viewer who reads no Thai can follow: write \"%s\" in "
+                      "English." % title)
     if _here(job) and not asked and not sends.allowed():
         raise Refused("You work on this computer, so no picture of the person's leaves it unasked: %s draws the cover "
                       "on Meta's servers, with their key, for $%.2f. Make it only when the person asks for a cover or "
@@ -6118,6 +6138,10 @@ def hand_over(job, why, title, caption, hashtags, english=""):
     if (job.chat.clip or {}).get("recipe") and not state["titles"] and why != BATCH_WHY and not job.finishing \
             and not _told_once(job, "no_title"):
         raise Refused("Not handed over." + NO_TITLE + " If they did, hand over again unchanged.")
+    thai = [] if why == BATCH_WHY or job.finishing else _thai_for_english(job, [title, caption] + list(hashtags))
+    if thai:
+        raise Refused("Not handed over. The person writes in English, so a viewer who reads no Thai can follow: write "
+                      "these in English: %s." % "; ".join('"%s"' % t for t in thai))
     where = [m.group(0) for m in PLACES.finditer(" ".join([title, caption, english or ""] + list(hashtags)))]
     if where:
         raise Refused("The post names %s, a place on this computer: viewers must never see where the files are kept. "

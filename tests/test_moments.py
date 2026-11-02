@@ -914,6 +914,13 @@ class InClip(unittest.TestCase):
         self.assertEqual(got["text"], "three")
         self.assertGreater(got["from"], 11.4, "it starts with its own first word, not with the piece")
 
+    def test_a_subtitle_loses_the_number_of_its_place_in_the_list(self):
+        """EP0 11-02, Spark Open: "1. With such huge age gaps" on the clip."""
+        self.assertEqual(tools._without_own_number("1. With such huge age gaps", 1), "With such huge age gaps")
+        self.assertEqual(tools._without_own_number("2) So how", 2), "So how")
+        self.assertEqual(tools._without_own_number("3. Three things", 1), "3. Three things", "a number that is its own stays")
+        self.assertEqual(tools._without_own_number("1,000 people", 1), "1,000 people")
+
     def test_a_line_only_just_over_the_edge_keeps_its_words(self):
         line = {"from": 14.5, "to": 18.0, "text": "said at the very start"}
         self.assertEqual(tools._heard_in_piece([[15.0, 40.0]], line), dict(line, **{"from": 15.0}))
