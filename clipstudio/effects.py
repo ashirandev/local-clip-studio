@@ -645,14 +645,13 @@ def _path(move, k, count, u, since, inner):
             "%s*%s" % (_f(spin * 2 * math.pi * 0.5), u))
 
 
-def flurry(pngs, at, box, move="burst", count=8, length=None, size=150, over="yuv420"):
+def flurry(pngs, at, box, move="burst", count=8, length=None, size=150):
     """Copies of one to six pictures moving together inside box (x, y, w, h on the 1080x1920 frame) from `at`, by
     one of the MOVES: each copy its own way (its own path, start and spin, and 0.75 to 1.2 times size px on its
     longer side), the same every time, from t only. No copy ever reaches outside box, spinning included. pngs is a
     PNG's path or a list of them; CONFETTI ("confetti") in it stands for paper pieces in six colours, CONFETTI_SIZE
     px whatever size says, which flutter as they move. Copy k is picture k of the list, round and round. length is
-    the move's own when None. Outside at to at + length every frame is the input's own. over is what it is drawn in:
-    rgb keeps a see-through ground see-through."""
+    the move's own when None. Outside at to at + length every frame is the input's own."""
     items = [pngs] if isinstance(pngs, str) else pngs
     if not isinstance(items, (list, tuple)) or not 1 <= len(items) <= FLURRY_PICTURES:
         raise ValueError("pngs %r is not one to %d pictures: give a PNG's path or a list of them, %s for paper pieces."
@@ -723,8 +722,8 @@ def flurry(pngs, at, box, move="burst", count=8, length=None, size=150, over="yu
                      "%sfade=t=out:st=%s:d=%s:alpha=1[_q%d]"
                      % (picked[k], angle, wide, grow, fades, _f(end - leave), _f(leave), k))
         after = "out" if k == count - 1 else "_o%d" % k
-        chain.append("[%s][_q%d]overlay=x='%s-w/2':y='%s-h/2':eval=frame:shortest=1:format=%s:"
-                     "enable='between(t,%s,%s)'[%s]" % (last, k, px, py, over, _f(start), _f(end), after))
+        chain.append("[%s][_q%d]overlay=x='%s-w/2':y='%s-h/2':eval=frame:shortest=1:format=yuv420:"
+                     "enable='between(t,%s,%s)'[%s]" % (last, k, px, py, _f(start), _f(end), after))
         last = after
     return Fragment(";".join(parts + chain), files)
 

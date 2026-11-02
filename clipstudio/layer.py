@@ -301,7 +301,7 @@ def clips(state, default="clean", each=None):
         length = f.get("length") or effects.MOVES[move][2]
         todo.append(lambda f=f, move=move, length=length: _effect_clip(
             "stickers", "Flurry " + move, f["at"], length,
-            effects.flurry(f["pngs"], 0, f["box"], move, f.get("count", 8), f.get("length"), f.get("size", 150), over="rgb")))
+            effects.flurry(f["pngs"], 0, f["box"], move, f.get("count", 8), f.get("length"), f.get("size", 150))))
     for k, t in enumerate(state["titles"]):
         if not t.get("behind"):
             todo.append(lambda k=k, t=t: _word_clip(state, default, "titles", "Title: " + t["text"], ("title", k)))

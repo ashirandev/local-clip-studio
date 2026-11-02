@@ -258,8 +258,17 @@ class Apart(unittest.TestCase):
         st = state(title=False, said=None)
         got = layer.clips(st)
         self.assertEqual([(c["kind"], c["name"], c["at"], round(c["length"], 3)) for c in got], [("titles", "Big word: ว้าว", 1.0, 0.8)])
-        first, later = self.alpha(got[0]["path"], 0.0), self.alpha(got[0]["path"], 0.1)
+        first, later = self.alpha(got[0]["path"], 1 / 30), self.alpha(got[0]["path"], 2 / 30)
         self.assertNotEqual(int((first > 100).sum()), int((later > 100).sum()), "it grows, frame by frame")
+
+    def test_a_step_that_holds_no_frame_adds_none(self):
+        """EP22 11-02: the empty stretch before such a step was counted again at the next one, and the captions came 84 frames late."""
+        png = os.path.join(self.tmp, "word.png")
+        shutil.copy(layer._clear(), png)
+        path = layer._steps_video([{"from": 0.5, "to": 0.5, "file": png}, {"from": 1.0, "to": 1.2, "file": png}], 0, 36)
+        got = subprocess.run([shutil.which("ffprobe"), "-v", "error", "-count_frames", "-select_streams", "v", "-show_entries",
+                              "stream=nb_read_frames", "-of", "csv=p=0", path], capture_output=True, text=True, check=True).stdout
+        self.assertEqual(got.strip().strip(","), "36")
 
     def test_the_tracks_laid_back_together_are_the_finished_clip(self):
         import numpy as np
@@ -268,19 +277,22 @@ class Apart(unittest.TestCase):
                         "-f", "lavfi", "-i", "sine=f=880:d=6", "-filter_complex", "[1:a]volume='0.3+0.25*sin(t*3)':eval=frame[a];"
                         "[2:a]volume='0.3+0.25*cos(t*2)':eval=frame[b]", "-map", "0:v", "-map", "[a]", "-map", "[b]", "-c:v", "libx264", "-crf", "12",
                         "-c:a", "aac", "-b:a", "256k", "-shortest", source], check=True)
+        song = os.path.join(self.tmp, "song.wav")
+        subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "sine=f=220:d=8", "-af", "volume='0.3+0.2*sin(t*2)':eval=frame", "-ac", "2", song], check=True)
         rec = recording.probe(source)
         ball, coin = effects.sticker_png("soccer_ball"), effects.sticker_png("coin")
         st = dict(state(), clip={"pieces": [[0.0, 4.0]], "layout": layouts.make("subject", (1280, 720))},
                   stickers=[{"png": ball, "at": 0.5, "length": 1.5, "box": [100, 300, 300, 300]}],
                   flurries=[{"pngs": [coin], "at": 2.0, "box": [100, 300, 880, 900], "move": "burst", "count": 6}],
                   pictures=[{"png": coin, "at": 1.0, "length": 1.0, "box": [600, 300, 300, 300]}],
-                  sounds=[{"kind": "ding", "at": 1.0}], channel={"name": "@ours", "spot": None}, tracks=[0, 1])
+                  sounds=[{"kind": "ding", "at": 1.0}], channel={"name": "@ours", "spot": None}, tracks=[0, 1],
+                  music={"path": song, "from": 0, "level": -6, "duck": -6}, speech=[[0.5, 1.5]])
         st["hits"] = st["hits"] + [{"kind": "flash", "at": 3.0}]
         whole = os.path.join(self.tmp, "whole.mp4")
         render.export(rec, st, whole)
         plate, clips, stems = render.plate(rec, st), layer.clips(st), render.stems(rec, st)
         self.assertEqual([c["kind"] for c in clips], ["pictures", "stickers", "stickers", "titles", "titles", "titles", "captions", "flashes"])
-        self.assertEqual([s["name"] for s in stems], ["Sound track 1", "Sound track 2", "Sound effects"])
+        self.assertEqual([s["name"] for s in stems], ["Sound track 1", "Sound track 2", "Sound effects", "Music"])
         self.assertEqual(subprocess.run([shutil.which("ffprobe"), "-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_name",
                                          "-of", "csv=p=0", plate], capture_output=True, text=True, check=True).stdout.strip(), "", "the plate is silent")
         inputs, graph, last = ["-i", plate], [], "0:v"
@@ -316,14 +328,15 @@ class Apart(unittest.TestCase):
         self.assertLess(best / np.sqrt(np.mean(heard[:n] ** 2)), 0.05, "the tracks together sound as the clip does")
 
     def test_a_picture_under_a_glass_box_stays_on_the_plate_with_the_glass(self):
-        coin = effects.sticker_png("coin")
-        st = dict(state(title=False, word=False, said=None),
-                  pictures=[{"png": coin, "at": 1.0, "length": 1.0, "box": [600, 300, 300, 300]},
+        ball, coin = effects.sticker_png("soccer_ball"), effects.sticker_png("coin")
+        st = dict(state(title=False, word=False, said=None), clip={"pieces": [[0.0, 4.0]], "layout": layouts.make("subject", (1280, 720))},
+                  pictures=[{"png": ball, "at": 1.0, "length": 1.0, "box": [600, 300, 300, 300]},
                             {"png": coin, "at": 3.0, "length": 0.8, "box": [600, 300, 300, 300]}],
                   glass=[{"box": [100, 100, 500, 400], "start": 0.5, "end": 2.5}])
         self.assertEqual([c["at"] for c in layer.clips(st)], [3.0])
-        self.assertTrue(render.under_glass(st, st["pictures"][0]))
-        self.assertFalse(render.under_glass(st, st["pictures"][1]))
+        files = render.after_source(st, "src", "fin", 1, "clean", render.PLATE)[1]
+        self.assertIn(ball, files, "under the glass, it stays with it")
+        self.assertNotIn(coin, files, "on its own track, not twice")
 
 
 if __name__ == "__main__":
