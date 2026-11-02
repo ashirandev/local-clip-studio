@@ -211,6 +211,14 @@ class Projects(unittest.TestCase):
         p.add({"do": "clip", "moment": 3, "pieces": [[38, 40], [38, 40]], "layout": {"kind": "card"}})
         self.assertEqual(p.state()["mutes"], [[0, 1], [2, 3]], "a stretch the clip plays twice is muted twice")
 
+    def test_a_dash_stays_on_the_line_it_ends(self):
+        """EP0 11-02: "—" took a line of its own, for no time at all."""
+        said = "them, we're only — three years"
+        lines = text.caption_lines([{"from": 0, "to": 2, "text": said}], 16)
+        self.assertEqual([ln["text"].strip() for ln in lines], ["them, we're only —", "three years"])
+        self.assertEqual("".join(ln["text"] for ln in lines), said)
+        self.assertEqual(text.caption_lines([{"from": 0, "to": 1, "text": "—"}], 16)[0]["text"], "—", "nothing to stay on")
+
     def test_the_captions_leave_out_the_words_said_where_the_sound_is_muted(self):
         lines = text.caption_lines([{"from": 0, "to": 2, "text": "one two three"},
                                     {"from": 3, "to": 5, "text": "hello there"}])

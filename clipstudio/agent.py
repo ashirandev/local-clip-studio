@@ -1631,6 +1631,9 @@ class Chat:
         return self.say(told + said, mind_key, (), shown=shown + said)
 
 
+DONE_MARK = re.compile(r"\s*[-–—:(\[]+\s*(?:done|finished|completed?)[)\]]?[.!]?$", re.I)
+
+
 class Job:
     """One message from the person and everything Muse does about it, including words typed while it works."""
 
@@ -2245,8 +2248,14 @@ class Job:
         self.guesses = {"clip": clip, "chips": chips}
 
     def set_plan(self, steps, why):
+        """A new plan keeps what is done: a step that came through unchanged, and one Muse marked done in its words.
+        EP0 11-02: Muse wrote "Find the best moments in the talk - done" midway, the page left it unticked, and the
+        studio asked Muse to go on after the clip was handed over."""
         changed = bool(self.plan)
-        self.plan, self.worked = [{"text": s, "state": "todo"} for s in steps], set()
+        done = {item["text"] for i, item in enumerate(self.plan, 1) if item["state"] == "done" or i in self.worked}
+        bare = [DONE_MARK.sub("", s) for s in steps]
+        self.plan = [{"text": b, "state": "done" if b != s or b in done else "todo"} for b, s in zip(bare, steps)]
+        self.worked = {i for i, item in enumerate(self.plan, 1) if item["state"] == "done"}
         self.show_plan(why=why, changed=changed)
 
     def tick(self, step):

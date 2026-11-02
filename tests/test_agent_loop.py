@@ -496,6 +496,31 @@ class Loop(unittest.TestCase):
                       self.chat.messages[-2]["content"])
         self.assertEqual(events[-1]["why"], "answered")
 
+    def test_a_new_plan_keeps_what_is_done(self):
+        """EP0 11-02: Muse rewrote its plan midway with "... - done", and the studio asked it to go on after the hand-over."""
+        brain = ScriptedMind([call("set_plan", steps=["a", "b", "c"], why="plan")],
+                             [call("find_recordings", why="look", plan_step=1)],
+                             [call("find_recordings", words="sifu", why="on", plan_step=2)],
+                             [call("set_plan", steps=["a", "b - done", "c", "d"], why="plan again")],
+                             [call("find_recordings", words="ep0", why="on", plan_step=3)],
+                             [call("find_recordings", words="ep22", why="on", plan_step=4)],
+                             "All done.")
+        job, events = self.run_job(brain)
+        items = [e for e in events if e["kind"] == "plan"][-1]["items"]
+        self.assertEqual([(p["text"], p["state"]) for p in items], [(s, "done") for s in "abcd"])
+        self.assertEqual([e for e in events if e["kind"] == "note"], [])
+        self.assertEqual([a["final"] for a in events if a["kind"] == "answer"], [True])
+
+    def test_a_rewritten_plan_does_not_tick_a_step_nothing_worked_on(self):
+        brain = ScriptedMind([call("set_plan", steps=["a", "b"], why="plan")],
+                             [call("find_recordings", why="look", plan_step=1)],
+                             [call("set_plan", steps=["a", "b", "c"], why="plan again")],
+                             [call("find_recordings", words="sifu", why="on", plan_step=3)],
+                             "Stopped.", "b was not needed.")
+        job, events = self.run_job(brain)
+        self.assertEqual([p["state"] for p in [e for e in events if e["kind"] == "plan"][-1]["items"]],
+                         ["done", "todo", "done"])
+
     def test_a_step_passed_over_stays_open_and_gets_the_reminder(self):
         """EP0 10-31: step 5 was SAM, Muse named step 6, and the page ticked all 6 with no cut-out made."""
         brain = ScriptedMind([call("set_plan", steps=["a", "b", "c"], why="plan")],

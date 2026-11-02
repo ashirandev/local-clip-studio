@@ -926,6 +926,8 @@ class InClip(unittest.TestCase):
         self.assertEqual(tools._ends_before_new_line(made, {"said": said}), made, "a line nearly done is left to its end")
         made = ([[448.83, 511.66]], "cut")
         self.assertEqual(tools._ends_before_new_line(made, {"said": said, "ends": [1, 2]}), made, "the person's end stays")
+        short = said[:1] + [{"from": 511.49, "to": 511.9, "text": "Yeah."}]
+        self.assertEqual(tools._ends_before_new_line(made, {"said": short}), made, "a short line nearly done stays")
         self.assertEqual(tools._ends_before_new_line(([[0.0, 5.0], [448.83, 511.66]], None), {"said": said})[0],
                          [[0.0, 5.0], [448.83, 511.49]], "only the last end")
 

@@ -1131,9 +1131,10 @@ def _runs_on(piece, most):
 def caption_lines(phrases, most=16):
     """Caption lines from what was heard, [{"from": s, "to": s, "text": "..."}] in seconds of the clip: each line at
     most `most` letters (marks above or below a letter do not count), broken at word breaks, a number never split
-    and a particle (ครับ, นะ...) kept with the word before it. A phrase's time is spread over its words by their
-    letters, so each line is {"from", "to", "text", "phrase", "words": [{"from", "to", "text"}]}; the lines of a
-    phrase joined give its text back exactly."""
+    and a particle (ครับ, นะ...) kept with the word before it. A dash or other mark on its own stays on the line it
+    follows, past `most` if it must: EP0 11-02, "—" took a line of its own for no time at all. A phrase's time is
+    spread over its words by their letters, so each line is {"from", "to", "text", "phrase", "words": [{"from", "to",
+    "text"}]}; the lines of a phrase joined give its text back exactly."""
     if not isinstance(most, int) or isinstance(most, bool) or not 4 <= most <= 80:
         raise ValueError("most %r is not a line length: use a whole number of letters from 4 to 80." % (most,))
     if not isinstance(phrases, (list, tuple)):
@@ -1151,7 +1152,8 @@ def caption_lines(phrases, most=16):
             words.append({"from": round(start, 3), "to": round(a + (b - a) * done / total, 3), "text": said[s:e]})
         current = []
         for word in words:
-            if current and _letters("".join(w["text"] for w in current) + word["text"]) > most:
+            if current and any(c.isalnum() for c in word["text"]) and _letters(
+                    "".join(w["text"] for w in current) + word["text"]) > most:
                 lines.append(_line(k, current))
                 current = []
             current.append(word)
