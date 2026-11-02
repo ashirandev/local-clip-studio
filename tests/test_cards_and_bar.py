@@ -434,6 +434,13 @@ const press = async (answer) => {
   said.picture.timer = phone.ran.length;
   phone.ran.forEach((fn) => fn());
   said.picture.phone = [screen.children.map((n) => n.name), played.classList.contains("waiting")];
+  const broken = load(page);
+  const glass = broken.element("frame");
+  const lost = Object.assign(new Node("video"), { name: "lost" });
+  glass.replaceChildren(Object.assign(new Node("img"), { name: "still" }));
+  broken.t.showOver(lost, []);
+  (lost.heard.error || []).forEach((fn) => fn());
+  said.picture.broken = lost.classList.contains("waiting");
   const named = load(page);
   const opened = (name) => named.event("opened", { recording: { name, seconds: 60 } });
   opened("sifu.mkv");
@@ -467,6 +474,7 @@ class Page(unittest.TestCase):
         self.assertEqual(s["under"], [["last", "film"], True], "the video loads under the picture")
         self.assertEqual(s["over"], [["film"], False])
         self.assertEqual(s["phone"], [["played"], False], "a phone loads no video until it is played, so the wait ends")
+        self.assertFalse(s["broken"], "a video that cannot load says so itself, on the page")
 
     def test_the_chat_name_goes_when_the_chat_opens_another_recording(self):
         """Lane 5 11-01: a clip of a chicken pot under the name of the Sifu clip before it."""

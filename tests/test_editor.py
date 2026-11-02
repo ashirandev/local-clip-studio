@@ -4683,15 +4683,14 @@ class Tools(unittest.TestCase):
         self.assertIn("- not needed: It does not start black or silent (silent for the first 0.5 s, where the sound "
                       "is muted (0-2 s) as asked: music under it would fill it)", steps[-1]["result"])
 
-    def test_a_check_that_fails_on_a_clip_the_person_already_has_takes_one_round(self):
-        """Lane 5's walk 11-01: one line on a finished clip, and hand_over refused twice on a caption nobody had touched."""
+    def handed_after_one_failed_check(self, moment):
         def export(rec, state, out, on_progress=None, on_start=None, *, default):
             shutil.copy(self.clip, out)
             return out
 
         had = getattr(render, "export", None)
         render.export = export
-        self.chat.emit("ready", file="older.mp4", moment=1, title="t", length=20)
+        self.chat.emit("ready", file="older.mp4", moment=moment, title="t", length=20)
         try:
             brain, steps = self.run_job(
                 *self.to_moment(), [call("load_recipe", type="game", why="a stream")],
@@ -4705,7 +4704,17 @@ class Tools(unittest.TestCase):
             render.export = had
         checked, ready = steps[-2:]
         self.assertIn("- FAILED:", checked["result"])
+        return ready
+
+    def test_a_check_that_fails_on_a_clip_the_person_already_has_takes_one_round(self):
+        """Lane 5's walk 11-01: one line on a finished clip, and hand_over refused twice on a caption nobody had touched."""
+        ready = self.handed_after_one_failed_check(1)
         self.assertFalse(ready["refused"], ready["result"])
+
+    def test_a_check_that_fails_on_a_new_clip_still_takes_two_rounds(self):
+        ready = self.handed_after_one_failed_check(2)
+        self.assertTrue(ready["refused"], "another clip was handed over, not this one")
+        self.assertIn("after 2 rounds you may hand it over", ready["result"])
 
     def test_the_finished_file_is_checked_before_it_is_handed_over_and_a_failure_is_fixed(self):
         renders = []
@@ -5038,6 +5047,19 @@ class Tools(unittest.TestCase):
         self.chat.clip["recipe"] = "game"
         self.assertIsNone(tools._unclear(fresh, mumbled, self.chat.looks), "in a game the play is the clip, not words")
 
+    def test_a_line_that_began_before_the_clip_has_captions_for_what_is_said_in_it(self):
+        """EP22 11-01: no captions in the first 10 s while they talk, as a 24 s line ran over the clip's start."""
+        self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")], "Done.")
+        start = self.chat.project.state()["clip"]["pieces"][0][0]
+        line = "before the clip it went like this but inside the clip he said the good part"
+        self.chat.moments[0]["said"] = [{"from": start - 7, "to": start + 7, "text": line, "sure": 0.95}]
+        _, steps = self.run_job([call("add_captions", why="say what he says")], "Done.")
+        self.assertFalse(steps[0]["refused"], steps[0]["result"])
+        shown = "".join(x["text"] for x in self.chat.project.state()["captions"]["lines"])
+        self.assertIn("the good part", shown)
+        self.assertNotIn("before the clip", shown)
+        self.assertEqual(self.chat.moments[0]["said"][0]["text"], line, "the line heard stays whole")
+
     def test_a_long_line_unsure_only_for_a_word_no_dictionary_has_keeps_its_other_lines_on_the_video(self):
         self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")], "Done.")
         start = self.chat.project.state()["clip"]["pieces"][0][0]
@@ -5120,10 +5142,12 @@ class Tools(unittest.TestCase):
         brain, steps = self.run_job(
             *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
             [call("decide_people", keep=[1], why="it is him")],
+            [call("pan_part", part="whole", spot=[300, 500], why="left of the picture")],
             [call("pan_part", part="whole", spot=[0, 500], why="the left of the picture")],
             [call("pan_part", part="whole", spot=[0, 500], why="again")],
             [call("pan_part", part="card", spot=[0, 500], why="no card here")], "Done.")
-        panned, same, none = steps[-3:]
+        middle, panned, same, none = steps[-4:]
+        self.assertFalse(middle["refused"], middle["result"])
         self.assertFalse(panned["refused"], panned["result"])
         self.assertIn("holds there through the whole clip", panned["result"])
         self.assertIn("The whole already shows that.", same["result"])
@@ -5134,7 +5158,21 @@ class Tools(unittest.TestCase):
         self.assertNotIn("follow", whole())
         self.assertEqual(tools.describe(self.chat.project.entries[-1]), "moving the whole")
         self.chat.project.undo()
-        self.assertGreater(whole()["src"][0], 0)
+        size, x, shows = self.chat.project.state()["clip"]["layout"]["size"][0], whole()["src"][0], whole()["src"][2]
+        self.assertEqual(x + shows / 2, 0.3 * size, "the spot asked for is in the middle of the part")
+        self.assertGreater(x, 0)
+
+    def test_a_part_with_nothing_to_pan_says_so(self):
+        job = mock.Mock()
+        whole = {"name": "whole", "src": [0, 0, 1280, 720], "dst": [0, 0, 1080, 1920]}
+        for kind, part, says in (("talk", "whole", "A talk clip has no parts to pan"),
+                                 ("subject", "whole", "already shows the whole picture")):
+            lay = {"kind": kind, "size": [1280, 720], "parts": [whole]}
+            with mock.patch.object(tools, "_open"), mock.patch.object(tools, "_clip_state", lambda j: {"clip": {"layout": lay}}):
+                with self.assertRaises(tools.Refused) as said:
+                    tools.pan_part(job, "why", part, [0, 0])
+            self.assertIn(says, str(said.exception))
+        job.edit.assert_not_called()
 
     def test_the_face_circle_goes_where_the_person_asks_and_undo_brings_it_back(self):
         brain, steps = self.run_job(
