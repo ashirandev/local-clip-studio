@@ -638,6 +638,7 @@ function fillPreview(tile, e) {
 }
 
 function showMoment(m) {
+  room.frameAsk = (room.frameAsk || 0) + 1;
   room.showing = m;
   room.wantBase = false;
   room.base = null;
@@ -798,7 +799,7 @@ function showClip(e) {
   clipAt.max = clip.length;
   const entry = e.kind === "edit" ? e.entry : null;
   if (entry && entry.do === "title") clipAt.value = (entry.start + entry.end) / 2;
-  else if (entry && entry.do === "clip") clipAt.value = Math.min(clip.length / 2, clip.length - 0.1);
+  else if (entry && entry.do === "clip") clipAt.value = 0;
   if (entry && entry.do === "clip") {
     room.mute = {};
     room.trim = null;
@@ -818,6 +819,7 @@ function clipUrl(name) {
 }
 
 function showFinished(file) {
+  room.frameAsk = (room.frameAsk || 0) + 1;
   room.made = null;
   room.showing = null;
   leaveBase();
@@ -858,6 +860,8 @@ function updatePlayer() {
   playButton.setAttribute("aria-label", playing ? "Pause" : "Play");
   bigPlay.hidden = !v || playing || room.canvas || room.blur;
   fullButton.hidden = !v || room.canvas;
+  if (!v || !v.classList.contains("base") || room.canvas) clipBox.classList.remove("big");
+  fullButton.setAttribute("aria-label", clipBox.classList.contains("big") ? "Leave full screen" : "Full screen");
   clipUndo.disabled = !room.panel;
   if (v && v.duration) timeLine.replaceChildren(el("b", null, clock(v.currentTime)), " / " + clock(v.duration));
   else if (room.made) timeLine.replaceChildren(el("b", null, clock(Number(clipAt.value) || 0)), " / " + clock(room.made.clip.length));
@@ -895,6 +899,11 @@ document.addEventListener("play", (e) => {
 fullButton.addEventListener("click", () => {
   const v = playerVideo();
   if (!v) return;
+  if (v.classList.contains("base")) {
+    clipBox.classList.toggle("big");
+    updatePlayer();
+    return;
+  }
   try {
     if (v.requestFullscreen) v.requestFullscreen().catch(() => v.webkitEnterFullscreen && v.webkitEnterFullscreen());
     else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
@@ -1301,7 +1310,6 @@ async function refreshPreview() {
 function showBase(url) {
   let v = frameBox.querySelector("video.base");
   if (!v || room.base !== url) {
-    const at = Number(clipAt.value);
     v = el("video", "base");
     v.src = url;
     v.playsInline = true;
@@ -1311,7 +1319,7 @@ function showBase(url) {
     pic.alt = "";
     pic.hidden = true;
     v.addEventListener("loadedmetadata", () => {
-      v.currentTime = Math.min(at, Math.max(0, v.duration - 0.05));
+      v.currentTime = Math.min(Number(clipAt.value), Math.max(0, v.duration - 0.05));
     });
     v.addEventListener("timeupdate", () => {
       clipAt.value = v.currentTime;
@@ -2836,9 +2844,11 @@ function drawWords(d) {
     lanes.appendChild(lane);
   });
   drawEffectLane(d);
+  const rail = el("div", "head-rail");
   const head = el("div", "playhead");
   head.setAttribute("aria-hidden", "true");
-  lanes.appendChild(head);
+  rail.appendChild(head);
+  lanes.appendChild(rail);
   drawWordList(d);
   drawMuteMarks();
   drawTrimMarks();
@@ -2944,9 +2954,11 @@ $("timeline").addEventListener("pointerdown", (e) => {
     setTimeout(() => (room.dragged = false), 0);
     window.removeEventListener("pointermove", at);
     window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", up);
   };
   window.addEventListener("pointermove", at);
   window.addEventListener("pointerup", up);
+  window.addEventListener("pointercancel", up);
 });
 
 function openWords(b) {

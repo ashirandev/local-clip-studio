@@ -519,6 +519,7 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .shot-cut { position: absolute; top: 0; bottom: 0; z-index: 2; width: 12px; margin-left: -6px; cursor: ew-resize; touch-action: none; }
 .shot-cut::after { content: ""; position: absolute; top: 2px; bottom: 2px; left: 5px; width: 2px; border-radius: 1px; background: #0E1420; }
 .ico.flip { transform: scaleX(-1); }
+.head-rail { position: absolute; inset: 0; pointer-events: none; }
 .playhead { position: absolute; top: -4px; bottom: 0; width: 2px; margin-left: -1px; border-radius: 1px; background: #FFFFFF; pointer-events: none; }
 .playhead::before { content: ""; position: absolute; top: -4px; left: -5px; width: 12px; height: 12px; border-radius: 50%; background: #FFFFFF; }
 
@@ -718,6 +719,8 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 }
 
 .clip.canvas .stage, .clip.canvas .e-row, .clip.canvas .timeline { position: relative; z-index: 22; }
+.clip.big .frame-wrap { position: fixed; inset: 0; z-index: 30; width: 100%; height: 100dvh; max-width: none; max-height: none; aspect-ratio: auto; background: #000000; }
+.clip.big .frame { border-radius: 0; }
 .clip.canvas .clip-line { display: none; }
 
 @media (min-width: 1000px) {
@@ -730,12 +733,20 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 }
 
 @media (max-width: 999px) {
+  .clip:not(.basket-on) { height: 100dvh; min-height: 0; overflow-y: auto; }
+  .clip:not(.basket-on) .stage { flex: 1 1 0; min-height: 160px; grid-template-rows: minmax(0, 1fr); }
+  .clip:not(.basket-on) .frame-wrap { height: 100%; }
+  .job-bar.done { display: none; }
+  .e-row { gap: 6px; padding-inline: 12px; }
+  .e-time { white-space: nowrap; font-size: 14px; }
   .clip.canvas { position: fixed; inset: 0 0 auto; z-index: 22; height: 62dvh; min-height: 0; }
   .clip.canvas .timeline, .clip.canvas .pick-bar, .clip.canvas .tools, .clip.canvas .again-line, .clip.canvas .preview-line, .clip.canvas .album { display: none; }
   .clip.canvas .frame-wrap { height: 100%; }
   .clip.canvas .stage { grid-template-rows: minmax(0, 1fr); }
   .sheet.canvas { height: 38dvh; max-height: 38dvh; animation: none; }
 }
+
+.app .clip.big .frame-wrap { height: 100dvh; max-height: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .w-card.run .w-av, .w-ic.new, .w-row.flash, .sheet { animation: none; }

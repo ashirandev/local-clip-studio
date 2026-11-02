@@ -30,7 +30,7 @@ class Node {
       add: (...k) => k.forEach((c) => node.classList.toggle(c, true)),
       remove: (...k) => k.forEach((c) => node.classList.toggle(c, false)),
       contains: (c) => node.className.split(" ").includes(c),
-      toggle: (c, on) => {
+      toggle: (c, on = !node.classList.contains(c)) => {
         const have = node.className.split(" ").filter((x) => x && x !== c);
         node.className = (on ? have.concat(c) : have).join(" ");
       },
@@ -110,7 +110,7 @@ function load(page, answer) {
     Intl: any(), URL: any(), Image: function () { return any(); }, FormData: function () { return any(); }, CSS: any(), performance: any({ now: () => 0 }), innerWidth: 1200, innerHeight: 800,
   };
   vm.createContext(box);
-  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, showPart, showPicture, showOver, api: (name) => { apiNow = name; } };", box);
+  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, showPart, showPicture, showOver, showFinished, showBase, api: (name) => { apiNow = name; } };", box);
   const t = box.t;
   t.room.chat = "c";
   let id = 0;
@@ -426,6 +426,45 @@ const press = async (answer) => {
   said.picture.under = [shown(), film.classList.contains("waiting")];
   fire(film, "loadeddata");
   said.picture.over = [shown(), film.classList.contains("waiting")];
+  const late = (show) => {
+    const opened = load(page);
+    const frame = opened.element("frame");
+    const held = Object.assign(new Node("img"), { name: "held" }), slow = Object.assign(new Node("img"), { name: "slow" });
+    opened.t.showPicture(held);
+    opened.t.showPicture(slow);
+    show(opened.t);
+    fire(slow, "load");
+    return frame.children.map((n) => n.tag);
+  };
+  const wide = load(page);
+  const stage = wide.element("clip");
+  const seat = wide.element("clipAt");
+  wide.t.room.made = { clip: { length: 39 }, version: 1 };
+  seat.value = 5;
+  wide.t.showBase("/api/base/a.mp4");
+  const quick = wide.element("frame").querySelector("video");
+  seat.value = 0.05;
+  quick.duration = 39;
+  fire(quick, "loadedmetadata");
+  said.picture.startsAt = quick.currentTime;
+  quick.enters = 0;
+  quick.webkitEnterFullscreen = () => quick.enters++;
+  fire(wide.element("full"), "click");
+  said.picture.big = [stage.classList.contains("big"), quick.enters];
+  fire(wide.element("full"), "click");
+  said.picture.bigAgain = stage.classList.contains("big");
+  fire(wide.element("full"), "click");
+  wide.t.showFinished({ name: "a.mp4" });
+  said.picture.bigGone = stage.classList.contains("big");
+  const fresh = load(page);
+  fresh.element("clipAt").value = 7;
+  fresh.t.showClip({ id: 1, kind: "edit", entry: { do: "clip" }, clip: { length: 39 } });
+  said.picture.opensAt = Number(fresh.element("clipAt").value);
+  said.picture.lateOnFinished = late((t) => t.showFinished({ name: "a.mp4" }));
+  said.picture.lateOnMoment = late((t) => {
+    t.room.cut = { "m.mp4": { ok: true } };
+    t.showMoment({ n: 1, preview: "m.mp4", frame: "f.jpg", start: 0, end: 5 });
+  });
   const phone = load(page);
   const screen = phone.element("frame");
   const still = Object.assign(new Node("img"), { name: "still" }), played = Object.assign(new Node("video"), { name: "played" });
@@ -479,6 +518,23 @@ class Page(unittest.TestCase):
         if run.returncode:
             raise AssertionError(run.stderr[-2000:])
         cls.said = json.loads(run.stdout.strip().splitlines()[-1])
+
+    def test_the_quick_preview_starts_where_the_line_is_and_keeps_its_words_full_screen(self):
+        """iPhone 11-02: a phone loads a video only when it is played, so the seat kept from when the page opened moved
+        it to the middle then; and the phone's own full screen shows the video without the words laid over it."""
+        s = self.said["picture"]
+        self.assertEqual(s["opensAt"], 0, "a new clip opens at its start, so Play plays it from there")
+        self.assertEqual(s["startsAt"], 0.05, "where the line is now, not where it was")
+        self.assertEqual(s["big"], [True, 0], "the page grows the video with its words; the phone's own player has none")
+        self.assertFalse(s["bigAgain"])
+        self.assertFalse(s["bigGone"], "a finished video has its words, and its own full screen")
+
+    def test_a_still_on_its_way_does_not_land_over_a_video(self):
+        """EP0 on a phone 11-02: opened again, the slow still of a step before came in 12 s later and took the player's
+        finished video away, so Play could not be pressed."""
+        pictures = self.said["picture"]
+        self.assertEqual(pictures["lateOnFinished"], ["video"])
+        self.assertEqual(pictures["lateOnMoment"], ["video"])
 
     def test_the_picture_stays_until_the_next_one_can_be_seen(self):
         """Lane 5 11-01: 0.5 to 4.9 s of black after a drop, while the next picture was on its way."""
