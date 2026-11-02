@@ -1,8 +1,8 @@
 ---
 name: game
-title: Game stream, but not a sports game
+title: Game stream, not a match with a score
 chip: It's a game stream
-description: Someone plays a game on screen, usually with a face camera and a voice over the game sound. Pick it for streams, lives (ไลฟ์) and gameplay recordings of a game. A match in a sports game (FIFA, EA FC, eFootball, NBA 2K) is a sports match, not this.
+description: Someone plays a game on screen, usually with a face camera and a voice over the game sound. Pick it for streams, lives (ไลฟ์) and gameplay recordings of a game. A match in a sports game (FIFA, EA FC, eFootball, NBA 2K) is a match with a score, not this.
 length: 30
 style: pop
 map: sound 1, screen 1
@@ -10,8 +10,8 @@ map: sound 1, screen 1
 
 # Game stream
 
-A match in a football or other sports video game, such as eFootball or FIFA, is no game stream: its recipe is the
-sports match.
+A match in a football video game, such as eFootball or FIFA, is no game stream: its recipe is the match with a
+score.
 
 After the clip, the viewer has felt the moment: what led up to it, the peak, and the streamer's reaction.
 

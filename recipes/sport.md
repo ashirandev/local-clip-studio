@@ -1,14 +1,14 @@
 ---
 name: sport
-title: Football or sports match, real or in a video game
-chip: It's a sports match
+title: Match with a score, real or in a video game
+chip: It's a match with a score
 description: A match between two sides with a score on the screen: football, basketball or another sport, played for real or in a sports video game such as FIFA, EA FC or eFootball. Pick it when the recording is a match and what matters is a goal or a point, not one streamer's reaction.
 length: 60
 style: pop
 map: sound 1, screen 1
 ---
 
-# Sports match
+# Match with a score
 
 After the clip, the viewer has seen each goal (or point) whole: how the attack was built, the shot, the ball going
 in and the celebration, and knows what it did to the score.
