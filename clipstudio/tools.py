@@ -5843,6 +5843,15 @@ def _still_seen(state, clip_file):
     return out
 
 
+def _line_said(line, joined):
+    """Whether a caption line is in what was said, joined with no spaces. A translated line keeps the sentence it comes
+    from, which can join two heard lines around a cut, so each word of it is looked for on its own: Sifu 11-02, the words
+    between "ไม่แพ้เฟมตก" and "get up." were cut out, and the check failed the line three rounds running."""
+    if "said" in line:
+        return all(w in joined for w in line["said"].split())
+    return line["text"].replace(" ", "") in joined
+
+
 def check_clip(job, why):
     rec = _open(job, "check")
     state = _clip_state(job)
@@ -5863,7 +5872,7 @@ def check_clip(job, why):
 
     lines = (state["captions"] or {}).get("lines") or []
     joined = "".join(said).replace(" ", "")
-    unsaid = [line["text"] for line in lines if line.get("said", line["text"]).replace(" ", "") not in joined]
+    unsaid = [line["text"] for line in lines if not _line_said(line, joined)]
     typed = {line["text"] for line in lines if line.get("typed")}
     unsaid = [t for t in unsaid if t not in typed]
     check("Captions are words that were said", not unsaid if lines else None,

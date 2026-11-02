@@ -931,6 +931,14 @@ class InClip(unittest.TestCase):
         self.assertEqual(tools._ends_before_new_line(([[0.0, 5.0], [448.83, 511.66]], None), {"said": said})[0],
                          [[0.0, 5.0], [448.83, 511.49]], "only the last end")
 
+    def test_a_translated_line_joined_around_a_cut_is_in_what_was_said(self):
+        """Sifu 11-02: the words between the two heard lines were cut out, and the check failed the line 3 rounds running."""
+        joined = "".join(["โอ้โห ไม่แพ้เฟรมตก", "พี่สองแล้ว That's it, get up."]).replace(" ", "")
+        self.assertTrue(tools._line_said({"text": "Wow, no lag.", "said": "โอ้โห ไม่แพ้เฟรมตก get up."}, joined))
+        self.assertFalse(tools._line_said({"text": "Wow, no lag.", "said": "โอ้โห ไม่แพ้ใคร get up."}, joined))
+        self.assertTrue(tools._line_said({"text": "get up."}, joined))
+        self.assertFalse(tools._line_said({"text": "up get."}, joined), "a line not translated stays whole")
+
     def test_a_subtitle_loses_the_number_of_its_place_in_the_list(self):
         """EP0 11-02, Spark Open: "1. With such huge age gaps" on the clip."""
         self.assertEqual(tools._without_own_number("1. With such huge age gaps", 1), "With such huge age gaps")
