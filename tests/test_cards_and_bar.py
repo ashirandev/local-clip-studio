@@ -451,12 +451,11 @@ const press = async (answer) => {
     return p.element("apiNote").textContent;
   };
   said.keyNote = [await noted("meta", false), await noted("meta", true), await noted("baseten", false)];
-  const turned = load(page, { ok: true, url: "u", turned: true, sends: true, mind: { ok: true, label: "Muse Spark" } });
-  await new Promise((r) => setImmediate(r));
+  const turned = load(page, { ok: true, url: "u", turned: true, sends: false, mind: { ok: true, label: "Muse Spark" } });
+  await new Promise((r) => setTimeout(r, 20));
   turned.t.api("meta");
   turned.t.room.sends = false;
   await turned.element("apiForm").heard.submit[0]({ preventDefault: () => {} });
-  await new Promise((r) => setImmediate(r));
   said.keyTurned = [turned.element("apiNote").textContent, turned.t.room.sends];
   const named = load(page);
   const opened = (name) => named.event("opened", { recording: { name, seconds: 60 } });
