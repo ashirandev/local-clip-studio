@@ -55,6 +55,7 @@ const clipUndo = $("clipUndo");
 const partTabs = $("partTabs");
 const panelNote = $("panelNote");
 const lanes = $("lanes");
+const lanesFold = $("lanesFold");
 const wordList = $("wordList");
 const wordEdit = $("wordEdit");
 const wordLabel = $("wordLabel");
@@ -3015,9 +3016,23 @@ function seek(t) {
   }
 }
 
+function foldLanes(on) {
+  clipBox.classList.toggle("folded", on);
+  lanesFold.setAttribute("aria-expanded", String(!on));
+  lanesFold.setAttribute("aria-label", on ? "Open the timeline" : "Fold the timeline");
+}
+
+foldLanes(localStore("lanes") !== "open");
+
+lanesFold.addEventListener("click", () => {
+  const on = !clipBox.classList.contains("folded");
+  foldLanes(on);
+  localStore("lanes", on ? "folded" : "open");
+});
+
 $("timeline").addEventListener("pointerdown", (e) => {
   room.dragged = false;
-  if (!room.panel) return;
+  if (!room.panel || e.target.closest("#lanesFold")) return;
   const cut = e.target.closest(".shot-cut");
   if (cut) {
     e.preventDefault();

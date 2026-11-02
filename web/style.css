@@ -444,6 +444,7 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 
 .timeline { position: relative; margin: 8px 0 2px; padding: 0 16px 0 52px; touch-action: none; -webkit-user-select: none; user-select: none; }
 .timeline:has(.lanes:empty) { display: none; }
+.lanes-fold { display: none; }
 .basket { display: none; gap: 6px; min-width: 0; margin: 8px 0 2px; padding: 0 16px; }
 .clip.basket-on .basket { display: grid; }
 .clip.basket-on .timeline, .clip.basket-on .pick-bar { display: none; }
@@ -738,8 +739,20 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 @media (max-width: 999px) {
   .clip:not(.basket-on) { height: 100dvh; min-height: 0; overflow-y: auto; }
   .clip:not(.basket-on) .stage { flex: 1 1 0; min-height: 160px; grid-template-rows: minmax(0, 1fr); }
+  .clip:not(.basket-on):not(.canvas) .stage { min-height: max(240px, 42dvh); }
   .clip:not(.basket-on) .frame-wrap { height: 100%; }
   .job-bar.done { display: none; }
+  .job-bar:not([hidden]):not(.done) ~ .preview-line { display: none; }
+  .lanes-fold { position: absolute; left: 6px; top: -2px; display: grid; width: 44px; height: 44px; }
+  .lanes-fold .ico { transform: rotate(180deg); }
+  .lane.film .lane-ico { display: none; }
+  .clip.folded .lanes-fold .ico { transform: none; }
+  .clip.folded .lane:not(.film) { display: none; }
+  .clip:has(.pick-bar:not([hidden])) .tools { display: none; }
+  .pick-bar { margin-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  .pick-says { flex: 1 1 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .pick-spot .act { gap: 1px; min-height: 44px; padding: 4px 2px; font-size: 11px; }
+  .pick-spot .ico { width: 18px; height: 18px; }
   .e-row { gap: 6px; padding-inline: 12px; }
   .e-time { white-space: nowrap; font-size: 14px; }
   .clip.canvas { position: fixed; inset: 0 0 auto; z-index: 22; height: 62dvh; min-height: 0; }

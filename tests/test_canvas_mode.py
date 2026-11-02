@@ -75,7 +75,7 @@ class Node {
   querySelector(q) { return this.pick ? this.pick(q) : null; }
 }
 
-function load(page) {
+function load(page, kept) {
   const found = {};
   const on = {};
   const hear = (name) => (k, fn) => ((on[name + " " + k] = on[name + " " + k] || []).push(fn));
@@ -102,7 +102,7 @@ function load(page) {
     console, Math, Number, String, Object, Array, JSON, Promise, Date, Set, Map, RegExp, Infinity, NaN, parseInt, parseFloat, isNaN, encodeURIComponent, decodeURIComponent,
     document: any({ getElementById: element, addEventListener: hear("document"), createElement: (tag) => new Node(tag), createElementNS: (ns, tag) => new Node(tag), querySelectorAll: () => [], querySelector: () => null, body: any() }),
     window: any({ addEventListener: hear("window"), removeEventListener: (k, fn) => { on["window " + k] = (on["window " + k] || []).filter((f) => f !== fn); }, matchMedia: () => any({ matches: false }) }),
-    history: any(), navigator: any(), localStorage: any({ getItem: () => null }), sessionStorage: any({ getItem: () => null }),
+    history: any(), navigator: any(), localStorage: any({ getItem: () => kept || null }), sessionStorage: any({ getItem: () => null }),
     fetch: (path, opts) => {
       if (!opts || opts.method !== "POST") return new Promise(() => {});
       posted.push({ path, body: JSON.parse(opts.body) });
@@ -504,6 +504,21 @@ each("the first change keeps the moment", (p) => {
   return Number(p.t.clipAt.value);
 });
 
+each("the timeline folds", (p) => {
+  const seat = (q) => ({ folded: q.t.clipBox.classList.contains("folded"), open: q.element("lanesFold").getAttribute("aria-expanded"), says: q.element("lanesFold").getAttribute("aria-label") });
+  const stored = {};
+  p.box.localStorage.setItem = (k, v) => (stored[k] = v);
+  const first = seat(p);
+  p.click("lanesFold");
+  const opened = seat(p);
+  const after = Object.assign({}, stored);
+  p.click("lanesFold");
+  p.t.room.panel = panel({ words: [{ kind: "title", n: 0, text: "x", start: 0, end: 5, box: [0, 0, 100, 100] }] });
+  p.t.room.pick = { n: 0, was: "x" };
+  p.down(p.element("timeline"), 50, 5, { closest: (q) => (q === "#lanesFold" ? {} : null) });
+  return { first, opened, stored: after, kept: Boolean(p.t.room.pick), again: seat(load(page, "open")) };
+});
+
 (async () => {
   for (const step of steps) await step();
   console.log(JSON.stringify(said));
@@ -524,6 +539,26 @@ class Canvas(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.said = said_by_the_page()
+
+    def test_on_a_phone_the_timeline_starts_folded_and_opens_and_the_person_s_choice_stays(self):
+        s = self.said["the timeline folds"]
+        self.assertEqual(s["first"], {"folded": True, "open": "false", "says": "Open the timeline"})
+        self.assertEqual(s["opened"], {"folded": False, "open": "true", "says": "Fold the timeline"})
+        self.assertEqual(s["stored"], {"lcs.lanes": "open"})
+        self.assertEqual(s["again"], s["opened"], "opened once, it opens open")
+        self.assertTrue(s["kept"], "a press on the button is not a press on the timeline")
+
+    def test_on_a_phone_the_picture_keeps_its_floor_and_a_pick_takes_the_place_of_the_tools(self):
+        with open(os.path.join(WEB, "style.css"), encoding="utf-8") as f:
+            css = f.read()
+        phone = css[css.index("@media (max-width: 999px) {"):]
+        for rule in (".clip:not(.basket-on):not(.canvas) .stage { min-height: max(240px, 42dvh); }",
+                     ".clip.folded .lane:not(.film) { display: none; }",
+                     ".clip:has(.pick-bar:not([hidden])) .tools { display: none; }",
+                     ".job-bar:not([hidden]):not(.done) ~ .preview-line { display: none; }"):
+            self.assertIn(rule, phone)
+        self.assertIn(".lanes-fold { display: none; }", css[:css.index("@media (max-width: 999px) {")],
+                      "a computer's window has room for the timeline")
 
     def test_a_tapped_caption_gets_a_frame_and_the_big_play_steps_aside(self):
         s = self.said["a caption tapped"]["first"]
