@@ -211,6 +211,11 @@ class Projects(unittest.TestCase):
         p.add({"do": "clip", "moment": 3, "pieces": [[38, 40], [38, 40]], "layout": {"kind": "card"}})
         self.assertEqual(p.state()["mutes"], [[0, 1], [2, 3]], "a stretch the clip plays twice is muted twice")
 
+    def test_a_long_word_with_hyphens_is_cut_after_a_hyphen(self):
+        """EP0 11-02: click-click-clic, then k-click."""
+        lines = text.caption_lines([{"from": 0, "to": 2, "text": "click-click-click-click like that"}], 16)
+        self.assertEqual([ln["text"].strip() for ln in lines], ["click-click-", "click-click like", "that"])
+
     def test_a_dash_stays_on_the_line_it_ends(self):
         """EP0 11-02: "—" took a line of its own, for no time at all."""
         said = "them, we're only — three years"

@@ -1096,7 +1096,7 @@ def _pieces(said, most):
     particle rather than inside a word. The yeti review (10-29) captioned ไมโครโฟนนะครับ, 13 letters on lines of 12,
     as ไมโครโฟนนะครั and บแล้วก็มีคู่มือ. Only a word longer than `most` is cut inside, between its letters, and never
     inside a number: one longer than `most` stands whole, as สามสามพันห้าร้อย, 13 letters on lines of 12, lost a batch of 5 to
-    an error (11-01, 025525-3e8e)."""
+    an error (11-01, 025525-3e8e). A long word with hyphens is cut after one: EP0 11-02 read click-click-clic, k-click."""
     locked = set()
     for m in thai.NUMBER.finditer(said):
         locked.update(range(m.start() + 1, m.end()))
@@ -1111,7 +1111,7 @@ def _pieces(said, most):
                     and not unicodedata.category(said[k]).startswith("M") and _letters(said[s:k]) <= most]
             near = [k for k in range(s + 1, e) if k in words and k not in locked and said[k:].startswith(PARTICLES)
                     and _letters(said[s:k]) <= most]
-            breaks = [k for k in fits if k in words] or near or fits
+            breaks = [k for k in fits if k in words] or near or [k for k in fits if said[k - 1] == "-"] or fits
             if not breaks:
                 break
             pieces.append((s, breaks[-1]))
