@@ -501,13 +501,13 @@ class Loop(unittest.TestCase):
         brain = ScriptedMind([call("set_plan", steps=["a", "b", "c"], why="plan")],
                              [call("find_recordings", why="look", plan_step=1)],
                              [call("find_recordings", words="sifu", why="on", plan_step=2)],
-                             [call("set_plan", steps=["a", "b - done", "c", "d"], why="plan again")],
+                             [call("set_plan", steps=["a", "b reworded - done", "c", "d"], why="plan again")],
                              [call("find_recordings", words="ep0", why="on", plan_step=3)],
                              [call("find_recordings", words="ep22", why="on", plan_step=4)],
                              "All done.")
         job, events = self.run_job(brain)
         items = [e for e in events if e["kind"] == "plan"][-1]["items"]
-        self.assertEqual([(p["text"], p["state"]) for p in items], [(s, "done") for s in "abcd"])
+        self.assertEqual([(p["text"], p["state"]) for p in items], [(s, "done") for s in ("a", "b reworded", "c", "d")])
         self.assertEqual([e for e in events if e["kind"] == "note"], [])
         self.assertEqual([a["final"] for a in events if a["kind"] == "answer"], [True])
 
