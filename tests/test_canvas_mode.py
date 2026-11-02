@@ -893,7 +893,14 @@ class Panning(unittest.TestCase):
     def test_a_caption_says_where_it_stands(self):
         lay = self.with_captions()
         box = next(b for b in self.chat.panel()["words"] if b["kind"] == "caption")["box"]
-        self.assertEqual([round(v, 3) for v in box], [round(v, 3) for v in agent._grid_box(lay)])
+        self.assertEqual([round(v, 3) for v in box[1::2]], [round(v, 3) for v in agent._grid_box(lay)[1::2]])
+
+    def test_the_frame_of_captions_stands_in_the_middle_where_their_words_do(self):
+        self.with_captions()
+        state = self.chat.project.state()
+        lay = dict(state["clip"]["layout"], captions=[65, 400, 830, 200])
+        box = next(b for b in self.chat.words_on(dict(state, clip=dict(state["clip"], layout=lay))) if b["kind"] == "caption")["box"]
+        self.assertAlmostEqual(box[0] + box[2], 1000)
 
     def test_the_captions_move_as_one_undo_takes_them_back_and_muse_is_told(self):
         lay = self.with_captions()

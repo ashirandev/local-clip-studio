@@ -362,6 +362,34 @@ class Panel(Clip):
         self.assertIn("glow style", said)
         self.assertEqual(self.chat.told, [], "told once")
 
+    def test_asking_for_the_panel_shows_no_work_on_any_page_and_looks_for_nothing(self):
+        self.make()
+        self.chat.clip = {"recipe": "talk", "title": "Review", "length_s": 30, "style": "clean", "language": "",
+                          "brief": "", "subtitles": None}
+        looked = []
+
+        def own(rec, pieces, on_start=None):
+            looked.append((self.chat.live or {}).get("work"))
+            return []
+
+        with mock.patch.object(tools.screen, "own_words", own):
+            rev = self.chat.live_rev
+            plain = next(c for c in self.chat.panel()["captions"] if c["name"] == "plain")
+            self.assertIsNone(plain["why"], "the trial still says the choice is open")
+            self.assertEqual((looked, self.chat.live, self.chat.live_rev), ([], None, rev),
+                             "a page that did not ask for this panel would keep the line for good")
+            self.assertIsNone(self.chat.set_captions("plain"))
+        self.assertEqual(looked, ["Looking for words the video already shows"], "a tap looks, and says so")
+
+    def test_a_trial_leaves_the_line_of_the_work_running(self):
+        running = {"job": None, "step": 0, "work": "Rendering the clip: 12 of 40 s (30%)", "page": "video"}
+        self.chat.live = dict(running)
+        rev = self.chat.live_rev
+        hand = agent.Hand(self.chat, True)
+        hand.working("Reading the screen")
+        hand.done_working()
+        self.assertEqual((self.chat.live, self.chat.live_rev), (running, rev))
+
 
 class Words(Clip):
     def test_every_title_and_caption_phrase_is_a_block_at_its_time(self):

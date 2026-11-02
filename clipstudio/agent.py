@@ -558,8 +558,8 @@ class Chat:
                             "start": mine[0]["from"], "end": mine[-1]["to"],
                             "typed": any(ln.get("typed") for ln in mine)})
                 if kind == "caption" and not caps.get("bands"):
-                    x, _, w, _ = state["clip"]["layout"]["captions"]
-                    out[-1]["box"] = _grid_box([x, caps["band"][0], w, caps["band"][1]])
+                    w = state["clip"]["layout"]["captions"][2]
+                    out[-1]["box"] = _grid_box([(text.FRAME_W - w) / 2, caps["band"][0], w, caps["band"][1]])
         return sorted(out, key=lambda b: (b["start"], b["kind"]))
 
     def effects_on(self, state):
@@ -2329,8 +2329,10 @@ class Hand(Job):
     project edit, and Muse is never asked (a spelling question gets no answer, so the words stay as typed). What a
     tool does after its edit is for Muse (a frame to look at, a warning to pass on), so the hand stops the tool at
     its edit (Made). A trial hand stops it there before the edit (Allowed) and changes nothing: that is how the page
-    knows a choice the tool would refuse, and why. page names what the hand makes for the page (the video, the
-    preview), so the page shows each one's progress in its own place."""
+    knows a choice the tool would refuse, and why. It shows no work either, as every page open on the chat hears a line
+    of work and only the page that asked for the panel draws it away: 11-02, "Looking for words the video already
+    shows" stayed under a greyed Update video after another page asked, 30 times of 30. page names what the hand makes
+    for the page (the video, the preview), so the page shows each one's progress in its own place."""
 
     def __init__(self, chat, trial=False, page="video", whole=False, asked=False):
         self.chat, self.trial, self.page, self.n, self.steps, self.asked = chat, trial, page, None, 0, asked
@@ -2340,10 +2342,16 @@ class Hand(Job):
         self.stopped = self.done = False
 
     def working(self, line):
+        if self.trial:
+            return
         with self.chat.cond:
             self.chat.live = {"job": None, "step": 0, "work": line, "page": self.page}
             self.chat.live_rev += 1
             self.chat.cond.notify_all()
+
+    def done_working(self):
+        if not self.trial:
+            Job.done_working(self)
 
     def edit(self, entry):
         said = self.chat.refusal(entry)

@@ -4458,8 +4458,10 @@ def _off_own_words(job, rec, state, lines):
     """(the caption lines to draw, the sentence for Muse or None): in a kind of video an editor may have written words
     on (OWN_WORDS), a line said while the video's own words show in the clip's frame for at least half of it is left
     out, since two sets of words fight (EP0 10-30, a talk clip: the editor's names and reactions, such as "พี่ตูมตาม",
-    sat over ours). A line the person typed stays. (None, None) when the person pressed Stop."""
-    if (job.chat.clip or {}).get("recipe") not in OWN_WORDS:
+    sat over ours). A line the person typed stays. (None, None) when the person pressed Stop. A trial hand does not
+    look: add_captions would be allowed whatever it found, and on a 51.5 s clip the looking took 12.7 s inside the
+    panel's GET (11-02)."""
+    if (job.chat.clip or {}).get("recipe") not in OWN_WORDS or getattr(job, "trial", False):
         return lines, None
     job.working("Looking for words the video already shows")
     try:
