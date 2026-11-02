@@ -483,6 +483,6 @@ def bundle(title, rec, state, finished=None, clips=(), stems=()):
         z.writestr("%s/%s.xml" % (name, name), xml)
         captions = srt(state)
         if captions:
-            z.writestr("%s/%s.srt" % (name, name), captions)
+            z.writestr("%s/%s.srt" % (name, name), "\ufeff" + captions)
         z.writestr("%s/README.txt" % name, note)
     return name + "-premiere.zip", data.getvalue()

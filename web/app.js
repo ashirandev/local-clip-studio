@@ -103,7 +103,7 @@ const idle = text.placeholder;
 
 const SHEETS = { fx: ["spark", "Effects"], blur: ["blur", "Blur"], album: ["film", "Album"], layout: ["stack", "Layout"], trim: ["cut", "Trim"], frame: ["move", "Frame"], caps: ["cc", "Captions"], style: ["aa", "Style"], look: ["drop", "Colour"], sound: ["sound", "Sound"], words: ["words", "Words"], channel: ["at", "Channel"], out: ["out", "Save"], cost: ["cash", "Cost"], options: ["sliders", "Options"], features: ["spark", "Features"] };
 const EDITS = ["layout", "trim", "frame", "caps", "style", "look", "fx", "sound", "blur", "words", "channel", "album"];
-const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_ends: "cut", change_effect: "sticker", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", match_album: "film", move_part: "move", mute_sound: "mute", no_chat_box: "blur", open_clip: "film", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_album: "gear", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", set_tagline: "at", show_people: "people", slow_push: "move", undo: "undo", undo_album: "undo", use_channel_look: "at", watch_piece: "eye" };
+const TOOL_ICONS = { add_captions: "cc", add_flurry: "spark", add_glass: "aa", add_hit: "sound", add_sound: "sound", add_sticker: "sticker", add_title: "aa", arrange_clips: "cut", blur_box: "blur", change_ends: "cut", change_effect: "sticker", change_shot: "people", check_clip: "shield", cut_out: "people", decide_people: "blur", find_recordings: "search", hand_over: "check", list_fonts: "aa", load_recipe: "tag", look_at_piece: "eye", make_clip: "cut", make_clips: "cut", map_recording: "wave", match_album: "film", move_part: "move", mute_sound: "mute", pan_part: "move", no_chat_box: "blur", open_clip: "film", open_clips: "folder", open_recording: "film", propose_moments: "star", remove_title: "aa", render_album: "gear", render_clip: "gear", save_channel_look: "at", set_look: "drop", set_music: "sound", set_plan: "list", set_style: "aa", set_tagline: "at", show_people: "people", slow_push: "move", undo: "undo", undo_album: "undo", use_channel_look: "at", watch_piece: "eye" };
 
 const room = { canvas: false, blur: false, tool: "drag", workLine: "", endSaid: "", mind: localStore("mind") || "local", minds: [], rate: { currency: "USD", per_usd: 1 }, costs: [], chat: null, source: null, last: -1, jobs: {}, open: new Set(), timer: null, cut: {}, showing: null, work: { video: false, preview: false, ends: false, layout: false }, screen: "", list: [], title: "", ready: null, spent: null, minded: [], paid: false, mute: {}, trim: null, sends: false };
 
@@ -751,6 +751,7 @@ function thumb(src) {
 function clearClip() {
   stopWatching();
   room.pinned = null;
+  room.opened = null;
   frameBox.replaceChildren(...[...emptyFrame].map((n) => n.cloneNode(true)));
   clipLine.textContent = "";
   blurTab.hidden = true;
@@ -1148,13 +1149,13 @@ async function copyText(words) {
   }
 }
 
-function drawClipFrame() {
+function drawClipFrame(still) {
   const made = room.made;
   if (!made) return;
   const t = Math.min(Number(clipAt.value), Math.max(0, made.clip.length - 0.05));
   clipAtLine.textContent = t.toFixed(1) + " s";
   updatePlayer();
-  const v = frameBox.querySelector("video.base");
+  const v = still === true ? null : frameBox.querySelector("video.base");
   if (v) {
     if (Math.abs(v.currentTime - t) > 0.04) v.currentTime = t;
     return;
@@ -1162,9 +1163,26 @@ function drawClipFrame() {
   const img = el("img");
   img.src = "/api/clipframe?chat=" + encodeURIComponent(room.chat) + "&t=" + t.toFixed(2) + "&v=" + made.version;
   img.alt = "Your clip at " + t.toFixed(1) + " seconds";
-  frameBox.replaceChildren(img);
   room.facesAt = made.version + "@" + t.toFixed(2);
-  if (made.clip.people) drawFaces(t, made, room.facesAt);
+  showPicture(img, () => {
+    if (made.clip.people) drawFaces(t, made, room.facesAt);
+  });
+}
+
+function showPicture(img, then) {
+  room.frameAsk = (room.frameAsk || 0) + 1;
+  const asked = room.frameAsk;
+  const show = () => {
+    if (asked !== room.frameAsk) return;
+    frameBox.replaceChildren(img);
+    if (then) then();
+  };
+  if (picturesShown().length) img.addEventListener("load", show, { once: true });
+  else show();
+}
+
+function picturesShown() {
+  return [...frameBox.children].filter((n) => n.tagName === "IMG" || n.tagName === "VIDEO");
 }
 
 async function drawFaces(t, made, asked) {
@@ -1272,8 +1290,8 @@ async function refreshPreview() {
     previewLine.hidden = true;
     showBase(base.url);
   } else {
-    leaveBase();
-    drawClipFrame();
+    room.base = null;
+    drawClipFrame(true);
     pageWork("preview", Boolean(base.ok && base.making));
     previewLine.textContent = base.ok ? "Making the preview…" : "No quick preview: " + (base.error || "it could not be made.");
     previewLine.hidden = false;
@@ -1310,12 +1328,33 @@ function showBase(url) {
       frameBox.querySelectorAll(".faces").forEach((f) => f.remove());
       follow(v);
     });
-    frameBox.replaceChildren(v, pic);
+    showOver(v, [pic]);
     wirePlayer(v);
     room.base = url;
   }
   drawLayer();
   updatePlayer();
+}
+
+function showOver(v, more) {
+  room.frameAsk = (room.frameAsk || 0) + 1;
+  const before = picturesShown();
+  if (!before.length) {
+    frameBox.replaceChildren(v, ...more);
+    return;
+  }
+  v.classList.add("waiting");
+  const ready = () => {
+    before.forEach((n) => n.remove());
+    v.classList.remove("waiting");
+  };
+  v.addEventListener("loadeddata", () => {
+    if (!v.seeking) ready();
+  }, { once: true });
+  v.addEventListener("seeked", ready, { once: true });
+  v.addEventListener("error", ready, { once: true });
+  setTimeout(ready, 1500);
+  frameBox.append(v, ...more);
 }
 
 function leaveBase() {
@@ -2957,7 +2996,7 @@ function drawAgain(d) {
   againButton.hidden = !(d.again || d.making);
   againButton.disabled = d.making;
   if (d.making && !againLine.textContent) againLine.textContent = "Making the video…";
-  if (!d.making && !room.againError) againLine.textContent = d.again ? "Press Update video to see your changes." : "";
+  if (!d.making && !room.againError) againLine.textContent = d.again ? "Press Update video to bring the video up to date." : "";
 }
 
 againButton.addEventListener("click", async () => {
@@ -2991,13 +3030,18 @@ clipUndo.addEventListener("click", async () => {
 
 function showRecording(e) {
   const r = e.recording;
+  if (room.opened && room.opened !== r.name) {
+    room.title = "";
+    chatName.textContent = "New clip";
+  }
+  room.opened = r.name;
   room.wantBase = false;
   room.base = null;
   if (e.frame) {
     const img = el("img");
     img.src = "/api/frame/" + e.frame;
     img.alt = "A picture from " + r.name;
-    frameBox.replaceChildren(img);
+    showPicture(img);
     thumb("/api/frame/" + e.frame);
   } else {
     frameBox.replaceChildren(el("p", "hint", "Opened " + r.name));
@@ -4255,6 +4299,7 @@ async function openRecording(body) {
   room.opening = true;
   const words = text.value.trim();
   const file = room.attached && room.attached.file;
+  if (room.attached) clipLine.textContent = "Opening " + room.attached.name + "…";
   const ask = (where) => post("/api/open", Object.assign({ chat: room.chat, words: words, mind: room.mind, language: navigator.language || "", count: room.count }, where));
   try {
     const first = await ask(body);
@@ -4264,9 +4309,11 @@ async function openRecording(body) {
       fitText();
       detach();
     } else {
+      clipLine.textContent = "";
       note(d.error || "Something went wrong.");
     }
   } catch (err) {
+    clipLine.textContent = "";
     note("The studio is not answering. Open Local Clip Studio again.");
   }
   room.opening = false;

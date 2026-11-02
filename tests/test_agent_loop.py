@@ -889,6 +889,25 @@ class Talk(unittest.TestCase):
         self.say(brain, "หาอีกที")
         self.assertNotIn(chatname.SCHEMA, brain.schemas)
 
+    def test_a_chat_that_went_on_to_another_recording_is_named_again(self):
+        """Lane 5 11-01: dropped into the Sifu chat, a chicken pot kept the Sifu name in the list."""
+        opened = lambda name: {"kind": "opened", "recording": {"name": name}}
+        named = {"kind": "named", "title": "x"}
+        self.assertEqual(agent._renamed_from([opened("a")]), 0)
+        self.assertIsNone(agent._renamed_from([opened("a"), named]))
+        self.assertIsNone(agent._renamed_from([opened("a"), named, opened("a")]), "the same one again")
+        self.assertEqual(agent._renamed_from([opened("a"), named, opened("b")]), 2)
+        self.assertIsNone(agent._renamed_from([opened("a"), named, opened("b"), named]))
+        self.say(ScriptedMind([call("find_recordings", why="look")], "Found.", '{"name": "ไฮไลต์ Sifu"}'), "หาไลฟ์ Sifu")
+        self.chat.emit("opened", recording={"name": "pots.mkv"})
+        brain = ScriptedMind([call("find_recordings", why="look")], "Found.", '{"name": "ตุ๋นไก่หม้อแรก"}')
+        self.say(brain, "ทำคลิปหม้อแรก")
+        self.assertEqual(self.named(), ["ไฮไลต์ Sifu", "ตุ๋นไก่หม้อแรก"])
+        asked = brain.sent[-1][-1]["content"]
+        self.assertIn("- ทำคลิปหม้อแรก", asked)
+        self.assertNotIn("Sifu", asked, "the name comes from what was said about this recording")
+        self.assertEqual(agent.earlier()[0]["title"], "ตุ๋นไก่หม้อแรก")
+
     def test_the_name_comes_from_the_messages_that_asked_for_work_not_from_small_talk(self):
         """10-28, live on Glimmer: "ฝนตกทั้งวันเลย เหนื่อยจัง" then a look at the yeti folder was named
         "รวมคลิปฝนตกทั้งวัน"."""

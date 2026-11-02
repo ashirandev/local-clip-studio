@@ -47,7 +47,10 @@ class Node {
   press(target) { (this.heard.click || []).forEach((fn) => fn({ target: target || this })); }
   play() { this.played = true; return Promise.resolve(); }
   prepend(...kids) { this.children.unshift(...kids.filter((k) => k instanceof Node)); }
-  replaceChildren(...kids) { this.children = kids.filter((k) => k instanceof Node); }
+  replaceChildren(...kids) {
+    this.children = kids.filter((k) => k instanceof Node);
+    this.children.forEach((k) => { k.up = this; });
+  }
   remove() { if (this.up) this.up.children = this.up.children.filter((k) => k !== this); }
   closest(q) { return this.closeTo === q ? this : null; }
   focus() {}
@@ -97,22 +100,22 @@ function load(page, answer) {
     querySelectorAll: (q) => element("log").querySelectorAll(q),
     querySelector: (q) => element("log").querySelector(q),
   };
-  const asked = [];
+  const asked = [], ran = [];
   const box = {
     console, Math, Number, String, Object, Array, JSON, Promise, Date, Set, Map, RegExp, Infinity, NaN, parseInt, parseFloat, isNaN, encodeURIComponent, decodeURIComponent, document,
     window: any({ lcsReplay: false, addEventListener: () => {}, matchMedia: () => any({ matches: false }) }),
     history: any(), navigator: any(), localStorage: any({ getItem: () => null }), sessionStorage: any({ getItem: () => null }),
     fetch: (u) => (asked.push(u), answer ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(answer) }) : new Promise(() => {})), EventSource: function () { return any(); }, ResizeObserver: function () { return any(); }, IntersectionObserver: function () { return any(); }, MutationObserver: function () { return any(); },
-    getComputedStyle: () => ({ overflowY: "auto", display: "block" }), matchMedia: () => any({ matches: false }), requestAnimationFrame: () => 0, cancelAnimationFrame: () => {}, setTimeout: () => 0, clearTimeout: () => {}, setInterval: () => 0, clearInterval: () => {},
+    getComputedStyle: () => ({ overflowY: "auto", display: "block" }), matchMedia: () => any({ matches: false }), requestAnimationFrame: () => 0, cancelAnimationFrame: () => {}, setTimeout: (fn, ms) => { if (ms === 1500) ran.push(fn); return 0; }, clearTimeout: () => {}, setInterval: () => 0, clearInterval: () => {},
     Intl: any(), URL: any(), Image: function () { return any(); }, FormData: function () { return any(); }, CSS: any(), performance: any({ now: () => 0 }), innerWidth: 1200, innerHeight: 800,
   };
   vm.createContext(box);
-  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, showPart };", box);
+  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, showPart, showPicture, showOver };", box);
   const t = box.t;
   t.room.chat = "c";
   let id = 0;
   const event = (kind, over) => t.on(Object.assign({ id: id++, kind, job: 1 }, over));
-  return { t, element, made, event, asked };
+  return { t, element, made, event, asked, ran };
 }
 
 const page = fs.readFileSync(process.argv[2], "utf8");
@@ -402,6 +405,43 @@ const press = async (answer) => {
   said.pressReady = await press({ ok: true, ready: true });
   said.pressMaking = await press({ ok: true, making: true });
   said.pressRefused = await press({ ok: false, error: "No." });
+  Object.defineProperty(Node.prototype, "tagName", { get() { return this.tag.toUpperCase(); } });
+  const pics = load(page);
+  const box = pics.element("frame");
+  const fire = (n, kind) => (n.heard[kind] || []).forEach((fn) => fn());
+  const shown = () => box.children.map((n) => n.name);
+  const picture = (name) => Object.assign(new Node("img"), { name });
+  const [first, next, last] = ["first", "next", "last"].map(picture);
+  pics.t.showPicture(first);
+  said.picture = { empty: shown() };
+  pics.t.showPicture(next);
+  said.picture.waits = shown();
+  pics.t.showPicture(last);
+  fire(next, "load");
+  said.picture.stale = shown();
+  fire(last, "load");
+  said.picture.done = shown();
+  const film = Object.assign(new Node("video"), { name: "film" });
+  pics.t.showOver(film, []);
+  said.picture.under = [shown(), film.classList.contains("waiting")];
+  fire(film, "loadeddata");
+  said.picture.over = [shown(), film.classList.contains("waiting")];
+  const phone = load(page);
+  const screen = phone.element("frame");
+  const still = Object.assign(new Node("img"), { name: "still" }), played = Object.assign(new Node("video"), { name: "played" });
+  screen.replaceChildren(still);
+  phone.t.showOver(played, []);
+  said.picture.timer = phone.ran.length;
+  phone.ran.forEach((fn) => fn());
+  said.picture.phone = [screen.children.map((n) => n.name), played.classList.contains("waiting")];
+  const named = load(page);
+  const opened = (name) => named.event("opened", { recording: { name, seconds: 60 } });
+  opened("sifu.mkv");
+  named.event("named", { title: "Sifu" });
+  opened("sifu.mkv");
+  said.name = [named.element("chatName").textContent];
+  opened("pots.mkv");
+  said.name.push(named.element("chatName").textContent);
   console.log(JSON.stringify(said));
 })();
 """
@@ -416,6 +456,21 @@ class Page(unittest.TestCase):
         if run.returncode:
             raise AssertionError(run.stderr[-2000:])
         cls.said = json.loads(run.stdout.strip().splitlines()[-1])
+
+    def test_the_picture_stays_until_the_next_one_can_be_seen(self):
+        """Lane 5 11-01: 0.5 to 4.9 s of black after a drop, while the next picture was on its way."""
+        s = self.said["picture"]
+        self.assertEqual(s["empty"], ["first"], "nothing to keep, so it shows at once")
+        self.assertEqual(s["waits"], ["first"])
+        self.assertEqual(s["stale"], ["first"], "an answer overtaken by a newer ask is not shown")
+        self.assertEqual(s["done"], ["last"])
+        self.assertEqual(s["under"], [["last", "film"], True], "the video loads under the picture")
+        self.assertEqual(s["over"], [["film"], False])
+        self.assertEqual(s["phone"], [["played"], False], "a phone loads no video until it is played, so the wait ends")
+
+    def test_the_chat_name_goes_when_the_chat_opens_another_recording(self):
+        """Lane 5 11-01: a clip of a chicken pot under the name of the Sifu clip before it."""
+        self.assertEqual(self.said["name"], ["Sifu", "New clip"])
 
     def test_the_cards_stay_last_in_the_chat_so_nobody_scrolls_back_up(self):
         s = self.said["order"]["later"]

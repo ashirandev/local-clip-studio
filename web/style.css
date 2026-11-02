@@ -424,6 +424,7 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .frame-wrap { position: relative; height: min(52dvh, 620px); aspect-ratio: 9 / 16; max-width: 100%; }
 .frame { position: relative; display: grid; place-items: center; width: 100%; height: 100%; overflow: hidden; border-radius: 16px; background: #000000; }
 .frame img, .frame video { width: 100%; height: 100%; object-fit: contain; }
+.frame video.waiting { position: absolute; opacity: 0; }
 .frame .layer { position: absolute; inset: 0; pointer-events: none; }
 .hint { margin: 0; padding: 24px; color: var(--st-muted); font-size: 14px; text-align: center; }
 .big-play { position: absolute; inset: 0; margin: auto; display: grid; place-items: center; width: 64px; height: 64px; padding: 0; border: 0; border-radius: 50%; background: rgb(0 0 0 / 0.55); color: #FFFFFF; cursor: pointer; }

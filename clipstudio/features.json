@@ -64,6 +64,14 @@
   "show": "move"
  },
  {
+  "tool": "pan_part",
+  "group": "Layout",
+  "name": "Pan inside a part",
+  "says": "Changes what a part shows while the part stays where it is, such as the game further left in the card.",
+  "ask": "Show more of the left side of the game in the card.",
+  "show": "move"
+ },
+ {
   "tool": "set_style",
   "group": "Text and titles",
   "name": "Clean words",

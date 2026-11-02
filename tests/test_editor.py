@@ -4683,6 +4683,30 @@ class Tools(unittest.TestCase):
         self.assertIn("- not needed: It does not start black or silent (silent for the first 0.5 s, where the sound "
                       "is muted (0-2 s) as asked: music under it would fill it)", steps[-1]["result"])
 
+    def test_a_check_that_fails_on_a_clip_the_person_already_has_takes_one_round(self):
+        """Lane 5's walk 11-01: one line on a finished clip, and hand_over refused twice on a caption nobody had touched."""
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            shutil.copy(self.clip, out)
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        self.chat.emit("ready", file="older.mp4", moment=1, title="t", length=20)
+        try:
+            brain, steps = self.run_job(
+                *self.to_moment(), [call("load_recipe", type="game", why="a stream")],
+                [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("decide_people", keep=[1], why="it is him")],
+                [call("add_title", words="Boss down", start=0, end=4, place="top", why="the hook")],
+                [call("render_clip", why="make the file")],
+                [call("check_clip", why="check it")],
+                [call("hand_over", title="t", caption="c", hashtags=["#reels"], why="the person has it")], "Done.")
+        finally:
+            render.export = had
+        checked, ready = steps[-2:]
+        self.assertIn("- FAILED:", checked["result"])
+        self.assertFalse(ready["refused"], ready["result"])
+
     def test_the_finished_file_is_checked_before_it_is_handed_over_and_a_failure_is_fixed(self):
         renders = []
 
@@ -5090,6 +5114,27 @@ class Tools(unittest.TestCase):
         self.assertFalse(blurred["refused"], blurred["result"])
         titles = self.chat.project.state()["titles"]
         self.assertEqual([(x["text"], x["box"][1]) for x in titles], [("Boss down", 1728), ("Up top", 288)])
+
+    def test_a_part_is_panned_by_chat_and_undo_brings_it_back(self):
+        """Tarm: "ทุกเครื่องมือ ต้องแชทได้". The Layout tab could pan and Muse could not."""
+        brain, steps = self.run_job(
+            *self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+            [call("decide_people", keep=[1], why="it is him")],
+            [call("pan_part", part="whole", spot=[0, 500], why="the left of the picture")],
+            [call("pan_part", part="whole", spot=[0, 500], why="again")],
+            [call("pan_part", part="card", spot=[0, 500], why="no card here")], "Done.")
+        panned, same, none = steps[-3:]
+        self.assertFalse(panned["refused"], panned["result"])
+        self.assertIn("holds there through the whole clip", panned["result"])
+        self.assertIn("The whole already shows that.", same["result"])
+        self.assertTrue(none["refused"])
+        self.assertIn("has no card: use one of", none["result"])
+        whole = lambda: next(p for p in self.chat.project.state()["clip"]["layout"]["parts"] if p["name"] == "whole")
+        self.assertEqual(whole()["src"][0], 0)
+        self.assertNotIn("follow", whole())
+        self.assertEqual(tools.describe(self.chat.project.entries[-1]), "moving the whole")
+        self.chat.project.undo()
+        self.assertGreater(whole()["src"][0], 0)
 
     def test_the_face_circle_goes_where_the_person_asks_and_undo_brings_it_back(self):
         brain, steps = self.run_job(

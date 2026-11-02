@@ -3887,6 +3887,31 @@ def move_part(job, why, part, box):
     return "\n".join(lines)
 
 
+def pan_part(job, why, part, spot):
+    rec = _open(job, "pan a part of")
+    state = _clip_state(job)
+    lay = state["clip"]["layout"]
+    if lay["kind"] == "talk":
+        raise Refused("A talk clip has no parts to pan: it cuts between the people. Change who is shown when with "
+                      "change_shot.")
+    shown = next((p for p in lay["parts"] if p["name"] == part and p.get("dst")), None)
+    if shown is None:
+        raise Refused("The %s layout has no %s: use one of %s." % (lay["kind"], part, ", ".join(
+            p["name"] for p in lay["parts"] if p.get("dst"))))
+    w, h = lay["size"]
+    sw, sh = shown["src"][2:]
+    if sw >= w and sh >= h:
+        raise Refused("The %s already shows the whole picture, so it has nothing to pan." % part)
+    new = layouts.panned(lay, part, spot[0] * w / 1000 - sw / 2, spot[1] * h / 1000 - sh / 2)
+    if new == lay:
+        return "The %s already shows that." % part
+    state = job.edit({"do": "layout", "part": part, "box": None, "layout": new})
+    lines = ["The %s now shows that part of the recording, and holds there through the whole clip." % part,
+             _show_frame(job, state, rec, state["length"] / 2, "The clip with the %s panned:" % part)]
+    job.show(clip=job.chat.clip_view())
+    return "\n".join(lines)
+
+
 LOOKS = {"vivid": "more contrast and richer greens and blues, skin and reds kept: for games and flat footage",
          "warm": "warmer middle tones, black and white kept, so a white product stays white: for faces, food and "
                  "products",
@@ -4165,6 +4190,31 @@ def _in_clip(pieces, p, length):
             at += y - x
     a, b = round(a, 2), round(min(length, b), 2)
     return (a, b) if b - a >= 1 / text.FPS else None
+
+
+EDGE_SECONDS = 1.0
+
+
+def _heard_in_piece(pieces, p):
+    """p, or a copy of it holding only what was said in the first piece it plays in, or None when it plays in none. A
+    line's words are placed by their letters, as caption_lines does. Voice Transcribe writes long lines: EP22 on 11-01,
+    one of 24 s began 14.7 s before the clip, _in_clip left it out whole, and the clip had no captions for its first
+    10 s while they talked. A line EDGE_SECONDS or less over the edge keeps its words, as a heard line's ends are not
+    exact."""
+    x, y = next(((a, b) for a, b in pieces if a < p["to"] and p["from"] < b), (None, None))
+    if x is None:
+        return None
+    if x <= p["from"] and p["to"] - EDGE_SECONDS <= y:
+        return p
+    if p["from"] + EDGE_SECONDS >= x and p["to"] - EDGE_SECONDS <= y:
+        return dict(p, **{"from": x})
+    said = [w for line in text.caption_lines([{"from": p["from"], "to": p["to"], "text": p["text"]}], CAPTION_LETTERS)
+            for w in line["words"]]
+    kept = [w for w in said if x <= (w["from"] + w["to"]) / 2 <= y]
+    if not kept:
+        return None
+    return dict(p, **{"from": max(kept[0]["from"], x), "to": min(kept[-1]["to"], y),
+                      "text": "".join(w["text"] for w in kept).strip()})
 
 
 def _subtitles(name):
@@ -4446,8 +4496,9 @@ def add_captions(job, why, on=True, lit=False, pop=None, language="", hidden=Non
     said = moments[clip["moment"] - 1].get("said") or [] if clip["moment"] <= len(moments) else []
     typed = _typed(state["captions"])
     phrases, doubtful, heard = [], [], []
-    for n, p in enumerate(said):
-        at = _in_clip(clip["pieces"], p, length)
+    for n, whole in enumerate(said):
+        p = _heard_in_piece(clip["pieces"], whole)
+        at = _in_clip(clip["pieces"], p, length) if p else None
         if not at or (_stray(p, said) and not _unsure(p)):
             continue
         if _unsure(p) and (at[0], at[1]) not in typed:
@@ -6045,7 +6096,7 @@ def _score_slips(state, post):
 
 
 def hand_over(job, why, title, caption, hashtags, english=""):
-    _clip_state(job)
+    state = _clip_state(job)
     done = job.chat.finished()
     if not done:
         raise Refused("There is no finished file made from the clip as it is now, so there is nothing to hand over. "
@@ -6055,9 +6106,13 @@ def hand_over(job, why, title, caption, hashtags, english=""):
         raise Refused("Check the finished file first, with check_clip: the person gets a clip that was checked.")
     failed = [c["name"] for c in checks if c["ok"] is False]
     rounds = sum(1 for e in job.chat.events if e["kind"] == "checked" and e.get("job") == job.n)
-    if failed and rounds < CHECK_ROUNDS and not job.finishing:
+    # 11-01, one line on a clip the person already had: a caption nobody had touched failed, and the ask took two rounds.
+    handed = any(e["kind"] == "ready" and e.get("moment") == state["clip"]["moment"] for e in job.chat.events)
+    needed = 1 if handed else CHECK_ROUNDS
+    if failed and rounds < needed and not job.finishing:
         raise Refused("These checks failed on the finished file: %s. Fix them, render again and check again; after "
-                      "%d rounds you may hand it over and say what still fails." % ("; ".join(failed), CHECK_ROUNDS))
+                      "%d %s you may hand it over and say what still fails." % (
+                          "; ".join(failed), needed, "round" if needed == 1 else "rounds"))
     rec, state = _open(job, "hand over"), _clip_state(job)
     # Glimmer read past NO_TITLE in render_clip's answer twice (021005-389c, 050402-c12f on 11-01); a refusal it obeys.
     if (job.chat.clip or {}).get("recipe") and not state["titles"] and why != BATCH_WHY and not job.finishing \
@@ -7840,6 +7895,18 @@ TOOLS = {t.name: t for t in [
                   "description": "[x1, y1, x2, y2] on a 0-1000 grid of the clip's vertical frame, where the part "
                                  "goes. A circle stays round, in the middle of the box."}},
          ["part", "box"], move_part, changes=True),
+    Tool("pan_part", "Panned a part of the frame",
+         "Only when the person asks: change what one part of the frame shows, with the part staying where it is, such "
+         "as the game further left in the card or their face in the middle of the circle. It holds there through the "
+         "whole clip, so a part that followed something stops following.",
+         {"part": {"type": "string", "enum": list(PARTS),
+                   "description": "card: the game card; circle: the face circle; top and bottom: the two halves of "
+                                  "the stack; whole: the full-screen picture."},
+          "spot": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number", "minimum": 0,
+                                                                              "maximum": 1000},
+                   "description": "[x, y] on your 0-1000 grid of the recording's picture: what goes in the middle of "
+                                  "the part."}},
+         ["part", "spot"], pan_part, changes=True),
     Tool("change_shot", "Changed a shot",
          "In a talk clip, show one person from start to end: when the program cut to the wrong person, or when a "
          "reaction should be seen. Show everyone only when the person asks for it. The shots around it are cut to make "

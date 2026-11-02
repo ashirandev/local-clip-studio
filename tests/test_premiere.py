@@ -300,6 +300,7 @@ class Finished(unittest.TestCase):
         with zipfile.ZipFile(io.BytesIO(premiere.bundle("ไมค์ดี", self.stream, marked, self.path, said)[1])) as z:
             note = z.read("ไมค์ดี/README.txt").decode("utf-8")
             self.assertIn("ไมค์ดี/ไมค์ดี.srt", z.namelist())
+            self.assertTrue(z.read("ไมค์ดี/ไมค์ดี.srt").startswith(b"\xef\xbb\xbf"), "or Thai may not read as Thai")
         self.assertIn("pick ไมค์ดี.srt and drag it onto the timeline", note)
         self.assertIn("เลือก ไมค์ดี.srt แล้วลากลงไทม์ไลน์", note)
         self.assertIn("- Video: Captions", note)

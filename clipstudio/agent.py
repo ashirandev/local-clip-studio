@@ -2102,13 +2102,16 @@ class Job:
         self.name_chat()
 
     def name_chat(self):
-        """Names the chat once, after its first job that did any work, with a "named" event the list of earlier chats
-        reads (chatname.py), from what was typed in the jobs that did work: small talk before them named a look at
-        the yeti folder "รวมคลิปฝนตกทั้งวัน" (10-28). Like the spelling pass, the person's next message cancels it; a
-        later job asks again."""
+        """Names the chat after its first job that did any work, with a "named" event the list of earlier chats reads
+        (chatname.py), from what was typed in the jobs that did work: small talk before them named a look at the yeti
+        folder "รวมคลิปฝนตกทั้งวัน" (10-28). A chat that went on to another recording is named again from there: 11-01,
+        a chicken clip kept the name of the Sifu clip before it. Like the spelling pass, the person's next message
+        cancels it; a later job asks again."""
         events = self.chat.events
-        if not self.steps or any(e["kind"] == "named" for e in events):
+        since = _renamed_from(events)
+        if not self.steps or since is None:
             return
+        events = events[since:]
         worked = {e["job"] for e in events if e["kind"] == "step"}
         said = [e["text"] for e in events if e["kind"] == "person" and e.get("job") in worked
                 and not e["text"].startswith((TAP_SAID, OPEN_SAID))]
@@ -2582,6 +2585,18 @@ def open_chat(chat_id):
 
 def find(chat_id):
     return CHATS.get(chat_id)
+
+
+def _renamed_from(events):
+    """Where in events the chat's name should be read from: 0 when it has none, the opening of another recording made
+    since it was named, or None when the name it has still fits."""
+    named = [k for k, e in enumerate(events) if e["kind"] == "named"]
+    if not named:
+        return 0
+    opened = [(k, e["recording"]["name"]) for k, e in enumerate(events) if e["kind"] == "opened"]
+    before = [name for k, name in opened if k < named[-1]]
+    after = [(k, name) for k, name in opened if k > named[-1]]
+    return after[-1][0] if after and after[-1][1] != (before[-1] if before else None) else None
 
 
 def earlier(limit=CHATS_LISTED):

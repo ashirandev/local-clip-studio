@@ -25,9 +25,11 @@ SMALLEST = 1_000_000
 MOST_FILES_LOOKED_AT = 50_000
 SWEEP_SECONDS = 60
 FRESH_SECONDS = 30
-FIXED_DRIVE = 3
+REMOVABLE_DRIVE, FIXED_DRIVE = 2, 3
 SKIP_FOLDERS = {"windows", "program files", "program files (x86)", "programdata", "appdata", "recovery", "perflogs",
                 "system volume information", "windowsapps", "node_modules", "site-packages"}
+if os.name != "nt":
+    SKIP_FOLDERS.add("library")
 SAME_TIME = 2.0
 UNREADABLE = ("", "none", "unknown")
 TRACK_LOOK, TRACK_RATE, TRACK_SAME, TRACK_SILENT = 10, 8000, 0.3, 1e-4
@@ -65,14 +67,16 @@ def inside(real, top):
 
 
 def drives():
-    """Every fixed drive on Windows (C:\\, D:\\, ...), else the home folder."""
+    """Every fixed drive on Windows (C:\\, D:\\, ...) and every memory card or stick with something in it, else the
+    home folder."""
     if os.name != "nt":
         return [os.path.expanduser("~")]
     import ctypes
     import string
     k = ctypes.windll.kernel32
     return [d + ":\\" for i, d in enumerate(string.ascii_uppercase)
-            if k.GetLogicalDrives() >> i & 1 and k.GetDriveTypeW(d + ":\\") == FIXED_DRIVE]
+            if k.GetLogicalDrives() >> i & 1 and (k.GetDriveTypeW(d + ":\\") == FIXED_DRIVE or (
+                k.GetDriveTypeW(d + ":\\") == REMOVABLE_DRIVE and os.path.isdir(d + ":\\")))]
 
 
 THAI_MONTHS = ("มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน",

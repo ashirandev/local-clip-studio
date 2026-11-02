@@ -67,6 +67,17 @@ class EveryDrive(unittest.TestCase):
             f.write(b"0123456789")
         return os.path.realpath(path)
 
+    def test_a_memory_card_is_swept_and_an_empty_reader_is_not(self):
+        if os.name != "nt":
+            self.skipTest("drive letters are for Windows")
+        recording.drives = self.had[2]
+        kinds = {"C": recording.FIXED_DRIVE, "E": recording.REMOVABLE_DRIVE, "F": recording.REMOVABLE_DRIVE, "Z": 4}
+        kernel = mock.Mock()
+        kernel.GetLogicalDrives.return_value = sum(1 << (ord(d) - 65) for d in kinds)
+        kernel.GetDriveTypeW.side_effect = lambda root: kinds[root[0]]
+        with mock.patch("ctypes.windll.kernel32", kernel), mock.patch("os.path.isdir", lambda p: p != "F:\\"):
+            self.assertEqual(recording.drives(), ["C:\\", "E:\\"])
+
     def test_every_drive_is_swept_without_system_hidden_or_studio_folders_and_a_miss_sweeps_again(self):
         kept = [self.put(self.c, "Users", "me", "Videos", "trip.mp4"), self.put(self.d, "Streams", "ep1.mkv")]
         for left in [(self.c, "Program Files", "app", "intro.mp4"), (self.c, "Users", "me", "AppData", "cache.mp4"),

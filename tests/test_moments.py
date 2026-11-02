@@ -895,6 +895,33 @@ class InClip(unittest.TestCase):
                          "its end was cut out, so it ends where its piece does, not at the clip's end")
         self.assertIsNone(tools._in_clip(pieces, {"from": 36.0, "to": 38.0}, 15.0))
 
+    def test_a_long_line_over_the_clips_edge_keeps_the_words_said_inside_it(self):
+        """EP22 11-01: a 24 s line began 14.7 s before the clip, and the clip had no captions for its first 10 s."""
+        line = {"from": 10.0, "to": 20.0, "text": "one two three four five six seven eight nine zero", "sure": 0.9}
+        pieces = [[15.0, 40.0]]
+        got = tools._heard_in_piece(pieces, line)
+        self.assertEqual(got["text"], "six seven eight nine zero")
+        self.assertGreaterEqual(got["from"], 15.0)
+        self.assertEqual((got["to"], got["sure"]), (20.0, 0.9))
+        self.assertEqual(line["text"].split()[0], "one", "what was heard stays whole for the rest of the studio")
+        self.assertEqual(tools._in_clip(pieces, got, 25.0), (round(got["from"] - 15, 2), 5.0))
+        got = tools._heard_in_piece([[0.0, 15.0]], line)
+        self.assertEqual(got["text"], "one two three four five")
+        self.assertLessEqual(got["to"], 15.0)
+        got = tools._heard_in_piece([[12.0, 14.0], [30.0, 40.0]], line)
+        self.assertEqual(got["text"], "three four")
+
+    def test_a_line_only_just_over_the_edge_keeps_its_words(self):
+        line = {"from": 14.5, "to": 18.0, "text": "said at the very start"}
+        self.assertEqual(tools._heard_in_piece([[15.0, 40.0]], line), dict(line, **{"from": 15.0}))
+        line = {"from": 10.0, "to": 15.5, "text": "said at the very end"}
+        self.assertIs(tools._heard_in_piece([[8.0, 15.0]], line), line, "and its fix reaches what was heard")
+
+    def test_a_line_outside_every_piece_is_left_out(self):
+        self.assertIsNone(tools._heard_in_piece([[30.0, 35.0]], {"from": 36.0, "to": 38.0, "text": "cut out"}))
+        self.assertIsNone(tools._heard_in_piece([[30.0, 30.2]], {"from": 20.0, "to": 40.0, "text": "one long word"}),
+                          "a word's middle is not inside it")
+
 
 def said_line(a, b, text):
     return {"from": a, "to": b, "text": text}
