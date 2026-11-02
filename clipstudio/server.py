@@ -747,8 +747,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": why}, HTTPStatus.BAD_REQUEST)
             return
         mind.MINDS.update(mind.minds())
-        self.send_json({"ok": True, "url": url.rstrip("/"),
-                        "mind": mind.MINDS[mind.ENDPOINT_MINDS[mind.api_names(url)[0]]].status()})
+        saved = mind.ENDPOINT_MINDS[mind.api_names(url)[0]]
+        self.send_json({"ok": True, "url": url.rstrip("/"), "mind": mind.MINDS[saved].status(),
+                        "turned": saved == "spark" and sends.on_with_a_key(), "sends": sends.allowed()})
 
     def here(self):
         """True when the page is on this computer, so a file dropped on it is on this computer too: a loopback

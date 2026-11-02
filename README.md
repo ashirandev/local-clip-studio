@@ -11,7 +11,8 @@
    `https://api.meta.ai/v1`), `baseten` or `fireworks` for Muse Spark Open there, or paste your Modal endpoint's
    address. Or open Options > API and give the address there. With a Meta key, setup then asks whether Meta's models
    may hear and see small pieces of your videos, for better clips, and says what that sends: Enter is yes, and
-   Options > Meta sees pieces changes it at any time. A key given in Options leaves it off until you turn it on.
+   Options > Meta sees pieces changes it at any time. A Meta key given in Options turns it on and says so, with what
+   it sends and that the key pays, unless you turned it off before.
    Setup then offers a second key: with `meta` first and `baseten` second, Muse Spark Open runs the chat and Meta's
    models hear, watch, cut out and draw.
 3. **Open a recording.** Drop a video on the page, or type the path of a recording or of a folder of clips. A video
@@ -466,13 +467,13 @@ dates. No code from it is in this repository.
 
 ## Open source and models used
 
-Each piece is listed with its licence. The Status column says whether this build uses it yet. What it receives says what leaves this computer for it. On the home route (Glimmer, Omnilingual and SAM on your own card) nothing does unless you ask for a watch or a cover in your own words, or turn on Options > Meta sees pieces (off until you do), which also makes Muse Voice Transcribe the hearing when a Meta key is set, with or without Omnilingual here. Only then are Muse Wonder, Muse Image and Muse Voice Transcribe sent what that column says, with your own key. A Muse on an API is sent what its row says.
+Each piece is listed with its licence. The Status column says whether this build uses it yet. What it receives says what leaves this computer for it. On the home route (Glimmer, Omnilingual and SAM on your own card) nothing does unless you ask for a watch or a cover in your own words, or have Options > Meta sees pieces on (off until you turn it on, say yes at setup, or save a Meta key in Options; off, once you choose it, stays off), which also makes Muse Voice Transcribe the hearing when a Meta key is set, with or without Omnilingual here. Only then are Muse Wonder, Muse Image and Muse Voice Transcribe sent what that column says, with your own key. A Muse on an API is sent what its row says.
 
 | Piece | What it does here | What it receives | Licence | Status |
 |---|---|---|---|---|
 | [Muse Glimmer 30B](https://huggingface.co/meta-models/Muse-Glimmer-30B) (Meta) | the agent's mind, on your own graphics card | nothing: it runs on this computer | Apache-2.0 | used |
 | Muse Spark (Meta API) | the same mind without a graphics card, with your own key | each step's messages, the pictures Muse looks at, and what was said in them | Meta's API terms | used |
-| Muse Wonder (Meta API) | the same mind, Meta's model for long work with many tools, with the same key; and, whichever Muse runs the chat, it watches a stretch of up to 60 s with its sound and names what the words miss (a scream, a laugh, a fail, a silent stare), with the effect for each (`watch_piece`) | as Spark when it runs the chat; for `watch_piece`, the stretch it watches, as a small video with its sound (with Muse on this computer, only when you ask for it or turn on Meta sees pieces) | Meta's API terms | used |
+| Muse Wonder (Meta API) | the same mind, Meta's model for long work with many tools, with the same key; and, whichever Muse runs the chat, it watches a stretch of up to 60 s with its sound and names what the words miss (a scream, a laugh, a fail, a silent stare), with the effect for each (`watch_piece`) | as Spark when it runs the chat; for `watch_piece`, the stretch it watches, as a small video with its sound (with Muse on this computer, only when you ask for it or with Meta sees pieces on) | Meta's API terms | used |
 | Muse Image (Meta API, `muse-image-1.0`) | draws the clip's cover from its frame at the peak, without its words, with the title written on it and the people and the product kept as shot (`make_cover`, $0.01 a cover; with Muse on this computer only when you ask, or with Meta sees pieces on) | one frame of the clip and its title, with image search, web search and shell turned off | Meta's API terms | used |
 | [Muse Spark Open](https://huggingface.co/meta-models/Muse-Spark-Open-816B-A42B) (Meta) on a Modal shared endpoint | the same mind on Modal's machines, with your own token | as Spark, on Modal's machines | Meta's model licence; Modal's terms | answers (one question measured 10-29); no whole clip made on it yet |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) (llama-server) | runs Glimmer locally | nothing: it runs on this computer | MIT | used |

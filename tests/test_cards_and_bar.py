@@ -451,6 +451,13 @@ const press = async (answer) => {
     return p.element("apiNote").textContent;
   };
   said.keyNote = [await noted("meta", false), await noted("meta", true), await noted("baseten", false)];
+  const turned = load(page, { ok: true, url: "u", turned: true, sends: true, mind: { ok: true, label: "Muse Spark" } });
+  await new Promise((r) => setImmediate(r));
+  turned.t.api("meta");
+  turned.t.room.sends = false;
+  await turned.element("apiForm").heard.submit[0]({ preventDefault: () => {} });
+  await new Promise((r) => setImmediate(r));
+  said.keyTurned = [turned.element("apiNote").textContent, turned.t.room.sends];
   const named = load(page);
   const opened = (name) => named.event("opened", { recording: { name, seconds: 60 } });
   opened("sifu.mkv");
@@ -492,6 +499,13 @@ class Page(unittest.TestCase):
         self.assertIn("Meta sees pieces is off", off)
         self.assertEqual(on, "Muse Spark is ready.")
         self.assertEqual(other, "Muse Spark is ready.")
+
+    def test_a_meta_key_that_turned_the_switch_on_says_so_who_pays_and_how_to_stop(self):
+        note, on = self.said["keyTurned"]
+        self.assertTrue(on, "the switch below shows it at once")
+        self.assertIn("Meta sees pieces is now on", note)
+        self.assertIn("this key pays", note)
+        self.assertIn("Turn it off below", note)
 
     def test_the_chat_name_goes_when_the_chat_opens_another_recording(self):
         """Lane 5 11-01: a clip of a chicken pot under the name of the Sifu clip before it."""

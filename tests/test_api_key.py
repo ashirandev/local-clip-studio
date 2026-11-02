@@ -324,6 +324,8 @@ class Page(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.file = mock.patch.object(mind, "KEY_FILE", os.path.join(self.tmp, "keys.env"))
         self.file.start()
+        self.work = mock.patch.object(recording, "WORK", os.path.join(self.tmp, "work"))
+        self.work.start()
         self.had = {n: os.environ.pop(n, None) for n in NAMES}
         self.minds = dict(mind.MINDS)
         self.http = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
@@ -334,6 +336,7 @@ class Page(unittest.TestCase):
         self.http.server_close()
         mind.MINDS.clear()
         mind.MINDS.update(self.minds)
+        self.work.stop()
         self.file.stop()
         for n, v in self.had.items():
             os.environ.pop(n, None)
@@ -361,6 +364,28 @@ class Page(unittest.TestCase):
                          ("https://api.fireworks.ai/inference/v1", "fireworks")):
             status, got, _ = self.ask("POST", {"url": url, "key": "made-up-key"})
             self.assertEqual((status, got["mind"]["key"], got["mind"]["ok"]), (200, key, True), url)
+
+    def test_a_meta_key_saved_turns_the_switch_on_for_a_person_who_never_chose(self):
+        """Tarm 11-02, "เอา": on, and told so at that moment; off, once chosen, stays off whatever key comes next."""
+        got = self.ask("POST", {"api": "baseten", "url": "", "key": "made-up"})[1]
+        self.assertEqual((got["turned"], got["sends"], sends.chosen()), (False, False, False), "only a Meta key")
+        got = self.ask("POST", {"url": "https://api.meta.ai/v1", "key": "made-up-key"})[1]
+        self.assertEqual((got["turned"], got["sends"], sends.allowed()), (True, True, True))
+        got = self.ask("POST", {"url": "https://api.meta.ai/v1", "key": "another"})[1]
+        self.assertEqual((got["turned"], got["sends"]), (False, True), "told once")
+        sends.allow(False)
+        got = self.ask("POST", {"url": "https://api.meta.ai/v1", "key": "a-third"})[1]
+        self.assertEqual((got["turned"], got["sends"], sends.allowed()), (False, False, False))
+
+    def test_a_key_that_was_not_saved_or_came_from_a_file_turns_nothing_on(self):
+        self.assertEqual(self.ask("POST", {"url": "https://api.meta.ai/v1", "key": ""})[0], 400)
+        os.environ["META_API_KEY"] = "made-up-key"
+        mind.MINDS.update(mind.minds())
+        self.assertTrue(self.ask("GET")[1]["ok"])
+        self.assertEqual((sends.chosen(), sends.allowed()), (False, False), "nobody said yes to a key file")
+        with mock.patch.object(server.Handler, "here", lambda self: False):
+            self.assertEqual(self.ask("POST", {"url": "https://api.meta.ai/v1", "key": "theirs"})[0], 403)
+        self.assertFalse(sends.chosen(), "not from another device")
 
     def test_each_api_shows_its_own_faded_fields_and_an_empty_address_saves_its_own(self):
         forms = {a["name"]: a for a in self.ask("GET")[1]["apis"]}

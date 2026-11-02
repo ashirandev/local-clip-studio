@@ -7679,7 +7679,7 @@ TOOLS = {t.name: t for t in [
          "there. Call it on the clip's own stretch before you put effects on a game, a reaction or any clip whose fun "
          "is in the picture and the sound. It sends that stretch, small, to Meta with the person's own key, and costs "
          "a few cents. When you work on this computer it sends only what the person asked for in their own words, "
-         "unless they turned on Meta sees pieces in Options." % watch.LONGEST,
+         "unless Meta sees pieces is on in Options." % watch.LONGEST,
          {"start": {"type": "string", "maxLength": 20, "description": "Where the stretch starts, like 1:51:23."},
           "end": {"type": "string", "maxLength": 20, "description": "Where it ends, written the same way."},
           "person_said": {"type": "string", "maxLength": 200,

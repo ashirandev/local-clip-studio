@@ -3737,8 +3737,12 @@ apiForm.addEventListener("submit", async (e) => {
   }
   const ok = d.ok && d.mind.ok;
   apiNote.classList.toggle("bad", !ok);
-  apiNote.textContent = !d.ok ? d.error : ok ? d.mind.label + " is ready." + (apiNow === "meta" && !room.sends ? " Meta sees pieces is off, so the hearing stays on this computer: turn it on below to hear better." : "") : d.mind.why;
+  apiNote.textContent = !d.ok ? d.error : ok ? d.mind.label + " is ready." + (d.turned ? " Meta sees pieces is now on: Meta hears and sees short pieces of your videos, and this key pays. Turn it off below." : apiNow === "meta" && !room.sends ? " Meta sees pieces is off, so the hearing stays on this computer: turn it on below to hear better." : "") : d.mind.why;
   if (!d.ok) return;
+  if (d.turned) {
+    drawSends({ here: true, sends: true });
+    drawChip();
+  }
   const a = apis.find((x) => x.name === apiNow);
   if (a) {
     a.saved = true;
