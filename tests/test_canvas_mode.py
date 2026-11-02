@@ -470,6 +470,12 @@ each("full screen plays on a tap", (p) => {
   p.video.heard.click.forEach((fn) => fn({ clientX: 20, clientY: 35 }));
   return { fx: p.t.room.fx || null, playing: !p.video.paused };
 });
+each("escape leaves full screen", (p) => {
+  elements(p);
+  p.t.clipBox.classList.add("big");
+  p.key("Escape");
+  return p.t.clipBox.classList.contains("big");
+});
 each("layout takes over from a frame", (p) => {
   elements(p);
   p.t.room.panel.parts = [part(CARD)];
@@ -596,6 +602,9 @@ class Canvas(unittest.TestCase):
 
     def test_full_screen_only_watches(self):
         self.assertEqual(self.said["full screen plays on a tap"], {"fx": None, "playing": True})
+
+    def test_escape_leaves_full_screen_as_the_browser_s_own_did(self):
+        self.assertFalse(self.said["escape leaves full screen"])
 
     def test_layout_shows_its_own_boxes(self):
         self.assertEqual(self.said["layout takes over from a frame"]["boxes"], ["Card"])

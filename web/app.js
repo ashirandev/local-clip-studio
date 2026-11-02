@@ -3654,6 +3654,10 @@ window.addEventListener("pointerdown", () => (room.tabbed = false), true);
 document.addEventListener("keydown", (e) => {
   if (e.key === "Tab") room.tabbed = true;
   if (e.key === "Escape" && !sheet.hidden && document.activeElement !== wordText) closeSheet();
+  if (e.key === "Escape" && clipBox.classList.contains("big")) {
+    clipBox.classList.remove("big");
+    updatePlayer();
+  }
   const by = { ArrowLeft: -KEY_STEP, ArrowRight: KEY_STEP }[e.key];
   if ((e.key !== " " && !by) || !keyIsFree(e) || !(shownVideo() || room.made)) return;
   e.preventDefault();
