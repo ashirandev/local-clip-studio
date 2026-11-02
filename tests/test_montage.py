@@ -343,6 +343,16 @@ class Arrange(unittest.TestCase):
         self.assertNotIn("lines of words", steps[4]["result"])
         self.assertIn("2 lines of words for 4.9 s: give at least 5", steps[5]["result"])
 
+    def test_thai_words_on_the_pieces_are_refused_on_an_english_ask(self):
+        with mock.patch.object(tools, "_thai_for_english", lambda job, texts: [t for t in texts if t == "We arrive"]):
+            steps = self.run_job(*self.opened(), [call(
+                "arrange_clips", story="from the station to the end of the day", why="tells the day in order",
+                clips=[{"clip": 2, "start": 0.5, "end": 2.5, "words": "We arrive", "why": "it shows where we are"},
+                       {"clip": 1, "start": 1.0, "end": 2.0, "why": "what we did first"},
+                       {"clip": 3, "start": 0.0, "end": 1.9, "words": "The end", "why": "the last thing seen"}],
+                left_out=[])], "Done.")
+        self.assertIn('write these in English: "We arrive"', steps[-1]["result"])
+
     def test_the_pieces_are_joined_in_order_and_each_line_stays_until_the_next(self):
         steps = self.run_job(*self.opened(), [call(
             "arrange_clips", story="from the station to the end of the day", why="tells the day in order",

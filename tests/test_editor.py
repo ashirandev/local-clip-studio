@@ -5120,7 +5120,8 @@ class Tools(unittest.TestCase):
                 [call("make_cover", title="ตายแล้ว", why="a cover")],
                 [call("hand_over", title="ตายแล้ว", caption="c", hashtags=["#reels"], why="a title")],
                 [call("hand_over", title="Down", caption="ตายแล้ว", hashtags=["#reels"], why="a post")],
-                [call("hand_over", title="Down", caption="c", hashtags=["#เกม"], why="a tag")], "Done.")
+                [call("hand_over", title="Down", caption="c", hashtags=["#เกม"], why="a tag")],
+                [call("hand_over", title="ตายแล้ว", caption="c", hashtags=["#reels"], why=tools.BATCH_WHY)], "Done.")
         finally:
             render.export = had
         by = {}
@@ -5133,6 +5134,41 @@ class Tools(unittest.TestCase):
         for handed, word in zip(by["hand_over"], ("ตายแล้ว", "ตายแล้ว", "#เกม")):
             self.assertTrue(handed["refused"], handed["result"])
             self.assertIn("write these in English: \"%s\"" % word, handed["result"])
+        self.assertFalse(by["hand_over"][3]["refused"], "a clip of a batch never stops the batch")
+
+    def test_thai_words_the_person_typed_pass_on_an_english_ask(self):
+        job = types.SimpleNamespace(chat=types.SimpleNamespace(clip=None, events=[
+            {"kind": "person", "text": "Call the clip ตายแล้ว"}, {"kind": "person", "text": "Make a clip, ready to post"}]))
+        self.assertEqual(tools._thai_for_english(job, ["ตายแล้ว", "ตายจริง"]), ["ตายจริง"])
+
+    def test_every_way_of_making_a_clip_keeps_to_the_end_rule(self):
+        with mock.patch.object(tools, "_ends_before_new_line", lambda made, m: (made[0], "The end rule ran.")), \
+                mock.patch.object(tools, "_make_talk", lambda job, rec, moment, m, pieces, cut, name, kept: cut):
+            _, steps = self.run_job(*self.to_moment(), [call("make_clip", moment=1, layout="subject", why="the action")],
+                                    [call("make_clip", moment=1, layout="talk", why="two people talking")], "Done.")
+        for made in steps[-2:]:
+            self.assertIn("The end rule ran.", made["result"])
+
+    def test_a_number_in_the_words_on_a_talk_clip_was_said_too(self):
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            self.run_job(*self.to_moment(), [call("load_recipe", type="talk", why="two people talking")],
+                         [call("make_clip", moment=1, layout="subject", why="the action")],
+                         [call("decide_people", keep=[1], why="it is him")],
+                         [call("add_title", words="Boss down 99", start=0, end=4, place="top", why="the hook")],
+                         [call("render_clip", why="make the file")], [call("check_clip", why="check it")], "Done.")
+            self.chat.moments[0]["said"] = [{"from": 30.0, "to": 35.0, "text": "we are seven years apart"}]
+            _, steps = self.run_job([call("hand_over", title="Down", caption="c", hashtags=["#reels"], why="a guess")],
+                                    [call("hand_over", title="Down", caption="c", hashtags=["#reels"], why="they did")],
+                                    "Done.")
+        finally:
+            render.export = had
+        self.assertIn("were not heard in this clip: 99", steps[0]["result"])
 
     def test_a_line_that_began_before_the_clip_has_captions_for_what_is_said_in_it(self):
         """EP22 11-01: no captions in the first 10 s while they talk, as a 24 s line ran over the clip's start."""

@@ -645,6 +645,11 @@ class MakeCountdown(unittest.TestCase):
         steps = self.run_job("ทำ top 3 หน่อย", self.counted(), game=False)
         self.assertIn("A countdown is made from a game stream for now", steps[-1]["result"])
 
+    def test_thai_words_in_a_countdown_are_refused_on_an_english_ask(self):
+        with mock.patch.object(tools, "_thai_for_english", lambda job, texts: texts[:1]):
+            steps = self.run_job("Make a top 3 of the best moments", self.counted())
+        self.assertIn("write these in English", steps[-1]["result"])
+
     def test_a_countdown_that_would_open_on_the_games_menu_is_refused_once(self):
         self.shown = MENU
         steps = self.run_job("ทำท็อป 3 ให้หน่อย", self.counted(), self.counted(why="the menu is the joke"))
