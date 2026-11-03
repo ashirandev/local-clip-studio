@@ -33,7 +33,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 
-from . import ears, hearing, mind, recording, sends
+from . import ears, ending, hearing, mind, recording, sends
 
 WORK = recording.WORK
 TOOLS = os.path.join(WORK, "tools")
@@ -570,6 +570,7 @@ def main(argv=None):
     is nothing to download. Exit 1 when a download the person needs stopped; running it again carries on from where it
     stopped. --no-key skips the question."""
     argv = sys.argv[1:] if argv is None else argv
+    ending.tie()
     use_tools()
     make_folders()
     if "--no-key" not in argv and sys.stdin and sys.stdin.isatty():

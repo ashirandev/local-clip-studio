@@ -254,7 +254,7 @@ class Machine(unittest.TestCase):
             stop = "%s stopped." % broken if broken in [p["key"] for p in todo] else None
             parts._job.update(running=False, part=None, step=None, error=stop)
         said = io.StringIO()
-        with mock.patch.object(parts, "card", lambda: BIG), mock.patch.object(parts, "_set_up", run),                 mock.patch.object(parts.mind, "saved_api", lambda: ("https://api.meta.ai/v1", keyed)),                 mock.patch.object(parts.shutil, "disk_usage", lambda p: shutil._ntuple_diskusage(10 ** 12, 0, free)),                 mock.patch("sys.stdout", said):
+        with mock.patch.object(parts, "card", lambda: BIG), mock.patch.object(parts, "_set_up", run), mock.patch.object(parts.ending, "tie") as self.tied,                 mock.patch.object(parts.mind, "saved_api", lambda: ("https://api.meta.ai/v1", keyed)),                 mock.patch.object(parts.shutil, "disk_usage", lambda p: shutil._ntuple_diskusage(10 ** 12, 0, free)),                 mock.patch("sys.stdout", said):
             code = parts.main(["--no-key"])
         return code, went, said.getvalue()
 
@@ -268,6 +268,10 @@ class Machine(unittest.TestCase):
         self.assertIn("Muse answers through the API you saved until then", said)
         self.assertEqual({p["key"] for p in parts.parts(BIG, look=False) if p["size"]} - set(went), {"glimmer"},
                          "the studio's Set up button still offers it")
+
+    def test_setup_ties_what_it_starts_to_its_own_window(self):
+        self.setup_run(True)
+        self.tied.assert_called_once_with()
 
     def test_with_a_key_saved_llama_cpp_comes_after_what_the_api_needs(self):
         _, went, _ = self.setup_run(True)

@@ -96,7 +96,7 @@ from urllib.parse import parse_qsl, quote, urlsplit
 
 import segno
 
-from . import (__version__, agent, effects, hearing, layer, mind, parts, phone, premiere, previews, recording, render,
+from . import (__version__, agent, effects, ending, hearing, layer, mind, parts, phone, premiere, previews, recording, render,
                sends, spent, text)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -975,6 +975,7 @@ def phone_state():
 
 
 def main():
+    ending.tie()
     parts.use_tools()
     try:
         server = Server((HOST, PORT), Handler)

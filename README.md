@@ -173,7 +173,8 @@ own server. This is the exact setup the demo runs on:
 | Context | 49,152 tokens: 13.6 GB of the card in use, the same speed as at 32,768 (measured 10-28) |
 
 Set up does all of this for you: it downloads both files, writes this preset to `work/tools/glimmer.ini` and starts
-the server. To run it yourself, start it in router mode, from a preset file, so the studio can ask it to step off the
+the server. On Windows, closing the studio's window ends everything it started, this server too; one that was already
+running stays. To run it yourself, start it in router mode, from a preset file, so the studio can ask it to step off the
 graphics card while SAM cuts a person out, and load it again after. `glimmer.ini` (use full paths to your files):
 
 ```ini
