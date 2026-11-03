@@ -70,7 +70,7 @@
     }
 
     type(e, events) {
-      const words = String(e.thinking);
+      const words = [e.thinking, e.said].filter(Boolean).join("\n");
       const took = 1000 * Math.min(TYPE_MOST, Math.max(TYPE_LEAST, words.length / TYPE_RATE));
       const began = Date.now();
       const at = this.next;
@@ -106,7 +106,7 @@
         }
         if (paused && want === null && !skip) return count();
         const coming = events[this.next];
-        if (coming.kind === "step" && coming.thinking && this.typed !== this.next && !skip && want === null &&
+        if (coming.kind === "step" && (coming.thinking || coming.said) && this.typed !== this.next && !skip && want === null &&
             this.heard.think) return this.type(coming, events);
         const e = Object.assign({}, events[this.next], { t: Date.now() / 1000 });
         this.next += 1;

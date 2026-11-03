@@ -255,7 +255,8 @@ const document = { createElement: el, head: el(), querySelector: () => chat, que
 const words = "x".repeat(300);
 const events = [{ kind: "opened" }, { kind: "job", job: 1 }, { kind: "wait", job: 1 },
   { kind: "step", job: 1, step: 1, thinking: words }, { kind: "wait", job: 1 },
-  { kind: "step", job: 1, step: 2, thinking: "" }, { kind: "end", job: 1 }].map((e) => Object.assign(e, { t: 0 }));
+  { kind: "step", job: 1, step: 2, thinking: "", said: "y".repeat(50) }, { kind: "step", job: 1, step: 3, thinking: "" },
+  { kind: "end", job: 1 }].map((e) => Object.assign(e, { t: 0 }));
 const box = { document, console, JSON, Object, Math, Promise, Infinity, String, Number, Set, URL, Response: function () {},
   Date: { now: () => clock }, location: { href: "http://x/", hash: process.argv[3] || "", reload() {} },
   setTimeout: (fn, ms) => (timers.push({ fn, ms: ms || 0 }), timers.length),
@@ -343,7 +344,10 @@ class Thinking(unittest.TestCase):
         self.assertGreater(len(typed), 20, "it types, it does not land at once")
         self.assertEqual(typed[-1], "think:300")
         self.assertEqual([int(g[6:]) for g in typed], sorted(int(g[6:]) for g in typed))
-        self.assertEqual(got[got.index("step1"):], ["step1", "wait", "step2", "end"], "a step with no thinking types nothing")
+        after = got[got.index("step1"):]
+        self.assertEqual([g for g in after if not g.startswith("think:")], ["step1", "wait", "step2", "step3", "end"])
+        self.assertEqual(after[after.index("step2") - 1], "think:50", "Spark on Meta's API sends no thinking: its words type")
+        self.assertEqual(after[after.index("step2") + 1], "step3", "a step with neither types nothing")
         self.assertGreaterEqual(_thinker("", "play")["held"], 1000, "the whole thinking stays a moment before the step")
 
     def test_a_pause_shows_the_thinking_whole_and_play_goes_on_without_typing_it_again(self):
@@ -351,7 +355,8 @@ class Thinking(unittest.TestCase):
         first = next(k for k, g in enumerate(said["paused"]) if g.startswith("think:") and g != "think:0")
         self.assertEqual(said["paused"][first + 1:], ["think:300"], "a pause shows it whole at once")
         self.assertNotIn("step1", said["paused"])
-        self.assertEqual(said["played"], ["step1", "wait", "step2", "end"])
+        self.assertEqual(said["played"][:2], ["step1", "wait"], "the step lands at once, its thinking not typed again")
+        self.assertEqual([g for g in said["played"] if not g.startswith("think:")], ["step1", "wait", "step2", "step3", "end"])
 
     def test_a_step_stopped_on_opens_how_muse_decided(self):
         said = _thinker("#step=1", "play")
