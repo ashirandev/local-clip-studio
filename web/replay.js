@@ -35,6 +35,7 @@
     if (opts && opts.method === "POST") return answer({ ok: false, error: NOTE });
     if (at[1] === "layer") return answer(d.layer && d.layer.ok ? d.layer : { ok: false, error: NOTE });
     if (at[1] === "health") return answer(d.health);
+    if (at[1] === "spent" && d.spent) return answer(d.spent);
     if (at[1] === "chat") return answer({ ok: true, chat: d.chat, busy: false });
     if (at[1] === "chats") return answer({ ok: true, chats: [d.listed] });
     if (at[1] === "recordings") return answer({ ok: true, folders: [], recordings: [] });

@@ -93,11 +93,11 @@ def by_chat(path):
     return out
 
 
-def totals(path, chat=None, now=None):
+def totals(path, chat=None, now=None, rows=None):
     """{chat, jobs, today, month, all, minds, unpriced}: US dollars, by this computer's calendar. jobs are the
     messages of the chat, each {job, usd, answers, minds}; minds what each mind came to in all; unpriced how many
-    answers had no price."""
-    rows = _rows(path)
+    answers had no price. rows, when given, are counted instead of the file's."""
+    rows = _rows(path) if rows is None else rows
     day = datetime.datetime.fromtimestamp(now or time.time())
     out = {"chat": 0.0, "jobs": [], "today": 0.0, "month": 0.0, "all": 0.0, "minds": {}, "unpriced": 0}
     jobs = {}

@@ -17,7 +17,7 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 
-from . import __version__, agent, recording, server
+from . import __version__, agent, mind, recording, server, spent
 
 NAMED = re.compile(r"^[0-9a-f]{16}\.(?:jpg|mp4)$")
 FOLDER = re.compile(r'(?<![\w\\])(?:[A-Za-z]:\\{1,2}|\\{2,4})(?:[^\\\r\n"<>|:*?]+\\{1,2})+')
@@ -111,6 +111,15 @@ def _card():
     return "%s %d GB" % (name, round(int(mib) / 1024)) if mib.strip().isdigit() else name
 
 
+def _spent(chat_id, events):
+    """What the run cost, as /api/spent answers the page, counted from the run's own answers only, so the day and the
+    month are the run's and not everything else this computer ran then; in US dollars, as the replay fetches no
+    rates."""
+    rows = [r for r in spent._rows(os.path.join(agent.WORK, "spent.jsonl")) if r.get("chat") == chat_id]
+    got = spent.totals(None, chat_id, now=events[-1]["t"] if events else None, rows=rows)
+    return dict(got, ok=True, prices=mind.PRICED, rate={"currency": "USD", "per_usd": 1.0})
+
+
 def pack(chat_id, folder, card=None):
     """Writes the replay of chat_id into folder, which must be empty or new. Returns what it wrote: {"files",
     "bytes", "events", "took"}. Refused when the chat is not there or a picture or video it names is gone, since a
@@ -190,7 +199,8 @@ def pack(chat_id, folder, card=None):
                    else "", "messages": len(said), "recording": opened[-1] if opened else ""},
         "made": time.strftime("%d %b %Y", time.localtime(events[0]["t"])).lstrip("0") if events else "",
         "took": took, "card": (_card() if card is None else card) if on_card else "",
-        "api": [m["label"] for m in minds if not m.get("local")], "features": agent.features()})
+        "api": [m["label"] for m in minds if not m.get("local")], "features": agent.features(),
+        "spent": _spent(chat_id, events)})
     files["api/replay.json"] = json.dumps(data, ensure_ascii=False).encode("utf-8")
     for name in sorted(os.listdir(server.WEB)):
         with open(os.path.join(server.WEB, name), "rb") as f:

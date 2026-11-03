@@ -123,6 +123,26 @@ class Pack(unittest.TestCase):
         self.assertIn('" with " + d.api.join(" and ") + " through an API"', said)
         self.assertIn('+ api + "; it plays here faster', said, "the banner says it")
 
+    def test_the_replay_answers_what_its_own_run_cost(self):
+        """Lane 5 11-03: the page asked api/spent about 8 times and got a 404 each time. The day and the month are the
+        run's: what else the computer ran that day is not the replay's to show."""
+        rows = [{"t": 200.0, "chat": CHAT, "job": 1, "label": "Muse Spark", "usd": 0.01},
+                {"t": 300.0, "chat": CHAT, "job": 1, "label": "Muse Spark", "usd": 0.02},
+                {"t": 250.0, "chat": "20261027-150000-0000", "job": 1, "label": "Muse Wonder", "usd": 0.5}]
+        with open(os.path.join(agent.WORK, "spent.jsonl"), "w", encoding="utf-8") as f:
+            f.writelines(json.dumps(r) + "\n" for r in rows)
+        replay.pack(CHAT, self.out, card="")
+        got = json.loads(self.read("api", "replay.json"))["spent"]
+        for key in ("chat", "today", "month", "all"):
+            self.assertAlmostEqual(got[key], 0.03, msg=key)
+        self.assertEqual([(j["job"], round(j["usd"], 2), j["answers"], j["minds"]) for j in got["jobs"]],
+                         [(1, 0.03, 2, ["Muse Spark"])])
+        self.assertEqual(list(got["minds"]), ["Muse Spark"])
+        self.assertEqual((got["ok"], got["rate"]), (True, {"currency": "USD", "per_usd": 1.0}))
+        page = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "replay.js")
+        with open(page, encoding="utf-8") as f:
+            self.assertIn('if (at[1] === "spent" && d.spent) return answer(d.spent);', f.read())
+
     def test_a_run_whose_pictures_are_gone_or_whose_job_has_not_ended_is_not_packed(self):
         os.remove(os.path.join(previews.folder(), PREVIEW))
         with self.assertRaises(replay.Refused) as said:
