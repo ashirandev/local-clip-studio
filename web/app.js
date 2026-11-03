@@ -715,7 +715,16 @@ function setBusy() {
 function pageWork(what, on) {
   room.work[what] = on;
   if (!on) room.workLine = "";
+  if (!on && room.shares) delete room.shares[what];
   setBusy();
+}
+
+const WORK_ORDER = ["video", "layout", "ends", "premiere", "preview"];
+
+function pageShare() {
+  const kind = WORK_ORDER.find((k) => room.work[k]);
+  room.pageBar = kind ? Math.max(room.pageBar || 0, (room.shares || {})[kind] || 0) : 0;
+  return room.pageBar;
 }
 
 const TAPPED = "(tapped) ";
@@ -3395,6 +3404,11 @@ function on(e) {
 }
 
 function onThinking(live) {
+  const got = live.job === null ? Number((/\((\d+)%\)/.exec(live.work || "") || [])[1]) : NaN;
+  if (got >= 0) {
+    const kind = live.page || "video";
+    room.shares = Object.assign(room.shares || {}, { [kind]: got });
+  }
   if ((live.work || "") !== room.workLine) {
     room.workLine = live.work || "";
     showStatus();
@@ -3484,7 +3498,7 @@ function jobLine() {
 
 function barShare(j) {
   const within = Number((/\((\d+)%\)/.exec(room.workLine) || [])[1]) || 0;
-  if (!j) return within;
+  if (!j) return pageShare();
   if (!j.items.length) return Math.max(room.floor || 0, 0);
   const done = j.items.filter((item) => item.state === "done").length;
   j.share = Math.max(j.share || 0, room.floor || 0, Math.min(Math.round((done + within / 100) / j.items.length * 100), 99));
@@ -3748,6 +3762,8 @@ function show(chatId) {
   room.jobs = {};
   room.open = new Set();
   room.floor = 0;
+  room.shares = {};
+  room.pageBar = 0;
   room.costs = [];
   room.cut = {};
   room.showing = null;

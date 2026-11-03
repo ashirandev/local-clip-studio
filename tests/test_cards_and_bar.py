@@ -529,6 +529,27 @@ const press = async (answer) => {
   said.work.next = [j.meta.textContent, j.meta.classList.contains("slow")];
   }
   {
+  const h = load(page);
+  await tick();
+  const seen = [];
+  const at = (k, work) => {
+    h.t.onThinking({ job: null, page: k, work });
+    seen.push(h.t.barShare(undefined));
+  };
+  h.t.pageWork("layout", true);
+  h.t.pageWork("preview", true);
+  at("layout", "Rendering the clip: 10 of 50 s (20%)");
+  at("preview", "Making the preview: 1 of 50 s (2%)");
+  at("layout", "Rendering the clip: 20 of 50 s (40%)");
+  at("layout", "Rendering the clip: 5 of 50 s (10%)");
+  h.t.pageWork("layout", false);
+  at("preview", "Making the preview: 15 of 50 s (30%)");
+  at("preview", "Making the preview: 30 of 50 s (60%)");
+  h.t.pageWork("preview", false);
+  seen.push(h.t.barShare(undefined));
+  said.handBar = seen;
+  }
+  {
   const b = load(page);
   await tick();
   b.event("job", { mind: "Muse Spark", job: 1 });
@@ -864,6 +885,13 @@ class WorkClock(unittest.TestCase):
         self.assertTrue(slow)
         self.assertEqual(line, "Muse Wonder is watching who speaks, turn 7 of 10 (60%) · Longer than usual. A Muse answer "
                                "can take up to 15:00 before the studio gives up.")
+
+    def test_a_hand_edit_moves_the_bar_only_forward(self):
+        """Tarm 11-03: "ผมแก้ ซีนสุดท้ายให้เห็นทุกคน ทำไมเส้น percent มันเด้งขึ้นลงล่ะ". The render and the preview share one
+        line, so the bar followed whichever spoke last."""
+        self.assertEqual(Page.said["handBar"], [20, 20, 40, 40, 40, 60, 0],
+                         "the render leads; a pass that starts again, or the preview taking over lower, does not take it "
+                         "back; idle is empty")
 
     def test_progress_does_not_go_back_after_a_stop_and_a_follow_up(self):
         """Tarm 11-03: "พอกดหยุด กลายเป้น progress 0% ทั้ง ๆ ที่ตอนแรก ล่อไป 17% แล้ว"."""
