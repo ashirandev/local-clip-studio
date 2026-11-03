@@ -1109,15 +1109,15 @@ def watch_piece(job, why, start, end, person_said=None):
         if job.stopped:
             return "Not watched: the person pressed Stop."
         seen = os.path.splitext(path)[0] + "_seen.json"
-        got = _kept(seen)
-        if got is None:
+        kept = _kept(seen)
+        if kept is None:
             got = job.ask_other("wonder", watch.question(path, b - a, rec["name"], "English"), watch.SCHEMA,
                                 "Muse Wonder is watching %s-%s with its sound" % (clock(a), clock(b)), watch.ANSWER_TOKENS)
-            got = {"text": got["text"], "engine": {"usd": (got.get("engine") or {}).get("usd")}}
-            _keep(seen, got)
         else:
-            got = {"text": got["text"], "engine": {"usd": 0.0}, "earlier": True}
+            got = {"text": kept["text"], "engine": {"usd": 0.0}, "earlier": True}
         found = watch.moments(got["text"], a, b)
+        if kept is None:
+            _keep(seen, {"text": got["text"]})
     except hearing.Stopped:
         return "Not watched: the person pressed Stop."
     except (watch.WatchError, mind.MindError) as e:
