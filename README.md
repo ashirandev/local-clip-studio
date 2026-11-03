@@ -1,6 +1,9 @@
 # Local Clip Studio
 
-**Demo video (3 min):** https://youtu.be/-Kbmh0N2bcA
+- **Demo video (3 min):** https://youtu.be/-Kbmh0N2bcA
+- **The six takes, uncut (3 hours):** https://youtu.be/tiktAqfebmc, recorded on one PC on 3 Nov 2026
+- **Step-by-step replays of each take:** https://ashirandev.github.io/local-clip-studio-replays/, the steps as the
+  studio showed them. A replay runs nothing.
 
 ## Try it in 5 minutes
 
@@ -545,6 +548,7 @@ Model weights are downloaded when they are first needed. None of them are commit
 | 2026-10-29, this build | One short Thai question to Muse Spark Open on the author's Modal endpoint, and to Muse Wonder on Meta's API | Spark Open: right answer in 1.7 s, $0.002; Wonder: 7 s, $0.006 |
 | 2026-10-29, this build | Muse Spark Open on Baseten (`meta-models/muse-spark-open-1026` at `https://inference.baseten.co/v1`) with the author's key, through the studio's own preset: the three kinds of question the studio asks | a short Thai question: answered in 3.2 s; a tool call: the right tool and path in 1.3 s; an answer held to a JSON schema (work or talk, for "it rained all day"): "talk" in 3.8 s. $0.005 for the three at Baseten's listed price ($1.25 / $0.15 cached / $4.25 per million tokens); Baseten reported the cached part of the first question |
 | 2026-10-29, this build | The trip folder on Muse Spark Open through Baseten, one run | the question after the pieces were arranged held 9 pictures and Baseten refused it (HTTP 400, "Too many images: 9 (max 8)"); Modal took the same 9. Now Baseten is sent the newest 8: 9 plain-colour pictures in one question, twice each, were refused without that (HTTP 400 in 0.5 s) and answered with it (Muse counted 8, 3.7-5.3 s, $0.002-0.005) |
+| 2026-11-03, this build | Every clip Muse rendered in the six final takes for the demo | 14.8-47.9 s each. This build keeps a finished clip between 10 and 90 s |
 
 New measurements are added here as the build is tested, each with its date.
 
@@ -555,6 +559,9 @@ The recordings in the demo are the author's own. Every edit the demo shows is ma
 - Recorded before the event: a four-hour game stream (Sifu © Sloclap), a talk show and a vlog from the author's
   channel, a product review shot on an iPhone, and clips from Ray-Ban Meta glasses.
 - Recorded for the demo on 30 October: a selling video.
+
+A replay shows each file's date as the computer has it (when it was downloaded, copied or joined), not when it was
+shot.
 
 ## Licence
 
