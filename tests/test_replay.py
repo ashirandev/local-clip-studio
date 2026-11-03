@@ -161,7 +161,7 @@ class El {
 const keys = {};
 const chat = new El("div");
 const document = { createElement: (t) => new El(t), head: new El("head"), querySelector: () => chat,
-  addEventListener: (k, fn) => { keys[k] = fn; } };
+  querySelectorAll: () => [], addEventListener: (k, fn) => { keys[k] = fn; } };
 const events = ["opened", "person", "job", "step", "plan", "step", "step", "end"].map((kind, t) => ({ kind, t }));
 const got = [];
 const timers = [];
@@ -234,6 +234,130 @@ const tick = () => new Promise((r) => setTimeout(r, 5));
   console.log(JSON.stringify(said));
 })();
 """
+
+
+THINKER = r"""
+const fs = require("fs");
+const vm = require("vm");
+let clock = 1000;
+const timers = [];
+const el = () => ({ children: [], heard: {}, style: {}, textContent: "", disabled: false,
+  classList: { toggle() {}, add() {}, remove() {}, contains: () => false }, setAttribute() {},
+  addEventListener(k, fn) { (this.heard[k] = this.heard[k] || []).push(fn); },
+  append(...k) { this.children.push(...k); }, prepend(...k) { this.children.unshift(...k); },
+  click() { (this.heard.click || []).forEach((fn) => fn({})); } });
+const chat = el();
+const thought = { open: false };
+const row = { querySelector: (q) => (q === "details.thought" ? thought : null) };
+let rows = [];
+const document = { createElement: el, head: el(), querySelector: () => chat, querySelectorAll: () => rows,
+  addEventListener() {} };
+const words = "x".repeat(300);
+const events = [{ kind: "opened" }, { kind: "job", job: 1 }, { kind: "wait", job: 1 },
+  { kind: "step", job: 1, step: 1, thinking: words }, { kind: "wait", job: 1 },
+  { kind: "step", job: 1, step: 2, thinking: "" }, { kind: "end", job: 1 }].map((e) => Object.assign(e, { t: 0 }));
+const box = { document, console, JSON, Object, Math, Promise, Infinity, String, Number, Set, URL, Response: function () {},
+  Date: { now: () => clock }, location: { href: "http://x/", hash: process.argv[3] || "", reload() {} },
+  setTimeout: (fn, ms) => (timers.push({ fn, ms: ms || 0 }), timers.length),
+  clearTimeout: (n) => { if (timers[n - 1]) timers[n - 1].fn = null; } };
+box.window = { addEventListener() {}, fetch: () => Promise.resolve({ json: () => Promise.resolve({ events, took: 7,
+  made: "3 Nov 2026", card: "", api: [] }) }) };
+box.window.location = box.location;
+vm.createContext(box);
+vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), box);
+const got = [];
+const opened = [];
+const at = {};
+box.room = { chat: "c", jobs: { 1: { rows: { contains: (r) => r === row } } } };
+box.setOpen = (j, on) => opened.push(on);
+box.show = () => {
+  const source = new box.window.EventSource();
+  source.onmessage = (m) => {
+    const e = JSON.parse(m.data);
+    got.push(e.kind + (e.step || ""));
+    if (e.kind === "step") rows = [row];
+    if (e.kind === "step" && e.step === 1) at.step = clock;
+  };
+  source.addEventListener("think", (m) => {
+    const n = JSON.parse(m.data).thinking.length;
+    got.push("think:" + n);
+    if (n === 300 && at.whole === undefined) at.whole = clock;
+  });
+};
+const due = (until) => {
+  for (let k = 0; k < 1000; k++) {
+    const next = timers.find((t) => t.fn);
+    if (!next || (until && until())) return;
+    const fn = next.fn;
+    next.fn = null;
+    clock += next.ms;
+    fn();
+  }
+};
+(async () => {
+  const [, go] = chat.children;
+  const pause = go.children[1];
+  box.show();
+  await new Promise((r) => setTimeout(r, 5));
+  const said = {};
+  if (process.argv[4] === "pause") {
+    due(() => got.some((g) => g.startsWith("think:") && g !== "think:0"));
+    pause.click();
+    due();
+    said.paused = got.splice(0);
+    pause.click();
+    await new Promise((r) => setTimeout(r, 5));
+    due();
+    said.played = got.splice(0);
+  } else {
+    due();
+    said.got = got.splice(0);
+  }
+  said.held = at.step - at.whole;
+  said.open = thought.open;
+  said.setOpen = opened;
+  console.log(JSON.stringify(said));
+})();
+"""
+
+
+def _thinker(*args):
+    import subprocess
+    page = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "replay.js")
+    run = subprocess.run(["node", "-e", THINKER, "-", page] + list(args), capture_output=True, text=True,
+                         encoding="utf-8", timeout=60)
+    if run.returncode:
+        raise AssertionError(run.stderr[-2000:])
+    return json.loads(run.stdout.strip().splitlines()[-1])
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not on this computer")
+class Thinking(unittest.TestCase):
+    """Tarm 11-03 through lane 5: "replay ขอแบบอ่าน thinking ได้ด้วยเหมือน กรรมการนั่งเรนเดอร์เองเลย". A step's thinking types
+    into the job's live box before the step lands, as the run showed it."""
+
+    def test_each_steps_thinking_types_in_before_the_step_lands(self):
+        got = _thinker("", "play")["got"]
+        typed = [g for g in got[:got.index("step1")] if g.startswith("think:")]
+        self.assertEqual(got[:3], ["opened", "job", "wait"])
+        self.assertGreater(len(typed), 20, "it types, it does not land at once")
+        self.assertEqual(typed[-1], "think:300")
+        self.assertEqual([int(g[6:]) for g in typed], sorted(int(g[6:]) for g in typed))
+        self.assertEqual(got[got.index("step1"):], ["step1", "wait", "step2", "end"], "a step with no thinking types nothing")
+        self.assertGreaterEqual(_thinker("", "play")["held"], 1000, "the whole thinking stays a moment before the step")
+
+    def test_a_pause_shows_the_thinking_whole_and_play_goes_on_without_typing_it_again(self):
+        said = _thinker("", "pause")
+        first = next(k for k, g in enumerate(said["paused"]) if g.startswith("think:") and g != "think:0")
+        self.assertEqual(said["paused"][first + 1:], ["think:300"], "a pause shows it whole at once")
+        self.assertNotIn("step1", said["paused"])
+        self.assertEqual(said["played"], ["step1", "wait", "step2", "end"])
+
+    def test_a_step_stopped_on_opens_how_muse_decided(self):
+        said = _thinker("#step=1", "play")
+        self.assertEqual(said["got"], ["opened", "job", "wait", "step1", "wait"], "going to a step types nothing")
+        self.assertTrue(said["open"])
+        self.assertEqual(said["setOpen"], [True])
 
 
 @unittest.skipUnless(shutil.which("node"), "node is not on this computer")

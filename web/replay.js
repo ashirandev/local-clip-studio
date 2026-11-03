@@ -1,6 +1,11 @@
 (() => {
   window.lcsReplay = true;
   const NOTE ="This is a replay of a real run, so nothing runs here. Get the studio to make clips from your own videos.";
+  const TYPE_RATE = 100;
+  const TYPE_LEAST = 1.5;
+  const TYPE_MOST = 10;
+  const TYPE_TICK = 50;
+  const TYPE_HOLD = 1200;
   const realFetch = window.fetch.bind(window);
   const data = realFetch("api/replay.json", { cache: "no-store" }).then((r) => r.json());
   let skip = false;
@@ -46,6 +51,8 @@
       this.onerror = null;
       this.timer = 0;
       this.next = 0;
+      this.typed = -1;
+      this.heard = {};
       seen = 0;
       if (startAt !== null) {
         want = startAt;
@@ -58,7 +65,30 @@
       });
     }
 
-    addEventListener() {}
+    addEventListener(kind, fn) {
+      this.heard[kind] = fn;
+    }
+
+    type(e, events) {
+      const words = String(e.thinking);
+      const took = 1000 * Math.min(TYPE_MOST, Math.max(TYPE_LEAST, words.length / TYPE_RATE));
+      const began = Date.now();
+      const at = this.next;
+      const tick = () => {
+        if (this.readyState === Replay.CLOSED) return;
+        const cut = paused || skip || want !== null;
+        const share = cut ? 1 : Math.min(1, (Date.now() - began) / took);
+        const shown = words.slice(0, Math.ceil(words.length * share));
+        this.heard.think({ data: JSON.stringify({ job: e.job, step: e.step, thinking: shown, text: "" }) });
+        if (share < 1) {
+          this.timer = setTimeout(tick, TYPE_TICK);
+          return;
+        }
+        this.typed = at;
+        this.timer = setTimeout(() => this.play(events), cut ? 0 : TYPE_HOLD);
+      };
+      tick();
+    }
 
     close() {
       this.readyState = Replay.CLOSED;
@@ -71,9 +101,13 @@
       while (this.readyState !== Replay.CLOSED && this.next < events.length) {
         if (want !== null && seen >= want && events[this.next].kind === "step") {
           want = null;
+          unfold();
           return count();
         }
         if (paused && want === null && !skip) return count();
+        const coming = events[this.next];
+        if (coming.kind === "step" && coming.thinking && this.typed !== this.next && !skip && want === null &&
+            this.heard.think) return this.type(coming, events);
         const e = Object.assign({}, events[this.next], { t: Date.now() / 1000 });
         this.next += 1;
         if (e.kind === "step") seen += 1;
@@ -85,6 +119,7 @@
           return;
         }
       }
+      if (want !== null) unfold();
       want = null;
       count();
     }
@@ -119,6 +154,15 @@
   const pause = pill("Pause", "pause");
   const back = pill("Back", "back", "One step back");
   const forth = pill("Next", "next", "The next step");
+  const unfold = () => {
+    const rows = document.querySelectorAll(".w-row");
+    const row = rows[rows.length - 1];
+    const thought = row && row.querySelector("details.thought");
+    if (!thought) return;
+    const job = typeof room === "object" && room.jobs ? Object.values(room.jobs).find((j) => j && j.rows && j.rows.contains(row)) : null;
+    if (job && typeof setOpen === "function") setOpen(job, true);
+    thought.open = true;
+  };
   const count = () => {
     const ended = Boolean(playing && playing.next >= ((playing.events || []).length || Infinity));
     where.textContent = "Step " + seen + " of " + total;
