@@ -11,6 +11,14 @@
   let seen = 0;
   let total = 0;
   let place = null;
+  const asked = () => {
+    const m = /^#step=(\d+)$/.exec(location.hash || "");
+    return m ? Number(m[1]) : null;
+  };
+  if (asked() !== null) {
+    paused = true;
+    startAt = asked();
+  }
 
   const answer = (body) => new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
 
@@ -131,11 +139,18 @@
     want = seen + 1;
     run();
   };
-  const toBack = () => {
+  const jump = (n) => {
     paused = true;
-    startAt = Math.max(0, seen - 1);
+    startAt = n;
     if (typeof show === "function" && typeof room === "object") show(room.chat);
   };
+  const toBack = () => jump(Math.max(0, seen - 1));
+  window.addEventListener("hashchange", () => {
+    if (asked() !== null) jump(asked());
+  });
+  window.addEventListener("popstate", (e) => {
+    if (!e.state && asked() !== null) e.stopImmediatePropagation();
+  });
   pause.addEventListener("click", () => {
     if (pause.textContent === "Play" && playing && playing.events && playing.next >= playing.events.length) return location.reload();
     paused = !paused;

@@ -166,8 +166,9 @@ const events = ["opened", "person", "job", "step", "plan", "step", "step", "end"
 const got = [];
 const timers = [];
 const box = { document, console, JSON, Object, Math, Date, Promise, Infinity, String, Number, Set, URL, Response: function () {},
-  location: { href: "http://x/", reload: () => got.push("reload") }, setTimeout: (fn) => (timers.push(fn), timers.length), clearTimeout: () => {} };
-box.window = { addEventListener: () => {}, fetch: () => Promise.resolve({ json: () => Promise.resolve({ events, took: 7, made: "3 Nov 2026", card: "", api: [] }) }) };
+  location: { href: "http://x/", hash: process.argv[3] || "", reload: () => got.push("reload") }, setTimeout: (fn) => (timers.push(fn), timers.length), clearTimeout: () => {} };
+const heard = {};
+box.window = { addEventListener: (k, fn) => { heard[k] = fn; }, fetch: () => Promise.resolve({ json: () => Promise.resolve({ events, took: 7, made: "3 Nov 2026", card: "", api: [] }) }) };
 box.window.location = box.location;
 vm.createContext(box);
 vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), box);
@@ -185,6 +186,25 @@ const tick = () => new Promise((r) => setTimeout(r, 5));
   const [back, pause, forth, where] = go.children;
   const end = bar.children[2];
   const look = () => [where.textContent, got.splice(0).join(" "), pause.textContent, back.disabled, forth.disabled];
+  if (box.location.hash) {
+    box.show();
+    await tick();
+    said.opened = look();
+    for (const hash of ["#step=1", "#step=9", "#top"]) {
+      box.location.hash = hash;
+      heard.hashchange({});
+      await tick();
+      said[hash] = look();
+    }
+    let kept = 0;
+    box.location.hash = "#step=1";
+    heard.popstate({ state: null, stopImmediatePropagation: () => (kept += 1) });
+    heard.popstate({ state: { screen: "chat" }, stopImmediatePropagation: () => (kept += 10) });
+    box.location.hash = "#top";
+    heard.popstate({ state: null, stopImmediatePropagation: () => (kept += 100) });
+    said.kept = kept;
+    return console.log(JSON.stringify(said));
+  }
   box.show();
   await tick();
   said.start = look();
@@ -251,6 +271,40 @@ class Steps(unittest.TestCase):
 
     def test_show_the_end_plays_the_rest(self):
         self.assertEqual(self.said["end"], ["Step 3 of 3", "step end", "Play", False, True])
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not on this computer")
+class StepAddress(unittest.TestCase):
+    """Tarm 11-03 through lane 5: beside each time in the video's chapters, a link that opens the replay at that step.
+    Step n is the n-th step event of the chat, every job together, in the order they were written."""
+
+    @classmethod
+    def setUpClass(cls):
+        import subprocess
+        page = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "replay.js")
+        run = subprocess.run(["node", "-e", STEPPER, "-", page, "#step=2"], capture_output=True, text=True,
+                             encoding="utf-8", timeout=60)
+        if run.returncode:
+            raise AssertionError(run.stderr[-2000:])
+        cls.said = json.loads(run.stdout.strip().splitlines()[-1])
+
+    def test_an_address_with_a_step_opens_the_replay_paused_there_as_next_pressed_up_to_it_would(self):
+        self.assertEqual(self.said["opened"], ["Step 2 of 3", "opened person job step plan step", "Play", False, False])
+
+    def test_another_step_on_the_open_page_plays_the_run_again_up_to_it(self):
+        self.assertEqual(self.said["#step=1"], ["Step 1 of 3", "opened person job step plan", "Play", False, False])
+
+    def test_a_step_past_the_end_shows_the_end(self):
+        self.assertEqual(self.said["#step=9"], ["Step 3 of 3", "opened person job step plan step step end", "Play",
+                                                False, True])
+
+    def test_an_address_that_is_not_a_step_changes_nothing(self):
+        self.assertEqual(self.said["#top"], ["Step 3 of 3", "", "Play", False, True])
+
+    def test_a_new_step_address_keeps_the_chat_on_screen(self):
+        """The page goes home on a history move with no screen of its own, and a new hash is one: real Chrome 11-03,
+        the run played to step 2 behind the home screen."""
+        self.assertEqual(self.said["kept"], 1)
 
 
 
