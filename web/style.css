@@ -589,6 +589,9 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .s-grip { width: 40px; height: 5px; margin: 0 auto 10px; border-radius: 3px; background: var(--sh-line); }
 .s-head { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 16px; }
 .s-head b { flex: 1; }
+.shot-span { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin: 10px 0 0; }
+.span-edge { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+.span-edge b { min-width: 6ch; text-align: center; font-variant-numeric: tabular-nums; }
 .sheet .round, .sheet .pill, .sheet .chip { border-color: transparent; background: var(--sh-raise); color: var(--sh-text); }
 .sheet .pill.go { background: var(--sh-accent); color: var(--sh-on-accent); }
 .s-sub { display: flex; align-items: center; gap: 6px; margin: 16px 0 8px; color: var(--sh-muted); font-size: 14px; font-weight: 700; }

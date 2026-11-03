@@ -100,22 +100,22 @@ function load(page, answer) {
     querySelectorAll: (q) => element("log").querySelectorAll(q),
     querySelector: (q) => element("log").querySelector(q),
   };
-  const asked = [], ran = [], heard = {};
+  const asked = [], ran = [], heard = {}, bodies = [];
   const box = {
     console, Math, Number, String, Object, Array, JSON, Promise, Date, Set, Map, RegExp, Infinity, NaN, parseInt, parseFloat, isNaN, encodeURIComponent, decodeURIComponent, document,
     window: any({ lcsReplay: false, addEventListener: (k, fn) => { heard[k] = fn; }, matchMedia: () => any({ matches: false }) }),
     history: any(), navigator: any(), localStorage: any({ getItem: () => null }), sessionStorage: any({ getItem: () => null }),
-    fetch: (u) => (asked.push(u), answer ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(answer) }) : new Promise(() => {})), EventSource: function () { return any(); }, ResizeObserver: function () { return any(); }, IntersectionObserver: function () { return any(); }, MutationObserver: function () { return any(); },
+    fetch: (u, o) => (asked.push(u), bodies.push(o && o.body ? JSON.parse(o.body) : null), answer ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(answer) }) : new Promise(() => {})), EventSource: function () { return any(); }, ResizeObserver: function () { return any(); }, IntersectionObserver: function () { return any(); }, MutationObserver: function () { return any(); },
     getComputedStyle: () => ({ overflowY: "auto", display: "block" }), matchMedia: () => any({ matches: false }), requestAnimationFrame: () => 0, cancelAnimationFrame: () => {}, setTimeout: (fn, ms) => { if (ms === 1500) ran.push(fn); return 0; }, clearTimeout: () => {}, setInterval: () => 0, clearInterval: () => {},
     Intl: any(), URL: any(), Image: function () { return any(); }, FormData: function () { return any(); }, CSS: any(), performance: any({ now: () => 0 }), innerWidth: 1200, innerHeight: 800,
   };
   vm.createContext(box);
-  vm.runInContext(page + "\n;globalThis.t = { room, job, tile, barShare, loadParts, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, showPart, showPicture, showOver, showFinished, showBase, api: (name) => { apiNow = name; } };", box);
+  vm.runInContext(page + "\n;globalThis.t = { room, job, tile, barShare, loadParts, pickShot, pickShown, shotSpan, frameApply, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, showPart, showPicture, showOver, showFinished, showBase, api: (name) => { apiNow = name; } };", box);
   const t = box.t;
   t.room.chat = "c";
   let id = 0;
   const event = (kind, over) => t.on(Object.assign({ id: id++, kind, job: 1 }, over));
-  return { t, element, made, event, asked, ran, heard, box };
+  return { t, element, made, event, asked, ran, heard, box, bodies };
 }
 
 const page = fs.readFileSync(process.argv[2], "utf8");
@@ -529,6 +529,36 @@ const press = async (answer) => {
   said.work.next = [j.meta.textContent, j.meta.classList.contains("slow")];
   }
   {
+  const f = load(page, { ok: true });
+  await tick();
+  const shots = [{ from: 0, to: 10, show: 1, x: 0, y: 0 }, { from: 10, to: 20, show: 2, x: 400, y: 0 }, { from: 20, to: 30, show: 0, x: null, y: null }];
+  f.t.room.panel = { length: 30, frame: { shots, least: 1.5, size: [1920, 1080], width: 608, height: 1080, picture: "p.jpg", together: true,
+    people: [{ n: 1, x: 0, y: 0, at: [300, 200] }, { n: 2, x: 400, y: 0, at: [700, 200] }] } };
+  f.t.room.part = "frame";
+  f.element("sheet").hidden = false;
+  f.t.room.chat = "c";
+  f.t.pickShot(shots[1]);
+  const span = { first: [f.element("spanFrom").textContent, f.element("spanTo").textContent, f.element("frameGo").disabled, f.element("shotSpan").hidden] };
+  f.element("spanToMore").press();
+  f.element("spanFromLess").press();
+  span.moved = [f.element("spanFrom").textContent, f.element("spanTo").textContent, f.element("frameGo").disabled, f.element("frameSays").textContent];
+  for (let k = 0; k < 40; k++) f.element("spanToMore").press();
+  for (let k = 0; k < 40; k++) f.element("spanFromMore").press();
+  span.limits = f.t.shotSpan();
+  for (let k = 0; k < 70; k++) f.element("spanFromLess").press();
+  f.t.pickShown({ n: 1, x: 0, y: 0 });
+  const from = f.bodies.length;
+  await f.t.frameApply();
+  span.sent = f.bodies.slice(from).filter((b) => b && b.start !== undefined);
+  span.after = f.t.room.shotSpan;
+  f.t.pickShot(shots[1]);
+  for (let k = 0; k < 40; k++) f.element("spanToLess").press();
+  span.shortest = f.t.shotSpan();
+  f.element("frameReset").press();
+  span.reset = [f.t.room.shotSpan, f.element("frameGo").disabled];
+  said.span = span;
+  }
+  {
   const h = load(page);
   await tick();
   const seen = [];
@@ -905,6 +935,18 @@ class WorkClock(unittest.TestCase):
         self.assertTrue(slow)
         self.assertEqual(line, "Muse Wonder is watching who speaks, turn 7 of 10 (60%) · Longer than usual. A Muse answer "
                                "can take up to 15:00 before the studio gives up.")
+
+    def test_a_person_is_shown_for_as_long_as_the_from_and_to_say(self):
+        """Tarm 11-03: "ตอนเลือกคน person 1 2 3 4 all พวกนี้ผมอยากให้มัน เลือกความยาวได้นะ ตอนนี้มัน fix". Apply sends
+        the same /api/shot as the chat's change_shot and the timeline's cut, so all three give one result."""
+        s = Page.said["span"]
+        self.assertEqual(s["first"], ["10.0 s", "20.0 s", True, False], "it starts at the shot's own edges")
+        self.assertEqual(s["moved"], ["9.5 s", "20.5 s", False, "New: person 2 from 9.5 to 20.5 s."])
+        self.assertEqual(s["limits"], {"from": 28.5, "to": 30}, "not past the clip, and not shorter than its shortest shot")
+        self.assertEqual(s["sent"], [{"chat": "c", "start": 0, "end": 30, "show": 1, "x": 0, "y": 0}])
+        self.assertIsNone(s["after"])
+        self.assertEqual(s["reset"], [None, True], "As it was puts the edges back")
+        self.assertEqual(s["shortest"], {"from": 10, "to": 11.5}, "the end stops short of the start by the shortest shot")
 
     def test_a_hand_edit_moves_the_bar_only_forward(self):
         """Tarm 11-03: "ผมแก้ ซีนสุดท้ายให้เห็นทุกคน ทำไมเส้น percent มันเด้งขึ้นลงล่ะ". The render and the preview share one

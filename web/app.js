@@ -1878,6 +1878,8 @@ const shotPeople = $("shotPeople");
 const shotWhy = $("shotWhy");
 const frameSides = $("frameSides");
 
+const shotSpan_ = $("shotSpan");
+
 function shotPicked() {
   const f = room.panel && room.panel.frame;
   if (!f || !f.shots) return null;
@@ -1896,9 +1898,35 @@ function setShot(x, y) {
   drawFrame();
 }
 
+const SPAN_STEP = 0.5;
+
+function shotSpan() {
+  const s = shotPicked();
+  return room.shotSpan || (s ? { from: s.from, to: s.to } : null);
+}
+
+function nudgeSpan(edge, step) {
+  const f = room.panel && room.panel.frame;
+  const s = shotPicked();
+  if (!f || !s) return;
+  const span = Object.assign({}, shotSpan());
+  const t = Math.round((span[edge] + step) * 10) / 10;
+  span[edge] = edge === "from" ? Math.max(0, Math.min(span.to - f.least, t)) : Math.min(room.panel.length, Math.max(span.from + f.least, t));
+  room.shotSpan = span.from === s.from && span.to === s.to ? null : span;
+  frameWhy.hidden = true;
+  seek(span[edge]);
+  drawFrame();
+}
+
+$("spanFromLess").addEventListener("click", () => nudgeSpan("from", -SPAN_STEP));
+$("spanFromMore").addEventListener("click", () => nudgeSpan("from", SPAN_STEP));
+$("spanToLess").addEventListener("click", () => nudgeSpan("to", -SPAN_STEP));
+$("spanToMore").addEventListener("click", () => nudgeSpan("to", SPAN_STEP));
+
 function pickShot(s) {
   room.shotAt = (s.from + s.to) / 2;
   room.shotMove = null;
+  room.shotSpan = null;
   frameWhy.hidden = true;
   seek(room.shotAt);
   drawFrame();
@@ -2041,9 +2069,14 @@ function drawShots(f) {
   const choices = f.people.map((p) => ({ n: p.n, x: p.x, y: p.y, label: "Person " + p.n, now: p.n === held.show, why: null }));
   if (f.together) choices.push({ n: 0, x: null, y: null, label: "Everyone", now: held.show === 0, why: null });
   drawChoices(shotPeople, shotWhy, choices, pickShown, null);
-  frameSays.textContent = room.shotMove ? "New: this shot shows " + who(held.show) + " from " + clock(s.from) + " to " + clock(s.to) + "." : "Tap a shot, then drag its frame over your video or choose who it shows.";
-  frameGo.disabled = !room.shotMove;
-  frameReset.hidden = !room.shotMove;
+  const span = shotSpan();
+  const changed = Boolean(room.shotMove || room.shotSpan);
+  shotSpan_.hidden = false;
+  $("spanFrom").textContent = span.from.toFixed(1) + " s";
+  $("spanTo").textContent = span.to.toFixed(1) + " s";
+  frameSays.textContent = changed ? "New: " + who(held.show) + " from " + span.from.toFixed(1) + " to " + span.to.toFixed(1) + " s." : "Tap a shot, then choose who it shows and for how long, or drag its frame over your video.";
+  frameGo.disabled = !changed;
+  frameReset.hidden = !changed;
 }
 
 function frameNow() {
@@ -2063,7 +2096,7 @@ function setFrame(x) {
 function drawFrame() {
   const f = room.panel && room.panel.frame;
   if (!f || f.why) return;
-  shotRow.hidden = shotPeople.hidden = !f.shots;
+  shotRow.hidden = shotPeople.hidden = shotSpan_.hidden = !f.shots;
   frameSides.hidden = Boolean(f.shots);
   if (f.shots) {
     if (!sheet.hidden && room.part === "frame") drawShots(f);
@@ -2127,6 +2160,7 @@ $("frameMiddle").addEventListener("click", () => setFrame((room.panel.frame.size
 frameReset.addEventListener("click", () => {
   room.frameX = null;
   room.shotMove = null;
+  room.shotSpan = null;
   frameWhy.hidden = true;
   drawFrame();
 });
@@ -2135,14 +2169,17 @@ frameGo.addEventListener("click", frameApply);
 async function frameApply() {
   const s = shotPicked();
   const m = room.shotMove;
-  if (s ? !m : room.frameX === null || room.frameX === undefined) return;
+  if (s ? !m && !room.shotSpan : room.frameX === null || room.frameX === undefined) return;
   frameGo.disabled = true;
   frameWhy.hidden = true;
   try {
-    const d = await (s ? post("/api/shot", { chat: room.chat, start: s.from, end: s.to, show: m.show, x: m.x, y: m.y }) : post("/api/frame", { chat: room.chat, x: room.frameX }));
+    const span = s && shotSpan();
+    const held = m || s;
+    const d = await (s ? post("/api/shot", { chat: room.chat, start: span.from, end: span.to, show: held.show, x: held.x, y: held.y }) : post("/api/frame", { chat: room.chat, x: room.frameX }));
     if (d.ok) {
       room.frameX = null;
       room.shotMove = null;
+      room.shotSpan = null;
     } else {
       frameWhy.textContent = d.error || "The frame could not be moved.";
       frameWhy.hidden = false;
