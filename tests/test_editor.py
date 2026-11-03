@@ -5696,7 +5696,7 @@ class Tools(unittest.TestCase):
         first = brain.sent[0][-1]["content"]
         self.assertTrue(first.startswith("[studio] Since your last answer: the person took back the clip from moment 1 "
                                          "in the subject layout. Now: no clip made yet"), first)
-        self.assertTrue(first.endswith("make it again"))
+        self.assertTrue(first.endswith("make it again" + agent.written_in("make it again")), first)
         self.assertEqual(self.chat.told, [])
 
 
