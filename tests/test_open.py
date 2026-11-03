@@ -420,6 +420,15 @@ class Follow(unittest.TestCase):
         self.assertLess(moved_at - asked, 1.0)
         self.assertEqual(json.loads(lines[-1][5:]), {"chat": second.id})
 
+    def test_a_chat_no_longer_shown_does_not_wait_for_a_wakeup_that_already_went(self):
+        """The switch can land after the stream looked at which chat is shown and before it waits: its wakeup then
+        reached nobody, and the page followed a whole KEEP_ALIVE later."""
+        first = agent.current()
+        agent.new()
+        started = time.time()
+        first.since(len(first.events), first.live_rev, 5)
+        self.assertLess(time.time() - started, 1.0)
+
     def test_an_idle_stream_waits_instead_of_spinning(self):
         server.KEEP_ALIVE = 0.5
         url = "http://127.0.0.1:%d/api/events?chat=%s" % (self.http.server_port, agent.current().id)

@@ -284,9 +284,12 @@ class Chat:
         return event
 
     def since(self, n, rev, timeout):
-        """(events from number n on, Muse's live thinking if it changed since rev), waiting up to timeout seconds."""
+        """(events from number n on, Muse's live thinking if it changed since rev), waiting up to timeout seconds, and
+        only while this chat is still the one the pages show: another chat shown between the stream's look and this
+        wait woke nobody, and the page followed up to KEEP_ALIVE late (lane 4 11-03, from test_open.Follow)."""
         with self.cond:
-            if len(self.events) <= n and (self.live is None or self.live_rev == rev):
+            if len(self.events) <= n and (self.live is None or self.live_rev == rev) and (
+                    not _shown or _shown[-1] == self.id):
                 self.cond.wait(timeout)
             live = dict(self.live, rev=self.live_rev) if self.live and self.live_rev != rev else None
             return self.events[n:], live
