@@ -332,6 +332,22 @@ class Look(unittest.TestCase):
         self.assertEqual(self.chat.looks, [])
         self.assertIsNone(hearing.heard(recording.probe(self.clip), 30, 50))
 
+    def test_a_stop_just_before_the_sound_is_sent_still_ends_the_hearing_at_once(self):
+        """The full suite on b4332b2: Stop came after the sound was read and before the question went out, so nothing
+        was there to close and the hearing waited the worker's whole 10 s."""
+        self.worker.delay = 10
+        stops = []
+        real = hearing.http.client.HTTPConnection
+
+        def late_stop(*a, **k):
+            stops[0]()
+            return real(*a, **k)
+        started = time.time()
+        with mock.patch.object(hearing.http.client, "HTTPConnection", late_stop),                 mock.patch.object(hearing, "engine", lambda: "local"):
+            with self.assertRaises(hearing.Stopped):
+                hearing.hear(recording.probe(self.clip), 30, 50, on_start=stops.append)
+        self.assertLess(time.time() - started, 5)
+
     def test_stop_while_fixing_the_words_ends_the_proposal_and_keeps_nothing(self):
         from clipstudio import mind
 

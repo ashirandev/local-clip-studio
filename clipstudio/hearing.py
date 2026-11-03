@@ -198,6 +198,8 @@ def hear(rec, start, end, on_start=None, on_paid=None, languages=()):
         u = urllib.parse.urlsplit(URL)
         conn = http.client.HTTPConnection(u.hostname, u.port, timeout=HEAR_SECONDS)
         parts["ask"] = conn.close
+        if stopped.is_set():
+            raise Stopped()
         conn.request("POST", "/hear", pcm, {"Content-Type": "application/octet-stream"})
         answer = conn.getresponse()
         got = json.loads(answer.read().decode("utf-8"))
