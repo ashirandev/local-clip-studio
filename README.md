@@ -1,5 +1,7 @@
 # Local Clip Studio
 
+**Demo video (3 min):** https://youtu.be/-Kbmh0N2bcA
+
 ## Try it in 5 minutes
 
 1. **Install.** Windows: double-click `setup.bat`. macOS or Linux: `sh setup.sh`, then `sh start.sh` (it needs Python
@@ -548,8 +550,11 @@ New measurements are added here as the build is tested, each with its date.
 
 ## Footage
 
-The recordings in the demo are the author's own: a product review shot on an iPhone, a game stream, and clips
-from Ray-Ban Meta glasses. All were recorded before the event. Every edit the demo shows is made by this build.
+The recordings in the demo are the author's own. Every edit the demo shows is made by this build.
+
+- Recorded before the event: a four-hour game stream (Sifu © Sloclap), a talk show and a vlog from the author's
+  channel, a product review shot on an iPhone, and clips from Ray-Ban Meta glasses.
+- Recorded for the demo on 30 October: a selling video.
 
 ## Licence
 
