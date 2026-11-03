@@ -1491,6 +1491,20 @@ class Tools(unittest.TestCase):
         self.assertTrue(differ("สามคน", "Two people."), "a number changed")
         self.assertTrue(differ("ได้ห้าสิบ", "We got fifty, plus 7."), "a number made up")
 
+    def test_a_price_said_after_thi_is_a_number_and_an_ordinal_is_not(self):
+        """Lane 4 11-03, Selling 55b6: the tokenizer reads ที่สาม as one word, "third", so a price at สามพัน was never said,
+        and the number ask had Muse write "sam sam phan baht as heard"."""
+        said = tools._said_numbers
+        self.assertEqual(said("ตอนนี้ ส่วนราคาอยู่ที่สามสามพันบาท"), [{3000}])
+        self.assertEqual(said("ราคาอยู่ที่สามพันห้าร้อยบาท"), [{3500}])
+        self.assertEqual(said("เริ่มที่สองร้อยบาท"), [{200}])
+        self.assertEqual(said("ที่สามพันบาท"), [{3000}], "with no word before it, ที่ is at")
+        self.assertEqual(said("ชิ้นที่สามราคาร้อยบาท"), [{100}], "the third piece is a word in English, not a number")
+        self.assertEqual(said("ครั้งที่สองก็ยังได้"), [])
+        self.assertEqual(said("ที่สุดแล้ว"), [])
+        self.assertFalse(tools._numbers_differ("ราคาอยู่ที่สามพันห้าร้อยบาท", "It's priced at 3,500 baht."))
+        self.assertTrue(tools._numbers_differ("ราคาอยู่ที่สามพันห้าร้อยบาท", "It's priced at a good price."))
+
     def test_a_subtitle_sentence_never_joins_two_phrases_with_a_left_out_one_between(self):
         phrases = [{"from": 0.0, "to": 1.0, "text": "a", "n": 0}, {"from": 1.2, "to": 2.0, "text": "b", "n": 2},
                    {"from": 2.1, "to": 3.0, "text": "c", "n": 3}, {"from": 3.1, "to": 9.0, "text": "d", "n": 4}]

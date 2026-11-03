@@ -3921,6 +3921,12 @@ FOREIGN_ASK = ("These lines keep words that are not %s:\n%s\nThe speech recognit
                "another language. Write each line all in %s: what its sentence means, leaving out words that fit nothing "
                "in it; a name stays as it is.")
 AGAIN_ASK = " Answer with all %d lines again, in the same order."
+# The words a Thai ordinal's ที่ follows (ชิ้นที่สาม, the third piece), which English writes as a word ("third") and not
+# as a number; after any other word, ที่ is "at" (ราคาอยู่ที่สามพัน, the price is at 3,000).
+ORDINAL_AFTER = {"ชิ้น", "ครั้ง", "ข้อ", "วัน", "อัน", "ตัว", "คน", "คัน", "เล่ม", "หน้า", "ตอน", "ภาค", "รอบ", "ชั้น", "แถว",
+                 "ห้อง", "บท", "ปี", "เดือน", "สัปดาห์", "อาทิตย์", "ลำดับ", "อันดับ", "ชุด", "แบบ", "ขั้น", "คลิป", "เพลง",
+                 "เกม", "ด่าน", "ช่อง", "แผ่น", "ใบ", "ลูก", "เรื่อง", "อย่าง", "ประการ", "คู่", "รุ่น", "ข้อความ", "คำถาม",
+                 "นาที", "ชั่วโมง", "ภาพ", "รูป", "สี", "ขนาด", "ที่"}
 HITS = {"flash": "a short white flash", "shake": "the picture shakes and settles", "punch": "a quick zoom in and back",
         "word": "a big word that pops in, such as POW"}
 
@@ -4444,15 +4450,20 @@ def _said_numbers(said):
     and another as "a". A Thai number word counts only where it stands as a word of its own, and one that ends in
     หนึ่ง after a unit is said for both readings. A tutorial, 10-28: the check failed two right translations, "Okay, you can
     go check it in" for สามารถ... (สามารถ, can, starts with สาม, three) and "It's back to one hundred thousand now" for
-    แสนหนึ่ง (said for 100,000 as often as for 100,001)."""
+    แสนหนึ่ง (said for 100,000 as often as for 100,001). The tokenizer joins ที่ and the number word after it into one
+    ordinal word (ที่สาม, third), so a number starts after that ที่ too, unless an ORDINAL_AFTER word comes before it:
+    Selling 11-03, "ราคาอยู่ที่สามสามพันบาท" said no number, and its line came out "sam sam phan baht as heard"."""
     from pythainlp.tokenize import word_tokenize
     out = [{v} for v in spoken.digits(said) | spoken.english(said)]
     if re.search("[ก-๛]", said):
         words.odd_thai(said)
-        bounds, at = {0}, 0
+        bounds, at, last = {0}, 0, ""
         for w in word_tokenize(said, engine="newmm", keep_whitespace=True, custom_dict=words._WORDS[1]):
+            if w.startswith("ที่") and len(w) > len("ที่") and last not in ORDINAL_AFTER:
+                bounds.add(at + len("ที่"))
             at += len(w)
             bounds.add(at)
+            last = w if w.strip() else last
         for m in thai.NUMBER.finditer(said):
             if m.group(0)[:1].isdigit() or m.start() not in bounds or m.end() not in bounds:
                 continue
