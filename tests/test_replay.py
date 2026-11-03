@@ -39,6 +39,7 @@ class Pack(unittest.TestCase):
             {"job": 1, "name": PREVIEW, "id": 3, "kind": "preview", "t": 160.0},
             {"job": 1, "file": CLIP, "result": "Saved C:\\Users\\me\\Videos\\Reviews\\dry.mov as a clip", "id": 4,
              "kind": "rendered", "t": 220.0, "cover": COVER},
+            {"job": 1, "step": 1, "tool": "render_clip", "id": 6, "kind": "step", "t": 221.0},
             {"job": 1, "steps": 3, "seconds": 241.0, "why": "answered", "id": 5, "kind": "end", "t": 342.0}]
         self.write(self.events)
         self.out = os.path.join(self.tmp, "replay")
@@ -74,7 +75,7 @@ class Pack(unittest.TestCase):
         data = json.loads(self.read("api", "replay.json"))
         self.assertEqual([e["kind"] for e in data["events"]], [e["kind"] for e in self.events])
         self.assertEqual((data["chat"], data["took"], data["card"]), (CHAT, 241, "RTX 5070 Ti 16 GB"))
-        self.assertEqual(done["events"], 6)
+        self.assertEqual(done["events"], 7)
 
     def test_the_words_layer_and_the_base_video_play_from_the_folder_as_the_studio_sent_them(self):
         png, mp4 = "0123456789abcdef0123.png", "3123456789abcdef.mp4"
@@ -123,6 +124,19 @@ class Pack(unittest.TestCase):
         self.assertIn('" with " + d.api.join(" and ") + " through an API"', said)
         self.assertIn('+ api + "; it plays here faster', said, "the banner says it")
 
+    def test_a_mind_stopped_before_it_answered_is_not_credited(self):
+        """Lane 4 11-03, Vlog 7c21: job 1 on Glimmer was stopped 30 s in with no step, the rest ran on Baseten, and the
+        banner put the run on the card."""
+        self.events[2]["mind"] = "Muse Spark"
+        stopped = [{"job": 0, "text": "make a vlog", "id": 10, "kind": "person", "t": 90.0},
+                   {"job": 0, "mind": "Muse Glimmer", "id": 11, "kind": "job", "t": 90.5},
+                   {"job": 0, "steps": 0, "seconds": 30.0, "why": "stopped", "id": 12, "kind": "end", "t": 99.0}]
+        self.write(stopped + self.events)
+        replay.pack(CHAT, self.out, card="RTX 5070 Ti 16 GB")
+        data = json.loads(self.read("api", "replay.json"))
+        self.assertEqual([m["label"] for m in data["health"]["minds"]], ["Muse Spark"])
+        self.assertEqual((data["card"], data["api"]), ("", ["Muse Spark"]))
+
     def test_the_replay_answers_what_its_own_run_cost(self):
         """Lane 5 11-03: the page asked api/spent about 8 times and got a 404 each time. The day and the month are the
         run's: what else the computer ran that day is not the replay's to show."""
@@ -153,7 +167,7 @@ class Pack(unittest.TestCase):
             replay.pack(CHAT, os.path.join(self.tmp, "other"), card="")
         self.assertIn("has not finished", str(said.exception))
         with open(os.path.join(recording.WORK, "chats", CHAT + ".events.jsonl"), encoding="utf-8") as f:
-            self.assertEqual(len(f.readlines()), 5, "packing never writes an end into a run that is going on")
+            self.assertEqual(len(f.readlines()), len(self.events) - 1, "packing never writes an end into a run that is going on")
 
 
 STEPPER = r"""

@@ -187,7 +187,8 @@ def pack(chat_id, folder, card=None):
     opened = [e["recording"]["name"] for e in events if e["kind"] == "opened"]
     began = {e["job"]: e["t"] for e in events if e["kind"] == "job"}
     took = round(sum(e["t"] - began[e["job"]] for e in events if e["kind"] == "end" and e["job"] in began))
-    ran = list(dict.fromkeys(e["mind"] for e in events if e["kind"] == "job" and e.get("mind")))
+    answered = {e["job"] for e in events if e["kind"] in ("step", "answer")}
+    ran = list(dict.fromkeys(e["mind"] for e in events if e["kind"] == "job" and e.get("mind") and e["job"] in answered))
     minds = [dict(m, ok=True) for m in health.get("minds") or [] if m.get("label") in ran]
     shown = dict(health, here=True, **({"minds": minds, "default": minds[0]["key"]} if minds else {}))
     on_card = any(m.get("local") for m in minds) or not minds
