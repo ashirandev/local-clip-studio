@@ -691,7 +691,7 @@ class Loop(unittest.TestCase):
                              [call("find_recordings", words="review", why="the person asked for the review")],
                              "Here is the review.")
         job, events = self.run_job(brain)
-        self.assertEqual(brain.sent[2][-1], {"role": "user", "content": "only the review, please"})
+        self.assertEqual(brain.sent[2][-1], {"role": "user", "content": "only the review, please" + agent.written_in("x")})
         cut = [e for e in events if e["kind"] == "cut"]
         self.assertEqual([(c["step"], c["by"]) for c in cut], [(2, "person")])
         said = [e for e in events if e["kind"] == "person"]
@@ -708,7 +708,7 @@ class Loop(unittest.TestCase):
         answers = [e for e in events if e["kind"] == "answer"]
         self.assertEqual([(a["text"], a["final"]) for a in answers],
                          [("Here is the review.", False), ("The game one is not here.", True)])
-        self.assertEqual(brain.sent[1][-1], {"role": "user", "content": "and the game one?"})
+        self.assertEqual(brain.sent[1][-1], {"role": "user", "content": "and the game one?" + agent.written_in("and the game one?")})
 
     def test_stop_ends_the_job_while_muse_thinks(self):
         def person_stops(asking):
@@ -762,10 +762,34 @@ class Loop(unittest.TestCase):
         finally:
             mind.get = real
         thai, english = [s[-1]["content"] for s in brain.sent]
-        self.assertTrue(thai.endswith("\n[studio] The person wrote this in Thai: answer in Thai."), thai)
-        self.assertNotIn("[studio] The person wrote", english)
+        self.assertTrue(thai.endswith("\n[studio] The person wrote this in Thai: answer, and write every why, in Thai, "
+                                      "whatever language the recording speaks."), thai)
+        self.assertTrue(english.endswith("\n[studio] The person wrote this in English: answer, and write every why, in "
+                                         "English, whatever language the recording speaks."), english)
         self.assertEqual([e["text"] for e in self.chat.events if e["kind"] == "person"],
                          ["มันดูไม่รู้เรื่องเลยนะซีนที่เลือกมาอะ", "try another moment"])
+
+    def test_glimmer_is_told_to_write_its_whys_in_english_when_the_person_asks_in_english(self):
+        """Lane 5 11-03, the Sifu take: Glimmer wrote 32 of 32 step reasons in Thai for an English ask over a Thai
+        recording, as no line named English. The message Glimmer gets now names it."""
+        brain, real, asked = ScriptedMind("Sure."), mind.get, []
+        mind.get = lambda key: (asked.append(key), brain)[1]
+        try:
+            self.chat.say("Make a short clip ready to post", "glimmer").thread.join(5)
+        finally:
+            mind.get = real
+        self.assertIn("glimmer", asked)
+        self.assertIn("write every why, in English", brain.sent[-1][-1]["content"])
+
+    def test_the_language_line_names_only_what_the_letters_show(self):
+        for words, name in (("cut the best part", "English"), ("Can't you make it shorter?", "English"),
+                            ("ตัดให้สั้นลงหน่อย", "Thai"), ("make it สั้น", "Thai"), ("Làm ngắn lại", None),
+                            ("12 30", None), ("", None)):
+            line = agent.written_in(words)
+            if name:
+                self.assertIn("wrote this in %s:" % name, line, words)
+            else:
+                self.assertEqual(line, "", words)
 
     def test_an_earlier_chat_opens_again_as_it_was(self):
         self.run_job(ScriptedMind([call("set_plan", steps=["find it"], why="plan")],
@@ -802,7 +826,7 @@ class Loop(unittest.TestCase):
 
         job.take_inbox = take_then_person_types
         job.run()
-        self.assertEqual([m["content"] for m in brain.sent[0][1:]], ["find the review", "and the game"])
+        self.assertEqual([m["content"].split("\n[studio]")[0] for m in brain.sent[0][1:]], ["find the review", "and the game"])
 
 
 class Talk(unittest.TestCase):

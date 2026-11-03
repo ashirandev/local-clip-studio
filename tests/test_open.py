@@ -374,7 +374,9 @@ class Open(unittest.TestCase):
         said = brain.sent[0][-1]["content"]
         self.assertTrue(said[0]["text"].startswith("(opened) my review.mp4 · 0:03 long · 320x180"))
         self.assertTrue(said[0]["text"].endswith("\nfunny, 20 s"))
-        self.assertIn("\nThe person's browser is set to th-TH; answer in that language", said[0]["text"])
+        self.assertIn("\n[studio] The person wrote this in English: answer, and write every why, in English", said[0]["text"],
+                      "words typed with the drop say the language, before the browser does")
+        self.assertIn("\nThe person's browser is set to th-TH; answer in that language", agent._reader("", "th-TH"))
         self.assertTrue(said[1]["image_url"]["url"].startswith("data:image/jpeg;base64,/9j/"))
         person = [e for e in self.chat.events if e["kind"] == "person"][0]
         self.assertNotIn("base64", json.dumps(person))

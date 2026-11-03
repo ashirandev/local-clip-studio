@@ -2504,14 +2504,24 @@ def _arguments(raw):
     return args
 
 
+ENGLISH = re.compile("[A-Za-z]")
+NOT_ENGLISH = re.compile("[^\\x00-\\x7f\u2018\u2019\u201c\u201d\u2013\u2014\u2026]")
+
+
 def written_in(words):
-    """A line for Muse naming the language the person typed words in, when its letters say it ("" otherwise).
-    The rule in SYSTEM was not enough: on 10-29 Tarm typed Thai four times after a recording opened with the browser
-    set to English, and Glimmer answered every one in English."""
-    for name, letters in SCRIPTS:
-        if letters.search(words or ""):
-            return "\n[studio] The person wrote this in %s: answer in %s." % (name, name)
-    return ""
+    """A line for Muse naming the language the person typed words in, when its letters say it ("" otherwise): a script
+    of SCRIPTS, or English for plain Latin letters with none of another alphabet's marks. The rule in SYSTEM was not
+    enough: on 10-29 Tarm typed Thai four times after a recording opened with the browser set to English, and Glimmer
+    answered every one in English; on 11-03 his English ask over a Thai recording had Glimmer write 32 of 32 whys in
+    Thai. So the line names English too, and the whys with the answer."""
+    words = words or ""
+    name = next((name for name, letters in SCRIPTS if letters.search(words)), None)
+    if name is None and ENGLISH.search(words) and not NOT_ENGLISH.search(words):
+        name = "English"
+    if name is None:
+        return ""
+    return ("\n[studio] The person wrote this in %s: answer, and write every why, in %s, whatever language the "
+            "recording speaks." % (name, name))
 
 
 def heard_in(texts):
