@@ -17,7 +17,7 @@ import test_editor  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
 BEAT_ONE = "เอาช่วงที่มันส์ที่สุด"
-SELLER = "ทำคลิปสั้นจาก C:\\Users\\hunte\\Videos\\TravelTest\\trip_2026-08-03.mov ให้พร้อมโพสต์"
+SELLER = "ทำคลิปสั้นจาก C:\\Users\\me\\Videos\\TravelTest\\trip_2026-08-03.mov ให้พร้อมโพสต์"
 TRIP = "ทำคลิปเที่ยวจากวิดีโอใน H:\\ContentFootage\\Misc\\20261026 ให้พร้อมโพสต์"
 
 
