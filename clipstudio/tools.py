@@ -4708,6 +4708,8 @@ def add_captions(job, why, on=True, lit=False, pop=None, language="", hidden=Non
         entry["drafts"] = text.caption_lines(doubtful, ONE_LETTERS if one else CAPTION_LETTERS)
     if translated:
         entry["language"] = target
+    elif target and target != said_in:
+        entry["wanted"] = target
     bands, voiced = clip["layout"].get("bands"), clip.get("voices")
     if bands and voiced:
         who = {(round(v["from"], 2), round(v["to"], 2)): v["who"] for v in voiced}
@@ -6006,6 +6008,13 @@ def check_clip(job, why):
               "%d of %d sentences are all in %s" % (len(sentences) - len(stray), len(sentences), language) +
               ("; not: %s; put the captions on again and those lines are translated again" % "; ".join(stray[:3])
                if stray else ""))
+    wanted = (state["captions"] or {}).get("wanted")
+    left = [line["text"] for line in lines if not line.get("typed")]
+    shown_in = _spoken(job, left) if wanted and left else wanted
+    if shown_in != wanted:
+        check("Captions are in %s" % wanted, False,
+              "they are in %s as said: the %s lines Muse wrote did not line up with the sentences said; put the "
+              "captions on again and they are asked for again" % (shown_in, wanted))
     if kind == "seller":
         wrong = [n for t in state["titles"] for n in _not_said(t["text"], said)]
         unread = _numbers_unread(job, said) if wrong else None

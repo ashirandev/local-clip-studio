@@ -1421,6 +1421,38 @@ class Tools(unittest.TestCase):
         self.assertEqual(len([m for m in brain.sent if "English subtitle" in m[0]["content"]]), 3,
                          "a held line that is not English is not kept")
 
+    def test_captions_left_as_said_when_the_language_asked_for_failed_are_a_red_check(self):
+        """Lane 4 11-03, Selling 55b6: clip 3's English asks ran to 16,384 tokens twice, the captions stayed Thai, a batch
+        does not read add_captions' result, and the check passed 6 of 6."""
+        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "ตั้งค่าเครื่องง่ายมาก"},
+                               {"from": 5.0, "to": 8.0, "text": "ราคาถูกมาก"}]
+
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            brain, steps = self.run_job(
+                *self.to_moment()[:2],
+                [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the setup"}])],
+                '{"lines": ["ตั้งค่าเครื่องง่ายมาก", "ราคาถูกมาก"]}',
+                [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("add_captions", language="English", why="abroad")], '{"lines": ["Easy to set up."]}', "not json",
+                [call("decide_people", keep=[1], why="it is him")],
+                [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
+                [call("add_captions", language="English", why="the check said Thai")],
+                '{"lines": ["Easy to set up.", "Really cheap."]}',
+                [call("render_clip", why="make the file")], [call("check_clip", why="check it")], "Done.")
+        finally:
+            render.export = had
+        first, last = [s for s in steps if s["tool"] == "check_clip"]
+        self.assertIn("- FAILED: Captions are in English (they are in Thai as said: the English lines Muse wrote did not "
+                      "line up with the sentences said; put the captions on again", first["result"])
+        self.assertNotIn("Captions are in English", last["result"])
+        self.assertIn("- passed: Translated captions are all in English", last["result"])
+
     def test_a_line_is_not_in_its_language_by_letters_it_does_not_write(self):
         said = "lại có thằng kẹp nè đó là เก็บน้ำได้"
         self.assertEqual(tools._not_in("lại có thằng kẹp nè đó là it holds water", "English", said),
