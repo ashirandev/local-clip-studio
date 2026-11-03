@@ -260,12 +260,40 @@ class Machine(unittest.TestCase):
         code, went, said = self.setup_run(True)
         self.assertEqual(code, 0)
         self.assertNotIn("glimmer", went)
-        self.assertNotIn("engine", went)
+        self.assertIn("engine", went, "a Glimmer put in its folder by hand needs llama.cpp to run")
         self.assertIn("hearing", went, "the hearing is needed from the first clip")
         self.assertIn("Muse Glimmer  14.8 GB later, from Set up in the studio", said)
         self.assertIn("Muse answers through the API you saved until then", said)
-        self.assertEqual({p["key"] for p in parts.parts(BIG, look=False) if p["size"]} - set(went), {"engine", "glimmer"},
-                         "the studio's Set up button still offers them")
+        self.assertEqual({p["key"] for p in parts.parts(BIG, look=False) if p["size"]} - set(went), {"glimmer"},
+                         "the studio's Set up button still offers it")
+
+    def test_setup_makes_the_folders_and_says_where_glimmer_goes(self):
+        models = os.path.join(self.tmp, "models")
+        glimmer = os.path.join(models, "glimmer")
+        with mock.patch.object(parts, "GLIMMER_FILE", os.path.join(glimmer, "glimmer.gguf")), \
+                mock.patch.object(parts, "VISION_FILE", os.path.join(glimmer, "vision.gguf")), \
+                mock.patch.object(parts, "HEARING_DIR", os.path.join(models, "hearing")):
+            code, went, said = self.setup_run(True)
+        self.assertEqual(code, 0)
+        self.assertTrue(os.path.isdir(glimmer))
+        self.assertTrue(os.path.isdir(os.path.join(models, "hearing")))
+        self.assertIn("Put glimmer.gguf and vision.gguf in %s" % glimmer, said)
+
+    def test_a_folder_that_cannot_be_made_does_not_stop_setup(self):
+        blocked = os.path.join(self.tmp, "a_file")
+        open(blocked, "wb").close()
+        with mock.patch.object(parts, "HEARING_DIR", os.path.join(blocked, "hearing")):
+            parts.make_folders()
+
+    def test_glimmer_put_in_its_folder_by_hand_runs_when_the_studio_opens_with_a_key_saved(self):
+        for path, size in ((parts.GLIMMER_FILE, 3), (parts.VISION_FILE, 4)):
+            with open(path, "wb") as f:
+                f.write(b"x" * size)
+        with mock.patch.dict(parts.FILES, {"glimmer": [("", 3, ""), ("", 4, "")]}), \
+                mock.patch.object(parts, "llama_server", lambda: sys.executable), \
+                mock.patch.object(parts.mind, "saved_api", lambda: ("https://api.meta.ai/v1", True)):
+            self.assertTrue(parts.start_glimmer())
+        self.assertIsNotNone(parts._engine["process"])
 
     def test_without_a_key_setup_downloads_glimmer_as_the_only_way_in(self):
         code, went, said = self.setup_run(False)

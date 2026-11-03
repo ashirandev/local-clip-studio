@@ -6,7 +6,8 @@
    3.11 or 3.12 and FFmpeg with libass: `brew install python@3.12 ffmpeg-full`, as Homebrew's plain `ffmpeg` has no
    libass, or `sudo apt install python3.12 python3.12-venv ffmpeg`). On a Mac: Apple silicon and macOS 14 or newer,
    the only Macs onnxruntime is built for. No graphics card is needed to try it through an API. The first setup
-   downloads about 1.4 GB (the Python packages and the hearing model).
+   downloads about 1.4 GB (the Python packages and the hearing model), and about 0.6 GB more for llama.cpp on a
+   16 GB NVIDIA card.
 2. **Paste one key.** Setup asks for the endpoint and your own key: type `meta` for Meta's API (Muse Spark,
    `https://api.meta.ai/v1`), `baseten` or `fireworks` for Muse Spark Open there, or paste your Modal endpoint's
    address. Or open Options > API and give the address there. With a Meta key, setup then asks whether Meta's models
@@ -52,6 +53,10 @@ Everything else it does by itself:
 - installs its own Python 3.11.9 in `python\` (nothing system-wide) and the studio's packages;
 - downloads the parts below that this computer is missing. With an API key typed in, it does not wait for Muse
   Glimmer (about 15 GB): the studio opens on the API, and its **Set up** button downloads Glimmer when you want it;
+- makes `work\models\glimmer` and `work\models\hearing`, so files you already have can go in by hand, under these
+  names, and nothing is downloaded for them: `Muse-Glimmer-30B-UD-Q3_K_XL.gguf` and
+  `mmproj-Muse-Glimmer-30B-Q4_K_M.gguf` in the first, `model.int8.onnx` and `letters.json` in the second. With both
+  Glimmer files there and llama.cpp set up, the studio starts Glimmer each time it opens;
 - puts **Local Clip Studio** on the desktop and opens the studio.
 
 If anything stops, run `setup.bat` again: it carries on from where it stopped. Every file it downloads is checked

@@ -51,7 +51,7 @@ HEARING_FROM = os.environ.get("LCS_HEARING_FROM",
 LOCAL_URL = "http://127.0.0.1:8863/v1"
 GLIMMER_CARD_MIB = 15000
 SPARE = 1 << 30
-LATER = ("engine", "glimmer")
+LATER = ("glimmer",)
 CHUNK = 1 << 20
 TIMEOUT = 60
 AGENT = "local-clip-studio-setup"
@@ -166,6 +166,16 @@ def _glimmer_here():
 
 def _hearing_here():
     return bool(ears.model_file(HEARING_DIR)) and os.path.isfile(os.path.join(HEARING_DIR, "letters.json"))
+
+
+def make_folders():
+    """The folders Glimmer and the hearing go in, there from the start, so files the person already has can be put in
+    by hand and save the download. One that cannot be made is left to the download to report."""
+    for folder in (os.path.dirname(GLIMMER_FILE), HEARING_DIR):
+        try:
+            os.makedirs(folder, exist_ok=True)
+        except OSError:
+            pass
 
 
 def own_mind():
@@ -526,11 +536,13 @@ def _ask_one(read, read_secret, question):
 def main(argv=None):
     """python -m clipstudio.parts, what setup.bat runs: asks for the API endpoint and key first (so the person can walk
     away), then downloads every part this computer is missing, with a line of progress. With a key saved, Muse
-    answers through its API from the first minute, so Glimmer and llama.cpp wait for the studio's Set up button
-    rather than keep the person from starting. Exit 1 when a download stopped; running it again carries on from where
-    it stopped. --no-key skips the question."""
+    answers through its API from the first minute, so Glimmer waits for the studio's Set up button rather than keep
+    the person from starting. llama.cpp does not wait: it is small, and with it a Glimmer put in its folder by hand runs
+    the next time the studio opens. Exit 1 when a download stopped; running it again carries on from where it stopped.
+    --no-key skips the question."""
     argv = sys.argv[1:] if argv is None else argv
     use_tools()
+    make_folders()
     if "--no-key" not in argv and sys.stdin and sys.stdin.isatty():
         if os.path.isfile(ONE_KEY):
             ask_key()
@@ -549,6 +561,8 @@ def main(argv=None):
                                                        else " to download")))
     if any(p["key"] in leave and p["size"] for p in found):
         print("  Muse answers through the API you saved until then; Set up puts it on this computer, free to use.")
+        print("  Already have Muse Glimmer? Put %s and %s in %s, and it runs when the studio opens."
+              % (os.path.basename(GLIMMER_FILE), os.path.basename(VISION_FILE), os.path.dirname(GLIMMER_FILE)))
     why = set_up(leave)
     if why:
         print(why)
