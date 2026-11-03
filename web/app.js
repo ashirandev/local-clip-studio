@@ -723,7 +723,7 @@ const WORK_ORDER = ["video", "layout", "ends", "premiere", "preview"];
 
 function pageShare() {
   const kind = WORK_ORDER.find((k) => room.work[k]);
-  room.pageBar = kind ? Math.max(room.pageBar || 0, (room.shares || {})[kind] || 0) : 0;
+  room.pageBar = kind ? Math.min(99, Math.max(room.pageBar || 0, (room.shares || {})[kind] || 0)) : 0;
   return room.pageBar;
 }
 
@@ -4089,8 +4089,14 @@ async function loadParts() {
     room.partsTimer = setTimeout(loadParts, 1000);
   } else if (room.setting) {
     room.setting = false;
-    health();
+    awaitLocal(60);
   }
+}
+
+async function awaitLocal(tries) {
+  await health();
+  const coming = ((room.parts || {}).parts || []).some((p) => p.key === "glimmer" && p.ok);
+  if (coming && tries > 1 && !room.minds.some((m) => m.local && m.ok)) room.partsTimer = setTimeout(() => awaitLocal(tries - 1), 3000);
 }
 
 function drawParts() {

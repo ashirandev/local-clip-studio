@@ -110,7 +110,7 @@ function load(page, answer) {
     Intl: any(), URL: any(), Image: function () { return any(); }, FormData: function () { return any(); }, CSS: any(), performance: any({ now: () => 0 }), innerWidth: 1200, innerHeight: 800,
   };
   vm.createContext(box);
-  vm.runInContext(page + "\n;globalThis.t = { room, job, tile, barShare, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, showPart, showPicture, showOver, showFinished, showBase, api: (name) => { apiNow = name; } };", box);
+  vm.runInContext(page + "\n;globalThis.t = { room, job, tile, barShare, loadParts, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, showPart, showPicture, showOver, showFinished, showBase, api: (name) => { apiNow = name; } };", box);
   const t = box.t;
   t.room.chat = "c";
   let id = 0;
@@ -545,9 +545,29 @@ const press = async (answer) => {
   h.t.pageWork("layout", false);
   at("preview", "Making the preview: 15 of 50 s (30%)");
   at("preview", "Making the preview: 30 of 50 s (60%)");
+  h.t.pageWork("layout", true);
+  at("layout", "Rendering the clip: 50 of 50 s (100%)");
+  h.t.pageWork("layout", false);
   h.t.pageWork("preview", false);
   seen.push(h.t.barShare(undefined));
   said.handBar = seen;
+  }
+  {
+  const answer = { parts: [{ key: "glimmer", ok: true }], setup: { running: false }, minds: [{ key: "glimmer", local: true, ok: false }] };
+  const s = load(page, answer);
+  await tick();
+  const later = [];
+  s.box.setTimeout = (fn) => (later.push(fn), later.length);
+  s.box.clearTimeout = () => {};
+  s.t.room.setting = true;
+  const from = s.asked.length;
+  await s.t.loadParts();
+  await tick();
+  said.setUpEnds = { asked: s.asked.slice(from).filter((u) => u === "/api/health").length, again: later.length };
+  answer.minds[0].ok = true;
+  await later[later.length - 1]();
+  await tick();
+  said.setUpEnds.ready = [s.t.room.minds[0].ok, later.length];
   }
   {
   const b = load(page);
@@ -889,9 +909,16 @@ class WorkClock(unittest.TestCase):
     def test_a_hand_edit_moves_the_bar_only_forward(self):
         """Tarm 11-03: "ผมแก้ ซีนสุดท้ายให้เห็นทุกคน ทำไมเส้น percent มันเด้งขึ้นลงล่ะ". The render and the preview share one
         line, so the bar followed whichever spoke last."""
-        self.assertEqual(Page.said["handBar"], [20, 20, 40, 40, 40, 60, 0],
+        self.assertEqual(Page.said["handBar"], [20, 20, 40, 40, 40, 60, 99, 0],
                          "the render leads; a pass that starts again, or the preview taking over lower, does not take it "
-                         "back; idle is empty")
+                         "back; a full bar never shows while work goes on; idle is empty")
+
+    def test_options_read_the_muses_again_until_glimmer_has_loaded_after_set_up(self):
+        """Tarm 11-03: after Set up ended and Glimmer loaded, Options still said Glimmer was not ready until F5. Set up
+        ends before llama-server has the model in the card."""
+        s = Page.said["setUpEnds"]
+        self.assertEqual((s["asked"], s["again"]), (1, 1), "read once when Set up ends, and again a little later")
+        self.assertEqual(s["ready"], [True, 1], "and no more once Glimmer is ready")
 
     def test_progress_does_not_go_back_after_a_stop_and_a_follow_up(self):
         """Tarm 11-03: "พอกดหยุด กลายเป้น progress 0% ทั้ง ๆ ที่ตอนแรก ล่อไป 17% แล้ว"."""
