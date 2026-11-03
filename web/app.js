@@ -4242,7 +4242,7 @@ function tileDelete(c, name) {
     yes.disabled = no.disabled = true;
     deleteChat(c);
   });
-  ask.append(el("p", null, "Delete this chat? Its clips stay."), yes, no);
+  ask.append(el("p", null, "Delete this chat? Its finished videos stay in work/clips."), yes, no);
   over.append(bin, ask);
   return over;
 }
@@ -4514,6 +4514,8 @@ fileInput.addEventListener("change", async () => {
   fileInput.value = "";
   if (await leaveHome()) openFile(file);
 });
+
+window.addEventListener("dragstart", (e) => e.preventDefault());
 
 function carriesFiles(e) {
   return e.dataTransfer && [...e.dataTransfer.types].includes("Files");

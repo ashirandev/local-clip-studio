@@ -458,9 +458,9 @@ def ask_sends(read):
 
 
 def no_key_wait(found):
-    """The line that says what Enter at the key question costs, or None: with no key, what LATER holds is downloaded
+    """The line that says what Enter at the key question costs, or None: with no key, Glimmer and llama.cpp are downloaded
     before the studio opens (lane 5 11-02: a judge on a big card would wait for about 15 GB with no word why)."""
-    size = sum(p["size"] for p in found if p["key"] in LATER and not p["ok"])
+    size = sum(p["size"] for p in found if p["key"] in LATER + LAST and not p["ok"])
     if not size:
         return None
     return ("  No key? Press Enter and setup downloads Muse Glimmer first, %s, and the studio opens after that. With a "

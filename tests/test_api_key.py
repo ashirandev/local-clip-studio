@@ -226,7 +226,7 @@ class Saved(unittest.TestCase):
         glimmer = {"key": "glimmer", "label": "Muse Glimmer", "size": 15_000_000_000, "ok": False, "why": ""}
         engine = dict(glimmer, key="engine", size=500_000_000)
         hearing = dict(glimmer, key="hearing", size=900_000_000)
-        self.assertIn("downloads Muse Glimmer first, 15.0 GB", parts.no_key_wait([glimmer, engine, hearing]))
+        self.assertIn("downloads Muse Glimmer first, 15.5 GB", parts.no_key_wait([glimmer, engine, hearing]))
         self.assertIsNone(parts.no_key_wait([dict(glimmer, ok=True), dict(engine, ok=True), hearing]))
         self.assertIsNone(parts.no_key_wait([dict(glimmer, size=0), dict(engine, size=0)]), "no card that takes it, no wait")
         stdin = mock.Mock()

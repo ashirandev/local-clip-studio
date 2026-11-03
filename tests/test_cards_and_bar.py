@@ -100,10 +100,10 @@ function load(page, answer) {
     querySelectorAll: (q) => element("log").querySelectorAll(q),
     querySelector: (q) => element("log").querySelector(q),
   };
-  const asked = [], ran = [];
+  const asked = [], ran = [], heard = {};
   const box = {
     console, Math, Number, String, Object, Array, JSON, Promise, Date, Set, Map, RegExp, Infinity, NaN, parseInt, parseFloat, isNaN, encodeURIComponent, decodeURIComponent, document,
-    window: any({ lcsReplay: false, addEventListener: () => {}, matchMedia: () => any({ matches: false }) }),
+    window: any({ lcsReplay: false, addEventListener: (k, fn) => { heard[k] = fn; }, matchMedia: () => any({ matches: false }) }),
     history: any(), navigator: any(), localStorage: any({ getItem: () => null }), sessionStorage: any({ getItem: () => null }),
     fetch: (u) => (asked.push(u), answer ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(answer) }) : new Promise(() => {})), EventSource: function () { return any(); }, ResizeObserver: function () { return any(); }, IntersectionObserver: function () { return any(); }, MutationObserver: function () { return any(); },
     getComputedStyle: () => ({ overflowY: "auto", display: "block" }), matchMedia: () => any({ matches: false }), requestAnimationFrame: () => 0, cancelAnimationFrame: () => {}, setTimeout: (fn, ms) => { if (ms === 1500) ran.push(fn); return 0; }, clearTimeout: () => {}, setInterval: () => 0, clearInterval: () => {},
@@ -115,7 +115,7 @@ function load(page, answer) {
   t.room.chat = "c";
   let id = 0;
   const event = (kind, over) => t.on(Object.assign({ id: id++, kind, job: 1 }, over));
-  return { t, element, made, event, asked, ran };
+  return { t, element, made, event, asked, ran, heard };
 }
 
 const page = fs.readFileSync(process.argv[2], "utf8");
@@ -498,6 +498,9 @@ const press = async (answer) => {
   said.keyTurned = [turned.element("apiNote").textContent, turned.t.room.sends];
   {
   const tick = () => new Promise((r) => setTimeout(r, 5));
+  const dragged = { stopped: 0, preventDefault() { this.stopped += 1; } };
+  load(page).heard.dragstart(dragged);
+  said.dragStopped = dragged.stopped;
   const chat = { id: "a", title: "Trip", first: "cut", clips: [], minds: [] };
   const parts = (p) => {
     p.t.room.rate = { currency: "USD", rate: 1 };
@@ -509,7 +512,7 @@ const press = async (answer) => {
   await tick();
   deleting.t.room.chat = "b";
   const tile = parts(deleting);
-  said.del = { first: [tile.ask.hidden, tile.bin.hidden, tile.bin.attrs["aria-label"]] };
+  said.del = { first: [tile.ask.hidden, tile.bin.hidden, tile.bin.attrs["aria-label"]], words: tile.ask.children[0].textContent };
   const before = deleting.asked.length;
   tile.bin.press();
   said.del.asked = [tile.ask.hidden, tile.bin.hidden, deleting.asked.length - before];
@@ -765,6 +768,7 @@ class TileDelete(unittest.TestCase):
         """Tarm 11-03: there was no way to delete a chat. Deleting what a person made asks first."""
         s = Page.said["del"]
         self.assertEqual(s["first"], [True, False, "Delete Trip"])
+        self.assertEqual(s["words"], "Delete this chat? Its finished videos stay in work/clips.", "what stays, and where")
         self.assertEqual(s["asked"], [False, True, 0], "the bin only asks")
         self.assertEqual(s["kept"], [True, False, 0], "Keep sends nothing")
         self.assertEqual(s["sent"][0], "/api/chat/delete")
@@ -787,6 +791,24 @@ class TileDelete(unittest.TestCase):
         self.assertIn("background: var(--stop); border-color: var(--stop); color: var(--on-stop);", style)
         with open(os.path.join(WEB, "index.html"), encoding="utf-8") as f:
             self.assertIn('id="i-bin"', f.read())
+
+
+class Pointer(unittest.TestCase):
+    def test_a_picture_in_the_page_cannot_be_dragged_in_as_a_file(self):
+        """Tarm 11-03: dragging a style picture said "3d.png is not a video the studio reads". A file from outside starts
+        no dragstart here, so it still drops."""
+        self.assertEqual(Page.said["dragStopped"], 1)
+
+    def test_every_sideways_row_shows_a_mouse_a_bar_and_nothing_later_takes_it_back(self):
+        """Tarm 11-03: "ลองเช็คว่ามีอีกไหม ไม่งั้นใน pc เลื่อนไม่ได้". A touch keeps the clean row."""
+        with open(os.path.join(WEB, "style.css"), encoding="utf-8") as f:
+            style = f.read()
+        hidden = re.findall(r"^\.([\w-]+) \{[^}]*overflow-x: (?:auto|scroll)[^}]*scrollbar-width: none", style, re.M)
+        self.assertEqual(sorted(hidden), sorted(["w-strip", "chips", "look-cards", "look", "tools", "panel-row", "feature-tabs"]))
+        block = style[style.index("@media (hover: hover) and (pointer: fine) {\n  .tools"):]
+        self.assertNotIn("scrollbar-width: none", block, "a rule after the bar would hide it again")
+        for name in hidden:
+            self.assertRegex(block, r"\.%s[,\s][^}]*\{ scrollbar-width: thin;|\.%s \{ scrollbar-width: thin;" % (name, name))
 
 
 class English(unittest.TestCase):

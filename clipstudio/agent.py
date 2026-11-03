@@ -2610,7 +2610,7 @@ def find(chat_id):
 
 def delete_chat(chat_id):
     """Takes a chat off the list, the person having said yes: its two files move to work/chats/deleted, where they can
-    be put back by hand. Its clips stay, and so does what it cost in spent.jsonl, so the month's money stays true. A chat
+    be put back by hand. Its videos stay in work/clips, and what it cost stays in spent.jsonl, so the month's money stays true. A chat
     at work stays. The chat every page shows gives way to a new one, and the pages follow. Returns None, or the sentence
     that says why not. Tarm 11-03: there was no way to delete a chat."""
     gone = "There is no chat %s." % chat_id
