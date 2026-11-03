@@ -52,6 +52,7 @@ LOCAL_URL = "http://127.0.0.1:8863/v1"
 GLIMMER_CARD_MIB = 15000
 SPARE = 1 << 30
 LATER = ("glimmer",)
+LAST = ("engine",)
 CHUNK = 1 << 20
 TIMEOUT = 60
 AGENT = "local-clip-studio-setup"
@@ -162,6 +163,13 @@ def _glimmer_here():
         return os.path.isfile(GLIMMER_FILE)
     return all(os.path.isfile(path) and os.path.getsize(path) == size
                for path, (_, size, _) in zip((GLIMMER_FILE, VISION_FILE), FILES["glimmer"]))
+
+
+def glimmer_handed():
+    """Glimmer's two files came with the studio in its parts folder: nothing to download, so nothing to wait for."""
+    return all(os.path.getsize(path) == size if os.path.isfile(path) else False
+               for path, size in ((os.path.join(HANDED, os.path.basename(dest)), s)
+                                  for dest, (_, s, _) in zip((GLIMMER_FILE, VISION_FILE), FILES["glimmer"])))
 
 
 def _hearing_here():
@@ -533,13 +541,34 @@ def _ask_one(read, read_secret, question):
         print("  " + why)
 
 
+def _run_setup(gpu, leave):
+    """Runs set_up to its end with a line of progress. Returns the sentence that says what stopped it, or None."""
+    why = set_up(leave)
+    if why:
+        return None if why.startswith("Everything") else why
+    while True:
+        with _lock:
+            job = dict(_job)
+        if not job["running"]:
+            break
+        label = next((p["label"] for p in parts(gpu, look=False) if p["key"] == job["part"]), "")
+        doing = {"check": "Checking", "unpack": "Unpacking", "copy": "Copying"}.get(job["step"], "Downloading")
+        sys.stdout.write("\r  %s %s - %s of %s     " % (doing, label, _size(job["done"]), _size(job["total"])))
+        sys.stdout.flush()
+        threading.Event().wait(1)
+    print()
+    return job["error"]
+
+
 def main(argv=None):
     """python -m clipstudio.parts, what setup.bat runs: asks for the API endpoint and key first (so the person can walk
     away), then downloads every part this computer is missing, with a line of progress. With a key saved, Muse
     answers through its API from the first minute, so Glimmer waits for the studio's Set up button rather than keep
-    the person from starting. llama.cpp does not wait: it is small, and with it a Glimmer put in its folder by hand runs
-    the next time the studio opens. Exit 1 when a download stopped; running it again carries on from where it stopped.
-    --no-key skips the question."""
+    the person from starting. llama.cpp comes last then, with what the person needs already in place: it is small, and
+    with it a Glimmer put in its folder by hand runs the next time the studio opens, but the API does not need it, so
+    setup ends well without it and Set up offers it again. A Glimmer handed in the parts folder does not wait: there
+    is nothing to download. Exit 1 when a download the person needs stopped; running it again carries on from where it
+    stopped. --no-key skips the question."""
     argv = sys.argv[1:] if argv is None else argv
     use_tools()
     make_folders()
@@ -553,7 +582,8 @@ def main(argv=None):
             ask_api()
     gpu = card()
     found = parts(gpu, look=False)
-    leave = LATER if mind.saved_api()[1] else ()
+    saved = mind.saved_api()[1]
+    leave = LATER if saved and not glimmer_handed() else ()
     print("Graphics card: %s" % ("%s, %d GB" % (gpu["name"], round(gpu["mib"] / 1024)) if gpu else "none found"))
     for p in found:
         print("  %-13s %s" % (p["label"], "ready" if p["ok"] else "left out: " + (p["why"] or "") if not p["size"]
@@ -563,24 +593,14 @@ def main(argv=None):
         print("  Muse answers through the API you saved until then; Set up puts it on this computer, free to use.")
         print("  Already have Muse Glimmer? Put %s and %s in %s, and it runs when the studio opens."
               % (os.path.basename(GLIMMER_FILE), os.path.basename(VISION_FILE), os.path.dirname(GLIMMER_FILE)))
-    why = set_up(leave)
-    if why:
-        print(why)
-        return 0 if why.startswith("Everything") else 1
-    while True:
-        with _lock:
-            job = dict(_job)
-        if not job["running"]:
-            break
-        label = next((p["label"] for p in parts(gpu, look=False) if p["key"] == job["part"]), "")
-        doing = {"check": "Checking", "unpack": "Unpacking", "copy": "Copying"}.get(job["step"], "Downloading")
-        sys.stdout.write("\r  %s %s - %s of %s     " % (doing, label, _size(job["done"]), _size(job["total"])))
-        sys.stdout.flush()
-        threading.Event().wait(1)
-    print()
-    if job["error"]:
-        print(job["error"])
+    stopped = _run_setup(gpu, leave + LAST if saved else ())
+    if stopped:
+        print(stopped)
         return 1
+    stopped = _run_setup(gpu, leave) if saved else None
+    if stopped:
+        print("%s Muse answers through the API you saved, so the studio opens all the same." % stopped)
+        return 0
     print("Everything that can be set up here is set up.")
     return 0
 

@@ -244,15 +244,17 @@ class Machine(unittest.TestCase):
         if parts.windows():
             self.assertEqual(got["ffmpeg"]["size"], 109282242)
 
-    def setup_run(self, keyed):
-        """What setup.bat's step downloads and says on a 16 GB card, with an API key saved or not."""
+    def setup_run(self, keyed, broken=None, free=10 ** 12):
+        """What setup.bat's step downloads and says on a 16 GB card, with an API key saved or not. broken is a part whose
+        download stops, free the room on the drive."""
         went = []
 
         def run(todo, kind):
             went.extend(p["key"] for p in todo)
-            parts._job.update(running=False, part=None, step=None, error=None)
+            stop = "%s stopped." % broken if broken in [p["key"] for p in todo] else None
+            parts._job.update(running=False, part=None, step=None, error=stop)
         said = io.StringIO()
-        with mock.patch.object(parts, "card", lambda: BIG), mock.patch.object(parts, "_set_up", run),                 mock.patch.object(parts.mind, "saved_api", lambda: ("https://api.meta.ai/v1", keyed)),                 mock.patch.object(parts.shutil, "disk_usage", lambda p: shutil._ntuple_diskusage(10 ** 12, 0, 10 ** 12)),                 mock.patch("sys.stdout", said):
+        with mock.patch.object(parts, "card", lambda: BIG), mock.patch.object(parts, "_set_up", run),                 mock.patch.object(parts.mind, "saved_api", lambda: ("https://api.meta.ai/v1", keyed)),                 mock.patch.object(parts.shutil, "disk_usage", lambda p: shutil._ntuple_diskusage(10 ** 12, 0, free)),                 mock.patch("sys.stdout", said):
             code = parts.main(["--no-key"])
         return code, went, said.getvalue()
 
@@ -266,6 +268,71 @@ class Machine(unittest.TestCase):
         self.assertIn("Muse answers through the API you saved until then", said)
         self.assertEqual({p["key"] for p in parts.parts(BIG, look=False) if p["size"]} - set(went), {"glimmer"},
                          "the studio's Set up button still offers it")
+
+    def test_with_a_key_saved_llama_cpp_comes_after_what_the_api_needs(self):
+        _, went, _ = self.setup_run(True)
+        self.assertLess(went.index("hearing"), went.index("engine"))
+
+    def test_with_a_key_saved_a_llama_cpp_that_stops_does_not_stop_setup(self):
+        """Lane 4 on 41c4a47: a person on the API never needed this download, so it is no new way for setup to fail."""
+        code, went, said = self.setup_run(True, broken="engine")
+        self.assertEqual(code, 0)
+        self.assertIn("hearing", went)
+        self.assertIn("engine stopped. Muse answers through the API you saved", said)
+        self.assertNotIn("Everything that can be set up", said)
+        self.assertIn("engine", {p["key"] for p in parts.parts(BIG, look=False) if p["size"]}, "Set up offers it again")
+
+    def test_with_a_key_saved_no_room_for_llama_cpp_does_not_stop_setup(self):
+        before = sum(p["size"] for p in parts.parts(BIG, look=False) if p["key"] in ("ffmpeg", "hearing"))
+        code, went, said = self.setup_run(True, free=before + parts.SPARE)
+        self.assertEqual(code, 0, said)
+        self.assertIn("hearing", went)
+        self.assertIn("Muse answers through the API you saved", said)
+
+    def test_with_a_key_saved_a_hearing_that_stops_still_stops_setup(self):
+        code, went, said = self.setup_run(True, broken="hearing")
+        self.assertEqual(code, 1)
+        self.assertNotIn("engine", went, "there is no point in it before what the person needs")
+        self.assertNotIn("Everything that can be set up", said)
+
+    def test_without_a_key_a_llama_cpp_that_stops_stops_setup(self):
+        code, _, said = self.setup_run(False, broken="engine")
+        self.assertEqual(code, 1, "with no key Glimmer is the only way in, and it needs llama.cpp")
+        self.assertNotIn("Everything that can be set up", said)
+
+    def hand_glimmer(self, *sizes):
+        handed = os.path.join(self.tmp, "handed")
+        os.makedirs(handed)
+        for path, size in zip((parts.GLIMMER_FILE, parts.VISION_FILE), sizes):
+            with open(os.path.join(handed, os.path.basename(path)), "wb") as f:
+                f.write(b"x" * size)
+        return mock.patch.object(parts, "HANDED", handed), mock.patch.dict(parts.FILES, {"glimmer": [("", 3, ""), ("", 4, "")]})
+
+    def test_with_a_key_saved_a_glimmer_handed_with_the_studio_does_not_wait(self):
+        """Tarm 11-03: "ผมขอ setup.bat ตัวเดียว จบเลยนะ". His files beside setup leave nothing to download."""
+        handed, files = self.hand_glimmer(3, 4)
+        with handed, files:
+            code, went, said = self.setup_run(True)
+        self.assertEqual(code, 0)
+        self.assertIn("glimmer", went)
+        self.assertLess(went.index("glimmer"), went.index("engine"), "the API still does not need llama.cpp")
+        self.assertNotIn("later", said)
+
+    def test_with_a_key_saved_half_a_glimmer_handed_still_waits_for_set_up(self):
+        for sizes in ((3,), (3, 5)):
+            handed, files = self.hand_glimmer(*sizes)
+            with handed, files:
+                _, went, said = self.setup_run(True)
+            self.assertNotIn("glimmer", went, sizes)
+            self.assertIn("later, from Set up in the studio", said)
+            shutil.rmtree(os.path.join(self.tmp, "handed"))
+
+    def test_llama_cpp_and_no_glimmer_file_start_nothing(self):
+        with mock.patch.object(parts, "llama_server", lambda: sys.executable), \
+                mock.patch.object(parts.subprocess, "Popen") as started:
+            self.assertFalse(parts.start_glimmer())
+        started.assert_not_called()
+        self.assertIsNone(parts._engine["process"])
 
     def test_setup_makes_the_folders_and_says_where_glimmer_goes(self):
         models = os.path.join(self.tmp, "models")
