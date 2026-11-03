@@ -44,7 +44,7 @@ fixes what fails, and hands over a vertical clip ready to post. To change anythi
   is one the seller actually said.
 - **Streamers and creators next.** It is the same engine, with a different recipe.
 - **Local first.** The agent runs on Muse Glimmer, Meta's open-weight model, on your own graphics card, through
-  llama.cpp. The recordings never leave the computer.
+  llama.cpp. The full recordings stay on the computer; with Meta sees pieces on, only short pieces go to Meta's API.
 - **The program checks facts; the person keeps the taste.** Every check is one a program can prove on the finished
   file: a caption is a word that was said, a number on screen was said, no viewer's name or private line can be
   read. Whether a clip is funny or good is the person's call, so the studio gives no score for it.
@@ -96,7 +96,7 @@ is left out with the reason, and the parts after it are still set up. Everything
 (`work/tools` and `work/models`), and a part already on the computer (on the PATH, or a server already running) is
 used as it is. The graphics driver picks the llama.cpp build: CUDA 13.4 when the driver offers CUDA 13 (an RTX 50 card
 needs it), else CUDA 12.4. Once Glimmer and llama-server are there, the studio starts llama-server itself, as
-[the mind](#the-mind-three-ways-to-run-muse) shows, and stops it when the studio stops. Measured here on 10-29:
+[the mind](#the-mind-four-ways-to-run-muse) shows, and stops it when the studio stops. Measured here on 10-29:
 FFmpeg in 5 s and llama.cpp in 23 s from GitHub, `llama-server --version` ran from the unpacked folder, and the
 hearing (from a server on this computer) started on its own once its download was checked.
 
@@ -135,7 +135,7 @@ message box, or **Send from this phone**, and pick photos and videos: they go in
 studio (a folder for each time you send), and the video waits on the message box (several wait together, for Muse to
 make one clip from) until you press Send, with or without words. Muse makes clips from videos; photos are kept there. Several people can use the studio at once, so a
 group can try it from their own phones; there is nothing to pair, and anyone on that Wi-Fi or Tailscale can use it,
-your API key included (Tarm, 10-29: it is open source, and who shares their Wi-Fi is their call). Phone: Off in
+your API key included. Phone: Off in
 Options keeps it to this computer, and only this computer can set the key or turn Phone off. Measured on 10-29
 through the Wi-Fi address: a 4 s video arrived with the same bytes and was first in the newest recordings, and two
 photos sent from the page arrived whole. Not yet measured from a real phone.
@@ -150,8 +150,7 @@ pictures to pick from. **Options** has the switch between the Muses, **Simple or
 input and result, the files it opens and its engine numbers), light or dark, the money costs are shown in, and this
 computer's setup.
 
-**On a phone.** Start the studio with `LCS_HOST=0.0.0.0` and open `http://<this computer's address>:8899/` on a phone
-on the same Wi-Fi. The phone picks from the recordings on the computer; the clips, the chat and the editor are
+**On a phone**, opened at an address Options shows (above), the phone picks from the recordings on the computer; the clips, the chat and the editor are
 three screens there (on a wide screen the chat and the editor sit side by side), and the editor plays the clip full
 screen at a tap. Do this only on a network you trust: anyone on it can open the
 recordings in your folders. Two guards hold either way: the studio answers only to an address or `localhost`, never
@@ -211,7 +210,7 @@ that runs one model without a preset works too, but then nothing that needs SAM 
 **2. Muse Spark on Meta's API.** This route needs no graphics card. Set `META_API_KEY` to your own key before
 starting the studio, or type the endpoint (`https://api.meta.ai/v1`) and the key in Options > API.
 `LCS_SPARK_MODEL` picks the model (default `muse-spark-1.3`). **Muse Wonder** (`muse-wonder-1.0`, Meta's model for
-long work with many tools) is a fourth choice on the same address and key, at $4 a million tokens read and $20
+long work with many tools) is another choice on the same address and key, at $4 a million tokens read and $20
 written; `LCS_WONDER_MODEL` changes it. Measured 10-29: one short question in 7 s, $0.006.
 
 **3. Muse Spark Open on a Modal shared endpoint.** The open-weight Spark (`meta-models/Muse-Spark-Open-816B-A42B`) on
@@ -332,7 +331,8 @@ Detailed steps the input, the result and the engine numbers.
 - **Muse looks before it chooses.** Muse picks a stretch to look at, usually one the map lists, and gets 2 to 6
   pictures of it, each as its own picture right after its time; the page shows them in the step. To see what led
   up to a peak it can look earlier, or wider. The same look twice is refused, and its pictures are not sent again.
-- **Muse hears what is said in each look.** Omnilingual ASR writes the stretch down, every phrase with its own time
+- **Muse hears what is said in each look.** Omnilingual ASR writes the stretch down (Muse Voice Transcribe instead,
+  with a Meta key and Meta sees pieces on), every phrase with its own time
   from the model's own frames (it decides one letter every 20 ms). The Thai marks it cannot write are put back, and
   so are number words it began with a digit. Then Muse fixes misheard words from the
   context, in a question apart from the job, with every number taken out first as <N1>, <N2>...: a line whose answer
@@ -360,7 +360,7 @@ Detailed steps the input, the result and the engine numbers.
   last; ask, and it shows everyone instead. Two more layouts are
   there when you ask for everyone on screen at once: the others in circles in the top corner away from the speaker's
   head, or, for two people, the screen split into a top half and a bottom half, each person's captions under their
-  own face (Tarm, 10-29, on a clip with circles: cut between faces instead). A Q&A's comment card is read like a tutorial's screen, and a viewer's handle on
+  own face. A Q&A's comment card is read like a tutorial's screen, and a viewer's handle on
   it is hidden.
 - **Who speaks is heard, not guessed from lips.** On a real 720p Q&A, pixel change around two mouths could not tell
   the two speakers apart (every score about 1.1). Their voices could: every line one said sat at 97 to 137 Hz, every
@@ -489,13 +489,13 @@ Each piece is listed with its licence. The Status column says whether this build
 | Muse Spark (Meta API) | the same mind without a graphics card, with your own key | each step's messages, the pictures Muse looks at, and what was said in them | Meta's API terms | used |
 | Muse Wonder (Meta API) | the same mind, Meta's model for long work with many tools, with the same key; and, whichever Muse runs the chat, it watches a stretch of up to 60 s with its sound and names what the words miss (a scream, a laugh, a fail, a silent stare), with the effect for each (`watch_piece`) | as Spark when it runs the chat; for `watch_piece`, the stretch it watches, as a small video with its sound (with Muse on this computer, only when you ask for it or with Meta sees pieces on) | Meta's API terms | used |
 | Muse Image (Meta API, `muse-image-1.0`) | draws the clip's cover from its frame at the peak, without its words, with the title written on it and the people and the product kept as shot (`make_cover`, $0.01 a cover; with Muse on this computer only when you ask, or with Meta sees pieces on) | one frame of the clip and its title, with image search, web search and shell turned off | Meta's API terms | used |
-| [Muse Spark Open](https://huggingface.co/meta-models/Muse-Spark-Open-816B-A42B) (Meta) on a Modal shared endpoint | the same mind on Modal's machines, with your own token | as Spark, on Modal's machines | Meta's model licence; Modal's terms | answers (one question measured 10-29); no whole clip made on it yet |
+| [Muse Spark Open](https://huggingface.co/meta-models/Muse-Spark-Open-816B-A42B) (Meta) on Baseten, Modal or Fireworks | the same mind on their machines, with your own key or token | as Spark, on that host's machines | Meta's model licence; the host's terms | used: 4 of the 6 demo takes ran on it through Baseten (11-03); Modal answered one question (10-29); Fireworks not run |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) (llama-server) | runs Glimmer locally | nothing: it runs on this computer | MIT | used |
 | [FFmpeg](https://ffmpeg.org/) | reads each recording (ffprobe) and takes pictures from it; later cuts and renders the clip | nothing: it runs on this computer | LGPL-2.1+ (GPL for some builds; the Windows build setup downloads is GPL-3.0) | used |
 | [Omnilingual ASR](https://github.com/facebookresearch/omnilingual-asr) (Meta), CTC 1B v2 | writes down what is said, in many languages, with the time of every phrase | nothing: it runs on this computer | Apache-2.0 | used |
 | Muse Voice Transcribe (Meta API) | the hearing when a Meta key is set and Meta sees pieces is on, with or without Omnilingual on this computer (or `LCS_HEARING=meta`): the sound is cut at its pauses into pieces of at most 10 s, each asked on its own, so a caption's words stay near their time | the stretch's sound, in pieces, with your own key | Meta's API terms | used |
 | [FLEURS](https://huggingface.co/datasets/google/fleurs) (Google), Thai *train* transcripts | counted once into `clipstudio/thai_marks.json`, which puts back the Thai vowel marks Omnilingual cannot write | nothing: files in this repo | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | used |
-| [SAM 3.1](https://github.com/facebookresearch/sam3) (Meta) | finds the person frame by frame, for the cut-out looks and the titles behind the person (`cut_out`) | nothing: it runs on this computer | SAM License | used |
+| [SAM 3.1](https://github.com/facebookresearch/sam3) (Meta) | finds the person frame by frame, for the cut-out looks and the titles behind the person (`cut_out`) | nothing when it runs on this computer; with no SAM here (or `LCS_SAM=meta`), the clip's pictures go to Meta's SAM 3.1 on the API, as in 2 of the 6 demo takes | SAM License | used |
 | [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) (OpenCV Zoo) | finds faces, so the layouts frame them and words never cover one | nothing: it runs on this computer | MIT | used |
 | [OpenCV](https://opencv.org/) (`opencv-python`) | runs YuNet | nothing: it runs on this computer | Apache-2.0 | used |
 | [segno](https://github.com/heuer/segno) | draws the QR code a phone opens the studio with | nothing: it runs on this computer | BSD-3-Clause | used |
@@ -540,7 +540,7 @@ Model weights are downloaded when they are first needed. None of them are commit
 | 2026-10-28, this build | The question apart that sorts a message into work or talk, 36 talk and 34 work messages | 70 of 70 right with each, Spark in a median 3.1 s, Glimmer in 5.1 s (Glimmer missed "what files are there?" until asking which recordings you have was named as work). So it is asked only when Muse's first answer calls a tool |
 | 2026-11-02, this build | The Premiere tracks of a 38.9 s clip with a title, captions, stickers, a flurry, a picture, a big word, a flash, a blur, a look, a glass box, two sounds and music, laid back together by FFmpeg and compared with the finished clip | 1,166 of 1,167 frames match to the encoder's noise (1.2 of 255 on average); one frame shows a caption a frame off, and a flash is up to 22 of 255 off over 3 frames. The tracks took 17 s after the picture, and all the files 287 MB. The sound tracks added together differ from the clip's sound by -52 dB. This layout has not yet been opened in Premiere itself |
 | 2026-10-29, this build | The Premiere export of the yeti review (7 pieces from 3 phone clips, 45.6 s), read back with OpenTimelineIO's Final Cut Pro 7 XML reader | 7 pieces on the video track and on the sound, each pointing at its own phone clip (83-109 s long) at the seconds the studio used, the timeline 45.60 s like the clip, the 6 reasons and the title as markers. Frames drawn from the originals with the exported scale and position matched the finished clip at each piece (mean difference 1.6-8.2 of 255, captions left out). Not yet opened in Premiere itself |
-| 2026-10-29, this build | Seven of our own sets, each asked for once in Thai the way a person types it, on Spark and on Glimmer (the brother's podcast on Glimmer only): a mic review in 8 phone clips, horse riding (7), Akihabara (12), an event (19), a talk, a 4-hour SIFU stream, a 1-hour podcast | Spark: 6 of 6 made a clip that passed every check, $0.21-0.46 a clip ($1.83 in all), 2.8-8.1 min. Glimmer: 7 of 7 after three fixes the runs found (a title place -12 px tall in the speaker layout, a podcast's hosts listed to blur, a blur one pixel short of the viewers' names), 2.4-7.9 min a clip, 3.9 on average. The podcast's clip came out 6.7 s: the hearing reads that stretch badly, and the talk recipe keeps only clear speech |
+| 2026-10-29, this build | Seven of our own sets, each asked for once in Thai the way a person types it, on Spark and on Glimmer (the brother's podcast on Glimmer only): a mic review in 8 phone clips, horse riding (7), Akihabara (12), an event (19), a talk, a 4-hour Sifu stream, a 1-hour podcast | Spark: 6 of 6 made a clip that passed every check, $0.21-0.46 a clip ($1.83 in all), 2.8-8.1 min. Glimmer: 7 of 7 after three fixes the runs found (a title place -12 px tall in the speaker layout, a podcast's hosts listed to blur, a blur one pixel short of the viewers' names), 2.4-7.9 min a clip, 3.9 on average. The podcast's clip came out 6.7 s: the hearing reads that stretch badly, and the talk recipe keeps only clear speech |
 | 2026-10-29, this build | Meta's own Glimmer file instead of unsloth's: `Muse-Glimmer-30B-KQuant-17GB-Q4_K_M.gguf` from [meta-models/Muse-Glimmer-30B-GGUF](https://huggingface.co/meta-models/Muse-Glimmer-30B-GGUF), 16,756,683,904 bytes, SHA-256 `4cc57c0f51040a226e5a72cc47b7613f7772950e460a665f7083de89f183f60e` as Meta lists it, as a second preset in the same router, chosen with `LCS_MIND_MODEL`; the mic review set asked once in Thai, one run | a 29.0 s clip that passed every check, 7 steps, 0 refused, $0, 15.7 min (the same set on UD-Q3_K_XL: 7.9 min). The file is larger than the 16 GB card, so part of it runs on the processor; UD-Q3_K_XL stays the default |
 | 2026-10-29, this build | Muse Image drawing a cover from a 1080x1920 frame of the author's own mic review, with a Thai title, through `clipstudio/cover.py` | 10.2 s, $0.01; it drew 1152x2048, exactly 9:16; the title spelled right with every mark, about 55 px in from each side; the mic, its lit logo and the cable as shot |
 | 2026-10-29, this build | Muse Wonder watching 30 s of the author's own game stream (2:51:08-2:51:38), cut to 360 pixels at 10 frames a second with mono sound (1.46 MB), through `watch_piece` | 36 s, $0.059 (2,735 tokens read, 2,375 written, most of them thinking); 6 moments, none of them said: the yelp at the first hit, a throw, the death from behind, the laugh at his own death, the age jumping from 38 to 44 (the big word it gave was Thai, as the stream is in Thai), and the run around the hedges |
