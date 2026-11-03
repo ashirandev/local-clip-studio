@@ -1376,6 +1376,64 @@ class Tools(unittest.TestCase):
         self.assertEqual("".join(line["text"] for line in self.chat.project.state()["captions"]["lines"]),
                          "You can go see it.It costs 990 baht.")
 
+    def test_a_line_that_keeps_words_of_another_language_is_asked_again_named_and_asked_again_next_time(self):
+        """Tarm's review 11-03: the hearing wrote Vietnamese inside a Thai sentence, the English line kept it, and the
+        check passed it."""
+        self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "lại có thằng kẹp nè đó là เก็บน้ำได้เยอะมาก"},
+                               {"from": 5.0, "to": 8.0, "text": "ราคาถูกมาก"}]
+        kept = '{"lines": ["lại có thằng kẹp nè đó là it holds a lot of water.", "Really cheap."]}'
+
+        def export(rec, state, out, on_progress=None, on_start=None, *, default):
+            make_moment(out, seconds=20, busy=(0, 20), loud=(0, 20))
+            return out
+
+        had = getattr(render, "export", None)
+        render.export = export
+        try:
+            brain, steps = self.run_job(
+                *self.to_moment()[:2],
+                [call("propose_moments", why="the best", moments=[{"look": 1, "reason": "the tank"}])],
+                '{"lines": ["lại có thằng kẹp nè đó là เก็บน้ำได้เยอะมาก", "ราคาถูกมาก"]}',
+                [call("make_clip", moment=1, layout="subject", why="the action")],
+                [call("add_captions", language="English", why="for viewers abroad")], kept, kept,
+                [call("decide_people", keep=[1], why="it is him")],
+                [call("render_clip", why="make the file")], [call("check_clip", why="check it")],
+                [call("add_captions", language="English", why="the check named a line")],
+                '{"lines": ["It holds a lot of water.", "Really cheap."]}',
+                [call("render_clip", why="make the file")], [call("check_clip", why="check it")], "Done.")
+        finally:
+            render.export = had
+        caps, again = [s for s in steps if s["tool"] == "add_captions"]
+        first, last = [s for s in steps if s["tool"] == "check_clip"]
+        asked = [m for m in brain.sent if len(m) == 3 and "keep words that are not English" in m[2]["content"]]
+        self.assertEqual(len(asked), 1)
+        self.assertIn('1. "lại có thằng kẹp nè đó là เก็บน้ำได้เยอะมาก"; your line: "lại có thằng kẹp nè đó là it holds a lot '
+                      'of water." keeps lại, thằng, kẹp, đó', asked[0][2]["content"])
+        self.assertNotIn("do not carry the numbers", asked[0][2]["content"])
+        self.assertIn('These lines still keep words that are not English, which the check will name: "lại có thằng kẹp '
+                      'nè đó là it holds a lot of water."', caps["result"])
+        self.assertIn('- FAILED: Translated captions are all in English (1 of 2 sentences are all in English; not: "lại '
+                      'có thằng kẹp nè đó là it holds a lot of water." keeps lại, thằng, kẹp, đó; put the captions on '
+                      'again', first["result"])
+        self.assertFalse(again["refused"], again["result"])
+        self.assertIn("- passed: Translated captions are all in English (2 of 2 sentences are all in English)",
+                      last["result"])
+        self.assertEqual(len([m for m in brain.sent if "English subtitle" in m[0]["content"]]), 3,
+                         "a held line that is not English is not kept")
+
+    def test_a_line_is_not_in_its_language_by_letters_it_does_not_write(self):
+        said = "lại có thằng kẹp nè đó là เก็บน้ำได้"
+        self.assertEqual(tools._not_in("lại có thằng kẹp nè đó là it holds water", "English", said),
+                         ["lại", "thằng", "kẹp", "đó"])
+        self.assertEqual(tools._not_in("It holds เก็บ water", "English", said), ["เก็บ"])
+        self.assertEqual(tools._not_in("A café in São Paulo, says Zoë", "English", said), [])
+        self.assertEqual(tools._not_in("日本語の字幕です", "Japanese", "สวัสดี"), [], "kanji are Japanese letters")
+        self.assertEqual(tools._not_in("中文字幕です", "Chinese", "สวัสดี"), ["中文字幕です"])
+        self.assertEqual(tools._not_in("เก็บน้ำได้ Hepa", "Thai", "it holds water"), [])
+        self.assertEqual(tools._not_in("Đỗ lo guarda เก็บ", "Spanish", "เก็บน้ำได้"), ["เก็บ"],
+                         "letters the studio does not know for a language: only those of the language said")
+        self.assertEqual(tools._not_in("ممتاز", "Persian", "เก็บน้ำได้"), [])
+
     def test_english_captions_that_do_not_line_up_are_asked_once_more_then_left_as_said(self):
         self.worker.phrases = [{"from": 2.0, "to": 4.0, "text": "ตั้งค่าเครื่องง่ายมาก"},
                                {"from": 5.0, "to": 8.0, "text": "ราคาถูกมาก"}]

@@ -3897,6 +3897,8 @@ SUBTITLES = {"English": ("english", "en", "eng", "อังกฤษ", "ภา�
 SCRIPTS = (("Thai", re.compile("[฀-๿]")), ("Japanese", re.compile("[぀-ヿ]")),
            ("Korean", re.compile("[가-힯]")), ("Chinese", re.compile("[一-鿿]")),
            ("Arabic", re.compile("[؀-ۿ]")), ("Hindi", re.compile("[ऀ-ॿ]")))
+# Japanese writes Chinese letters (kanji) as its own.
+WRITES_ALSO = {"Japanese": ("Chinese",)}
 SENTENCE_GAP = 0.7
 SENTENCE_SHORT = 1.5
 SENTENCE_LONG = 5.0
@@ -3914,7 +3916,11 @@ SUBTITLE_ASK = ("These are the spoken sentences of a short vertical clip (%s), i
                 "order.\n\n%s")
 NUMBER_ASK = ("These lines do not carry the numbers their sentences say:\n%s\nGive each line the numbers its sentence "
               "says, and no others. Where a word is not a number in that sentence (the speech recognition may have "
-              "misheard it), write the line as it was. Answer with all %d lines again, in the same order.")
+              "misheard it), write the line as it was.")
+FOREIGN_ASK = ("These lines keep words that are not %s:\n%s\nThe speech recognition can write a misheard stretch in "
+               "another language. Write each line all in %s: what its sentence means, leaving out words that fit nothing "
+               "in it; a name stays as it is.")
+AGAIN_ASK = " Answer with all %d lines again, in the same order."
 HITS = {"flash": "a short white flash", "shake": "the picture shakes and settles", "punch": "a quick zoom in and back",
         "word": "a big word that pops in, such as POW"}
 
@@ -4378,7 +4384,8 @@ def _translated(job, rec, state, units, language, said_in):
             held[(round(mine[0]["from"], 2), round(mine[-1]["to"], 2), mine[0].get("said"))] = \
                 ("".join(line["text"] for line in mine).strip(), bool(mine[0].get("no_number")))
     kept = [held.get((u["from"], u["to"], u["text"])) for u in units]
-    if all(kept) and not any(_numbers_differ(u["text"], s) and not shown for u, (s, shown) in zip(units, kept)):
+    if all(kept) and not any((_numbers_differ(u["text"], s) and not shown) or _not_in(s, language, u["text"])
+                             for u, (s, shown) in zip(units, kept)):
         return [s for s, _ in kept], {k for k, (_, shown) in enumerate(kept) if shown}
     kind = (job.chat.clip or {}).get("title") or "a video"
     names = [w for w in dict.fromkeys(_screen_words(job, rec, state)) if len(w) >= 4][:SCREEN_NAMES]
@@ -4390,17 +4397,24 @@ def _translated(job, rec, state, units, language, said_in):
     if lines is None:
         return None
     lost = [k for k, (u, s) in enumerate(zip(units, lines)) if _numbers_differ(u["text"], s)]
-    if not lost:
+    foreign = {k: _not_in(s, language, u["text"]) for k, (u, s) in enumerate(zip(units, lines))}
+    foreign = {k: found for k, found in foreign.items() if found}
+    if not lost and not foreign:
         return lines, set()
-    named = "\n".join('%d. "%s" says %s; your line: "%s"' % (
-        k + 1, units[k]["text"], " and ".join("/".join("%g" % v for v in sorted(c)) for c in _said_numbers(
-            units[k]["text"])) or "no number", lines[k]) for k in lost)
+    asks = []
+    if lost:
+        asks.append(NUMBER_ASK % "\n".join('%d. "%s" says %s; your line: "%s"' % (
+            k + 1, units[k]["text"], " and ".join("/".join("%g" % v for v in sorted(c)) for c in _said_numbers(
+                units[k]["text"])) or "no number", lines[k]) for k in lost))
+    if foreign:
+        asks.append(FOREIGN_ASK % (language, "\n".join('%d. "%s"; your line: "%s" keeps %s' % (
+            k + 1, units[k]["text"], lines[k], ", ".join(found)) for k, found in sorted(foreign.items())), language))
     talk += [{"role": "assistant", "content": json.dumps({"lines": lines}, ensure_ascii=False)},
-             {"role": "user", "content": NUMBER_ASK % (named, len(units))}]
+             {"role": "user", "content": "\n".join(asks) + AGAIN_ASK % len(units)}]
     again = _subtitle_lines(job, talk, len(units), language, 1)
     if again is None:
         return lines, set()
-    for k in lost:
+    for k in set(lost) | set(foreign):
         lines[k] = again[k]
     return lines, {k for k in lost if _numbers_differ(units[k]["text"], lines[k])}
 
@@ -4445,6 +4459,19 @@ def _said_numbers(said):
             v = thai.value(m.group(0))
             out.append({v, v - 1} if m.group(0).endswith("หนึ่ง") and m.group(0) != "หนึ่ง" else {v})
     return [c for c in out if c != {1}]
+
+
+def _not_in(line, language, said):
+    """The words of a subtitle line in letters its language does not write: another script's that SCRIPTS tells apart,
+    and in English a letter past Latin-1, as Vietnamese writes. A language the studio does not know the letters of is
+    held only to not keep the letters of the one it was said in. Tarm's review 11-03: the hearing wrote "lại có thằng
+    kẹp nè đó là" inside a Thai sentence, the English line kept it word for word, and the check passed it."""
+    known = language == "English" or language in dict(SCRIPTS)
+    from_ = next((name for name, letters in SCRIPTS if letters.search(said)), None)
+    others = [letters for name, letters in SCRIPTS if name != language and name not in WRITES_ALSO.get(language, ())
+              and (known or name == from_)]
+    return [w for w in line.split() if any(o.search(w) for o in others) or (
+        language == "English" and any(c.isalpha() and ord(c) > 0xFF for c in w))]
 
 
 def _numbers_differ(said, translated):
@@ -4702,6 +4729,10 @@ def add_captions(job, why, on=True, lit=False, pop=None, language="", hidden=Non
     if spelling:
         out.append(spelling)
     if translated:
+        stray = [s for u, s in zip(units, translated) if _not_in(s, target, u["text"])]
+        if stray:
+            out.append("These lines still keep words that are not %s, which the check will name: \"%s\". Put the "
+                       "captions on again and Muse is asked for them again." % (target, '", "'.join(stray)))
         out.append("The clip is for viewers who read %s: write the title, the words on screen and the post in %s "
                    "too." % (target, target))
         fast = max(((len(s) / max(0.1, u["to"] - u["from"]), u, s) for u, s in zip(units, translated)),
@@ -5957,6 +5988,13 @@ def check_clip(job, why):
                % "; ".join(off[:3]) if off else "") +
               ("; Muse was shown the number and wrote it as no number, which the person can check: %s"
                % "; ".join(read[:3]) if read else ""))
+        language = state["captions"].get("language") or "English"
+        stray = ['"%s" keeps %s' % (t.strip(), ", ".join(found)) for found, t in (
+            (_not_in(t, language, s), t) for s, t, _ in sentences.values()) if found]
+        check("Translated captions are all in %s" % language, not stray,
+              "%d of %d sentences are all in %s" % (len(sentences) - len(stray), len(sentences), language) +
+              ("; not: %s; put the captions on again and those lines are translated again" % "; ".join(stray[:3])
+               if stray else ""))
     if kind == "seller":
         wrong = [n for t in state["titles"] for n in _not_said(t["text"], said)]
         unread = _numbers_unread(job, said) if wrong else None
