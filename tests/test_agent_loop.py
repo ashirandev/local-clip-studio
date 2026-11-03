@@ -577,6 +577,29 @@ class Loop(unittest.TestCase):
         with mock.patch.object(self.chat, "finished", lambda: {"name": "newer.mp4"}):
             self.assertTrue(job.false_cover("The cover is ready."), "a cover of an older file is not this clip's")
 
+    def test_an_answer_that_says_the_clip_changed_when_nothing_changed_it_is_asked_again_once(self):
+        """Tarm's review 11-03: asked to put a caption line in English, Muse answered "that line now shows as ..." with
+        no step at all, and the caption was as it was."""
+        brain = ScriptedMind("That line now shows as it holds up to 1.5 liters.", "That line is not changed yet.",
+                             "It now reads well.")
+        job, events = self.run_job(brain)
+        answers = [e for e in events if e["kind"] == "answer"]
+        self.assertEqual([(a["text"], a["final"]) for a in answers],
+                         [("That line now shows as it holds up to 1.5 liters.", False),
+                          ("That line is not changed yet.", True)], "asked once; the second answer stands")
+        self.assertEqual(self.chat.messages[-2]["content"], agent.NO_CHANGE)
+        self.assertIn("nothing on this message changed it", [e for e in events if e["kind"] == "note"][-1]["text"])
+        for said in ("Your clip is ready to post.", "The captions were translated from Thai in the first message.",
+                     "Here is the clip.", "คลิปพร้อมแล้ว", "Want any wording tweaked?"):
+            self.assertFalse(job.false_change(said), said)
+        for said in ("The line you mentioned now reads correctly in English.", "I've fixed the caption.",
+                     "Changed the title to Dry Home.", "แก้ให้แล้วค่ะ", "แปลเรียบร้อยแล้ว"):
+            self.assertTrue(job.false_change(said), said)
+        self.chat.emit("edit", job=job.n + 1, entry={"do": "look", "name": "warm"})
+        self.assertTrue(job.false_change("I've fixed the caption."), "an edit of another message is not this one's")
+        self.chat.emit("edit", job=job.n, entry={"do": "look", "name": "warm"})
+        self.assertFalse(job.false_change("I've fixed the caption."), "an edit on this message is a change")
+
     def test_a_doubled_thai_mark_is_not_read_back(self):
         brain = ScriptedMind([call("find_recordings", words="sifu", why="ลองค้้้้นหาอีกคร้้ง")], "เจอแล้ว")
         _, events = self.run_job(brain)

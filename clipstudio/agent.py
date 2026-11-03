@@ -91,6 +91,13 @@ EFFECT_PLACES = ("middle", "top")
 COVER_SAID = re.compile(r"(?i)\bcovers?\b|หน้าปก|ภาพปก|ปกพร้อม|ปกคลิป|ปกให้|ปกของ|ปกสวย")
 NO_COVER = ("[studio] Your answer speaks of the clip's cover, but no cover is made for the finished clip. Answer the "
             "person again without saying it has one; if they want one, they can tap Make the cover or ask for it.")
+CHANGE_SAID = re.compile(
+    r"(?i)\bnow (reads|shows|says|has|is|are|sits|uses|starts|ends|plays)\b|\b(I've|I have|I|have|has|it's been|been) "
+    r"(changed|fixed|updated|corrected|replaced|translated|swapped|moved|removed|added|put|turned|switched|made)\b|"
+    r"\b(changed|fixed|updated|corrected|replaced|swapped|switched) (it|the|your|that|this|to)\b|"
+    r"(แก้|เปลี่ยน|ใส่|แปล|ย้าย|ลบ|เพิ่ม|ตัด|ปรับ)(ให้)?(เรียบร้อย)?แล้ว")
+NO_CHANGE = ("[studio] Your answer says the clip changed, but no step on this message changed it: it is as it was. Make "
+             "the change with a tool now, or tell the person it was not made.")
 TOOL_AS_WORDS = ("[studio] Your last answer wrote a tool call out as words, so nothing ran and the person saw code. "
                  "Call the tool itself, or answer the person in plain words.")
 TALK_ONLY = "[studio] This message only talks, so no tool runs for it. Answer in words, and never say you did or changed something."
@@ -1849,9 +1856,17 @@ class Job:
         done = self.chat.finished()
         return not (done and self.chat.cover_of(done["name"]))
 
+    def false_change(self, text):
+        """True when Muse's answer says the clip changed and nothing on this message changed it: no edit and no cover.
+        Tarm's review 11-03, asked twice to put a caption line in English: "the line you mentioned now reads correctly
+        in English" after three hand-overs and no edit, then "that line now shows as..." with no step at all. In every
+        chat kept by then, those two were the only answers of a message with no edit that CHANGE_SAID finds."""
+        return bool(CHANGE_SAID.search(text or "")) and not any(
+            e["kind"] in ("edit", "cover") and e.get("job") == self.n for e in list(self.chat.events))
+
     def run(self):
         chat, started, end, nudged = self.chat, time.time(), "answered", False
-        closing = covered = warned = retold = False
+        closing = covered = warned = retold = claimed = False
         self.emit("job", mind=self.brain.label)
         try:
             while True:
@@ -1944,6 +1959,14 @@ class Job:
                         chat.add({"role": "user", "content": NO_COVER})
                         self.emit("note", text="Muse spoke of a cover, and no cover is made, so the studio asked it "
                                                "to answer again.")
+                        continue
+                    if not claimed and self.false_change(got["text"]):
+                        claimed = True
+                        self.emit("answer", final=False, text=words.unslipped(got["text"]),
+                                  thinking=got["thinking"], engine=got["engine"], mind=self.brain.label)
+                        chat.add({"role": "user", "content": NO_CHANGE})
+                        self.emit("note", text="Muse said the clip changed, but nothing on this message changed it, so "
+                                               "the studio asked it to answer again.")
                         continue
                     with chat.cond:
                         more = bool(self.inbox) and not self.stopped
