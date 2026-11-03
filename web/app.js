@@ -3350,6 +3350,8 @@ function on(e) {
     drawGuesses(j, e);
   } else if (e.kind === "wait") {
     stopTimer();
+    j.step = e.step;
+    j.working = null;
     const tick = () => {
       j.meta.textContent = "Thinking about step " + e.step + " · " + Math.max(0, Math.round(Date.now() / 1000 - e.t)) + " s";
     };
@@ -3357,8 +3359,10 @@ function on(e) {
     room.timer = setInterval(tick, 1000);
   } else if (e.kind === "step") {
     stopTimer();
+    j.working = null;
     room.workLine = "";
     drawStep(j, e);
+    refreshCost();
   } else if (e.kind === "answer") {
     stopTimer();
     drawAnswer(j, e);
@@ -3418,7 +3422,7 @@ function onThinking(live) {
   const j = room.jobs[live.job];
   if (!j || j.ended) return;
   if (live.work) {
-    stopTimer();
+    workClock(j, live);
     j.tick.textContent = live.work;
     j.think.textContent = "";
     scrollDown();
@@ -3429,6 +3433,21 @@ function onThinking(live) {
   j.think.textContent = words.length > 1500 ? "…" + words.slice(-1500) : words;
   j.think.scrollTop = j.think.scrollHeight;
   scrollDown();
+}
+
+function workClock(j, live) {
+  const since = live.since || Date.now() / 1000;
+  if (room.timer && j.working === since) return;
+  stopTimer();
+  j.working = since;
+  let n = 0;
+  const tick = () => {
+    j.meta.textContent = "Working on step " + (j.step || live.step) + " · " + clock(Math.max(0, Date.now() / 1000 - since));
+    n += 1;
+    if (n % 15 === 0) refreshCost();
+  };
+  tick();
+  room.timer = setInterval(tick, 1000);
 }
 
 function current() {

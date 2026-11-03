@@ -958,5 +958,29 @@ class Talk(unittest.TestCase):
         self.assertEqual(brain.schemas.count(needs.SCHEMA), 1)
 
 
+class WorkSince(unittest.TestCase):
+    def test_the_work_of_one_step_keeps_when_it_began_and_the_next_step_starts_again(self):
+        import threading
+        from types import SimpleNamespace
+        chat = SimpleNamespace(cond=threading.Condition(), live=None, live_rev=0)
+        job = SimpleNamespace(chat=chat, n=1, steps=8)
+        with mock.patch.object(agent.time, "time", return_value=1000.0):
+            agent.Job.working(job, "turn 5")
+        with mock.patch.object(agent.time, "time", return_value=1250.0):
+            agent.Job.working(job, "turn 6")
+            self.assertEqual(chat.live["since"], 1000.0)
+            self.assertEqual(chat.live["work"], "turn 6")
+            job.steps = 9
+            agent.Job.working(job, "the next tool")
+            self.assertEqual(chat.live["since"], 1250.0)
+            job.n = 2
+            agent.Job.working(job, "the next tool")
+            self.assertEqual(chat.live["since"], 1250.0)
+            chat.live = {"job": 2, "step": 9, "thinking": "", "text": ""}
+            with mock.patch.object(agent.time, "time", return_value=1300.0):
+                agent.Job.working(job, "after thinking")
+            self.assertEqual(chat.live["since"], 1300.0, "work after Muse thought again starts its own clock")
+
+
 if __name__ == "__main__":
     unittest.main()

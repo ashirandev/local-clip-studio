@@ -115,7 +115,7 @@ function load(page, answer) {
   t.room.chat = "c";
   let id = 0;
   const event = (kind, over) => t.on(Object.assign({ id: id++, kind, job: 1 }, over));
-  return { t, element, made, event, asked, ran, heard };
+  return { t, element, made, event, asked, ran, heard, box };
 }
 
 const page = fs.readFileSync(process.argv[2], "utf8");
@@ -498,6 +498,32 @@ const press = async (answer) => {
   said.keyTurned = [turned.element("apiNote").textContent, turned.t.room.sends];
   {
   const tick = () => new Promise((r) => setTimeout(r, 5));
+  {
+  const w = load(page, { ok: true, jobs: [], rate: { currency: "USD" } });
+  await tick();
+  const beats = [];
+  w.box.setInterval = (fn) => (beats.push(fn), beats.length);
+  w.box.clearInterval = () => {};
+  const now = Date.now() / 1000;
+  w.event("job", { mind: "Muse Spark" });
+  w.event("wait", { step: 9, t: now - 3 });
+  const j = w.t.room.jobs[1];
+  said.work = { thinking: j.meta.textContent };
+  w.t.onThinking({ job: 1, step: 8, work: "Muse Wonder is watching who speaks, turn 5", since: now - 252 });
+  said.work.working = j.meta.textContent;
+  const timers = beats.length;
+  w.t.onThinking({ job: 1, step: 8, work: "Muse Wonder is watching who speaks, turn 6", since: now - 252 });
+  said.work.sameClock = beats.length === timers;
+  said.work.line = j.tick.textContent;
+  const before = w.asked.length;
+  for (let k = 0; k < 15; k++) beats[beats.length - 1]();
+  said.work.costWhileWorking = w.asked.slice(before).filter((u) => u.startsWith("/api/spent")).length;
+  const atStep = w.asked.length;
+  w.event("step", { step: 9, tool: "speakers", why: "who speaks", seconds: 300 });
+  said.work.costAtStep = w.asked.slice(atStep).filter((u) => u.startsWith("/api/spent")).length;
+  w.event("wait", { step: 10, t: Date.now() / 1000 });
+  said.work.next = j.meta.textContent;
+  }
   const dragged = { stopped: 0, preventDefault() { this.stopped += 1; } };
   load(page).heard.dragstart(dragged);
   said.dragStopped = dragged.stopped;
@@ -791,6 +817,24 @@ class TileDelete(unittest.TestCase):
         self.assertIn("background: var(--stop); border-color: var(--stop); color: var(--on-stop);", style)
         with open(os.path.join(WEB, "index.html"), encoding="utf-8") as f:
             self.assertIn('id="i-bin"', f.read())
+
+
+class WorkClock(unittest.TestCase):
+    def test_while_a_tool_works_the_card_says_so_and_its_clock_runs(self):
+        """Tarm 11-03 on the EP0 take: "ตัวเลขนับวินาทีมันค้างนะ" - the card read "Thinking about step 9 · 3 s" for minutes
+        while Muse Wonder worked, so he stopped a job that was alive."""
+        s = Page.said["work"]
+        self.assertEqual(s["thinking"], "Thinking about step 9 · 3 s")
+        self.assertEqual(s["working"], "Working on step 9 · 4:12", "the time since the work began, from the studio")
+        self.assertTrue(s["sameClock"], "a new line of the same work keeps the clock it has")
+        self.assertEqual(s["line"], "Muse Wonder is watching who speaks, turn 6")
+        self.assertEqual(s["next"], "Thinking about step 10 · 0 s")
+
+    def test_what_the_chat_cost_moves_during_a_run(self):
+        """The header read $0 with $0.87 spent, as it was asked only when the job ended."""
+        s = Page.said["work"]
+        self.assertEqual(s["costWhileWorking"], 1, "every 15 s while a tool works")
+        self.assertEqual(s["costAtStep"], 1, "and when each step ends")
 
 
 class Pointer(unittest.TestCase):

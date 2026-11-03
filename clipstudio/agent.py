@@ -1705,9 +1705,14 @@ class Job:
         self.shown_extra.update(fields)
 
     def working(self, line):
-        """Shows how far a tool that takes a while has got. Like Muse's thinking, it is shown, not logged."""
+        """Shows how far a tool that takes a while has got. Like Muse's thinking, it is shown, not logged. since is when
+        this step's work began, kept across its lines, so the page's clock runs on and a page opened part way shows the
+        true time (Tarm 11-03: the card read "Thinking about step 9 · 3 s" for minutes while Wonder worked)."""
         with self.chat.cond:
-            self.chat.live = {"job": self.n, "step": self.steps, "work": line}
+            was = self.chat.live or {}
+            same = was.get("job") == self.n and was.get("step") == self.steps and was.get("since")
+            self.chat.live = {"job": self.n, "step": self.steps, "work": line,
+                              "since": was["since"] if same else time.time()}
             self.chat.live_rev += 1
             self.chat.cond.notify_all()
 
@@ -2028,7 +2033,7 @@ class Job:
                 raise mind.Cancelled()
             self.asking = mind.Asking()
             self.chat.live = {"job": self.n, "step": 1, "work": "Reading whether you asked for work or are just "
-                                                               "talking"}
+                                                               "talking", "since": time.time()}
             self.chat.live_rev += 1
             self.chat.cond.notify_all()
         try:
