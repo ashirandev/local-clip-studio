@@ -136,5 +136,116 @@ class Pack(unittest.TestCase):
             self.assertEqual(len(f.readlines()), 5, "packing never writes an end into a run that is going on")
 
 
+STEPPER = r"""
+const fs = require("fs");
+const vm = require("vm");
+class El {
+  constructor(tag) {
+    this.tag = tag;
+    this.children = [];
+    this.attrs = {};
+    this.heard = {};
+    this.textContent = "";
+    this.disabled = false;
+    const set = new Set();
+    this.classList = { add: (c) => set.add(c), remove: (c) => set.delete(c), contains: (c) => set.has(c),
+      toggle: (c, on) => (on === undefined ? (set.has(c) ? set.delete(c) : set.add(c)) : on ? set.add(c) : set.delete(c)) };
+  }
+  setAttribute(k, v) { this.attrs[k] = v; }
+  addEventListener(k, fn) { (this.heard[k] = this.heard[k] || []).push(fn); }
+  append(...k) { this.children.push(...k); }
+  prepend(...k) { this.children.unshift(...k); }
+  click() { (this.heard.click || []).forEach((fn) => fn({})); }
+}
+const keys = {};
+const chat = new El("div");
+const document = { createElement: (t) => new El(t), head: new El("head"), querySelector: () => chat,
+  addEventListener: (k, fn) => { keys[k] = fn; } };
+const events = ["opened", "person", "job", "step", "plan", "step", "step", "end"].map((kind, t) => ({ kind, t }));
+const got = [];
+const timers = [];
+const box = { document, console, JSON, Object, Math, Date, Promise, Infinity, String, Number, Set, URL, Response: function () {},
+  location: { href: "http://x/", reload: () => got.push("reload") }, setTimeout: (fn) => (timers.push(fn), timers.length), clearTimeout: () => {} };
+box.window = { fetch: () => Promise.resolve({ json: () => Promise.resolve({ events, took: 7, made: "3 Nov 2026", card: "", api: [] }) }) };
+box.window.location = box.location;
+vm.createContext(box);
+vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), box);
+let source = null;
+box.room = { chat: "c" };
+box.show = () => {
+  if (source) source.close();
+  source = new box.window.EventSource();
+  source.onmessage = (m) => got.push(JSON.parse(m.data).kind);
+};
+const tick = () => new Promise((r) => setTimeout(r, 5));
+(async () => {
+  const said = {};
+  const bar = chat.children[0];
+  const [, where, back, pause, forth, , end] = bar.children;
+  const look = () => [where.textContent, got.splice(0).join(" "), pause.textContent, back.disabled, forth.disabled];
+  box.show();
+  await tick();
+  said.start = look();
+  pause.click();
+  timers[timers.length - 1]();
+  said.paused = look();
+  forth.click();
+  await tick();
+  said.next = look();
+  forth.click();
+  await tick();
+  said.next2 = look();
+  back.click();
+  await tick();
+  said.back = look();
+  const pressed = { prevented: 0, preventDefault() { this.prevented += 1; }, stopImmediatePropagation() {}, key: "ArrowRight", target: { closest: () => null } };
+  keys.keydown(pressed);
+  await tick();
+  said.arrow = look().concat(pressed.prevented);
+  const typing = { prevented: 0, preventDefault() { this.prevented += 1; }, stopImmediatePropagation() {}, key: "ArrowLeft", target: { closest: () => ({}) } };
+  keys.keydown(typing);
+  await tick();
+  said.typing = look().concat(typing.prevented);
+  end.click();
+  await tick();
+  said.end = look();
+  console.log(JSON.stringify(said));
+})();
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not on this computer")
+class Steps(unittest.TestCase):
+    """Tarm 11-03: "ส่วน replay ควรมีปุ่ม next หรืออะไรแบบนี้". A judge goes step by step, back and forth, or lets it play."""
+
+    @classmethod
+    def setUpClass(cls):
+        import subprocess
+        page = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "replay.js")
+        run = subprocess.run(["node", "-e", STEPPER, "-", page], capture_output=True, text=True, encoding="utf-8", timeout=60)
+        if run.returncode:
+            raise AssertionError(run.stderr[-2000:])
+        cls.said = json.loads(run.stdout.strip().splitlines()[-1])
+
+    def test_it_plays_by_itself_until_paused(self):
+        self.assertEqual(self.said["start"], ["Step 0 of 3", "opened", "Pause", True, False])
+        self.assertEqual(self.said["paused"], ["Step 0 of 3", "", "Play", True, False])
+
+    def test_next_shows_one_step_and_what_follows_it_and_stops_before_the_next(self):
+        self.assertEqual(self.said["next"], ["Step 1 of 3", "person job step plan", "Play", False, False])
+        self.assertEqual(self.said["next2"], ["Step 2 of 3", "step", "Play", False, False])
+
+    def test_back_plays_the_run_again_to_one_step_before(self):
+        self.assertEqual(self.said["back"], ["Step 1 of 3", "opened person job step plan", "Play", False, False])
+
+    def test_the_arrows_step_too_but_not_while_typing(self):
+        self.assertEqual(self.said["arrow"], ["Step 2 of 3", "step", "Play", False, False, 1])
+        self.assertEqual(self.said["typing"], ["Step 2 of 3", "", "Play", False, False, 0])
+
+    def test_show_the_end_plays_the_rest(self):
+        self.assertEqual(self.said["end"], ["Step 3 of 3", "step end", "Play", False, True])
+
+
+
 if __name__ == "__main__":
     unittest.main()
