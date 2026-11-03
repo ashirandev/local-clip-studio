@@ -1108,8 +1108,15 @@ def watch_piece(job, why, start, end, person_said=None):
             job.done_working()
         if job.stopped:
             return "Not watched: the person pressed Stop."
-        got = job.ask_other("wonder", watch.question(path, b - a, rec["name"], "English"), watch.SCHEMA,
-                            "Muse Wonder is watching %s-%s with its sound" % (clock(a), clock(b)), watch.ANSWER_TOKENS)
+        seen = os.path.splitext(path)[0] + "_seen.json"
+        got = _kept(seen)
+        if got is None:
+            got = job.ask_other("wonder", watch.question(path, b - a, rec["name"], "English"), watch.SCHEMA,
+                                "Muse Wonder is watching %s-%s with its sound" % (clock(a), clock(b)), watch.ANSWER_TOKENS)
+            got = {"text": got["text"], "engine": {"usd": (got.get("engine") or {}).get("usd")}}
+            _keep(seen, got)
+        else:
+            got = {"text": got["text"], "engine": {"usd": 0.0}, "earlier": True}
         found = watch.moments(got["text"], a, b)
     except hearing.Stopped:
         return "Not watched: the person pressed Stop."
@@ -1117,8 +1124,9 @@ def watch_piece(job, why, start, end, person_said=None):
         return "Muse Wonder did not watch %s-%s: %s Go on from your looks." % (clock(a), clock(b), e)
     took, usd = round(time.time() - started, 1), (got.get("engine") or {}).get("usd")
     job.show(watched={"start": a, "end": b, "moments": found})
-    head = "Muse Wonder watched %s-%s with its sound (%g s%s)" % (clock(a), clock(b), took,
-                                                                 ", $%.3f" % usd if usd is not None else "")
+    head = "Muse Wonder watched %s-%s with its sound (%g s%s)" % (
+        clock(a), clock(b), took, ", watched in an earlier run, so it cost nothing now" if got.get("earlier") else
+        ", $%.3f" % usd if usd is not None else "")
     if not found:
         return head + " and saw nothing a viewer would react to that the words do not already carry."
     clip = (job.chat.project.state()["clip"] or {}) if job.chat.project else {}
@@ -3341,9 +3349,28 @@ def _wonder_names():
     return hearing.engine() == "meta" and bool(wonder and wonder.secret())
 
 
+def _keep(path, value):
+    """Writes value as JSON at path, whole or not at all."""
+    with open(path + ".part", "w", encoding="utf-8") as f:
+        json.dump(value, f)
+    os.replace(path + ".part", path)
+
+
+def _kept(path):
+    """What _keep wrote at path, or None."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
 def _named_voices(job, rec, m, persons, line):
     """_voices by Muse Voice Transcribe's turns and Muse Wonder naming each one (voices.py), kept in work/voices so the
-    clip made again over the same moment costs nothing. hearing.engine() is "meta", so the person's switch is on."""
+    clip made again over the same moment costs nothing. hearing.engine() is "meta", so the person's switch is on.
+    Nothing paid for is lost to a stop: the turns, and each of Wonder's answers the moment it comes, are kept by the
+    turn's own seconds, so the next job goes on from the turn it stopped at (Tarm 11-03: a stop at turn 8 of 10 threw
+    away $0.72, and the follow-up began again from turn 1)."""
     a, b = m["start"], m["end"]
     key = hashlib.sha1(json.dumps([rec["path"], rec["size"], rec["mtime"], a, b, [p["box"] for p in persons],
                                    [p.get("looks") for p in persons], voices.MOST_TURNS, voices.TURN_LONG],
@@ -3354,38 +3381,48 @@ def _named_voices(job, rec, m, persons, line):
             return json.load(f), "Who speaks was named by Muse Wonder earlier, turn by turn."
     except (OSError, ValueError):
         pass
-    job.working("Muse Voice Transcribe is telling the turns apart")
-    try:
-        sound = np.clip(voices.sound(rec, a, b), -1, 1)
-        found, usd = asr.turns((sound * 32767).astype("<i2").tobytes(), voices.RATE, job.languages())
-    except (voices.VoiceError, asr.VoiceError) as e:
-        return None, " ".join(filter(None, [line, "Who speaks is found from mouths moving (%s)." % e]))
-    finally:
-        job.done_working()
-    spent.add(os.path.join(recording.WORK, "spent.jsonl"), job.chat.id, job.n, asr.VOICE, {"usd": round(usd, 6)})
-    named, cost = [], 0.0
-    for k, turn in enumerate(voices.turns_of(found, a, m.get("said") or [])):
+    turns_kept = os.path.join(recording.WORK, "voices", key + "_turns.json")
+    found, usd = _kept(turns_kept), 0.0
+    if found is None:
+        job.working("Muse Voice Transcribe is telling the turns apart")
         try:
-            path = voices.numbered(rec, turn["from"], min(turn["to"], turn["from"] + voices.TURN_SENT), persons,
-                                   "%s_%d" % (key, k))
-            answers = []
+            sound = np.clip(voices.sound(rec, a, b), -1, 1)
+            found, usd = asr.turns((sound * 32767).astype("<i2").tobytes(), voices.RATE, job.languages())
+        except (voices.VoiceError, asr.VoiceError) as e:
+            return None, " ".join(filter(None, [line, "Who speaks is found from mouths moving (%s)." % e]))
+        finally:
+            job.done_working()
+        spent.add(os.path.join(recording.WORK, "spent.jsonl"), job.chat.id, job.n, asr.VOICE, {"usd": round(usd, 6)})
+        _keep(turns_kept, found)
+    turns = voices.turns_of(found, a, m.get("said") or [])
+    named, cost, before = [], 0.0, 0
+    for k, turn in enumerate(turns):
+        name = "%s_%d-%d" % (key, round(turn["from"] * 100), round(turn["to"] * 100))
+        answers_kept = os.path.join(recording.WORK, "voices", name + "_who.json")
+        answers = _kept(answers_kept) or []
+        before += len(answers)
+        try:
+            path = None
             while not answers or (len(answers) < voices.SHORT_ASKS and turn["to"] - turn["from"] < voices.TURN_SHORT
                                   and voices.agreed(answers + [None]) is None):
+                path = path or voices.numbered(rec, turn["from"], min(turn["to"], turn["from"] + voices.TURN_SENT),
+                                               persons, name)
                 got = job.ask_other("wonder", voices.who_question(path, persons), voices.WHO_SCHEMA,
-                                    "Muse Wonder is watching who speaks, turn %d" % (k + 1), voices.WHO_TOKENS)
+                                    "Muse Wonder is watching who speaks, turn %d of %d (%d%%)" % (
+                                        k + 1, len(turns), round(100.0 * k / len(turns))), voices.WHO_TOKENS)
                 cost += (got.get("engine") or {}).get("usd") or 0
                 answers.append(voices.who_answer(got["text"], persons))
+                _keep(answers_kept, answers)
         except (voices.VoiceError, mind.MindError) as e:
             return None, " ".join(filter(None, [line, "Who speaks is found from mouths moving (%s)." % e]))
         named.append(dict(turn, who=voices.agreed(answers)))
     if not any(t["who"] for t in named):
         return None, " ".join(filter(None, [line, "Muse Wonder could not name who speaks, so it is found from mouths "
                                                   "moving."]))
-    with open(kept + ".part", "w", encoding="utf-8") as f:
-        json.dump(named, f)
-    os.replace(kept + ".part", kept)
-    return named, ("Muse Wonder named who speaks in %d of %d turns from their voices and faces ($%.2f)." % (
-        sum(1 for t in named if t["who"]), len(named), cost + usd))
+    _keep(kept, named)
+    return named, ("Muse Wonder named who speaks in %d of %d turns from their voices and faces ($%.2f%s)." % (
+        sum(1 for t in named if t["who"]), len(named), cost + usd,
+        "; %d answer%s from an earlier run cost nothing now" % (before, "" if before == 1 else "s") if before else ""))
 
 
 def _two_voices(job, rec, m, persons):

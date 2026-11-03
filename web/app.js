@@ -3352,6 +3352,7 @@ function on(e) {
     stopTimer();
     j.step = e.step;
     j.working = null;
+    j.meta.classList.remove("slow");
     const tick = () => {
       j.meta.textContent = "Thinking about step " + e.step + " · " + Math.max(0, Math.round(Date.now() / 1000 - e.t)) + " s";
     };
@@ -3382,6 +3383,7 @@ function on(e) {
   } else if (e.kind === "note") {
     note(e.text, j.flow);
   } else if (e.kind === "end") {
+    room.floor = e.why === "answered" ? 0 : Math.max(room.floor || 0, j.share || 0);
     endJob(j, e);
     room.endSaid = endLine(j, e);
     room.open.delete(e.job);
@@ -3422,8 +3424,9 @@ function onThinking(live) {
   const j = room.jobs[live.job];
   if (!j || j.ended) return;
   if (live.work) {
-    workClock(j, live);
+    j.workText = live.work;
     j.tick.textContent = live.work;
+    workClock(j, live);
     j.think.textContent = "";
     scrollDown();
     return;
@@ -3435,19 +3438,31 @@ function onThinking(live) {
   scrollDown();
 }
 
+const SLOW_NEWS = 150;
+
 function workClock(j, live) {
   const since = live.since || Date.now() / 1000;
-  if (room.timer && j.working === since) return;
+  j.news = live.at || since;
+  if (room.timer && j.working === since) return j.redraw();
   stopTimer();
   j.working = since;
   let n = 0;
   const tick = () => {
-    j.meta.textContent = "Working on step " + (j.step || live.step) + " · " + clock(Math.max(0, Date.now() / 1000 - since));
+    const now = Date.now() / 1000;
+    const quiet = Math.max(0, now - j.news);
+    const slow = quiet >= SLOW_NEWS;
+    j.meta.textContent = "Working on step " + (j.step || live.step) + " · " + clock(Math.max(0, now - since)) + " · " +
+      (slow ? "nothing new for " + clock(quiet) : "last update " + clock(quiet) + " ago");
+    j.meta.classList.toggle("slow", slow);
+    j.tick.textContent = j.workText + (slow ? " · Longer than usual. A Muse answer can take up to 15:00 before the studio gives up." : "");
+  };
+  j.redraw = tick;
+  tick();
+  room.timer = setInterval(() => {
+    tick();
     n += 1;
     if (n % 15 === 0) refreshCost();
-  };
-  tick();
-  room.timer = setInterval(tick, 1000);
+  }, 1000);
 }
 
 function current() {
@@ -3470,9 +3485,9 @@ function jobLine() {
 function barShare(j) {
   const within = Number((/\((\d+)%\)/.exec(room.workLine) || [])[1]) || 0;
   if (!j) return within;
-  if (!j.items.length) return 0;
+  if (!j.items.length) return Math.max(room.floor || 0, 0);
   const done = j.items.filter((item) => item.state === "done").length;
-  j.share = Math.max(j.share || 0, Math.min(Math.round((done + within / 100) / j.items.length * 100), 99));
+  j.share = Math.max(j.share || 0, room.floor || 0, Math.min(Math.round((done + within / 100) / j.items.length * 100), 99));
   return j.share;
 }
 
@@ -3732,6 +3747,7 @@ function show(chatId) {
   room.endSaid = "";
   room.jobs = {};
   room.open = new Set();
+  room.floor = 0;
   room.costs = [];
   room.cut = {};
   room.showing = null;

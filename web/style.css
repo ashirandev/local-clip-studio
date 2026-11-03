@@ -278,6 +278,7 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .w-card.run .w-av { animation: w-pulse 1.2s ease-in-out infinite; }
 .w-st { flex: 1; min-width: 0; display: grid; }
 .w-st b { font-size: 15px; }
+.w-st small.slow { color: var(--warn); }
 .w-st small { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .w-cost { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 700; white-space: nowrap; }
 .w-chev { color: var(--muted); transition: rotate 0.2s; }

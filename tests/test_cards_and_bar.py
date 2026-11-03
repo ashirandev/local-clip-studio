@@ -110,7 +110,7 @@ function load(page, answer) {
     Intl: any(), URL: any(), Image: function () { return any(); }, FormData: function () { return any(); }, CSS: any(), performance: any({ now: () => 0 }), innerWidth: 1200, innerHeight: 800,
   };
   vm.createContext(box);
-  vm.runInContext(page + "\n;globalThis.t = { room, job, tile, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, showPart, showPicture, showOver, showFinished, showBase, api: (name) => { apiNow = name; } };", box);
+  vm.runInContext(page + "\n;globalThis.t = { room, job, tile, barShare, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, showPart, showPicture, showOver, showFinished, showBase, api: (name) => { apiNow = name; } };", box);
   const t = box.t;
   t.room.chat = "c";
   let id = 0;
@@ -509,12 +509,16 @@ const press = async (answer) => {
   w.event("wait", { step: 9, t: now - 3 });
   const j = w.t.room.jobs[1];
   said.work = { thinking: j.meta.textContent };
-  w.t.onThinking({ job: 1, step: 8, work: "Muse Wonder is watching who speaks, turn 5", since: now - 252 });
+  w.t.onThinking({ job: 1, step: 8, work: "Muse Wonder is watching who speaks, turn 5 of 10 (40%)", since: now - 252, at: now - 38 });
   said.work.working = j.meta.textContent;
   const timers = beats.length;
-  w.t.onThinking({ job: 1, step: 8, work: "Muse Wonder is watching who speaks, turn 6", since: now - 252 });
+  w.t.onThinking({ job: 1, step: 8, work: "Muse Wonder is watching who speaks, turn 6 of 10 (50%)", since: now - 252, at: now - 1 });
   said.work.sameClock = beats.length === timers;
   said.work.line = j.tick.textContent;
+  said.work.fresh = j.meta.textContent;
+  w.t.onThinking({ job: 1, step: 8, work: "Muse Wonder is watching who speaks, turn 7 of 10 (60%)", since: now - 252, at: now - 160 });
+  beats[beats.length - 1]();
+  said.work.slow = [j.meta.textContent, j.meta.classList.contains("slow"), j.tick.textContent];
   const before = w.asked.length;
   for (let k = 0; k < 15; k++) beats[beats.length - 1]();
   said.work.costWhileWorking = w.asked.slice(before).filter((u) => u.startsWith("/api/spent")).length;
@@ -522,7 +526,27 @@ const press = async (answer) => {
   w.event("step", { step: 9, tool: "speakers", why: "who speaks", seconds: 300 });
   said.work.costAtStep = w.asked.slice(atStep).filter((u) => u.startsWith("/api/spent")).length;
   w.event("wait", { step: 10, t: Date.now() / 1000 });
-  said.work.next = j.meta.textContent;
+  said.work.next = [j.meta.textContent, j.meta.classList.contains("slow")];
+  }
+  {
+  const b = load(page);
+  await tick();
+  b.event("job", { mind: "Muse Spark", job: 1 });
+  const one = b.t.room.jobs[1];
+  one.items = [{ state: "done" }, { state: "now" }, { state: "todo" }, { state: "todo" }, { state: "todo" }, { state: "todo" }];
+  said.bar = { first: b.t.barShare(one) };
+  b.event("end", { job: 1, why: "stopped", steps: 9 });
+  b.event("job", { mind: "Muse Spark", job: 2 });
+  const two = b.t.room.jobs[2];
+  two.items = [{ state: "now" }, { state: "todo" }, { state: "todo" }];
+  said.bar.followUp = b.t.barShare(two);
+  two.items = [{ state: "done" }, { state: "done" }, { state: "now" }];
+  said.bar.onward = b.t.barShare(two);
+  b.event("end", { job: 2, why: "answered", steps: 4 });
+  b.event("job", { mind: "Muse Spark", job: 3 });
+  const three = b.t.room.jobs[3];
+  three.items = [{ state: "now" }, { state: "todo" }];
+  said.bar.afterFinished = b.t.barShare(three);
   }
   const dragged = { stopped: 0, preventDefault() { this.stopped += 1; } };
   load(page).heard.dragstart(dragged);
@@ -825,10 +849,29 @@ class WorkClock(unittest.TestCase):
         while Muse Wonder worked, so he stopped a job that was alive."""
         s = Page.said["work"]
         self.assertEqual(s["thinking"], "Thinking about step 9 · 3 s")
-        self.assertEqual(s["working"], "Working on step 9 · 4:12", "the time since the work began, from the studio")
+        self.assertEqual(s["working"], "Working on step 9 · 4:12 · last update 0:38 ago",
+                         "the time since the work began and since the last answer, both from the studio")
         self.assertTrue(s["sameClock"], "a new line of the same work keeps the clock it has")
-        self.assertEqual(s["line"], "Muse Wonder is watching who speaks, turn 6")
-        self.assertEqual(s["next"], "Thinking about step 10 · 0 s")
+        self.assertEqual(s["line"], "Muse Wonder is watching who speaks, turn 6 of 10 (50%)", "an end in sight")
+        self.assertEqual(s["fresh"], "Working on step 9 · 4:12 · last update 0:01 ago")
+        self.assertEqual(s["next"], ["Thinking about step 10 · 0 s", False])
+
+    def test_a_wait_longer_than_any_measured_reads_differently_from_slow(self):
+        """Tarm 11-03: "ต้องมีอะไรบอกว่า muse ทำงานอยู่ ไม่ใช่ค้าง". Wonder's answers came 15 to 108 s apart, 40 s at the
+        middle, over 29 gaps of 11-02 and 11-03, so 150 s with no news is longer than any measured."""
+        meta, slow, line = Page.said["work"]["slow"]
+        self.assertEqual(meta, "Working on step 9 · 4:12 · nothing new for 2:40")
+        self.assertTrue(slow)
+        self.assertEqual(line, "Muse Wonder is watching who speaks, turn 7 of 10 (60%) · Longer than usual. A Muse answer "
+                               "can take up to 15:00 before the studio gives up.")
+
+    def test_progress_does_not_go_back_after_a_stop_and_a_follow_up(self):
+        """Tarm 11-03: "พอกดหยุด กลายเป้น progress 0% ทั้ง ๆ ที่ตอนแรก ล่อไป 17% แล้ว"."""
+        s = Page.said["bar"]
+        self.assertEqual(s["first"], 17)
+        self.assertEqual(s["followUp"], 17, "the follow-up starts where the stopped job got to")
+        self.assertEqual(s["onward"], 67, "and goes on from there by its own steps")
+        self.assertEqual(s["afterFinished"], 0, "a finished job leaves nothing to carry")
 
     def test_what_the_chat_cost_moves_during_a_run(self):
         """The header read $0 with $0.87 spent, as it was asked only when the job ended."""

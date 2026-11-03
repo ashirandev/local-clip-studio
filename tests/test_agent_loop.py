@@ -958,6 +958,88 @@ class Talk(unittest.TestCase):
         self.assertEqual(brain.schemas.count(needs.SCHEMA), 1)
 
 
+class KeptAnswers(unittest.TestCase):
+    """Tarm 11-03 on EP0: a stop at who speaks, turn 8 of 10, threw away $0.72 of Muse Wonder, and the follow-up asked
+    every turn again from turn 1."""
+
+    def setUp(self):
+        from clipstudio import recording
+        self.tmp = tempfile.mkdtemp()
+        self.work, recording.WORK = recording.WORK, self.tmp
+        os.makedirs(os.path.join(self.tmp, "voices"))
+        self.rec = {"path": "ep0.mp4", "name": "ep0.mp4", "size": 1, "mtime": 1, "width": 1920, "height": 1080, "seconds": 600}
+        self.moment = {"start": 100.0, "end": 160.0, "said": []}
+        self.persons = [{"n": 1, "box": [0, 0, 10, 10]}, {"n": 2, "box": [20, 0, 10, 10]}]
+        self.asked, self.heard = [], []
+        self.turns = [(0.0, 10.0, "A"), (10.0, 20.0, "B"), (20.0, 30.0, "A"), (30.0, 40.0, "B")]
+
+    def tearDown(self):
+        from clipstudio import recording
+        recording.WORK = self.work
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def run_job(self, stop_after=None):
+        from types import SimpleNamespace
+        from clipstudio import asr, hearing, voices
+        lines = []
+
+        def ask_other(key, messages, schema, doing, room):
+            if stop_after is not None and len(self.asked) >= stop_after:
+                raise hearing.Stopped()
+            self.asked.append(doing)
+            lines.append(doing)
+            return {"text": json.dumps({"who": 1 + len(self.asked) % 2, "sure": 0.9}), "engine": {"usd": 0.09}}
+        job = SimpleNamespace(chat=SimpleNamespace(id="c"), n=1, ask_other=ask_other, working=lambda line: None,
+                              done_working=lambda: None, languages=lambda: ())
+
+        def turns(*a):
+            self.heard.append(1)
+            return list(self.turns), 0.01
+        import numpy as np
+        with mock.patch.object(voices, "sound", lambda *a: np.zeros(16000, np.float32)), \
+                mock.patch.object(asr, "turns", turns), mock.patch.object(tools.spent, "add"), \
+                mock.patch.object(voices, "numbered", lambda rec, a, b, persons, name: name + ".mp4"), \
+                mock.patch.object(voices, "who_question", lambda path, persons: [path]):
+            return tools._named_voices(job, self.rec, self.moment, self.persons, None), lines
+
+    def test_a_stop_keeps_every_answer_paid_for_and_the_next_job_goes_on_from_there(self):
+        from clipstudio import hearing
+        with self.assertRaises(hearing.Stopped):
+            self.run_job(stop_after=2)
+        self.assertEqual(len(self.asked), 2)
+        (named, said), lines = self.run_job()
+        self.assertEqual(len(self.asked), 4, "the two paid answers were not asked again")
+        self.assertEqual(lines, ["Muse Wonder is watching who speaks, turn 3 of 4 (50%)",
+                                 "Muse Wonder is watching who speaks, turn 4 of 4 (75%)"])
+        self.assertEqual(sum(self.heard), 1, "the turns were kept too, so Muse Voice Transcribe was paid once")
+        self.assertEqual([t["who"] for t in named], [2, 1, 2, 1])
+        self.assertIn("2 answers from an earlier run cost nothing now", said)
+        self.assertEqual(len(self.run_job()[1]), 0, "the same moment again asks nothing at all")
+
+    def test_a_watched_stretch_is_watched_once(self):
+        from clipstudio import watch
+        clip = os.path.join(self.tmp, "stretch.mp4")
+        open(clip, "wb").close()
+        calls = []
+
+        def ask_other(key, messages, schema, doing, room):
+            calls.append(key)
+            return {"text": json.dumps({"moments": []}), "engine": {"usd": 0.12}}
+        from types import SimpleNamespace
+        job = SimpleNamespace(chat=SimpleNamespace(id="c", moments=[1], project=None), n=1, ask_other=ask_other,
+                              working=lambda line: None, done_working=lambda: None, started_work=lambda stop: None,
+                              stopped=False, show=lambda **k: None)
+        wonder = mock.Mock()
+        wonder.secret.return_value = "key"
+        with mock.patch.dict(tools.mind.MINDS, {"wonder": wonder}), mock.patch.object(watch, "cut", lambda *a, **k: clip), \
+                mock.patch.object(watch, "question", lambda *a: []), mock.patch.object(tools, "_here", lambda job: False),                 mock.patch.object(tools, "_open", lambda job, why: dict(self.rec)), mock.patch.object(tools, "_asked", lambda job, said: True):
+            first = tools.watch_piece(job, "who reacts", 0, 30)
+            again = tools.watch_piece(job, "who reacts", 0, 30)
+        self.assertEqual(calls, ["wonder"])
+        self.assertIn("$0.120", first)
+        self.assertIn("watched in an earlier run, so it cost nothing now", again)
+
+
 class WorkSince(unittest.TestCase):
     def test_the_work_of_one_step_keeps_when_it_began_and_the_next_step_starts_again(self):
         import threading
@@ -970,6 +1052,11 @@ class WorkSince(unittest.TestCase):
             agent.Job.working(job, "turn 6")
             self.assertEqual(chat.live["since"], 1000.0)
             self.assertEqual(chat.live["work"], "turn 6")
+            self.assertEqual(chat.live["at"], 1250.0, "a new line is news")
+        with mock.patch.object(agent.time, "time", return_value=1290.0):
+            agent.Job.working(job, "turn 6")
+            self.assertEqual(chat.live["at"], 1250.0, "the same line again is not")
+        with mock.patch.object(agent.time, "time", return_value=1250.0):
             job.steps = 9
             agent.Job.working(job, "the next tool")
             self.assertEqual(chat.live["since"], 1250.0)
