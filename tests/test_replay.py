@@ -147,6 +147,7 @@ class El {
     this.heard = {};
     this.textContent = "";
     this.disabled = false;
+    this.style = {};
     const set = new Set();
     this.classList = { add: (c) => set.add(c), remove: (c) => set.delete(c), contains: (c) => set.has(c),
       toggle: (c, on) => (on === undefined ? (set.has(c) ? set.delete(c) : set.add(c)) : on ? set.add(c) : set.delete(c)) };
@@ -166,7 +167,7 @@ const got = [];
 const timers = [];
 const box = { document, console, JSON, Object, Math, Date, Promise, Infinity, String, Number, Set, URL, Response: function () {},
   location: { href: "http://x/", reload: () => got.push("reload") }, setTimeout: (fn) => (timers.push(fn), timers.length), clearTimeout: () => {} };
-box.window = { fetch: () => Promise.resolve({ json: () => Promise.resolve({ events, took: 7, made: "3 Nov 2026", card: "", api: [] }) }) };
+box.window = { addEventListener: () => {}, fetch: () => Promise.resolve({ json: () => Promise.resolve({ events, took: 7, made: "3 Nov 2026", card: "", api: [] }) }) };
 box.window.location = box.location;
 vm.createContext(box);
 vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), box);
@@ -180,8 +181,9 @@ box.show = () => {
 const tick = () => new Promise((r) => setTimeout(r, 5));
 (async () => {
   const said = {};
-  const bar = chat.children[0];
-  const [, where, back, pause, forth, , end] = bar.children;
+  const [bar, go] = chat.children;
+  const [back, pause, forth, where] = go.children;
+  const end = bar.children[2];
   const look = () => [where.textContent, got.splice(0).join(" "), pause.textContent, back.disabled, forth.disabled];
   box.show();
   await tick();
@@ -241,6 +243,11 @@ class Steps(unittest.TestCase):
     def test_the_arrows_step_too_but_not_while_typing(self):
         self.assertEqual(self.said["arrow"], ["Step 2 of 3", "step", "Play", False, False, 1])
         self.assertEqual(self.said["typing"], ["Step 2 of 3", "", "Play", False, False, 0])
+
+    def test_the_step_controls_stay_at_the_top_while_the_run_scrolls(self):
+        page = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "replay.js")
+        with open(page, encoding="utf-8") as f:
+            self.assertIn(".replay-go{position:sticky;top:0;", f.read())
 
     def test_show_the_end_plays_the_rest(self):
         self.assertEqual(self.said["end"], ["Step 3 of 3", "step end", "Play", False, True])

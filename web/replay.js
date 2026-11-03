@@ -10,6 +10,7 @@
   let startAt = null;
   let seen = 0;
   let total = 0;
+  let place = null;
 
   const answer = (body) => new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
 
@@ -86,7 +87,7 @@
   window.EventSource = Replay;
 
   const style = document.createElement("style");
-  style.textContent = ".replay{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0;padding:10px 16px;background:var(--you);color:var(--text);border-bottom:1px solid var(--line);font-size:14px;line-height:1.4}.replay span{flex:1 1 260px}.replay.done .end{display:none}.composer,.status{display:none!important}";
+  style.textContent = ".replay-go{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0;padding:8px 16px;background:var(--surface);border-bottom:1px solid var(--line)}.replay-go b{font-variant-numeric:tabular-nums}.replay{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0;padding:10px 16px;background:var(--you);color:var(--text);border-bottom:1px solid var(--line);font-size:14px;line-height:1.4}.replay span{flex:1 1 260px}.replay.done .end{display:none}.composer,.status{display:none!important}";
   document.head.append(style);
   const bar = document.createElement("p");
   bar.className = "replay";
@@ -101,6 +102,10 @@
     if (label) b.setAttribute("aria-label", label);
     return b;
   };
+  const go = document.createElement("div");
+  go.className = "replay-go";
+  go.setAttribute("role", "group");
+  go.setAttribute("aria-label", "Steps of the replay");
   const where = document.createElement("b");
   where.className = "replay-step";
   const pause = pill("Pause", "pause");
@@ -109,6 +114,7 @@
   const count = () => {
     const ended = Boolean(playing && playing.next >= ((playing.events || []).length || Infinity));
     where.textContent = "Step " + seen + " of " + total;
+    if (typeof place === "function") place();
     pause.textContent = paused || ended ? "Play" : "Pause";
     back.disabled = seen === 0;
     forth.disabled = ended;
@@ -162,8 +168,17 @@
     paused = false;
     run();
   });
-  bar.append(line, where, back, pause, forth, again, end);
-  document.querySelector(".chat").prepend(bar);
+  go.append(back, pause, forth, where);
+  bar.append(line, again, end);
+  const chat = document.querySelector(".chat");
+  const head = document.querySelector(".c-top");
+  if (head && head !== chat && head.after) {
+    chat.prepend(bar);
+    head.after(go);
+  } else chat.prepend(bar, go);
+  place = () => (go.style.top = ((head && head !== chat && head.offsetHeight) || 0) + "px");
+  place();
+  window.addEventListener("resize", place);
 
   data.then((d) => {
     const minutes = Math.floor(d.took / 60);
