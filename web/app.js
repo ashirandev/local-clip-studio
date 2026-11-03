@@ -4217,7 +4217,48 @@ function tile(c) {
   b.append(shot, el("span", "tile-name", name));
   b.setAttribute("aria-label", name + ", " + (clips.length || "no") + (clips.length === 1 ? " clip" : " clips") + ", " + ((c.minds || []).map((m) => mindName(m) + (m.local ? " on this computer" : " through an API")).join(" and ") || "no Muse yet") + ", " + (usd === null ? "cost not known" : moneyShort(usd)));
   b.addEventListener("click", () => openChat(c));
-  return b;
+  const box = el("div", "tile-box");
+  box.appendChild(b);
+  if (!(c.id === room.chat && room.open.size)) box.appendChild(tileDelete(c, name));
+  return box;
+}
+
+function tileDelete(c, name) {
+  const over = el("div", "tile-over");
+  const bin = iconButton("tile-bin", "Delete " + name, "bin");
+  const ask = el("div", "tile-ask");
+  ask.hidden = true;
+  const yes = el("button", "pill tile-yes", "Delete");
+  const no = el("button", "pill tile-no", "Keep");
+  yes.type = no.type = "button";
+  const asking = (open) => {
+    ask.hidden = !open;
+    bin.hidden = open;
+    (open ? no : bin).focus();
+  };
+  bin.addEventListener("click", () => asking(true));
+  no.addEventListener("click", () => asking(false));
+  yes.addEventListener("click", () => {
+    yes.disabled = no.disabled = true;
+    deleteChat(c);
+  });
+  ask.append(el("p", null, "Delete this chat? Its clips stay."), yes, no);
+  over.append(bin, ask);
+  return over;
+}
+
+async function deleteChat(c) {
+  let d;
+  try {
+    d = await post("/api/chat/delete", { chat: c.id });
+  } catch (err) {
+    toast("The studio is not answering. Open Local Clip Studio again.");
+    loadHome();
+    return;
+  }
+  if (!d.ok) toast(d.error);
+  if (d.ok && c.id === room.chat) await connect();
+  loadHome();
 }
 
 const features = { loaded: false };

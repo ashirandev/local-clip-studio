@@ -110,7 +110,7 @@ function load(page, answer) {
     Intl: any(), URL: any(), Image: function () { return any(); }, FormData: function () { return any(); }, CSS: any(), performance: any({ now: () => 0 }), innerWidth: 1200, innerHeight: 800,
   };
   vm.createContext(box);
-  vm.runInContext(page + "\n;globalThis.t = { room, job, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, showPart, showPicture, showOver, showFinished, showBase, api: (name) => { apiNow = name; } };", box);
+  vm.runInContext(page + "\n;globalThis.t = { room, job, tile, drawMoments, drawPlan, showMoment, showStatus, onThinking, pageWork, endLine, on, setScreen, chatView, askPremiere, showClip, fillPreview, setBlur, drawFaces, drawMinds, drawCost, loadKey, showPart, showPicture, showOver, showFinished, showBase, api: (name) => { apiNow = name; } };", box);
   const t = box.t;
   t.room.chat = "c";
   let id = 0;
@@ -496,6 +496,53 @@ const press = async (answer) => {
   turned.t.room.sends = false;
   await turned.element("apiForm").heard.submit[0]({ preventDefault: () => {} });
   said.keyTurned = [turned.element("apiNote").textContent, turned.t.room.sends];
+  {
+  const tick = () => new Promise((r) => setTimeout(r, 5));
+  const chat = { id: "a", title: "Trip", first: "cut", clips: [], minds: [] };
+  const parts = (p) => {
+    p.t.room.rate = { currency: "USD", rate: 1 };
+    const box = p.t.tile(chat);
+    const get = (k) => box.querySelector("." + k);
+    return { box, bin: get("tile-bin"), ask: get("tile-ask"), yes: get("tile-yes"), no: get("tile-no") };
+  };
+  const deleting = load(page, { ok: true, chat: "new", chats: [] });
+  await tick();
+  deleting.t.room.chat = "b";
+  const tile = parts(deleting);
+  said.del = { first: [tile.ask.hidden, tile.bin.hidden, tile.bin.attrs["aria-label"]] };
+  const before = deleting.asked.length;
+  tile.bin.press();
+  said.del.asked = [tile.ask.hidden, tile.bin.hidden, deleting.asked.length - before];
+  tile.no.press();
+  said.del.kept = [tile.ask.hidden, tile.bin.hidden, deleting.asked.length - before];
+  tile.bin.press();
+  tile.yes.press();
+  await tick();
+  said.del.sent = deleting.asked.slice(before);
+  said.del.off = tile.yes.disabled && tile.no.disabled;
+  const shown = load(page, { ok: true, chat: "new", chats: [] });
+  await tick();
+  shown.t.room.chat = "a";
+  const here = parts(shown);
+  const from = shown.asked.length;
+  here.bin.press();
+  here.yes.press();
+  await tick();
+  said.del.shown = shown.asked.slice(from);
+  const refused = load(page, { ok: false, error: "This chat is working. Stop it first, then delete it.", chat: "c", chats: [] });
+  await tick();
+  refused.t.room.chat = "a";
+  const stays = parts(refused);
+  const toasts = refused.made.length;
+  stays.bin.press();
+  stays.yes.press();
+  await tick();
+  said.del.refused = refused.made.slice(toasts).filter((n) => n.className === "toast").map((n) => n.textContent);
+  const working = load(page);
+  working.t.room.chat = "a";
+  working.t.room.open = new Set([1]);
+  said.del.working = parts(working).bin === null;
+  }
   const named = load(page);
   const opened = (name) => named.event("opened", { recording: { name, seconds: 60 } });
   opened("sifu.mkv");
@@ -710,6 +757,36 @@ class Page(unittest.TestCase):
         self.assertEqual(s["wait"], 0)
         self.assertEqual(s["kids"], ["img", "svg"], "one play mark, however many times it is told")
         self.assertFalse(s["inline"], "a player in the card as well would be two ways to watch and two sounds")
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not on this computer")
+class TileDelete(unittest.TestCase):
+    def test_a_chat_goes_only_after_a_yes_and_keep_takes_the_question_back(self):
+        """Tarm 11-03: there was no way to delete a chat. Deleting what a person made asks first."""
+        s = Page.said["del"]
+        self.assertEqual(s["first"], [True, False, "Delete Trip"])
+        self.assertEqual(s["asked"], [False, True, 0], "the bin only asks")
+        self.assertEqual(s["kept"], [True, False, 0], "Keep sends nothing")
+        self.assertEqual(s["sent"][0], "/api/chat/delete")
+        self.assertTrue(s["off"], "a second tap does not send it twice")
+        self.assertNotIn("/api/chat", s["sent"], "the page stays on the chat it shows")
+        self.assertIn("/api/chats", s["sent"], "Home is drawn again")
+
+    def test_the_page_follows_when_the_chat_it_shows_is_deleted(self):
+        self.assertEqual(Page.said["del"]["shown"][:2], ["/api/chat/delete", "/api/chat"])
+
+    def test_a_refused_delete_says_why_and_a_chat_at_work_has_no_bin(self):
+        self.assertEqual(Page.said["del"]["refused"], ["This chat is working. Stop it first, then delete it."])
+        self.assertTrue(Page.said["del"]["working"])
+
+    def test_the_bin_stands_on_the_picture_and_is_big_enough_to_tap(self):
+        with open(os.path.join(WEB, "style.css"), encoding="utf-8") as f:
+            style = f.read()
+        self.assertIn(".tile-over { position: absolute; inset: 0 0 auto 0; aspect-ratio: 9 / 16;", style)
+        self.assertIn(".tile-bin::before { content: \"\"; position: absolute; inset: -6px; }", style)
+        self.assertIn("background: var(--stop); border-color: var(--stop); color: var(--on-stop);", style)
+        with open(os.path.join(WEB, "index.html"), encoding="utf-8") as f:
+            self.assertIn('id="i-bin"', f.read())
 
 
 class English(unittest.TestCase):

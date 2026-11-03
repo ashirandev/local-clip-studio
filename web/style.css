@@ -190,6 +190,16 @@ h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.3; white-
 .badge.busy { bottom: 6px; right: 6px; }
 .tile.here .shot { border: 2px solid var(--accent); }
 
+.tile-box { position: relative; min-width: 0; }
+.tile-box .tile { width: 100%; }
+.tile-over { position: absolute; inset: 0 0 auto 0; aspect-ratio: 9 / 16; pointer-events: none; }
+.tile-bin { position: absolute; right: 6px; bottom: 6px; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 16px; background: var(--pill-bg); color: var(--pill-text); cursor: pointer; pointer-events: auto; }
+.tile-bin::before { content: ""; position: absolute; inset: -6px; }
+.tile-bin .ico { width: 18px; height: 18px; }
+.tile-ask { position: absolute; inset: 0; display: grid; align-content: center; gap: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--text); text-align: center; pointer-events: auto; }
+.tile-ask p { margin: 0; font-size: 13px; line-height: 1.3; overflow-wrap: anywhere; }
+.tile-ask .pill { justify-content: center; width: 100%; padding: 0 8px; }
+.tile-ask .tile-yes { background: var(--stop); border-color: var(--stop); color: var(--on-stop); }
 .tile-name { font-size: 14px; line-height: 1.3; font-weight: 600; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 
 .fab {

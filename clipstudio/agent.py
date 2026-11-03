@@ -2608,6 +2608,39 @@ def find(chat_id):
     return CHATS.get(chat_id)
 
 
+def delete_chat(chat_id):
+    """Takes a chat off the list, the person having said yes: its two files move to work/chats/deleted, where they can
+    be put back by hand. Its clips stay, and so does what it cost in spent.jsonl, so the month's money stays true. A chat
+    at work stays. The chat every page shows gives way to a new one, and the pages follow. Returns None, or the sentence
+    that says why not. Tarm 11-03: there was no way to delete a chat."""
+    gone = "There is no chat %s." % chat_id
+    if not CHAT_ID.match(chat_id or ""):
+        return gone
+    folder, moved = os.path.join(WORK, "chats"), []
+    bin_folder = os.path.join(folder, "deleted")
+    with _chats_lock:
+        chat = CHATS.get(chat_id)
+        if chat is not None and (chat.busy() or chat.making or chat.basing or chat.layering):
+            return "This chat is working. Stop it first, then delete it."
+        names = [chat_id + end for end in (".events.jsonl", ".messages.jsonl")
+                 if os.path.isfile(os.path.join(folder, chat_id + end))]
+        if not names:
+            return gone
+        try:
+            os.makedirs(bin_folder, exist_ok=True)
+            for name in names:
+                os.replace(os.path.join(folder, name), os.path.join(bin_folder, name))
+                moved.append(name)
+        except OSError:
+            for name in moved:
+                os.replace(os.path.join(bin_folder, name), os.path.join(folder, name))
+            return "The chat could not be deleted. Close what has its files open, then try again."
+        if shown() == chat_id:
+            _show(Chat())
+        CHATS.pop(chat_id, None)
+    return None
+
+
 def _renamed_from(events):
     """Where in events the chat's name should be read from: 0 when it has none, the opening of another recording made
     since it was named, or None when the name it has still fits."""

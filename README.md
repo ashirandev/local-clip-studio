@@ -307,6 +307,8 @@ Detailed steps the input, the result and the engine numbers.
   What you type wins over the recipe and every guess. A kind with no recipe yet is refused, and Muse tells you so
   instead of using a recipe made for something else. A recipe is a Markdown file with front matter, like a
   SKILL.md file, so a new kind of video is a new file.
+- **A chat can be deleted.** Its bin on Home asks first. A yes moves its two files to `work/chats/deleted`, where you can
+  put them back by hand. Its clips stay, and so does what it cost, so the month's money stays true. A chat at work stays.
 - **Every step is written down.** `work/chats/<chat>.events.jsonl` is the job log the page is drawn from, and
   `<chat>.messages.jsonl` is exactly what Muse read.
 - **Muse looks before it guesses.** When a recording opens, Muse gets its length, picture size and sound tracks

@@ -456,6 +456,25 @@ class Follow(unittest.TestCase):
         with mock.patch.object(mind, "default", return_value="baseten"):
             self.assertEqual(self.ask("GET", "/api/health")[1]["default"], "baseten")
 
+    def test_a_chat_is_deleted_by_its_id_and_the_page_hears_which_chat_shows_now(self):
+        typed = {"Content-Type": "application/json"}
+        first = self.ask("POST", "/api/chat/new", "{}", typed)[1]["chat"]
+        chat = agent.find(first)
+        for path in (chat.log_path, chat.talk_path):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("{}\n")
+        body = json.dumps({"chat": first})
+        self.assertEqual(self.ask("POST", "/api/chat/delete", body, {"Content-Type": "text/plain"})[0], 415)
+        self.assertTrue(os.path.isfile(chat.log_path), "another web page cannot delete a chat")
+        status, answer = self.ask("POST", "/api/chat/delete", body, typed)
+        self.assertEqual((status, answer["ok"], answer["error"]), (200, True, None))
+        self.assertNotEqual(answer["chat"], first)
+        self.assertEqual(answer["chat"], agent.shown())
+        self.assertEqual(self.ask("GET", "/api/chat?id=" + first)[0], 404)
+        status, answer = self.ask("POST", "/api/chat/delete", body, typed)
+        self.assertEqual((status, answer["ok"]), (200, False))
+        self.assertIn("There is no chat", answer["error"])
+
     def test_the_page_knows_it_is_on_this_computer(self):
         status, health = self.ask("GET", "/api/health")
         self.assertEqual((status, health["here"]), (200, True))

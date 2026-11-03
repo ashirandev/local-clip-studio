@@ -24,6 +24,7 @@ computer only.
   that API's own address, and makes the Muse they reach ready at once; refused from any other device
 - GET /api/chat[?id=<chat>]: the chat the page shows (or an earlier one, opened again), and whether Muse is working
 - POST /api/chat/new: a new, empty chat
+- POST /api/chat/delete {chat}: takes a chat off the list (agent.delete_chat), and says which chat is shown now
 - GET /api/chats: the earlier chats, newest first
 - GET /api/spent?chat=<id>&currency=<code>: what Muse cost, in US dollars by the providers' list prices: each
   message of the chat, the chat, today, this month, each mind; and the day's rate for the person's own money
@@ -230,7 +231,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/upload":
             self.receive_upload(dict(parse_qsl(query)))
             return
-        if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/open", "/api/undo", "/api/person",
+        if path not in ("/api/say", "/api/stop", "/api/chat/new", "/api/chat/delete", "/api/open", "/api/undo", "/api/person",
                         "/api/base", "/api/premiere", "/api/parts", "/api/key", "/api/phone", "/api/sends") + CHANGES:
             self.send_json({"ok": False, "error": "There is nothing at %s." % path}, HTTPStatus.NOT_FOUND)
             return
@@ -249,6 +250,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/chat/new":
             self.send_json({"ok": True, "chat": agent.new().id})
+            return
+        if path == "/api/chat/delete":
+            why = agent.delete_chat(str(body.get("chat") or ""))
+            self.send_json({"ok": why is None, "error": why, "chat": agent.shown()})
             return
         if path == "/api/parts":
             why = parts.set_up()

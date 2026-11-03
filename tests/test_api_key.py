@@ -216,7 +216,8 @@ class Saved(unittest.TestCase):
             with mock.patch.object(parts, "ONE_KEY", mark), mock.patch.object(parts, "ask_api") as many, \
                     mock.patch.object(parts, "ask_key") as one, mock.patch.object(sys, "stdin", stdin), \
                     mock.patch.object(parts, "card", lambda: None), mock.patch.object(parts, "parts", lambda *a, **k: []), \
-                    mock.patch.object(parts, "set_up", lambda *a: "Everything"), redirect_stdout(io.StringIO()):
+                    mock.patch.object(parts, "set_up", lambda *a: "Everything"), mock.patch.object(parts.ending, "tie"), \
+                    redirect_stdout(io.StringIO()):
                 parts.main([])
             self.assertEqual((many.called, one.called), (not marked, marked))
 
@@ -225,7 +226,7 @@ class Saved(unittest.TestCase):
         glimmer = {"key": "glimmer", "label": "Muse Glimmer", "size": 15_000_000_000, "ok": False, "why": ""}
         engine = dict(glimmer, key="engine", size=500_000_000)
         hearing = dict(glimmer, key="hearing", size=900_000_000)
-        self.assertIn("downloads Muse Glimmer first, 15.5 GB", parts.no_key_wait([glimmer, engine, hearing]))
+        self.assertIn("downloads Muse Glimmer first, 15.0 GB", parts.no_key_wait([glimmer, engine, hearing]))
         self.assertIsNone(parts.no_key_wait([dict(glimmer, ok=True), dict(engine, ok=True), hearing]))
         self.assertIsNone(parts.no_key_wait([dict(glimmer, size=0), dict(engine, size=0)]), "no card that takes it, no wait")
         stdin = mock.Mock()
@@ -233,7 +234,8 @@ class Saved(unittest.TestCase):
         out = io.StringIO()
         with mock.patch.object(parts, "ONE_KEY", "not-there"), mock.patch.object(parts, "ask_api"), mock.patch.object(sys, "stdin", stdin), \
                 mock.patch.object(parts, "card", lambda: None), mock.patch.object(parts, "parts", lambda *a, **k: [glimmer]), \
-                mock.patch.object(parts, "set_up", lambda *a: "Everything"), redirect_stdout(out):
+                mock.patch.object(parts, "set_up", lambda *a: "Everything"), mock.patch.object(parts.ending, "tie"), \
+                redirect_stdout(out):
             parts.main([])
         self.assertIn("No key? Press Enter", out.getvalue())
 

@@ -5,10 +5,118 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from clipstudio import agent  # noqa: E402
+
+
+class DeleteChat(unittest.TestCase):
+    ID, OTHER = "20261103-090000-aaaa", "20261103-090001-bbbb"
+
+    def setUp(self):
+        self.tmp, self.work = tempfile.mkdtemp(), agent.WORK
+        agent.WORK = self.tmp
+        self.chats = os.path.join(self.tmp, "chats")
+        os.makedirs(self.chats)
+        self.had, self.were = dict(agent.CHATS), list(agent._shown)
+        agent.CHATS.clear()
+        agent._shown.clear()
+        for cid in (self.ID, self.OTHER):
+            for end, row in ((".events.jsonl", {"kind": "person", "text": "cut this"}), (".messages.jsonl", {"role": "user", "content": "cut this"})):
+                with open(os.path.join(self.chats, cid + end), "w", encoding="utf-8") as f:
+                    f.write(json.dumps(row) + "\n")
+
+    def tearDown(self):
+        agent.WORK = self.work
+        agent.CHATS.clear()
+        agent.CHATS.update(self.had)
+        agent._shown[:] = self.were
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def listed(self):
+        return sorted(c["id"] for c in agent.earlier())
+
+    def here(self, cid=None):
+        return sorted(n for n in os.listdir(self.chats) if n.startswith(cid or self.ID))
+
+    def test_a_deleted_chat_leaves_the_list_and_its_two_files_can_be_put_back_by_hand(self):
+        """Tarm 11-03: there was no way to delete a chat. A move, so a wrong yes can be taken back."""
+        self.assertIsNone(agent.delete_chat(self.ID))
+        self.assertEqual(self.listed(), [self.OTHER])
+        self.assertIsNone(agent.open_chat(self.ID))
+        self.assertEqual(self.here(), [])
+        kept = os.path.join(self.chats, "deleted")
+        self.assertEqual(len(os.listdir(kept)), 2)
+        for name in os.listdir(kept):
+            os.replace(os.path.join(kept, name), os.path.join(self.chats, name))
+        self.assertEqual(self.listed(), [self.ID, self.OTHER])
+
+    def test_its_clips_and_what_it_cost_stay(self):
+        paths = [os.path.join(self.tmp, "spent.jsonl"), os.path.join(self.tmp, "clip.mp4")]
+        for path in paths:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(self.ID)
+        agent.delete_chat(self.ID)
+        for path in paths:
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), self.ID)
+
+    def test_a_chat_at_work_stays(self):
+        for working in ("job", "making", "basing", "layering"):
+            chat = mock.Mock(making=None, basing=None, layering=None)
+            chat.busy.return_value = working == "job"
+            if working != "job":
+                setattr(chat, working, object())
+            agent.CHATS[self.ID] = chat
+            self.assertIn("working", agent.delete_chat(self.ID), working)
+            self.assertEqual(len(self.here()), 2, working)
+            self.assertIs(agent.find(self.ID), chat)
+
+    def test_the_chat_every_page_shows_gives_way_to_a_new_one_and_the_pages_follow(self):
+        chat = agent.open_chat(self.ID)
+        with mock.patch.object(chat, "stop") as woken:
+            self.assertIsNone(agent.delete_chat(self.ID))
+        woken.assert_called_once_with()
+        self.assertNotEqual(agent.shown(), self.ID)
+        self.assertIsNotNone(agent.find(agent.shown()))
+        self.assertIsNone(agent.find(self.ID))
+
+    def test_a_chat_no_page_shows_leaves_the_pages_where_they_are(self):
+        shown = agent.open_chat(self.OTHER)
+        agent.open_chat(self.ID)
+        agent._show(shown)
+        self.assertIsNone(agent.delete_chat(self.ID))
+        self.assertEqual(agent.shown(), self.OTHER)
+        self.assertIsNone(agent.find(self.ID))
+
+    def test_a_name_that_is_no_chat_moves_nothing(self):
+        for cid in ("", None, "../" + self.ID, "..\\" + self.ID, self.ID + ".events.jsonl", self.ID + "\n", "20261103-090002-cccc"):
+            self.assertIn("There is no chat", agent.delete_chat(cid), cid)
+        self.assertEqual(self.listed(), [self.ID, self.OTHER])
+        self.assertFalse(os.path.exists(os.path.join(self.chats, "deleted")))
+
+    def test_a_chat_with_only_its_job_log_can_go_too(self):
+        os.remove(os.path.join(self.chats, self.ID + ".messages.jsonl"))
+        self.assertIsNone(agent.delete_chat(self.ID))
+        self.assertEqual(self.listed(), [self.OTHER])
+
+    def test_a_file_that_cannot_move_leaves_the_chat_whole(self):
+        replace, calls = os.replace, []
+
+        def second_refused(a, b):
+            calls.append(a)
+            if len(calls) == 2:
+                raise PermissionError("in use")
+            replace(a, b)
+        agent.open_chat(self.ID)
+        with mock.patch.object(agent.os, "replace", second_refused):
+            self.assertIn("could not be deleted", agent.delete_chat(self.ID))
+        self.assertEqual(len(self.here()), 2)
+        self.assertEqual(self.listed(), [self.ID, self.OTHER])
+        self.assertEqual(agent.shown(), self.ID)
+        self.assertIsNotNone(agent.find(self.ID))
 
 
 class Earlier(unittest.TestCase):
