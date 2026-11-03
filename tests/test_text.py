@@ -569,6 +569,7 @@ class Looks(unittest.TestCase):
         work, recording.WORK = recording.WORK, self.folder
         self.addCleanup(setattr, recording, "WORK", work)
         cards = text.cards()
+        self.assertEqual(re.findall("[\u0e00-\u0e7f]", text.SAMPLE), [], "lane 5 11-03: judges read every card")
         self.assertEqual([c["name"] for c in cards], list(text.HOUSE_NAMES))
         for c in cards:
             self.assertTrue(c["en"].strip() and re.search("[\u0e00-\u0e7f]", c["th"]), c["name"])

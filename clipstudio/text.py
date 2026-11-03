@@ -127,7 +127,7 @@ CARDS = {
     "news": ("White words on a see-through dark box, like a news clip's subtitles: for people talking.",
              "ตัวขาวบนกล่องดำโปร่ง แบบซับข่าว เหมาะกับคลิปคนพูด"),
 }
-SAMPLE = "ลดราคา 50%"
+SAMPLE = "SALE 50% OFF"
 CARD_GROUND = "geq=lum='42-14*Y/H':cb=132:cr=124"
 CARD_SIZE = (540, 200)
 CARD_FILL, CARD_TALL = 0.7, 0.85
