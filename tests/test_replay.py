@@ -13,6 +13,7 @@ from clipstudio import agent, previews, recording, render, replay  # noqa: E402
 
 CHAT = "20261027-150945-5680"
 FRAME, PREVIEW, CLIP = "0123456789abcdef.jpg", "1123456789abcdef.mp4", "2123456789abcdef.mp4"
+COVER = "3123456789abcdef.jpg"
 
 
 class Pack(unittest.TestCase):
@@ -24,7 +25,8 @@ class Pack(unittest.TestCase):
         for folder, name, body in ((os.path.join(recording.WORK, "frames"), FRAME, b"jpg"),
                                    (previews.folder(), PREVIEW, b"preview"),
                                    (render.folder("clips"), CLIP, b"clip"),
-                                   (render.folder("clips"), CLIP[:-4] + ".jpg", b"poster")):
+                                   (render.folder("clips"), CLIP[:-4] + ".jpg", b"poster"),
+                                   (render.folder("covers"), COVER, b"cover")):
             os.makedirs(folder, exist_ok=True)
             with open(os.path.join(folder, name), "wb") as f:
                 f.write(body)
@@ -36,7 +38,7 @@ class Pack(unittest.TestCase):
             {"job": 1, "mind": "Muse Glimmer", "id": 2, "kind": "job", "t": 101.0},
             {"job": 1, "name": PREVIEW, "id": 3, "kind": "preview", "t": 160.0},
             {"job": 1, "file": CLIP, "result": "Saved C:\\Users\\me\\Videos\\Reviews\\dry.mov as a clip", "id": 4,
-             "kind": "rendered", "t": 220.0},
+             "kind": "rendered", "t": 220.0, "cover": COVER},
             {"job": 1, "steps": 3, "seconds": 241.0, "why": "answered", "id": 5, "kind": "end", "t": 342.0}]
         self.write(self.events)
         self.out = os.path.join(self.tmp, "replay")
@@ -63,6 +65,7 @@ class Pack(unittest.TestCase):
         self.assertEqual(self.read("api", "preview", PREVIEW), b"preview")
         self.assertEqual(self.read("api", "clip", CLIP), b"clip")
         self.assertEqual(self.read("api", "clip", CLIP[:-4] + ".jpg"), b"poster")
+        self.assertEqual(self.read("api", "cover", COVER), b"cover", "lane 5 11-03: a Muse Image cover read as gone")
         page = self.read("app.js").decode("utf-8")
         self.assertNotIn('"/api/', page)
         self.assertIn('"api/frame/"', page)
@@ -99,6 +102,26 @@ class Pack(unittest.TestCase):
         data = json.loads(data)
         self.assertEqual(data["events"][0]["recording"]["path"], "dry.mov")
         self.assertEqual(data["events"][4]["result"], "Saved dry.mov as a clip")
+
+    def test_the_replay_names_only_the_muse_that_ran_and_where_it_ran(self):
+        """Lane 5 11-03, EP0 on Spark 1.3: the chip read Glimmer, the studio's default, and the banner put the run on
+        the card."""
+        replay.pack(CHAT, self.out, card="RTX 5070 Ti 16 GB")
+        data = json.loads(self.read("api", "replay.json"))
+        self.assertEqual([m["label"] for m in data["health"]["minds"]], ["Muse Glimmer"])
+        self.assertEqual((data["health"]["default"], data["card"], data["api"]), ("local", "RTX 5070 Ti 16 GB", []))
+        self.events[2]["mind"] = "Muse Spark"
+        self.write(self.events)
+        other = os.path.join(self.tmp, "api_run")
+        replay.pack(CHAT, other, card="RTX 5070 Ti 16 GB")
+        with open(os.path.join(other, "api", "replay.json"), encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertEqual([(m["label"], m["ok"]) for m in data["health"]["minds"]], [("Muse Spark", True)])
+        self.assertEqual((data["health"]["default"], data["card"], data["api"]), ("spark", "", ["Muse Spark"]))
+        with open(os.path.join(other, "replay.js"), encoding="utf-8") as f:
+            said = f.read()
+        self.assertIn('" with " + d.api.join(" and ") + " through an API"', said)
+        self.assertIn('+ api + "; it plays here faster', said, "the banner says it")
 
     def test_a_run_whose_pictures_are_gone_or_whose_job_has_not_ended_is_not_packed(self):
         os.remove(os.path.join(previews.folder(), PREVIEW))

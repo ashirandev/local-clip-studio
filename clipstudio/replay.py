@@ -156,7 +156,7 @@ def pack(chat_id, folder, card=None):
                 if body is not None:
                     files["api/look/" + name] = body
                 continue
-            tries = (["api/frame/"] if name.endswith(".jpg") else ["api/preview/", "api/clip/"])
+            tries = (["api/frame/", "api/cover/"] if name.endswith(".jpg") else ["api/preview/", "api/clip/"])
             for where in tries:
                 body = get("/" + where + name)
                 if body is not None:
@@ -178,14 +178,19 @@ def pack(chat_id, folder, card=None):
     opened = [e["recording"]["name"] for e in events if e["kind"] == "opened"]
     began = {e["job"]: e["t"] for e in events if e["kind"] == "job"}
     took = round(sum(e["t"] - began[e["job"]] for e in events if e["kind"] == "end" and e["job"] in began))
+    ran = list(dict.fromkeys(e["mind"] for e in events if e["kind"] == "job" and e.get("mind")))
+    minds = [dict(m, ok=True) for m in health.get("minds") or [] if m.get("label") in ran]
+    shown = dict(health, here=True, **({"minds": minds, "default": minds[0]["key"]} if minds else {}))
+    on_card = any(m.get("local") for m in minds) or not minds
     data = _unfoldered({
         "chat": chat_id, "events": events, "panel": panel, "version": __version__, "layer": _relative(layer),
         "base": _relative(made),
-        "health": dict(health, here=True),
+        "health": shown,
         "listed": {"id": chat_id, "when": round(events[-1]["t"]) if events else 0, "first": said[0][:100] if said
                    else "", "messages": len(said), "recording": opened[-1] if opened else ""},
         "made": time.strftime("%d %b %Y", time.localtime(events[0]["t"])).lstrip("0") if events else "",
-        "took": took, "card": _card() if card is None else card, "features": agent.features()})
+        "took": took, "card": (_card() if card is None else card) if on_card else "",
+        "api": [m["label"] for m in minds if not m.get("local")], "features": agent.features()})
     files["api/replay.json"] = json.dumps(data, ensure_ascii=False).encode("utf-8")
     for name in sorted(os.listdir(server.WEB)):
         with open(os.path.join(server.WEB, name), "rb") as f:

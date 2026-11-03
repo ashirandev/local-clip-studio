@@ -90,6 +90,7 @@
   data.then((d) => {
     const minutes = Math.floor(d.took / 60);
     const took = (minutes ? minutes + " min " : "") + (d.took % 60) + " s";
-    line.textContent = "A replay of a real run made on " + d.made + ". Muse took " + took + (d.card ? " on one " + d.card : "") + "; it plays here faster, and nothing runs.";
+    const api = d.api && d.api.length ? (d.card ? " and" : "") + " with " + d.api.join(" and ") + " through an API" : "";
+    line.textContent = "A replay of a real run made on " + d.made + ". Muse took " + took + (d.card ? " on one " + d.card : "") + api + "; it plays here faster, and nothing runs.";
   });
 })();
