@@ -96,6 +96,9 @@ CHANGE_SAID = re.compile(
     r"(changed|fixed|updated|corrected|replaced|translated|swapped|moved|removed|added|put|turned|switched|made)\b|"
     r"\b(changed|fixed|updated|corrected|replaced|swapped|switched) (it|the|your|that|this|to)\b|"
     r"(แก้|เปลี่ยน|ใส่|แปล|ย้าย|ลบ|เพิ่ม|ตัด|ปรับ)(ให้)?(เรียบร้อย)?แล้ว")
+# What changes the clip or its file: Muse's tools on this message, and the person's hands on the page since the answer
+# before it, which Muse is told of ("Since your last answer").
+CHANGES = ("edit", "undo", "cover", "matched", "rendered", "relaid", "moved", "album_made")
 NO_CHANGE = ("[studio] Your answer says the clip changed, but no step on this message changed it: it is as it was. Make "
              "the change with a tool now, or tell the person it was not made.")
 TOOL_AS_WORDS = ("[studio] Your last answer wrote a tool call out as words, so nothing ran and the person saw code. "
@@ -1857,12 +1860,17 @@ class Job:
         return not (done and self.chat.cover_of(done["name"]))
 
     def false_change(self, text):
-        """True when Muse's answer says the clip changed and nothing on this message changed it: no edit and no cover.
-        Tarm's review 11-03, asked twice to put a caption line in English: "the line you mentioned now reads correctly
-        in English" after three hand-overs and no edit, then "that line now shows as..." with no step at all. In every
-        chat kept by then, those two were the only answers of a message with no edit that CHANGE_SAID finds."""
-        return bool(CHANGE_SAID.search(text or "")) and not any(
-            e["kind"] in ("edit", "cover") and e.get("job") == self.n for e in list(self.chat.events))
+        """True when Muse's answer says the clip changed and nothing changed it since the answer before this message:
+        none of CHANGES, Muse's or the person's. Tarm's review 11-03, asked twice to put a caption line in English: "the
+        line you mentioned now reads correctly in English" after three hand-overs and no edit, then "that line now
+        shows as..." with no step at all. In the 676 answers kept by then, those two were the only ones CHANGE_SAID
+        finds with no change before them. An undo is a change (lane 4 11-03), and so is the person's own fix that
+        Muse renders."""
+        if not CHANGE_SAID.search(text or ""):
+            return False
+        events = list(self.chat.events)
+        began = max((k for k, e in enumerate(events) if e["kind"] == "end" and e.get("job") != self.n), default=-1)
+        return not any(e["kind"] in CHANGES for e in events[began + 1:])
 
     def run(self):
         chat, started, end, nudged = self.chat, time.time(), "answered", False

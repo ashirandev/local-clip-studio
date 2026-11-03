@@ -595,10 +595,17 @@ class Loop(unittest.TestCase):
         for said in ("The line you mentioned now reads correctly in English.", "I've fixed the caption.",
                      "Changed the title to Dry Home.", "แก้ให้แล้วค่ะ", "แปลเรียบร้อยแล้ว"):
             self.assertTrue(job.false_change(said), said)
-        self.chat.emit("edit", job=job.n + 1, entry={"do": "look", "name": "warm"})
-        self.assertTrue(job.false_change("I've fixed the caption."), "an edit of another message is not this one's")
-        self.chat.emit("edit", job=job.n, entry={"do": "look", "name": "warm"})
-        self.assertFalse(job.false_change("I've fixed the caption."), "an edit on this message is a change")
+        self.chat.emit("edit", job=0, entry={"do": "look", "name": "warm"})
+        self.chat.emit("end", job=0)
+        self.assertTrue(job.false_change("I've fixed the caption."), "an edit of a message that ended before is not this one's")
+        for kind in ("edit", "undo", "cover", "matched", "rendered"):
+            self.chat.emit(kind, job=job.n)
+            self.assertFalse(job.false_change("I've removed the flash."), "%s on this message is a change" % kind)
+            self.chat.emit("end", job=0)
+            self.assertTrue(job.false_change("I've removed the flash."), kind)
+        self.chat.emit("edit", job=None, entry={"do": "captions", "lines": []})
+        self.assertFalse(job.false_change("That line now reads: and the tank here."),
+                         "the person's own fix since the last answer, which Muse is told of, is a change")
 
     def test_a_doubled_thai_mark_is_not_read_back(self):
         brain = ScriptedMind([call("find_recordings", words="sifu", why="ลองค้้้้นหาอีกคร้้ง")], "เจอแล้ว")
