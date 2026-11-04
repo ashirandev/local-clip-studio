@@ -2,8 +2,8 @@
 
 - **Demo video (3 min):** https://youtu.be/-Kbmh0N2bcA
 - **The six takes, uncut (3 hours):** https://youtu.be/tiktAqfebmc, recorded on one PC on 3 Nov 2026
-- **Step-by-step replays of each take:** https://ashirandev.github.io/local-clip-studio-replays/, the steps as the
-  studio showed them. A replay runs nothing.
+- **Step-by-step replays of five of the six takes:** https://ashirandev.github.io/local-clip-studio-replays/, the
+  steps as the studio showed them. A replay runs nothing. The Sifu stream lists its steps and times, with no replay.
 
 ## Try it in 5 minutes
 
